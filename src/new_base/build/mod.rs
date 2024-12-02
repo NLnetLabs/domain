@@ -2,11 +2,17 @@
 
 use core::{
     marker::PhantomData,
+    mem::MaybeUninit,
     ptr::{self, NonNull},
     slice,
 };
 
-use super::{Message, Name};
+use zerocopy::{FromBytes, IntoBytes, SizeError};
+
+use super::{message::Header, Message, Name};
+
+mod message;
+pub use message::MessageBuilder;
 
 //----------- Builder --------------------------------------------------------
 
@@ -40,7 +46,7 @@ impl<'b> Builder<'b> {
     /// The buffer and context must be associated; they must never be used
     /// with a different context or buffer respectively, or must be reset
     /// before doing so.
-    pub unsafe fn new_unchecked(
+    pub unsafe fn from_raw_parts(
         buffer: NonNull<Message>,
         context: &'b mut BuilderContext,
         offset: usize,
@@ -52,6 +58,75 @@ impl<'b> Builder<'b> {
             _borrow: PhantomData,
         }
     }
+
+    /// Break down a [`Builder`] into its raw parts.
+    pub fn into_raw_parts(
+        self,
+    ) -> (NonNull<Message>, &'b mut BuilderContext, usize) {
+        let (buffer, offset) = (self.buffer, self.offset);
+        let this = MaybeUninit::new(self);
+        // SAFETY: 'this' is definitely initialized.  We move 'context' out of
+        // it, which is sound since its drop hook is never run.
+        let context =
+            unsafe { ptr::read(ptr::addr_of!((*this.as_ptr()).context)) };
+        (buffer, context, offset)
+    }
+}
+
+//--- Inspection
+
+impl<'b> Builder<'b> {
+    /// The underlying message buffer.
+    pub fn buffer(&self) -> NonNull<Message> {
+        self.buffer
+    }
+
+    /// The committed message.
+    ///
+    /// This does not include any uncommitted content.
+    pub fn message(&self) -> &Message {
+        // Borrow the whole message (including uninitialized space) immutably,
+        // then narrow the reference to the correct size.
+        let message = unsafe { self.buffer.as_ref() }.as_bytes();
+        Message::ref_from_prefix_with_elems(message, self.offset)
+            .map_err(SizeError::from)
+            .expect("'offset' fits within 'capacity'")
+            .0
+    }
+
+    /// The built message, including uncommitted content.
+    pub fn whole_message(&self) -> &Message {
+        // Borrow the whole message (including uninitialized space) immutably,
+        // then narrow the reference to the correct size.
+        let message = unsafe { self.buffer.as_ref() }.as_bytes();
+        Message::ref_from_prefix_with_elems(message, self.context.size)
+            .map_err(SizeError::from)
+            .expect("'context.size' fits within 'capacity'")
+            .0
+    }
+
+    /// The message header.
+    pub fn header(&self) -> &Header {
+        let message = self.buffer.as_ptr();
+        // SAFETY: 'buffer' points to a valid, initialized 'Message'.
+        unsafe { &*ptr::addr_of!((*message).header) }
+    }
+
+    /// Access the message header mutably.
+    pub fn header_mut(&mut self) -> &mut Header {
+        let message = self.buffer.as_ptr();
+        // SAFETY: 'buffer' points to a valid, initialized 'Message'.
+        unsafe { &mut *ptr::addr_of_mut!((*message).header) }
+    }
+
+    /// Committed message contents.
+    pub fn committed(&self) -> &'b [u8] {
+        let message = self.buffer.as_ptr();
+        // SAFETY: 'buffer' points to a valid, initialized 'Message'.
+        let contents = unsafe { ptr::addr_of!((*message).contents) };
+        // SAFETY: 'offset' fits within 'contents.len()'.
+        unsafe { slice::from_raw_parts(contents.cast(), self.offset) }
+    }
 }
 
 //--- Interaction
@@ -61,7 +136,22 @@ impl<'b> Builder<'b> {
     ///
     /// All appended but uncommitted content will be lost.
     pub fn rewind(&mut self) {
-        self.context.size = self.offset;
+        self.rewind_to(0);
+    }
+
+    /// Rewind the builder to a particular point.
+    ///
+    /// The specified amount of appended (but uncommitted) content will be
+    /// retained, while the rest will be removed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are fewer appended bytes than `amount`.
+    pub fn rewind_to(&mut self, amount: usize) {
+        // NOTE: 'self.offset <= self.capacity()', thus no overflow.
+        assert!(amount <= self.capacity() - self.offset);
+        // TODO: Update the name compressor.
+        self.context.size = self.offset + amount;
     }
 
     /// Commit all appended content.
@@ -79,7 +169,7 @@ impl<'b> Builder<'b> {
         // also maintain those constraints.
         let offset = self.context.size;
         unsafe {
-            Builder::new_unchecked(self.buffer, &mut *self.context, offset)
+            Builder::from_raw_parts(self.buffer, &mut *self.context, offset)
         }
     }
 
@@ -139,7 +229,7 @@ impl<'b> Builder<'b> {
     pub fn capacity(&self) -> usize {
         let message = self.buffer.as_ptr();
         // SAFETY: 'buffer' points to a valid, initialized 'Message'.
-        let contents = unsafe { ptr::addr_of_mut!((*message).contents) };
+        let contents = unsafe { ptr::addr_of!((*message).contents) };
         contents.len()
     }
 
@@ -174,6 +264,28 @@ impl<'b> Builder<'b> {
         // NOTE: 'self.context.size <= self.capacity()', thus no overflow.
         assert!(amount <= self.capacity() - self.context.size);
         self.context.size += amount;
+    }
+
+    /// Limit the builder's capacity.
+    ///
+    /// This can be used to ensure messages beyond a certain size will not be
+    /// built, based on e.g. the network MTU.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new capacity is greater than the existing capacity, or
+    /// if the new capacity cannot hold the already-built contents.
+    pub fn limit_capacity(&mut self, capacity: usize) {
+        assert!(capacity < self.capacity());
+        assert!(self.context.size <= capacity);
+
+        // NOTE: This would be cleaner if 'zerocopy' offered ptr-based fns.
+        let message = unsafe { self.buffer.as_ref() }.as_bytes();
+        let message = Message::ref_from_prefix_with_elems(message, capacity)
+            .map_err(SizeError::from)
+            .expect("'offset' fits within 'capacity'")
+            .0;
+        self.buffer = message.into();
     }
 }
 
