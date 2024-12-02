@@ -1,8 +1,9 @@
 //! Demonstrate the use of key sets.
 use domain::base::Name;
 use domain::sign::keyset::{
-    Action, Error, KeySet, KeyType, RollType, UnixTime,
+    Action, Error, Key, KeySet, KeyType, RollType, UnixTime,
 };
+use itertools::{Either, Itertools};
 use std::env;
 use std::fs::File;
 use std::io::Write;
@@ -163,72 +164,49 @@ fn do_start(filename: &str, args: &[String]) {
     let rolltype = str_to_rolltype(rolltype);
 
     let mut ks = load_keyset(filename);
-    let mut old = Vec::new();
-    let mut new = Vec::new();
 
     // Find old and new keys.
     let keys = ks.keys().to_vec();
-    match rolltype {
-        RollType::KskRoll => {
-            for key in keys {
-                if let KeyType::Ksk(keystate) = key.keytype() {
-                    if keystate.old() {
-                        continue;
-                    }
-                    if keystate.signer()
-                        || keystate.present()
-                        || keystate.at_parent()
-                    {
-                        old.push(key.pubref().to_string());
-                    } else {
-                        new.push(key.pubref().to_string());
-                    }
+    let (old, new): (Vec<_>, Vec<_>) = keys
+        .into_iter()
+        .filter_map(|k: Key| match rolltype {
+            RollType::KskRoll => {
+                if let KeyType::Ksk(keystate) = k.keytype() {
+                    Some((keystate.clone(), k.pubref().to_string()))
+                } else {
+                    None
                 }
             }
-        }
-        RollType::ZskRoll => {
-            for key in keys {
-                if let KeyType::Zsk(keystate) = key.keytype() {
-                    if keystate.old() {
-                        continue;
-                    }
-                    if keystate.signer()
-                        || keystate.present()
-                        || keystate.at_parent()
-                    {
-                        old.push(key.pubref().to_string());
-                    } else {
-                        new.push(key.pubref().to_string());
-                    }
+            RollType::ZskRoll => {
+                if let KeyType::Zsk(keystate) = k.keytype() {
+                    Some((keystate.clone(), k.pubref().to_string()))
+                } else {
+                    None
                 }
             }
-        }
-        RollType::CskRoll => {
-            for key in keys {
-                match key.keytype() {
-                    KeyType::Ksk(keystate)
-                    | KeyType::Zsk(keystate)
-                    | KeyType::Csk(keystate, _) => {
-                        if keystate.old() {
-                            continue;
-                        }
-                        if keystate.signer()
-                            || keystate.present()
-                            || keystate.at_parent()
-                        {
-                            old.push(key.pubref().to_string());
-                        } else {
-                            new.push(key.pubref().to_string());
-                        }
-                    }
-                    KeyType::Include(_) => (),
+            RollType::CskRoll => match k.keytype() {
+                KeyType::Ksk(keystate)
+                | KeyType::Zsk(keystate)
+                | KeyType::Csk(keystate, _) => {
+                    Some((keystate.clone(), k.pubref().to_string()))
                 }
+                KeyType::Include(_) => None,
+            },
+        })
+        .filter(|(keystate, _)| !keystate.old())
+        .partition_map(|(keystate, pubref)| {
+            if keystate.signer() || keystate.present() || keystate.at_parent()
+            {
+                Either::Left(pubref)
+            } else {
+                Either::Right(pubref)
             }
-        }
-    }
+        });
 
-    let old_str: Vec<&str> = old.iter().map(|s| s.as_ref()).collect();
-    let new_str: Vec<&str> = new.iter().map(|s| s.as_ref()).collect();
+    let old_str: Vec<&str> =
+        old.iter().map(|s: &String| s.as_ref()).collect();
+    let new_str: Vec<&str> =
+        new.iter().map(|s: &String| s.as_ref()).collect();
 
     let actions = ks.start_roll(rolltype, &old_str, &new_str);
     report_actions(actions, &ks);
