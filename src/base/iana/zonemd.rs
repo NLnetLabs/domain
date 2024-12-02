@@ -40,10 +40,10 @@ int_enum! {
     ZonemdAlg, u8;
 
     /// Specifies that the SHA-384 algorithm is used.
-    (SHA384 => 1, "SHA-384")
+    (SHA384 => 1, "SHA384")
 
     /// Specifies that the SHA-512 algorithm is used.
-    (SHA512 => 2, "SHA-512")
+    (SHA512 => 2, "SHA512")
 }
 
 int_enum_str_decimal!(ZonemdAlg, u8);
