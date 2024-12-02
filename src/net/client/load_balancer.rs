@@ -1,41 +1,112 @@
-//! A transport that multiplexes requests over multiple redundant transports.
+//! A transport that tries to distribute requests over multiple upstreams.
+//!
+//! It is assumed that the upstreams have similar performance. use the
+//! [super::redundant] transport to forward requests to the best upstream out of
+//! upstreams that may have quite different performance.
+//!
+//! Basic mode of operation
+//!
+//! Associated with every upstream configured is optionally a burst length
+//! and burst interval. Burst length deviced by burst interval gives a
+//! queries per second (QPS) value. This be use to limit the rate and
+//! especially the bursts that reach upstream servers. Once the burst
+//! length has been reach, the upstream receives no new requests until
+//! the burst interval has completed.
+//!
+//! For each upstream the object maintains an estimated response time.
+//! with the configuration value slow_rt_factor, the group of upstream
+//! that have not exceeded their burst length are divided into a 'fast'
+//! and a 'slow' group. The slow group are those upstream that have an
+//! estimated response time that is higher than slow_rt_factor times the
+//! lowest estimated response time. Slow upstream are considered only when
+//! all fast upstream failed to provide a suitable response.
+//!
+//! Within the group of fast upstreams, the ones with the lower queue
+//! length are preferred. This tries to give each of the fast upstreams
+//! an equal number of outstanding requests.
+//!
+//! Within a group of fast upstreams with the same queue length, the
+//! one with the lowest estimated response time is preferred.
+//!
+//! Probing
+//!
+//! Upstream with high estimated response times may be get any traffic and
+//! therefore the estimated response time may remain high. Probing is
+//! intended to solve that problem. Using a random number generator,
+//! occasionally an upstream is selected for probing. If the selected
+//! upstream currently has a non-zero queue then probing is not needed and
+//! no probe will happen.
+//! Otherwise, the upstream to be probed is selected first with an
+//! estimated response time equal to the lowest one. If the probed upstream
+//! does not provide a response within that time, the otherwise best upstream
+//! also gets the request. If the probes upstream provides a suitable response
+//! before the next upstream then its estimated will be updated.
 
+use crate::base::iana::OptRcode;
+use crate::base::iana::Rcode;
+use crate::base::opt::AllOptData;
+use crate::base::Message;
+use crate::base::MessageBuilder;
+use crate::base::StaticCompressor;
+use crate::dep::octseq::OctetsInto;
+use crate::net::client::request::ComposeRequest;
+use crate::net::client::request::{Error, GetResponse, SendRequest};
+use crate::utils::config::DefMinMax;
 use bytes::Bytes;
-
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
-
 use octseq::Octets;
-
 use rand::random;
-
 use std::boxed::Box;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
+use std::string::String;
+use std::string::ToString;
+use std::sync::Arc;
 use std::vec::Vec;
-
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, Duration, Instant};
 
-use crate::base::iana::OptRcode;
-use crate::base::Message;
-use crate::net::client::request::{Error, GetResponse, SendRequest};
-
 /*
 Basic algorithm:
-- keep track of expected response time for every upstream
-- start with the upstream with the lowest expected response time
+- try to distribute requests over all upstreams subject to some limitations.
+- limit bursts
+  - record the start of a burst interval when a request goes out over an
+    upstream
+  - record the number of requests since the start of the burst interval
+  - in the burst is larger than the maximum configured by the user then the
+    upstream is no longer available.
+  - start a new burst interval when enough time has passed.
+- prefer fast upstreams over slow upstreams
+  - maintain a response time estimate for each upstream
+  - upstreams with an estimate response time larger than slow_rt_factor
+    times the lowest estimated response time are consider slow.
+  - 'fast' upstreams are preferred over slow upstream. However slow upstreams
+    are considered if during a single request all fast upstreams fail.
+- prefer fast upstream with a low queue length
+  - maintain a counter with the number of current outstanding requests on an
+    upstream.
+  - prefer the upstream with the lowest count.
+  - preset the upstream with the lowest estimated response time in case
+    two or more upstreams have the same count.
+
+Execution:
 - set a timer to the expect response time.
 - if the timer expires before reply arrives, send the query to the next lowest
   and set a timer
 - when a reply arrives update the expected response time for the relevant
   upstream and for the ones that failed.
 
-Based on a random number generator:
-- pick a different upstream rather then the best but set the timer to the
-  expected response time of the best.
+Probing:
+- upstream that currently have outstanding requests do not need to be
+  probed.
+- for idle upstream, based on a random number generator:
+  - pick a different upstream rather then the best
+  - but set the timer to the expected response time of the best.
+  - maybe we need a configuration parameter for the amound of head start
+    given to the probed upstream.
 */
 
 /// Capacity of the channel that transports [ChanReq].
@@ -54,24 +125,140 @@ const SMOOTH_N: f64 = 8.;
 /// Chance to probe a worse connection.
 const PROBE_P: f64 = 0.05;
 
-/// Avoid sending two requests at the same time.
-///
-/// When a worse connection is probed, give it a slight head start.
-const PROBE_RT: Duration = Duration::from_millis(1);
+//------------ Configuration Constants ----------------------------------------
+
+/// Cut off for slow upstreams.
+const DEF_SLOW_RT_FACTOR: f64 = 5.0;
+
+/// Minimum value for the cut off factor.
+const MIN_SLOW_RT_FACTOR: f64 = 1.0;
+
+/// Interval for limiting upstream query bursts.
+const BURST_INTERVAL: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(1),
+    Duration::from_millis(1),
+    Duration::from_secs(3600),
+);
 
 //------------ Config ---------------------------------------------------------
 
 /// User configuration variables.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Config {
     /// Defer transport errors.
-    pub defer_transport_error: bool,
+    defer_transport_error: bool,
 
     /// Defer replies that report Refused.
-    pub defer_refused: bool,
+    defer_refused: bool,
 
     /// Defer replies that report ServFail.
-    pub defer_servfail: bool,
+    defer_servfail: bool,
+
+    /// Cut-off for slow upstreams as a factor of the fastest upstream.
+    slow_rt_factor: f64,
+}
+
+impl Config {
+    /// Return the value of the defer_transport_error configuration variable.
+    pub fn defer_transport_error(&self) -> bool {
+        self.defer_transport_error
+    }
+
+    /// Set the value of the defer_transport_error configuration variable.
+    pub fn set_defer_transport_error(&mut self, value: bool) {
+        self.defer_transport_error = value
+    }
+
+    /// Return the value of the defer_refused configuration variable.
+    pub fn defer_refused(&self) -> bool {
+        self.defer_refused
+    }
+
+    /// Set the value of the defer_refused configuration variable.
+    pub fn set_defer_refused(&mut self, value: bool) {
+        self.defer_refused = value
+    }
+
+    /// Return the value of the defer_servfail configuration variable.
+    pub fn defer_servfail(&self) -> bool {
+        self.defer_servfail
+    }
+
+    /// Set the value of the defer_servfail configuration variable.
+    pub fn set_defer_servfail(&mut self, value: bool) {
+        self.defer_servfail = value
+    }
+
+    /// Set the value of the slow_rt_factor configuration variable.
+    pub fn slow_rt_factor(&self) -> f64 {
+        self.slow_rt_factor
+    }
+
+    /// Set the value of the slow_rt_factor configuration variable.
+    pub fn set_slow_rt_factor(&mut self, mut value: f64) {
+        if value < MIN_SLOW_RT_FACTOR {
+            value = MIN_SLOW_RT_FACTOR
+        };
+        self.slow_rt_factor = value;
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            defer_transport_error: Default::default(),
+            defer_refused: Default::default(),
+            defer_servfail: Default::default(),
+            slow_rt_factor: DEF_SLOW_RT_FACTOR,
+        }
+    }
+}
+
+//------------ ConnConfig -----------------------------------------------------
+
+/// Configuration variables for each upstream.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ConnConfig {
+    /// Maximum burst of upstream queries.
+    max_burst: Option<u64>,
+
+    /// Interval over which the burst is counted.
+    burst_interval: Duration,
+}
+
+impl ConnConfig {
+    /// Create a new ConnConfig object.
+    pub fn new() -> Self {
+        Self {
+            max_burst: None,
+            burst_interval: BURST_INTERVAL.default(),
+        }
+    }
+
+    /// Return the current configuration value for the maximum burst.
+    /// None means that there is no limit.
+    pub fn max_burst(&mut self) -> Option<u64> {
+        self.max_burst
+    }
+
+    /// Set the configuration value for the maximum burst.
+    /// The value None means no limit.
+    pub fn set_max_burst(&mut self, max_burst: Option<u64>) {
+        self.max_burst = max_burst;
+    }
+
+    /// Return the current burst interval.
+    pub fn burst_interval(&mut self) -> Duration {
+        self.burst_interval
+    }
+
+    /// Set a new burst interval.
+    ///
+    /// The interval is silently limited to at least 1 millesecond and
+    /// at most 1 hour.
+    pub fn set_burst_interval(&mut self, burst_interval: Duration) {
+        self.burst_interval = BURST_INTERVAL.limit(burst_interval);
+    }
 }
 
 //------------ Connection -----------------------------------------------------
@@ -104,11 +291,19 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     /// Add a transport connection.
     pub async fn add(
         &self,
+        label: &str,
+        config: &ConnConfig,
         conn: Box<dyn SendRequest<Req> + Send + Sync>,
     ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
-            .send(ChanReq::Add(AddReq { conn, tx }))
+            .send(ChanReq::Add(AddReq {
+                label: label.to_string(),
+                max_burst: config.max_burst,
+                burst_interval: config.burst_interval,
+                conn,
+                tx,
+            }))
             .await
             .expect("send should not fail");
         rx.await.expect("receive should not fail")
@@ -118,13 +313,19 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     async fn request_impl(
         self,
         request_msg: Req,
-    ) -> Result<Message<Bytes>, Error> {
+    ) -> Result<Message<Bytes>, Error>
+    where
+        Req: ComposeRequest,
+    {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(ChanReq::GetRT(RTReq { tx }))
             .await
             .expect("send should not fail");
         let conn_rt = rx.await.expect("receive should not fail")?;
+        if conn_rt.is_empty() {
+            return serve_fail(&request_msg.to_message().unwrap());
+        }
         Query::new(self.config, request_msg, conn_rt, self.sender.clone())
             .get_response()
             .await
@@ -143,8 +344,8 @@ where
     }
 }
 
-impl<Req: Clone + Debug + Send + Sync + 'static> SendRequest<Req>
-    for Connection<Req>
+impl<Req: Clone + ComposeRequest + Debug + Send + Sync + 'static>
+    SendRequest<Req> for Connection<Req>
 {
     fn send_request(
         &self,
@@ -159,7 +360,7 @@ impl<Req: Clone + Debug + Send + Sync + 'static> SendRequest<Req>
 //------------ Request -------------------------------------------------------
 
 /// An active request.
-pub struct Request {
+struct Request {
     /// The underlying future.
     fut: Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
@@ -200,7 +401,7 @@ impl Debug for Request {
 
 /// This type represents an active query request.
 #[derive(Debug)]
-pub struct Query<Req>
+struct Query<Req>
 where
     Req: Send + Sync,
 {
@@ -287,6 +488,15 @@ where
 
 /// Request to add a new connection
 struct AddReq<Req> {
+    /// Name of new connection
+    label: String,
+
+    /// Maximum length of a burst.
+    max_burst: Option<u64>,
+
+    /// Interval over which bursts are counted.
+    burst_interval: Duration,
+
     /// New connection to add
     conn: Box<dyn SendRequest<Req> + Send + Sync>,
 
@@ -334,7 +544,8 @@ where
 }
 
 /// Reply to a request request.
-type RequestReply = Result<Box<dyn GetResponse + Send + Sync>, Error>;
+type RequestReply =
+    Result<(Box<dyn GetResponse + Send + Sync>, Arc<()>), Error>;
 
 /// Report the amount of time until success or failure.
 #[derive(Debug)]
@@ -348,11 +559,48 @@ struct TimeReport {
 
 /// Connection statistics to compute the estimated response time.
 struct ConnStats {
+    /// Name of the connection.
+    _label: String,
+
     /// Aproximation of the windowed average of response times.
     mean: f64,
 
     /// Aproximation of the windowed average of the square of response times.
     mean_sq: f64,
+
+    /// Maximum upstream query burst.
+    max_burst: Option<u64>,
+
+    /// burst length,
+    burst_interval: Duration,
+
+    /// Start of the current burst
+    burst_start: Instant,
+
+    /// Number of queries since the start of the burst.
+    burst: u64,
+
+    /// Use the number of references to an Arc as queue length. The number
+    /// of references is one higher than then actual queue length.
+    queue_length_plus_one: Arc<()>,
+}
+
+impl ConnStats {
+    /// Update response time statistics.
+    fn update(&mut self, elapsed: Duration) {
+        let elapsed = elapsed.as_secs_f64();
+        self.mean += (elapsed - self.mean) / SMOOTH_N;
+        let elapsed_sq = elapsed * elapsed;
+        self.mean_sq += (elapsed_sq - self.mean_sq) / SMOOTH_N;
+    }
+
+    /// Get an estimated response time.
+    fn est_rt(&self) -> f64 {
+        let mean = self.mean;
+        let var = self.mean_sq - mean * mean;
+        let std_dev = f64::sqrt(var.max(0.));
+        mean + 3. * std_dev
+    }
 }
 
 /// Data required to schedule requests and report timing results.
@@ -366,6 +614,10 @@ struct ConnRT {
 
     /// Start of a request using this connection.
     start: Option<Instant>,
+
+    /// Use the number of references to an Arc as queue length. The number
+    /// of references is one higher than then actual queue length.
+    queue_length: usize,
 }
 
 /// Result of the futures in fut_list.
@@ -380,15 +632,25 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
         sender: mpsc::Sender<ChanReq<Req>>,
     ) -> Self {
         let conn_rt_len = conn_rt.len();
-        conn_rt.sort_unstable_by(conn_rt_cmp);
+        let min_rt = conn_rt.iter().map(|e| e.est_rt).min().unwrap();
+        let slow_rt = min_rt.as_secs_f64() * config.slow_rt_factor;
+        conn_rt.sort_unstable_by(|e1, e2| conn_rt_cmp(e1, e2, slow_rt));
 
-        // Do we want to probe a less performant upstream?
+        // Do we want to probe a less performant upstream? We only need to
+        // probe upstreams with a queue length of zero. If the queue length
+        // is non-zero then the upstream recently got work and does not need
+        // to be probed.
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
             let index: usize = 1 + random::<usize>() % (conn_rt_len - 1);
-            conn_rt[index].est_rt = PROBE_RT;
 
-            // Sort again
-            conn_rt.sort_unstable_by(conn_rt_cmp);
+            if conn_rt[index].queue_length == 0 {
+                // Give the probe some head start. We may need a separate
+                // configuration parameter. A multiple of min_rt. Just use
+                // min_rt for now.
+                let mut e = conn_rt.remove(index);
+                e.est_rt = min_rt;
+                conn_rt.insert(0, e);
+            }
         }
 
         Self {
@@ -482,7 +744,7 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
                                     }
                                 }
                                 self.result = Some(res.1);
-                                self.res_index= res.0;
+                                self.res_index = res.0;
 
                                 self.state = QueryState::Report(0);
                                 // Break out of receive loop
@@ -641,13 +903,20 @@ impl<Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let id = next_id;
                     next_id += 1;
                     conn_stats.push(ConnStats {
+                        _label: add_req.label,
                         mean: (DEFAULT_RT_MS as f64) / 1000.,
                         mean_sq: 0.,
+                        max_burst: add_req.max_burst,
+                        burst_interval: add_req.burst_interval,
+                        burst_start: Instant::now(),
+                        burst: 0,
+                        queue_length_plus_one: Arc::new(()),
                     });
                     conn_rt.push(ConnRT {
                         id,
                         est_rt: DEFAULT_RT,
                         start: None,
+                        queue_length: 42, // To spot errors.
                     });
                     conns.push(add_req.conn);
 
@@ -655,18 +924,46 @@ impl<Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let _ = add_req.tx.send(Ok(()));
                 }
                 ChanReq::GetRT(rt_req) => {
+                    let mut tmp_conn_rt = conn_rt.clone();
+
+                    // Remove entries that exceed the QPS limit. Loop
+                    // backward to efficiently remove them.
+                    for i in (0..tmp_conn_rt.len()).rev() {
+                        // Fill-in current queue length.
+                        tmp_conn_rt[i].queue_length = Arc::strong_count(
+                            &conn_stats[i].queue_length_plus_one,
+                        ) - 1;
+                        if let Some(max_burst) = conn_stats[i].max_burst {
+                            if conn_stats[i].burst_start.elapsed()
+                                > conn_stats[i].burst_interval
+                            {
+                                conn_stats[i].burst_start = Instant::now();
+                                conn_stats[i].burst = 0;
+                            }
+                            if conn_stats[i].burst > max_burst {
+                                tmp_conn_rt.swap_remove(i);
+                            }
+                        } else {
+                            // No limit.
+                        }
+                    }
                     // Don't care if send fails
-                    let _ = rt_req.tx.send(Ok(conn_rt.clone()));
+                    let _ = rt_req.tx.send(Ok(tmp_conn_rt));
                 }
                 ChanReq::Query(request_req) => {
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == request_req.id);
                     match opt_ind {
                         Some(ind) => {
+                            // Leave resetting qps_num to GetRT.
+                            conn_stats[ind].burst += 1;
                             let query = conns[ind]
                                 .send_request(request_req.request_msg);
                             // Don't care if send fails
-                            let _ = request_req.tx.send(Ok(query));
+                            let _ = request_req.tx.send(Ok((
+                                query,
+                                conn_stats[ind].queue_length_plus_one.clone(),
+                            )));
                         }
                         None => {
                             // Don't care if send fails
@@ -680,17 +977,9 @@ impl<Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
-                        let elapsed = time_report.elapsed.as_secs_f64();
-                        conn_stats[ind].mean +=
-                            (elapsed - conn_stats[ind].mean) / SMOOTH_N;
-                        let elapsed_sq = elapsed * elapsed;
-                        conn_stats[ind].mean_sq +=
-                            (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
-                        let mean = conn_stats[ind].mean;
-                        let var = conn_stats[ind].mean_sq - mean * mean;
-                        let std_dev =
-                            if var < 0. { 0. } else { f64::sqrt(var) };
-                        let est_rt = mean + 3. * std_dev;
+                        conn_stats[ind].update(time_report.elapsed);
+
+                        let est_rt = conn_stats[ind].est_rt();
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
@@ -705,16 +994,8 @@ impl<Req: Clone + Send + Sync + 'static> Transport<Req> {
                             // current mean.
                             continue;
                         }
-                        conn_stats[ind].mean +=
-                            (elapsed - conn_stats[ind].mean) / SMOOTH_N;
-                        let elapsed_sq = elapsed * elapsed;
-                        conn_stats[ind].mean_sq +=
-                            (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
-                        let mean = conn_stats[ind].mean;
-                        let var = conn_stats[ind].mean_sq - mean * mean;
-                        let std_dev =
-                            if var < 0. { 0. } else { f64::sqrt(var) };
-                        let est_rt = mean + 3. * std_dev;
+                        conn_stats[ind].update(time_report.elapsed);
+                        let est_rt = conn_stats[ind].est_rt();
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
@@ -745,19 +1026,34 @@ where
             tx,
         }))
         .await
-        .expect("send is expected to work");
-    let mut request = match rx.await.expect("receive is expected to work") {
-        Err(err) => return (index, Err(err)),
-        Ok(request) => request,
-    };
+        .expect("receiver still exists");
+    let (mut request, qlp1) =
+        match rx.await.expect("receive is expected to work") {
+            Err(err) => return (index, Err(err)),
+            Ok((request, qlp1)) => (request, qlp1),
+        };
     let reply = request.get_response().await;
 
+    drop(qlp1);
     (index, reply)
 }
 
 /// Compare ConnRT elements based on estimated response time.
-fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT) -> Ordering {
-    e1.est_rt.cmp(&e2.est_rt)
+fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT, slow_rt: f64) -> Ordering {
+    let e1_slow = e1.est_rt.as_secs_f64() > slow_rt;
+    let e2_slow = e2.est_rt.as_secs_f64() > slow_rt;
+
+    match (e1_slow, e2_slow) {
+        (true, true) => {
+            // Normal case. First check queue lengths. Then check est_rt.
+            e1.queue_length
+                .cmp(&e2.queue_length)
+                .then(e1.est_rt.cmp(&e2.est_rt))
+        }
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => e1.est_rt.cmp(&e2.est_rt),
+    }
 }
 
 /// Return if this reply should be skipped or not.
@@ -781,4 +1077,52 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
     }
 
     false
+}
+
+/// Generate a SERVFAIL reply message.
+// This needs to be consolodated with the one in validator and the one in
+// MessageBuilder.
+fn serve_fail<Octs>(msg: &Message<Octs>) -> Result<Message<Bytes>, Error>
+where
+    Octs: AsRef<[u8]> + Octets,
+{
+    let mut target =
+        MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+            .expect("Vec is expected to have enough space");
+
+    let source = msg;
+
+    *target.header_mut() = msg.header();
+    target.header_mut().set_rcode(Rcode::SERVFAIL);
+    target.header_mut().set_ad(false);
+
+    let source = source.question();
+    let mut target = target.question();
+    for rr in source {
+        target.push(rr?).expect("should not fail");
+    }
+    let mut target = target.additional();
+
+    if let Some(opt) = msg.opt() {
+        target
+            .opt(|ob| {
+                ob.set_dnssec_ok(opt.dnssec_ok());
+                // XXX something is missing ob.set_rcode(opt.rcode());
+                ob.set_udp_payload_size(opt.udp_payload_size());
+                ob.set_version(opt.version());
+                for o in opt.opt().iter() {
+                    let x: AllOptData<_, _> = o.expect("should not fail");
+                    ob.push(&x).expect("should not fail");
+                }
+                Ok(())
+            })
+            .expect("should not fail");
+    }
+
+    let result = target.as_builder().clone();
+    let msg = Message::<Bytes>::from_octets(
+        result.finish().into_target().octets_into(),
+    )
+    .expect("Message should be able to parse output from MessageBuilder");
+    Ok(msg)
 }

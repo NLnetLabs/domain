@@ -491,7 +491,7 @@ impl<'a> EntryScanner<'a> {
     }
 }
 
-impl<'a> Scanner for EntryScanner<'a> {
+impl Scanner for EntryScanner<'_> {
     type Octets = Bytes;
     type OctetsBuilder = BytesMut;
     type Name = ScannedDname;
@@ -778,7 +778,7 @@ impl<'a> Scanner for EntryScanner<'a> {
     }
 }
 
-impl<'a> EntryScanner<'a> {
+impl EntryScanner<'_> {
     /// Converts a single token using a token converter.
     fn convert_one_token<
         S: From<Symbol>,

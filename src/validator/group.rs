@@ -266,7 +266,7 @@ impl Group {
 
         // This may fail if sig_set is empty. But either rr_set or
         // sig_set is not empty.
-        return self.sig_set[0].owner().to_bytes();
+        self.sig_set[0].owner().to_bytes()
     }
 
     /// Return the class of a group.
@@ -943,7 +943,7 @@ impl ValidatedGroup {
 
         // This may fail if sig_set is empty. But either rr_set or
         // sig_set is not empty.
-        return self.sig_set[0].owner().to_bytes();
+        self.sig_set[0].owner().to_bytes()
     }
 
     /// Return the DNSSEC validation state of the group.

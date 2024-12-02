@@ -88,7 +88,7 @@ pub fn encode_display<Octets: AsRef<[u8]> + ?Sized>(
 ) -> impl fmt::Display + '_ {
     struct Display<'a>(&'a [u8]);
 
-    impl<'a> fmt::Display for Display<'a> {
+    impl fmt::Display for Display<'_> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             display(self.0, f)
         }
