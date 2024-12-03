@@ -84,7 +84,7 @@ arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }
-rstest             = "0.19.0"
+rstest             = "0.23.0"
 rustls-pemfile     = { version = "2.1.2" }
 serde_test         = "1.0.130"
 serde_json         = "1.0.113"
