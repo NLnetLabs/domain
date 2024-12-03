@@ -3,8 +3,8 @@ use core::cmp::Ordering;
 use core::convert::From;
 use core::fmt::Display;
 use core::marker::PhantomData;
-use core::slice::Iter;
 use core::ops::Deref;
+use core::slice::Iter;
 
 use std::boxed::Box;
 use std::collections::{HashMap, HashSet};
@@ -1292,8 +1292,12 @@ impl<Octs, Inner: SignRaw> SigningKeyUsageStrategy<Octs, Inner>
     }
 }
 
-pub struct Signer<Octs, Inner, KeyStrat = DefaultSigningKeyUsageStrategy, Sort = DefaultSorter>
-where
+pub struct Signer<
+    Octs,
+    Inner,
+    KeyStrat = DefaultSigningKeyUsageStrategy,
+    Sort = DefaultSorter,
+> where
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
@@ -1301,7 +1305,8 @@ where
     _phantom: PhantomData<(Octs, Inner, KeyStrat, Sort)>,
 }
 
-impl<Octs, Inner, KeyStrat, Sort> Default for Signer<Octs, Inner, KeyStrat, Sort>
+impl<Octs, Inner, KeyStrat, Sort> Default
+    for Signer<Octs, Inner, KeyStrat, Sort>
 where
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
