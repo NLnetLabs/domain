@@ -1608,7 +1608,7 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
-        assert_eq!(&format!("{}", rdata.display_zonefile(false, false)), "1 10 11 626172 CPNMU A SRV");
+        assert_eq!(&format!("{}", rdata.display_zonefile(false)), "1 10 11 626172 CPNMU A SRV");
     }
 
     #[test]
@@ -1632,7 +1632,7 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
-        assert_eq!(&format!("{}", rdata.display_zonefile(false, false)), "1 10 11 - CPNMU A SRV");
+        assert_eq!(&format!("{}", rdata.display_zonefile(false)), "1 10 11 - CPNMU A SRV");
     }
 
     #[test]

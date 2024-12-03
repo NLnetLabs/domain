@@ -24,7 +24,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for DigPrinter<'_, Octs> {
         writeln!(
             f,
             ";; ->>HEADER<<- opcode: {}, rcode: {}, id: {}",
-            header.opcode().display_zonefile(false, false),
+            header.opcode().display_zonefile(false),
             header.rcode(),
             header.id()
         )?;
@@ -161,7 +161,7 @@ fn write_record_item(
     let parsed = item.to_any_record::<AllRecordData<_, _>>();
 
     match parsed {
-        Ok(item) => writeln!(f, "{}", item.display_zonefile(false, false)),
+        Ok(item) => writeln!(f, "{}", item.display_zonefile(false)),
         Err(_) => writeln!(
             f,
             "; {} {} {} {} <invalid data>",
