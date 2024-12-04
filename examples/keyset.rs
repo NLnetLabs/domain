@@ -165,7 +165,12 @@ fn do_start(filename: &str, args: &[String]) {
 
     let mut ks = load_keyset(filename);
 
-    // Find old and new keys.
+    // Find old and new keys. First find the keys that have the right type for
+    // a roll type, and map to a keystate and a pubref. Filter out the keys
+    // are already old, we don't take them into account for a new key roll.
+    // Then split into two group: complete new keys (which are not
+    // signer, present, or at_parent) and old keys that do have one of
+    // those functions.
     let keys = ks.keys().to_vec();
     let (old, new): (Vec<_>, Vec<_>) = keys
         .into_iter()
