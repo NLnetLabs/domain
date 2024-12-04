@@ -350,7 +350,7 @@ impl<Conn> Transport<Conn> {
             stats: &'a Mutex<TransportStats>,
         }
 
-        impl<'a> Drop for Guard<'a> {
+        impl Drop for Guard<'_> {
             fn drop(&mut self) {
                 let elapsed = self.start_time.elapsed();
                 let mut stats = self.stats.lock();
