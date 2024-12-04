@@ -3,7 +3,6 @@ use domain::resolv::StubResolver;
 use std::env;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::Arc;
 
 async fn forward(resolver: &StubResolver, name: UncertainName<Vec<u8>>) {
     let answer = match name {
@@ -48,7 +47,7 @@ async fn main() {
         return;
     }
 
-    let resolver = Arc::new(StubResolver::new());
+    let resolver = StubResolver::new();
     for name in names {
         if let Ok(addr) = IpAddr::from_str(&name) {
             reverse(&resolver, addr).await;
