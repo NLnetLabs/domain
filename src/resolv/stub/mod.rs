@@ -113,12 +113,7 @@ impl StubResolver {
             dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync,
         >,
     ) {
-        self.get_transport()
-            .await
-            .expect("The 'redundant::Connection' task should not fail")
-            .add(connection)
-            .await
-            .expect("The 'redundant::Connection' task should not fail");
+        self.get_transport().await.add(connection);
     }
 
     pub async fn query<N: ToName, Q: Into<Question<N>>>(
