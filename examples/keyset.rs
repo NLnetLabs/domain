@@ -315,7 +315,7 @@ fn do_actions(filename: &str, args: &[String]) {
     let mut ks = load_keyset(filename);
 
     let actions = ks.actions(rolltype);
-    report_actions(actions, &ks);
+    report_actions(Ok(actions), &ks);
 }
 
 fn do_status(filename: &str, args: &[String]) {

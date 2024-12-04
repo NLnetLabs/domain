@@ -327,11 +327,11 @@ impl KeySet {
     pub fn actions(
         &mut self,
         rolltype: RollType,
-    ) -> Result<Vec<Action>, Error> {
+    ) -> Vec<Action> {
         if let Some(rollstate) = self.rollstates.get(&rolltype) {
-            Ok(rolltype.roll_actions_fn()(rollstate.clone()))
+            rolltype.roll_actions_fn()(rollstate.clone())
         } else {
-            Ok(Vec::new())
+            Vec::new()
         }
     }
 
