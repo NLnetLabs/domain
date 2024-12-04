@@ -408,14 +408,9 @@ fn load_keyset(filename: &str) -> KeySet {
 }
 
 fn str_to_rolltype(rolltype: &str) -> RollType {
-    if rolltype == "ksk-roll" {
-        RollType::KskRoll
-    } else if rolltype == "zsk-roll" {
-        RollType::ZskRoll
-    } else if rolltype == "csk-roll" {
-        RollType::CskRoll
-    } else {
-        panic!("Unknown roll type {rolltype}");
+    match rolltype.parse() {
+        Ok(r) => r,
+        Err(e) => panic!("Error parsing '{rolltype}': {e}"),
     }
 }
 

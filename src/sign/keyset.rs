@@ -59,6 +59,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::str::FromStr;
 use std::string::{String, ToString};
 use std::time::Duration;
 use std::vec::Vec;
@@ -887,6 +888,22 @@ pub enum RollState {
     Done,
 }
 
+impl FromStr for RollType {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "ksk-roll" {
+            Ok(RollType::KskRoll)
+        } else if s == "zsk-roll" {
+            Ok(RollType::ZskRoll)
+        } else if s == "csk-roll" {
+            Ok(RollType::CskRoll)
+        } else {
+            Err(Error::UnknownRollType)
+        }
+    }
+}
+
 enum Mode {
     DryRun,
     ForReal,
@@ -997,6 +1014,9 @@ pub enum Error {
     /// The operation is too early. The Duration parameter specifies how long
     /// to wait.
     Wait(Duration),
+
+    /// Unable to parse a string as a roll type.
+    UnknownRollType,
 }
 
 impl fmt::Display for Error {
@@ -1016,6 +1036,9 @@ impl fmt::Display for Error {
                 write!(f, "conflicting roll is in progress")
             }
             Error::Wait(d) => write!(f, "wait for duration {d:?}"),
+            Error::UnknownRollType => {
+                write!(f, "unable to parse string as roll type")
+            }
         }
     }
 }
