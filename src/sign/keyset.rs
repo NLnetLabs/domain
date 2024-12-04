@@ -870,14 +870,16 @@ impl Display for UnixTime {
 /// States of a key roll.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum RollState {
-    /// Waiting for the first change to propagate.
+    /// Waiting for the first change (actions that result in DNSKEY, CDS, DS,
+    /// RRSIG, etc. updates) to propagate.
     Propagation1,
     /// Waiting for old data to expire from caches.
     ///
     /// This is data that prevents the first change from getting loaded in the
     /// cache. The TTL of the old data is a parameter.
     CacheExpire1(u32),
-    /// Waiting for the second change to propagate.
+    /// Waiting for the second change (actions that result in DNSKEY, CDS, DS,
+    /// RRSIG, etc. updates) to propagate.
     Propagation2,
     /// Waiting for old data to expire from caches.
     ///
