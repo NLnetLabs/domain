@@ -324,10 +324,7 @@ impl KeySet {
 
     /// Return the actions that need to be performed for the current
     /// roll state.
-    pub fn actions(
-        &mut self,
-        rolltype: RollType,
-    ) -> Vec<Action> {
+    pub fn actions(&mut self, rolltype: RollType) -> Vec<Action> {
         if let Some(rollstate) = self.rollstates.get(&rolltype) {
             rolltype.roll_actions_fn()(rollstate.clone())
         } else {
@@ -369,28 +366,25 @@ impl KeySet {
                 if inner_k.pubref != *k {
                     continue;
                 }
-                match inner_k.keytype {
-                    KeyType::Ksk(ref mut keystate) => {
-                        if *keystate
-                            != (KeyState {
-                                old: false,
-                                signer: false,
-                                present: false,
-                                at_parent: false,
-                            })
-                        {
-                            return Err(Error::WrongKeyState);
-                        }
+                if let KeyType::Ksk(ref mut keystate) = inner_k.keytype {
+                    if *keystate
+                        != (KeyState {
+                            old: false,
+                            signer: false,
+                            present: false,
+                            at_parent: false,
+                        })
+                    {
+                        return Err(Error::WrongKeyState);
+                    }
 
-                        // Move key state to Incoming.
-                        keystate.present = true;
-                        keystate.signer = true;
-                        inner_k.timestamps.published = Some(now.clone());
-                        continue 'outer;
-                    }
-                    _ => {
-                        return Err(Error::WrongKeyType);
-                    }
+                    // Move key state to Incoming.
+                    keystate.present = true;
+                    keystate.signer = true;
+                    inner_k.timestamps.published = Some(now.clone());
+                    continue 'outer;
+                } else {
+                    return Err(Error::WrongKeyType);
                 }
             }
 
