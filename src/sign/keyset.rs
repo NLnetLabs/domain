@@ -398,7 +398,7 @@ impl KeySet {
         }
 
         // Make sure we have at least one key in incoming state.
-        if !keys.iter_mut().any(|k| {
+        if !keys.iter().any(|k| {
             if let KeyType::Ksk(keystate) = &k.keytype {
                 !keystate.old && keystate.present
             } else {
@@ -467,7 +467,7 @@ impl KeySet {
         }
 
         // Make sure we have at least one key in incoming state.
-        if !keys.iter_mut().any(|k| {
+        if !keys.iter().any(|k| {
             if let KeyType::Zsk(keystate) = &k.keytype {
                 !keystate.old || keystate.present
             } else {
@@ -606,7 +606,7 @@ impl KeySet {
         }
 
         // Make sure we have at least one KSK key in incoming state.
-        if !keys.iter_mut().any(|k| match &k.keytype {
+        if !keys.iter().any(|k| match &k.keytype {
             KeyType::Ksk(keystate) | KeyType::Csk(keystate, _) => {
                 !keystate.old && keystate.present
             }
@@ -615,7 +615,7 @@ impl KeySet {
             return Err(Error::NoSuitableKeyPresent);
         }
         // Make sure we have at least one ZSK key in incoming state.
-        if !keys.iter_mut().any(|k| match &k.keytype {
+        if !keys.iter().any(|k| match &k.keytype {
             KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
                 !keystate.old && keystate.present
             }
