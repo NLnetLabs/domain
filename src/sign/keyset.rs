@@ -71,11 +71,11 @@ use mock_instant::global::{SystemTime, UNIX_EPOCH};
 #[cfg(not(test))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Deserialize, Serialize)]
 /// This type maintains a collection keys used to sign a zone.
 ///
 /// The state of this type can be serialized and deserialized. The state
 /// includes the state of any key rollovers going on.
+#[derive(Deserialize, Serialize)]
 pub struct KeySet {
     name: Name<Vec<u8>>,
     keys: Vec<Key>,
@@ -627,13 +627,13 @@ impl KeySet {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
 /// The state of a single key.
 ///
 /// The state includes a way to refer to the public key and optionally a
 /// way to refer to the provate key. The state includes the type of the
 /// key (which in itself includes the key state) and a list of timestamps
 /// that mark the various stages in the life of a key.
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Key {
     pubref: String,
     privref: Option<String>,
@@ -681,8 +681,8 @@ impl Key {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 /// The different types of keys.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum KeyType {
     /// Key signing key (KSK).
     Ksk(KeyState),
@@ -700,28 +700,6 @@ pub enum KeyType {
     Include(KeyState),
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-/*
-pub enum KeyState {
-    // KeyState idea: 4 booleans
-    // 1) old. Set if the key is on its way out
-    // 2) signer. Set if the key signs the DNSKEY RRset or the zone.
-    // 3) present. Set if the key is present in the DNSKET RRset.
-    // 4) ds. Set if a DS record has to be present for the key.
-    Future, // !old, !signer, !present, !ds
-    Incoming, // !old, !signer, present, (ds || !ds)
-    Active, // !old, signer, present, ds (if KSK)
-    Leaving, // old, signer, present, ds (if KSK)
-    Retired, // old, !signer, present, ds (if KSK)
-    Past, // old, !signer, !present, !ds
-
-    // Missing:
-    // !old, !signer, !present, ds
-    // !old, signer, !present, (ds || !ds)
-    // old, signer, !present, (ds || !ds)
-    // old, !signer, !present, ds
-}
-*/
 /// State of a key.
 ///
 /// The state is expressed as four booleans:
@@ -730,6 +708,7 @@ pub enum KeyState {
 ///   zone.
 /// * present. If the key is present in the DNSKEY RRset.
 /// * at_parent. If the key has a DS record at the parent.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct KeyState {
     old: bool,
     signer: bool,
@@ -791,7 +770,6 @@ impl Display for KeyState {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 /// This type contains the various timestamps in the life of a key.
 ///
 /// All timestamps are optional. The following timestamps are supported:
@@ -801,6 +779,7 @@ impl Display for KeyState {
 /// * when the DS record for the key was first visible,
 /// * when RRSIG records signed by the key were first visible,
 /// * when the key was withdrawn from the DNSKEY RRset.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct KeyTimestamps {
     creation: Option<UnixTime>,
     published: Option<UnixTime>,
@@ -843,11 +822,11 @@ impl KeyTimestamps {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
 /// A type that contains Unix time.
 ///
 /// Unix time is the number of seconds since midnight January first
 /// 1970 GMT.
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UnixTime(Duration);
 
 impl UnixTime {
@@ -888,8 +867,8 @@ impl Display for UnixTime {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
 /// States of a key roll.
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum RollState {
     /// Waiting for the first change to propagate.
     Propagation1,
@@ -917,12 +896,12 @@ enum Mode {
     ForReal,
 }
 
-#[derive(Debug, PartialEq)]
 /// Actions that have to be performed by the user.
 ///
 /// Note that if a list contains multiple report actions then the user
 /// has to wait until all action have completed and has to report the
 /// highest TTL value among the values to report.
+#[derive(Debug, PartialEq)]
 pub enum Action {
     /// Generate a new version of the zone with an updated DNSKEY RRset.
     UpdateDnskeyRrset,
@@ -956,8 +935,8 @@ pub enum Action {
     ReportRrsigPropagated,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 /// The type of key roll to perform.
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum RollType {
     /// A KSK roll.
     KskRoll,
@@ -995,8 +974,8 @@ enum RollOp<'a> {
     Done,
 }
 
-#[derive(Debug)]
 /// The various errors that can be returned.
+#[derive(Debug)]
 pub enum Error {
     /// The listed key cannot be found in the key set.
     KeyNotFound,
