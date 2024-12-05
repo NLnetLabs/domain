@@ -11,8 +11,8 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
-use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
@@ -1069,7 +1069,10 @@ impl<Octs: AsRef<[u8]> + ?Sized> ZonefileFmt for Nsec3Salt<Octs> {
             } else {
                 p.write_token(base16::encode_display(self))?;
             }
-            p.write_comment(format_args!("salt (length: {})", self.salt_len()))
+            p.write_comment(format_args!(
+                "salt (length: {})",
+                self.salt_len()
+            ))
         })
     }
 }
@@ -1585,6 +1588,7 @@ mod test {
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
+    use crate::base::zonefile_fmt::DisplayKind;
     use std::vec::Vec;
 
     #[test]
@@ -1608,7 +1612,10 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
-        assert_eq!(&format!("{}", rdata.display_zonefile(false)), "1 10 11 626172 CPNMU A SRV");
+        assert_eq!(
+            &format!("{}", rdata.display_zonefile(DisplayKind::Simple)),
+            "1 10 11 626172 CPNMU A SRV"
+        );
     }
 
     #[test]
@@ -1632,7 +1639,10 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
-        assert_eq!(&format!("{}", rdata.display_zonefile(false)), "1 10 11 - CPNMU A SRV");
+        assert_eq!(
+            &format!("{}", rdata.display_zonefile(DisplayKind::Simple)),
+            "1 10 11 - CPNMU A SRV"
+        );
     }
 
     #[test]
