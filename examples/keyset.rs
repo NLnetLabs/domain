@@ -1,7 +1,7 @@
 //! Demonstrate the use of key sets.
 use domain::base::Name;
 use domain::sign::keyset::{
-    Action, Error, Key, KeySet, KeyType, RollType, UnixTime,
+    Action, Error, KeySet, KeyType, RollType, UnixTime,
 };
 use itertools::{Either, Itertools};
 use std::env;
@@ -127,11 +127,11 @@ fn do_addkey(filename: &str, args: &[String]) {
 
     let mut ks = load_keyset(filename);
     if keytype == "ksk" {
-        ks.add_key_ksk(pubref, privref, UnixTime::now());
+        ks.add_key_ksk(pubref, privref, UnixTime::now()).unwrap();
     } else if keytype == "zsk" {
-        ks.add_key_zsk(pubref, privref, UnixTime::now());
+        ks.add_key_zsk(pubref, privref, UnixTime::now()).unwrap();
     } else if keytype == "csk" {
-        ks.add_key_csk(pubref, privref, UnixTime::now());
+        ks.add_key_csk(pubref, privref, UnixTime::now()).unwrap();
     } else {
         eprintln!("Unknown key type '{keytype}'");
         exit(1);
@@ -171,20 +171,20 @@ fn do_start(filename: &str, args: &[String]) {
     // Then split into two group: complete new keys (which are not
     // signer, present, or at_parent) and old keys that do have one of
     // those functions.
-    let keys = ks.keys().to_vec();
-    let (old, new): (Vec<_>, Vec<_>) = keys
+    let (old, new): (Vec<_>, Vec<_>) = ks
+        .keys()
         .iter()
-        .filter_map(|k: &Key| match rolltype {
+        .filter_map(|(pr, k)| match rolltype {
             RollType::KskRoll => {
                 if let KeyType::Ksk(keystate) = k.keytype() {
-                    Some((keystate.clone(), k.pubref()))
+                    Some((keystate.clone(), pr))
                 } else {
                     None
                 }
             }
             RollType::ZskRoll => {
                 if let KeyType::Zsk(keystate) = k.keytype() {
-                    Some((keystate.clone(), k.pubref()))
+                    Some((keystate.clone(), pr))
                 } else {
                     None
                 }
@@ -192,13 +192,12 @@ fn do_start(filename: &str, args: &[String]) {
             RollType::CskRoll => match k.keytype() {
                 KeyType::Ksk(keystate)
                 | KeyType::Zsk(keystate)
-                | KeyType::Csk(keystate, _) => {
-                    Some((keystate.clone(), k.pubref()))
-                }
+                | KeyType::Csk(keystate, _) => Some((keystate.clone(), pr)),
                 KeyType::Include(_) => None,
             },
         })
         .filter(|(keystate, _)| !keystate.old())
+        .map(|(keystate, pubref)| (keystate, pubref.to_string()))
         .partition_map(|(keystate, pubref)| {
             if keystate.signer() || keystate.present() || keystate.at_parent()
             {
@@ -208,8 +207,8 @@ fn do_start(filename: &str, args: &[String]) {
             }
         });
 
-    let old_str: Vec<&str> = old.to_vec();
-    let new_str: Vec<&str> = new.to_vec();
+    let old_str: Vec<&str> = old.iter().map(|s| s.as_ref()).collect();
+    let new_str: Vec<&str> = new.iter().map(|s| s.as_ref()).collect();
 
     let actions = ks.start_roll(rolltype, &old_str, &new_str);
     report_actions(actions, &ks);
@@ -331,14 +330,14 @@ fn do_status(filename: &str, args: &[String]) {
 
     println!("Keys:");
     let keys = ks.keys();
-    for key in keys {
+    for (pubref, key) in keys {
         match key.keytype() {
             KeyType::Ksk(keystate)
             | KeyType::Zsk(keystate)
             | KeyType::Include(keystate) => {
                 println!(
                     "\t{} {}",
-                    key.pubref(),
+                    pubref,
                     key.privref().unwrap_or_default(),
                 );
                 println!("\t\tState: {}", keystate);
@@ -346,7 +345,7 @@ fn do_status(filename: &str, args: &[String]) {
             KeyType::Csk(keystate_ksk, keystate_zsk) => {
                 println!(
                     "\t{} {}",
-                    key.pubref(),
+                    pubref,
                     key.privref().unwrap_or_default(),
                 );
                 println!("\t\tKSK role state: {}", keystate_ksk,);
@@ -436,7 +435,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                 println!("\tUpdate the DNSKEY RRset");
                 let keys = ks.keys();
                 println!("\t\tKeys in the DNSKEY RRset:");
-                for key in keys {
+                for (pubref, key) in keys {
                     let status = match key.keytype() {
                         KeyType::Ksk(keystate)
                         | KeyType::Zsk(keystate)
@@ -444,16 +443,16 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.present() {
-                        println!("\t\t\t{}", key.pubref());
+                        println!("\t\t\t{}", pubref);
                     }
                 }
                 println!("\t\tKeys signing the DNSKEY RRset:");
-                for key in keys {
+                for (pubref, key) in keys {
                     match key.keytype() {
                         KeyType::Ksk(keystate)
                         | KeyType::Csk(keystate, _) => {
                             if keystate.signer() {
-                                println!("\t\t\t{}", key.pubref());
+                                println!("\t\t\t{}", pubref);
                             }
                         }
                         KeyType::Zsk(_) | KeyType::Include(_) => (),
@@ -463,12 +462,12 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
             Action::UpdateRrsig => {
                 println!("\tSign the zone with the following keys:");
                 let keys = ks.keys();
-                for key in keys {
+                for (pubref, key) in keys {
                     match key.keytype() {
                         KeyType::Zsk(keystate)
                         | KeyType::Csk(_, keystate) => {
                             if keystate.signer() {
-                                println!("\t\t{}", key.pubref());
+                                println!("\t\t{}", pubref);
                             }
                         }
                         KeyType::Ksk(_) | KeyType::Include(_) => (),
@@ -478,7 +477,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
             Action::UpdateDsRrset => {
                 println!("\tUpdate the DS records at the parent to contain just the following keys:");
                 let keys = ks.keys();
-                for key in keys {
+                for (pubref, key) in keys {
                     let status = match key.keytype() {
                         KeyType::Ksk(keystate)
                         | KeyType::Zsk(keystate)
@@ -486,14 +485,14 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.at_parent() {
-                        println!("\t\t{}", key.pubref());
+                        println!("\t\t{}", pubref);
                     }
                 }
             }
             Action::CreateCdsRrset => {
                 println!("\tCreate CDS and CDNSKEY RRsets with the following keys:");
                 let keys = ks.keys();
-                for key in keys {
+                for (pubref, key) in keys {
                     let status = match key.keytype() {
                         KeyType::Ksk(keystate)
                         | KeyType::Zsk(keystate)
@@ -501,7 +500,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.at_parent() {
-                        println!("\t\t{}", key.pubref());
+                        println!("\t\t{}", pubref);
                     }
                 }
             }

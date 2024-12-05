@@ -56,11 +56,11 @@
 
 use crate::base::Name;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
-use std::string::String;
+use std::string::{String, ToString};
 use std::time::Duration;
 use std::vec::Vec;
 use time::format_description;
@@ -79,7 +79,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Deserialize, Serialize)]
 pub struct KeySet {
     name: Name<Vec<u8>>,
-    keys: Vec<Key>,
+    keys: HashMap<String, Key>,
 
     rollstates: HashMap<RollType, RollState>,
 }
@@ -89,7 +89,7 @@ impl KeySet {
     pub fn new(name: Name<Vec<u8>>) -> Self {
         Self {
             name,
-            keys: Vec::new(),
+            keys: HashMap::new(),
             rollstates: HashMap::new(),
         }
     }
@@ -100,11 +100,15 @@ impl KeySet {
         pubref: String,
         privref: Option<String>,
         creation_ts: UnixTime,
-    ) {
+    ) -> Result<(), Error> {
         let keystate: KeyState = Default::default();
-        let key =
-            Key::new(pubref, privref, KeyType::Ksk(keystate), creation_ts);
-        self.keys.push(key);
+        let key = Key::new(privref, KeyType::Ksk(keystate), creation_ts);
+        if let hash_map::Entry::Vacant(e) = self.keys.entry(pubref) {
+            e.insert(key);
+            Ok(())
+        } else {
+            Err(Error::KeyExists)
+        }
     }
 
     /// Add a ZSK.
@@ -113,11 +117,15 @@ impl KeySet {
         pubref: String,
         privref: Option<String>,
         creation_ts: UnixTime,
-    ) {
+    ) -> Result<(), Error> {
         let keystate: KeyState = Default::default();
-        let key =
-            Key::new(pubref, privref, KeyType::Zsk(keystate), creation_ts);
-        self.keys.push(key);
+        let key = Key::new(privref, KeyType::Zsk(keystate), creation_ts);
+        if let hash_map::Entry::Vacant(e) = self.keys.entry(pubref) {
+            e.insert(key);
+            Ok(())
+        } else {
+            Err(Error::KeyExists)
+        }
     }
 
     /// Add a CSK.
@@ -126,25 +134,26 @@ impl KeySet {
         pubref: String,
         privref: Option<String>,
         creation_ts: UnixTime,
-    ) {
+    ) -> Result<(), Error> {
         let keystate: KeyState = Default::default();
         let key = Key::new(
-            pubref,
             privref,
             KeyType::Csk(keystate.clone(), keystate),
             creation_ts,
         );
-        self.keys.push(key);
+        if let hash_map::Entry::Vacant(e) = self.keys.entry(pubref) {
+            e.insert(key);
+            Ok(())
+        } else {
+            Err(Error::KeyExists)
+        }
     }
 
     /// Delete a key.
     pub fn delete_key(&mut self, pubref: &str) -> Result<(), Error> {
-        // Assume no duplicate keys.
-        for i in 0..self.keys.len() {
-            if self.keys[i].pubref != pubref {
-                continue;
-            }
-            match &self.keys[i].keytype {
+        match self.keys.get(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => match &key.keytype {
                 KeyType::Ksk(keystate)
                 | KeyType::Zsk(keystate)
                 | KeyType::Include(keystate) => {
@@ -155,8 +164,6 @@ impl KeySet {
                     {
                         return Err(Error::KeyNotOld);
                     }
-                    self.keys.remove(i);
-                    return Ok(());
                 }
                 KeyType::Csk(ksk_keystate, zsk_keystate) => {
                     if !ksk_keystate.old
@@ -173,12 +180,13 @@ impl KeySet {
                     {
                         return Err(Error::KeyNotOld);
                     }
-                    self.keys.remove(i);
-                    return Ok(());
                 }
-            }
+            },
         }
-        Err(Error::KeyNotFound)
+
+        // The state of the key is checked, now remove the key.
+        self.keys.remove(pubref).expect("key should exist");
+        Ok(())
     }
 
     /// Return the zone name this key set belongs to.
@@ -187,7 +195,7 @@ impl KeySet {
     }
 
     /// Return the list of keys in the key set.
-    pub fn keys(&self) -> &[Key] {
+    pub fn keys(&self) -> &HashMap<String, Key> {
         &self.keys
     }
 
@@ -340,60 +348,48 @@ impl KeySet {
         new: &[&str],
     ) -> Result<(), Error> {
         let mut tmpkeys = self.keys.clone();
-        let keys: &mut Vec<Key> = match mode {
+        let keys: &mut HashMap<String, Key> = match mode {
             Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
-        'outer: for k in old {
-            for inner_k in &mut *keys {
-                if inner_k.pubref != *k {
-                    continue;
-                }
-                let KeyType::Ksk(ref mut keystate) = inner_k.keytype else {
-                    return Err(Error::WrongKeyType);
-                };
+        for k in old {
+            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            let KeyType::Ksk(ref mut keystate) = key.keytype else {
+                return Err(Error::WrongKeyType);
+            };
 
-                // Set old for any key we find.
-                keystate.old = true;
-                continue 'outer;
-            }
-
-            // Should return error for unknown pubref.
-            return Err(Error::KeyNotFound);
+            // Set old for any key we find.
+            keystate.old = true;
         }
         let now = UnixTime::now();
-        'outer: for k in new {
-            for inner_k in &mut *keys {
-                if inner_k.pubref != *k {
-                    continue;
-                }
-                if let KeyType::Ksk(ref mut keystate) = inner_k.keytype {
-                    if *keystate
-                        != (KeyState {
-                            old: false,
-                            signer: false,
-                            present: false,
-                            at_parent: false,
-                        })
-                    {
-                        return Err(Error::WrongKeyState);
-                    }
-
-                    // Move key state to Incoming.
-                    keystate.present = true;
-                    keystate.signer = true;
-                    inner_k.timestamps.published = Some(now.clone());
-                    continue 'outer;
-                } else {
-                    return Err(Error::WrongKeyType);
-                }
+        for k in new {
+            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            let KeyType::Ksk(ref mut keystate) = key.keytype else {
+                return Err(Error::WrongKeyType);
+            };
+            if *keystate
+                != (KeyState {
+                    old: false,
+                    signer: false,
+                    present: false,
+                    at_parent: false,
+                })
+            {
+                return Err(Error::WrongKeyState);
             }
 
-            return Err(Error::KeyNotFound);
+            // Move key state to Incoming.
+            keystate.present = true;
+            keystate.signer = true;
+            key.timestamps.published = Some(now.clone());
         }
 
         // Make sure we have at least one key in incoming state.
-        if !keys.iter().any(|k| {
+        if !keys.iter().any(|(_, k)| {
             if let KeyType::Ksk(keystate) = &k.keytype {
                 !keystate.old && keystate.present
             } else {
@@ -412,57 +408,47 @@ impl KeySet {
         new: &[&str],
     ) -> Result<(), Error> {
         let mut tmpkeys = self.keys.clone();
-        let keys: &mut Vec<Key> = match mode {
+        let keys: &mut HashMap<String, Key> = match mode {
             Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
-        'outer: for k in old {
-            for inner_k in &mut *keys {
-                if inner_k.pubref != *k {
-                    continue;
-                }
-                let KeyType::Zsk(ref mut keystate) = inner_k.keytype else {
-                    return Err(Error::WrongKeyType);
-                };
+        for k in old {
+            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            let KeyType::Zsk(ref mut keystate) = key.keytype else {
+                return Err(Error::WrongKeyType);
+            };
 
-                // Set old for any key we find.
-                keystate.old = true;
-                continue 'outer;
-            }
-
-            return Err(Error::KeyNotFound);
+            // Set old for any key we find.
+            keystate.old = true;
         }
         let now = UnixTime::now();
-        'outer: for k in new {
-            for inner_k in &mut *keys {
-                if inner_k.pubref != *k {
-                    continue;
-                }
-                let KeyType::Zsk(ref mut keystate) = inner_k.keytype else {
-                    return Err(Error::WrongKeyType);
-                };
-                if *keystate
-                    != (KeyState {
-                        old: false,
-                        signer: false,
-                        present: false,
-                        at_parent: false,
-                    })
-                {
-                    return Err(Error::WrongKeyState);
-                }
-
-                // Move key state to Incoming.
-                keystate.present = true;
-                inner_k.timestamps.published = Some(now.clone());
-                continue 'outer;
+        for k in new {
+            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            let KeyType::Zsk(ref mut keystate) = key.keytype else {
+                return Err(Error::WrongKeyType);
+            };
+            if *keystate
+                != (KeyState {
+                    old: false,
+                    signer: false,
+                    present: false,
+                    at_parent: false,
+                })
+            {
+                return Err(Error::WrongKeyState);
             }
 
-            return Err(Error::KeyNotFound);
+            // Move key state to Incoming.
+            keystate.present = true;
+            key.timestamps.published = Some(now.clone());
         }
 
         // Make sure we have at least one key in incoming state.
-        if !keys.iter().any(|k| {
+        if !keys.iter().any(|(_, k)| {
             if let KeyType::Zsk(keystate) = &k.keytype {
                 !keystate.old || keystate.present
             } else {
@@ -481,127 +467,107 @@ impl KeySet {
         new: &[&str],
     ) -> Result<(), Error> {
         let mut tmpkeys = self.keys.clone();
-        let keys: &mut Vec<Key> = match mode {
+        let keys: &mut HashMap<String, Key> = match mode {
             Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
-        'outer: for k in old {
-            for inner_k in &mut *keys {
-                if inner_k.pubref != *k {
-                    continue;
+        for k in old {
+            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            match key.keytype {
+                KeyType::Ksk(ref mut keystate)
+                | KeyType::Zsk(ref mut keystate) => {
+                    keystate.old = true;
                 }
-
-                // Set old for any key we find.
-                match inner_k.keytype {
-                    KeyType::Ksk(ref mut keystate)
-                    | KeyType::Zsk(ref mut keystate) => {
-                        keystate.old = true;
-                    }
-                    KeyType::Csk(
-                        ref mut ksk_keystate,
-                        ref mut zsk_keystate,
-                    ) => {
-                        ksk_keystate.old = true;
-                        zsk_keystate.old = true;
-                    }
-                    KeyType::Include(_) => {
-                        return Err(Error::WrongKeyType);
-                    }
+                KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
+                    ksk_keystate.old = true;
+                    zsk_keystate.old = true;
                 }
-                continue 'outer;
+                KeyType::Include(_) => {
+                    return Err(Error::WrongKeyType);
+                }
             }
-
-            return Err(Error::KeyNotFound);
         }
         let now = UnixTime::now();
-        'outer: for k in new {
-            for inner_k in &mut *keys {
-                if inner_k.pubref != *k {
-                    continue;
+        for k in new {
+            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            match key.keytype {
+                KeyType::Ksk(ref mut keystate) => {
+                    if *keystate
+                        != (KeyState {
+                            old: false,
+                            signer: false,
+                            present: false,
+                            at_parent: false,
+                        })
+                    {
+                        return Err(Error::WrongKeyState);
+                    }
+
+                    // Move key state to Active.
+                    keystate.present = true;
+                    keystate.signer = true;
+                    key.timestamps.published = Some(now.clone());
                 }
-                match inner_k.keytype {
-                    KeyType::Ksk(ref mut keystate) => {
-                        if *keystate
-                            != (KeyState {
-                                old: false,
-                                signer: false,
-                                present: false,
-                                at_parent: false,
-                            })
-                        {
-                            return Err(Error::WrongKeyState);
-                        }
-
-                        // Move key state to Active.
-                        keystate.present = true;
-                        keystate.signer = true;
-                        inner_k.timestamps.published = Some(now.clone());
-                        continue 'outer;
+                KeyType::Zsk(ref mut keystate) => {
+                    if *keystate
+                        != (KeyState {
+                            old: false,
+                            signer: false,
+                            present: false,
+                            at_parent: false,
+                        })
+                    {
+                        return Err(Error::WrongKeyState);
                     }
-                    KeyType::Zsk(ref mut keystate) => {
-                        if *keystate
-                            != (KeyState {
-                                old: false,
-                                signer: false,
-                                present: false,
-                                at_parent: false,
-                            })
-                        {
-                            return Err(Error::WrongKeyState);
-                        }
 
-                        // Move key state to Incoming.
-                        keystate.present = true;
-                        inner_k.timestamps.published = Some(now.clone());
-                        continue 'outer;
+                    // Move key state to Incoming.
+                    keystate.present = true;
+                    key.timestamps.published = Some(now.clone());
+                }
+                KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
+                    if *ksk_keystate
+                        != (KeyState {
+                            old: false,
+                            signer: false,
+                            present: false,
+                            at_parent: false,
+                        })
+                    {
+                        return Err(Error::WrongKeyState);
                     }
-                    KeyType::Csk(
-                        ref mut ksk_keystate,
-                        ref mut zsk_keystate,
-                    ) => {
-                        if *ksk_keystate
-                            != (KeyState {
-                                old: false,
-                                signer: false,
-                                present: false,
-                                at_parent: false,
-                            })
-                        {
-                            return Err(Error::WrongKeyState);
-                        }
 
-                        // Move key state to Active.
-                        ksk_keystate.present = true;
-                        ksk_keystate.signer = true;
+                    // Move key state to Active.
+                    ksk_keystate.present = true;
+                    ksk_keystate.signer = true;
 
-                        if *zsk_keystate
-                            != (KeyState {
-                                old: false,
-                                signer: false,
-                                present: false,
-                                at_parent: false,
-                            })
-                        {
-                            return Err(Error::WrongKeyState);
-                        }
-
-                        // Move key state to Incoming.
-                        zsk_keystate.present = true;
-
-                        inner_k.timestamps.published = Some(now.clone());
-                        continue 'outer;
+                    if *zsk_keystate
+                        != (KeyState {
+                            old: false,
+                            signer: false,
+                            present: false,
+                            at_parent: false,
+                        })
+                    {
+                        return Err(Error::WrongKeyState);
                     }
-                    _ => {
-                        return Err(Error::WrongKeyType);
-                    }
+
+                    // Move key state to Incoming.
+                    zsk_keystate.present = true;
+
+                    key.timestamps.published = Some(now.clone());
+                }
+                _ => {
+                    return Err(Error::WrongKeyType);
                 }
             }
-
-            return Err(Error::KeyNotFound);
         }
 
         // Make sure we have at least one KSK key in incoming state.
-        if !keys.iter().any(|k| match &k.keytype {
+        if !keys.iter().any(|(_, k)| match &k.keytype {
             KeyType::Ksk(keystate) | KeyType::Csk(keystate, _) => {
                 !keystate.old && keystate.present
             }
@@ -610,7 +576,7 @@ impl KeySet {
             return Err(Error::NoSuitableKeyPresent);
         }
         // Make sure we have at least one ZSK key in incoming state.
-        if !keys.iter().any(|k| match &k.keytype {
+        if !keys.iter().any(|(_, k)| match &k.keytype {
             KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
                 !keystate.old && keystate.present
             }
@@ -630,18 +596,12 @@ impl KeySet {
 /// that mark the various stages in the life of a key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Key {
-    pubref: String,
     privref: Option<String>,
     keytype: KeyType,
     timestamps: KeyTimestamps,
 }
 
 impl Key {
-    /// Return the 'reference' to the public key.
-    pub fn pubref(&self) -> &str {
-        &self.pubref
-    }
-
     /// Return the 'reference' to the private key (if present).
     pub fn privref(&self) -> Option<&str> {
         self.privref.as_deref()
@@ -658,7 +618,6 @@ impl Key {
     }
 
     fn new(
-        pubref: String,
         privref: Option<String>,
         keytype: KeyType,
         creation_ts: UnixTime,
@@ -668,7 +627,6 @@ impl Key {
             ..Default::default()
         };
         Self {
-            pubref,
             privref,
             keytype,
             timestamps,
@@ -990,6 +948,9 @@ enum RollOp<'a> {
 /// The various errors that can be returned.
 #[derive(Debug)]
 pub enum Error {
+    /// The listed key already exists in the key set.
+    KeyExists,
+
     /// The listed key cannot be found in the key set.
     KeyNotFound,
 
@@ -1022,6 +983,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::KeyExists => write!(f, "key already exists"),
             Error::KeyNotFound => write!(f, "key not found"),
             Error::KeyNotOld => write!(f, "key is still in use, not old"),
             Error::WrongKeyType => write!(f, "key has the wrong type"),
@@ -1068,7 +1030,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
         RollOp::Propagation1 => {
             // Set the visible time of new KSKs to the current time.
             let now = UnixTime::now();
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1080,7 +1042,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1100,7 +1062,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
                 }
             }
 
-            for k in &mut ks.keys {
+            for k in &mut ks.keys.values_mut() {
                 if let KeyType::Ksk(ref mut keystate) = k.keytype {
                     if keystate.old && keystate.present {
                         keystate.at_parent = false;
@@ -1115,7 +1077,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
         RollOp::Propagation2 => {
             // Set the published time of new DS records to the current time.
             let now = UnixTime::now();
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1127,7 +1089,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1148,7 +1110,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
 
             // Move old keys out
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Ksk(ref mut keystate) = k.keytype else {
                     continue;
                 };
@@ -1205,13 +1167,15 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             // Check if we can move the states of the keys
             ks.update_zsk(Mode::DryRun, old, new)?;
             // Move the states of the keys
+            println!("line {} = {:?}", line!(), ks.keys().get("second ZSK"));
             ks.update_zsk(Mode::ForReal, old, new)
                 .expect("Should have been checked with DryRun");
+            println!("line {} = {:?}", line!(), ks.keys().get("second ZSK"));
         }
         RollOp::Propagation1 => {
             // Set the visiable time of new ZSKs to the current time.
             let now = UnixTime::now();
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1223,7 +1187,7 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1245,7 +1209,7 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 
             // Move the Incoming keys to Active. Move the Leaving keys to
             // Retired.
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref mut keystate) = k.keytype else {
                     continue;
                 };
@@ -1260,7 +1224,7 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
         RollOp::Propagation2 => {
             // Set the published time of new RRSIG records to the current time.
             let now = UnixTime::now();
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1272,7 +1236,7 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1293,7 +1257,7 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
 
             // Move old keys out
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref mut keystate) = k.keytype else {
                     continue;
                 };
@@ -1352,7 +1316,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             // Set the visiable time of new KSKs, ZSKs and CSKs to the current
             // time.
             let now = UnixTime::now();
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 match &k.keytype {
                     KeyType::Ksk(keystate)
                     | KeyType::Zsk(keystate)
@@ -1368,7 +1332,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let keystate = match &k.keytype {
                     KeyType::Ksk(keystate)
                     | KeyType::Zsk(keystate)
@@ -1391,7 +1355,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
                 }
             }
 
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 match k.keytype {
                     KeyType::Ksk(ref mut keystate) => {
                         if keystate.old && keystate.present {
@@ -1440,7 +1404,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
         RollOp::Propagation2 => {
             // Set the published time of new DS records to the current time.
             let now = UnixTime::now();
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 match &k.keytype {
                     KeyType::Ksk(keystate) | KeyType::Csk(keystate, _) => {
                         if keystate.old || !keystate.present {
@@ -1454,7 +1418,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
 
             // Set the published time of new RRSIG records to the current time.
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let keystate = match &k.keytype {
                     KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
                         keystate
@@ -1469,7 +1433,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 let keystate = match &k.keytype {
                     KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
                         keystate
@@ -1493,7 +1457,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
 
             // Move old keys out
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 match k.keytype {
                     KeyType::Ksk(ref mut keystate)
                     | KeyType::Csk(ref mut keystate, _) => {
@@ -1506,7 +1470,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
                     KeyType::Zsk(_) | KeyType::Include(_) => (),
                 }
             }
-            for k in &mut ks.keys {
+            for k in ks.keys.values_mut() {
                 match k.keytype {
                     KeyType::Zsk(ref mut keystate)
                     | KeyType::Csk(_, ref mut keystate) => {
@@ -1570,8 +1534,10 @@ mod tests {
     fn test_rolls() {
         let mut ks = KeySet::new(Name::from_str("example.com").unwrap());
 
-        ks.add_key_ksk("first KSK".to_string(), None, UnixTime::now());
-        ks.add_key_zsk("first ZSK".to_string(), None, UnixTime::now());
+        ks.add_key_ksk("first KSK".to_string(), None, UnixTime::now())
+            .unwrap();
+        ks.add_key_zsk("first ZSK".to_string(), None, UnixTime::now())
+            .unwrap();
 
         let actions = ks
             .start_roll(RollType::CskRoll, &[], &["first KSK", "first ZSK"])
@@ -1580,7 +1546,9 @@ mod tests {
             actions,
             [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
         );
-        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "first ZSK"]);
         assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
         assert_eq!(zone_sigs(&ks), Vec::<String>::new());
         assert_eq!(ds_keys(&ks), Vec::<String>::new());
@@ -1602,7 +1570,9 @@ mod tests {
                 Action::ReportRrsigPropagated
             ]
         );
-        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "first ZSK"]);
         assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
         assert_eq!(zone_sigs(&ks), ["first ZSK"]);
         assert_eq!(ds_keys(&ks), ["first KSK"]);
@@ -1618,7 +1588,9 @@ mod tests {
             actions,
             [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
         );
-        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "first ZSK"]);
         assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
         assert_eq!(zone_sigs(&ks), ["first ZSK"]);
         assert_eq!(ds_keys(&ks), ["first KSK"]);
@@ -1626,18 +1598,25 @@ mod tests {
         let actions = ks.roll_done(RollType::CskRoll).unwrap();
         assert_eq!(actions, []);
 
-        ks.add_key_ksk("second KSK".to_string(), None, UnixTime::now());
-        ks.add_key_zsk("second ZSK".to_string(), None, UnixTime::now());
+        ks.add_key_ksk("second KSK".to_string(), None, UnixTime::now())
+            .unwrap();
+        ks.add_key_zsk("second ZSK".to_string(), None, UnixTime::now())
+            .unwrap();
 
+        println!("line {} = {:?}", line!(), ks.keys().get("second ZSK"));
         let actions = ks
             .start_roll(RollType::ZskRoll, &["first ZSK"], &["second ZSK"])
             .unwrap();
+        println!("line {} = {:?}", line!(), ks.keys().get("second ZSK"));
         assert_eq!(
             actions,
             [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
         );
-        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK", "second ZSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "first ZSK", "second ZSK"]);
         assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        println!("keys = {:?}", ks.keys());
         assert_eq!(zone_sigs(&ks), ["first ZSK"]);
         assert_eq!(ds_keys(&ks), ["first KSK"]);
 
@@ -1652,7 +1631,9 @@ mod tests {
             actions,
             [Action::UpdateRrsig, Action::ReportRrsigPropagated]
         );
-        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK", "second ZSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "first ZSK", "second ZSK"]);
         assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
         assert_eq!(zone_sigs(&ks), ["second ZSK"]);
         assert_eq!(ds_keys(&ks), ["first KSK"]);
@@ -1665,7 +1646,9 @@ mod tests {
 
         let actions = ks.cache_expired2(RollType::ZskRoll).unwrap();
         assert_eq!(actions, [Action::UpdateDnskeyRrset]);
-        assert_eq!(dnskey(&ks), ["first KSK", "second ZSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "second ZSK"]);
         assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
         assert_eq!(zone_sigs(&ks), ["second ZSK"]);
         assert_eq!(ds_keys(&ks), ["first KSK"]);
@@ -1681,8 +1664,12 @@ mod tests {
             actions,
             [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
         );
-        assert_eq!(dnskey(&ks), ["first KSK", "second KSK", "second ZSK"]);
-        assert_eq!(dnskey_sigs(&ks), ["first KSK", "second KSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "second KSK", "second ZSK"]);
+        let mut dks = dnskey_sigs(&ks);
+        dks.sort();
+        assert_eq!(dks, ["first KSK", "second KSK"]);
         assert_eq!(zone_sigs(&ks), ["second ZSK"]);
         assert_eq!(ds_keys(&ks), ["first KSK"]);
 
@@ -1701,8 +1688,12 @@ mod tests {
                 Action::ReportDsPropagated
             ]
         );
-        assert_eq!(dnskey(&ks), ["first KSK", "second KSK", "second ZSK"]);
-        assert_eq!(dnskey_sigs(&ks), ["first KSK", "second KSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "second KSK", "second ZSK"]);
+        let mut dks = dnskey_sigs(&ks);
+        dks.sort();
+        assert_eq!(dks, ["first KSK", "second KSK"]);
         assert_eq!(zone_sigs(&ks), ["second ZSK"]);
         assert_eq!(ds_keys(&ks), ["second KSK"]);
 
@@ -1717,7 +1708,9 @@ mod tests {
             actions,
             [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
         );
-        assert_eq!(dnskey(&ks), ["second KSK", "second ZSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["second KSK", "second ZSK"]);
         assert_eq!(dnskey_sigs(&ks), ["second KSK"]);
         assert_eq!(zone_sigs(&ks), ["second ZSK"]);
         assert_eq!(ds_keys(&ks), ["second KSK"]);
@@ -1726,7 +1719,8 @@ mod tests {
         assert_eq!(actions, []);
         ks.delete_key("first KSK").unwrap();
 
-        ks.add_key_csk("first CSK".to_string(), None, UnixTime::now());
+        ks.add_key_csk("first CSK".to_string(), None, UnixTime::now())
+            .unwrap();
 
         let actions = ks
             .start_roll(
@@ -1739,8 +1733,12 @@ mod tests {
             actions,
             [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
         );
-        assert_eq!(dnskey(&ks), ["second KSK", "second ZSK", "first CSK"]);
-        assert_eq!(dnskey_sigs(&ks), ["second KSK", "first CSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first CSK", "second KSK", "second ZSK"]);
+        let mut dks = dnskey_sigs(&ks);
+        dks.sort();
+        assert_eq!(dks, ["first CSK", "second KSK"]);
         assert_eq!(zone_sigs(&ks), ["second ZSK"]);
         assert_eq!(ds_keys(&ks), ["second KSK"]);
 
@@ -1761,8 +1759,12 @@ mod tests {
                 Action::ReportRrsigPropagated
             ]
         );
-        assert_eq!(dnskey(&ks), ["second KSK", "second ZSK", "first CSK"]);
-        assert_eq!(dnskey_sigs(&ks), ["second KSK", "first CSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first CSK", "second KSK", "second ZSK"]);
+        let mut dks = dnskey_sigs(&ks);
+        dks.sort();
+        assert_eq!(dks, ["first CSK", "second KSK"]);
         assert_eq!(zone_sigs(&ks), ["first CSK"]);
         assert_eq!(ds_keys(&ks), ["first CSK"]);
 
@@ -1787,7 +1789,8 @@ mod tests {
         ks.delete_key("second KSK").unwrap();
         ks.delete_key("second ZSK").unwrap();
 
-        ks.add_key_csk("second CSK".to_string(), None, UnixTime::now());
+        ks.add_key_csk("second CSK".to_string(), None, UnixTime::now())
+            .unwrap();
 
         let actions = ks
             .start_roll(RollType::CskRoll, &["first CSK"], &["second CSK"])
@@ -1796,8 +1799,12 @@ mod tests {
             actions,
             [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
         );
-        assert_eq!(dnskey(&ks), ["first CSK", "second CSK"]);
-        assert_eq!(dnskey_sigs(&ks), ["first CSK", "second CSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first CSK", "second CSK"]);
+        let mut dks = dnskey_sigs(&ks);
+        dks.sort();
+        assert_eq!(dks, ["first CSK", "second CSK"]);
         assert_eq!(zone_sigs(&ks), ["first CSK"]);
         assert_eq!(ds_keys(&ks), ["first CSK"]);
 
@@ -1819,8 +1826,12 @@ mod tests {
                 Action::ReportRrsigPropagated
             ]
         );
-        assert_eq!(dnskey(&ks), ["first CSK", "second CSK"]);
-        assert_eq!(dnskey_sigs(&ks), ["first CSK", "second CSK"]);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first CSK", "second CSK"]);
+        let mut dks = dnskey_sigs(&ks);
+        dks.sort();
+        assert_eq!(dks, ["first CSK", "second CSK"]);
         assert_eq!(zone_sigs(&ks), ["second CSK"]);
         assert_eq!(ds_keys(&ks), ["second CSK"]);
 
@@ -1848,7 +1859,7 @@ mod tests {
     fn dnskey(ks: &KeySet) -> Vec<String> {
         ks.keys()
             .iter()
-            .filter(|k| {
+            .filter(|(_, k)| {
                 let status = match k.keytype() {
                     KeyType::Ksk(keystate)
                     | KeyType::Zsk(keystate)
@@ -1857,18 +1868,18 @@ mod tests {
                 };
                 status.present()
             })
-            .map(|k| k.pubref().to_string())
+            .map(|(pr, _)| pr.to_string())
             .collect()
     }
 
     fn dnskey_sigs(ks: &KeySet) -> Vec<String> {
         let keys = ks.keys();
         let mut vec = Vec::new();
-        for key in keys {
+        for (pubref, key) in keys {
             match key.keytype() {
                 KeyType::Ksk(keystate) | KeyType::Csk(keystate, _) => {
                     if keystate.signer() {
-                        vec.push(key.pubref().to_string());
+                        vec.push(pubref.to_string());
                     }
                 }
                 KeyType::Zsk(_) | KeyType::Include(_) => (),
@@ -1879,11 +1890,11 @@ mod tests {
     fn zone_sigs(ks: &KeySet) -> Vec<String> {
         let keys = ks.keys();
         let mut vec = Vec::new();
-        for key in keys {
+        for (pubref, key) in keys {
             match key.keytype() {
                 KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
                     if keystate.signer() {
-                        vec.push(key.pubref().to_string());
+                        vec.push(pubref.to_string());
                     }
                 }
                 KeyType::Ksk(_) | KeyType::Include(_) => (),
@@ -1894,7 +1905,7 @@ mod tests {
     fn ds_keys(ks: &KeySet) -> Vec<String> {
         let keys = ks.keys();
         let mut vec = Vec::new();
-        for key in keys {
+        for (pubref, key) in keys {
             let status = match key.keytype() {
                 KeyType::Ksk(keystate)
                 | KeyType::Zsk(keystate)
@@ -1902,7 +1913,7 @@ mod tests {
                 | KeyType::Include(keystate) => keystate,
             };
             if status.at_parent() {
-                vec.push(key.pubref().to_string());
+                vec.push(pubref.to_string());
             }
         }
         vec
