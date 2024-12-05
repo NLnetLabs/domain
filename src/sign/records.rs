@@ -1182,26 +1182,36 @@ impl<Octs: AsRef<[u8]>, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
 pub trait SigningKeyUsageStrategy<Octs, Inner: SignRaw> {
     const NAME: &'static str;
 
-    fn new() -> Self;
-
-    fn filter_ksks(
-        &mut self,
-        candidate_key: &DnssecSigningKey<Octs, Inner>,
-    ) -> bool {
-        matches!(
-            candidate_key.purpose(),
-            IntendedKeyPurpose::KSK | IntendedKeyPurpose::CSK
-        )
+    fn select_ksks(
+        candidate_keys: &[DnssecSigningKey<Octs, Inner>],
+    ) -> HashSet<usize> {
+        candidate_keys
+            .iter()
+            .enumerate()
+            .filter_map(|(i, k)| {
+                matches!(
+                    k.purpose(),
+                    IntendedKeyPurpose::KSK | IntendedKeyPurpose::CSK
+                )
+                .then_some(i)
+            })
+            .collect::<HashSet<_>>()
     }
 
-    fn filter_zsks(
-        &mut self,
-        candidate_key: &DnssecSigningKey<Octs, Inner>,
-    ) -> bool {
-        matches!(
-            candidate_key.purpose(),
-            IntendedKeyPurpose::ZSK | IntendedKeyPurpose::CSK
-        )
+    fn select_zsks(
+        candidate_keys: &[DnssecSigningKey<Octs, Inner>],
+    ) -> HashSet<usize> {
+        candidate_keys
+            .iter()
+            .enumerate()
+            .filter_map(|(i, k)| {
+                matches!(
+                    k.purpose(),
+                    IntendedKeyPurpose::ZSK | IntendedKeyPurpose::CSK
+                )
+                .then_some(i)
+            })
+            .collect::<HashSet<_>>()
     }
 }
 
@@ -1211,10 +1221,6 @@ impl<Octs, Inner: SignRaw> SigningKeyUsageStrategy<Octs, Inner>
     for DefaultSigningKeyUsageStrategy
 {
     const NAME: &'static str = "Default key usage strategy";
-
-    fn new() -> Self {
-        Self
-    }
 }
 
 pub struct Signer<Octs, Inner, KeyStrat = DefaultSigningKeyUsageStrategy>
@@ -1280,19 +1286,9 @@ where
         // Work with indices because SigningKey doesn't impl PartialEq so we
         // cannot use a HashSet to make a unique set of them.
 
-        let mut key_filter = KeyStrat::new();
+        let dnskey_signing_key_idxs = KeyStrat::select_ksks(keys);
 
-        let dnskey_signing_key_idxs: HashSet<usize> = keys
-            .iter()
-            .enumerate()
-            .filter_map(|(i, k)| key_filter.filter_ksks(k).then_some(i))
-            .collect();
-
-        let rrset_signing_key_idxs: HashSet<usize> = keys
-            .iter()
-            .enumerate()
-            .filter_map(|(i, k)| key_filter.filter_zsks(k).then_some(i))
-            .collect();
+        let rrset_signing_key_idxs = KeyStrat::select_zsks(keys);
 
         let keys_in_use_idxs: HashSet<_> = rrset_signing_key_idxs
             .iter()
