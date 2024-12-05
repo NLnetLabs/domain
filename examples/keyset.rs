@@ -208,8 +208,8 @@ fn do_start(filename: &str, args: &[String]) {
             }
         });
 
-    let old_str: Vec<&str> = old.iter().map(|s: &&str| s.as_ref()).collect();
-    let new_str: Vec<&str> = new.iter().map(|s: &&str| s.as_ref()).collect();
+    let old_str: Vec<&str> = old.to_vec();
+    let new_str: Vec<&str> = new.to_vec();
 
     let actions = ks.start_roll(rolltype, &old_str, &new_str);
     report_actions(actions, &ks);
