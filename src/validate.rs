@@ -21,7 +21,7 @@ use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::{Compose, Composer};
-use crate::base::zonefile_fmt::ZonefileFmt;
+use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
 use crate::base::Rtype;
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Dnskey, Ds, Nsec3param, Rrsig};
@@ -322,7 +322,7 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
             w,
             "{} IN DNSKEY {}",
             self.owner().fmt_with_dot(),
-            self.to_dnskey().display_zonefile(false),
+            self.to_dnskey().display_zonefile(DisplayKind::Simple),
         )
     }
 
