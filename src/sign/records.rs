@@ -1257,7 +1257,7 @@ impl<Octs: AsRef<[u8]>, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
 pub trait SigningKeyUsageStrategy<Octs, Inner: SignRaw> {
     const NAME: &'static str;
 
-    fn select_ksks(
+    fn select_dnskey_signing_keys(
         candidate_keys: &[DnssecSigningKey<Octs, Inner>],
     ) -> HashSet<usize> {
         candidate_keys
@@ -1273,7 +1273,7 @@ pub trait SigningKeyUsageStrategy<Octs, Inner: SignRaw> {
             .collect::<HashSet<_>>()
     }
 
-    fn select_zsks(
+    fn select_non_dnskey_signing_keys(
         candidate_keys: &[DnssecSigningKey<Octs, Inner>],
     ) -> HashSet<usize> {
         candidate_keys
@@ -1370,9 +1370,11 @@ where
         // Work with indices because SigningKey doesn't impl PartialEq so we
         // cannot use a HashSet to make a unique set of them.
 
-        let dnskey_signing_key_idxs = KeyStrat::select_ksks(keys);
+        let dnskey_signing_key_idxs =
+            KeyStrat::select_dnskey_signing_keys(keys);
 
-        let rrset_signing_key_idxs = KeyStrat::select_zsks(keys);
+        let rrset_signing_key_idxs =
+            KeyStrat::select_non_dnskey_signing_keys(keys);
 
         let keys_in_use_idxs: HashSet<_> = rrset_signing_key_idxs
             .iter()
