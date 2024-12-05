@@ -60,7 +60,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
-use std::string::{String, };
+use std::string::String;
 use std::time::Duration;
 use std::vec::Vec;
 use time::format_description;
@@ -1563,7 +1563,7 @@ mod tests {
     fn test_name() {
         let ks = KeySet::new(Name::from_str("example.com").unwrap());
 
-	assert_eq!(ks.name().to_string(), "example.com");
+        assert_eq!(ks.name().to_string(), "example.com");
     }
 
     #[test]
@@ -1846,18 +1846,19 @@ mod tests {
     }
 
     fn dnskey(ks: &KeySet) -> Vec<String> {
-	ks.keys().iter()
-	    .filter(|k| {
-		let status = match k.keytype() {
-		    KeyType::Ksk(keystate)
-		    | KeyType::Zsk(keystate)
-		    | KeyType::Csk(keystate, _)
-		    | KeyType::Include(keystate) => keystate,
-		};
-		status.present()
-	    })
-	    .map(|k| k.pubref().to_string())
-	    .collect()
+        ks.keys()
+            .iter()
+            .filter(|k| {
+                let status = match k.keytype() {
+                    KeyType::Ksk(keystate)
+                    | KeyType::Zsk(keystate)
+                    | KeyType::Csk(keystate, _)
+                    | KeyType::Include(keystate) => keystate,
+                };
+                status.present()
+            })
+            .map(|k| k.pubref().to_string())
+            .collect()
     }
 
     fn dnskey_sigs(ks: &KeySet) -> Vec<String> {
