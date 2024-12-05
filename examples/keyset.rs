@@ -173,18 +173,18 @@ fn do_start(filename: &str, args: &[String]) {
     // those functions.
     let keys = ks.keys().to_vec();
     let (old, new): (Vec<_>, Vec<_>) = keys
-        .into_iter()
-        .filter_map(|k: Key| match rolltype {
+        .iter()
+        .filter_map(|k: &Key| match rolltype {
             RollType::KskRoll => {
                 if let KeyType::Ksk(keystate) = k.keytype() {
-                    Some((keystate.clone(), k.pubref().to_string()))
+                    Some((keystate.clone(), k.pubref()))
                 } else {
                     None
                 }
             }
             RollType::ZskRoll => {
                 if let KeyType::Zsk(keystate) = k.keytype() {
-                    Some((keystate.clone(), k.pubref().to_string()))
+                    Some((keystate.clone(), k.pubref()))
                 } else {
                     None
                 }
@@ -193,7 +193,7 @@ fn do_start(filename: &str, args: &[String]) {
                 KeyType::Ksk(keystate)
                 | KeyType::Zsk(keystate)
                 | KeyType::Csk(keystate, _) => {
-                    Some((keystate.clone(), k.pubref().to_string()))
+                    Some((keystate.clone(), k.pubref()))
                 }
                 KeyType::Include(_) => None,
             },
@@ -208,10 +208,8 @@ fn do_start(filename: &str, args: &[String]) {
             }
         });
 
-    let old_str: Vec<&str> =
-        old.iter().map(|s: &String| s.as_ref()).collect();
-    let new_str: Vec<&str> =
-        new.iter().map(|s: &String| s.as_ref()).collect();
+    let old_str: Vec<&str> = old.iter().map(|s: &&str| s.as_ref()).collect();
+    let new_str: Vec<&str> = new.iter().map(|s: &&str| s.as_ref()).collect();
 
     let actions = ks.start_roll(rolltype, &old_str, &new_str);
     report_actions(actions, &ks);
