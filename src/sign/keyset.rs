@@ -1839,20 +1839,18 @@ mod tests {
     }
 
     fn dnskey(ks: &KeySet) -> Vec<String> {
-        let keys = ks.keys();
-        let mut vec = Vec::new();
-        for key in keys {
-            let status = match key.keytype() {
-                KeyType::Ksk(keystate)
-                | KeyType::Zsk(keystate)
-                | KeyType::Csk(keystate, _)
-                | KeyType::Include(keystate) => keystate,
-            };
-            if status.present() {
-                vec.push(key.pubref().to_string());
-            }
-        }
-        vec
+	ks.keys().iter()
+	    .filter(|k| {
+		let status = match k.keytype() {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Zsk(keystate)
+		    | KeyType::Csk(keystate, _)
+		    | KeyType::Include(keystate) => keystate,
+		};
+		status.present()
+	    })
+	    .map(|k| k.pubref().to_string())
+	    .collect()
     }
 
     fn dnskey_sigs(ks: &KeySet) -> Vec<String> {
