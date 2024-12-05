@@ -60,7 +60,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
-use std::string::{String, ToString};
+use std::string::{String, };
 use std::time::Duration;
 use std::vec::Vec;
 use time::format_description;
@@ -182,8 +182,8 @@ impl KeySet {
     }
 
     /// Return the zone name this key set belongs to.
-    pub fn name(&self) -> String {
-        self.name.to_string()
+    pub fn name(&self) -> &Name<Vec<u8>> {
+        &self.name
     }
 
     /// Return the list of keys in the key set.
@@ -1558,6 +1558,13 @@ mod tests {
     use std::string::String;
     use std::time::Duration;
     use std::vec::Vec;
+
+    #[test]
+    fn test_name() {
+        let ks = KeySet::new(Name::from_str("example.com").unwrap());
+
+	assert_eq!(ks.name().to_string(), "example.com");
+    }
 
     #[test]
     fn test_rolls() {
