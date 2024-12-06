@@ -17,7 +17,8 @@ New
   running resolver. In combination with `ResolvConf::new()` this can also be
   used to control the connections made when testing code that uses the stub
   resolver. ([#440])
-* Add `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446])
+* Add `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
+  [#463])
 
 Bug fixes
 
@@ -57,6 +58,7 @@ Other changes
 [#440]: https://github.com/NLnetLabs/domain/pull/440
 [#441]: https://github.com/NLnetLabs/domain/pull/441
 [#446]: https://github.com/NLnetLabs/domain/pull/446
+[#463]: https://github.com/NLnetLabs/domain/pull/463
 [@weilence]: https://github.com/weilence
 
 ## 0.10.3
