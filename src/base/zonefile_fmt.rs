@@ -145,6 +145,7 @@ impl<W: fmt::Write> FormatWriter for SimpleWriter<W> {
 /// A single line writer that puts tabs between ungrouped tokens
 struct TabbedWriter<W> {
     first: bool,
+    first_block: bool,
     blocks: usize,
     writer: W,
 }
@@ -153,6 +154,7 @@ impl<W> TabbedWriter<W> {
     fn new(writer: W) -> Self {
         Self {
             first: true,
+            first_block: true,
             blocks: 0,
             writer,
         }
@@ -162,7 +164,14 @@ impl<W> TabbedWriter<W> {
 impl<W: fmt::Write> FormatWriter for TabbedWriter<W> {
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
         if !self.first {
-            let c = if self.blocks == 0 { '\t' } else { ' ' };
+            let c = if self.blocks == 0 {
+                '\t'
+            } else if self.first_block {
+                self.first_block = false;
+                '\t'
+            } else {
+                ' '
+            };
             self.writer.write_char(c)?;
         }
         self.first = false;
@@ -439,7 +448,7 @@ mod test {
     }
 
     #[test]
-    fn aligned() {
+    fn tabbed() {
         let record = create_record(
             Cds::new(
                 5414,
@@ -453,7 +462,7 @@ mod test {
         // The name, ttl, class and rtype should be separated by \t, but the
         // rdata shouldn't.
         assert_eq!(
-            "example.com.\t3600\tIN\tCDS 5414 15 2 DEADBEEF",
+            "example.com.\t3600\tIN\tCDS\t5414 15 2 DEADBEEF",
             record.display_zonefile(DisplayKind::Tabbed).to_string()
         );
     }
