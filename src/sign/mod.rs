@@ -126,6 +126,7 @@ pub use self::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
 pub mod common;
 pub mod openssl;
+pub mod records;
 pub mod ring;
 
 //----------- SigningKey -----------------------------------------------------
