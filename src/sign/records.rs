@@ -1282,35 +1282,35 @@ impl<Octs: AsRef<[u8]>, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
 pub trait SigningKeyUsageStrategy<Octs, Inner: SignRaw> {
     const NAME: &'static str;
 
-    fn select_dnskey_signing_keys(
+    fn select_signing_keys_for_rtype(
         candidate_keys: &[DnssecSigningKey<Octs, Inner>],
+        rtype: Option<Rtype>,
     ) -> HashSet<usize> {
-        candidate_keys
-            .iter()
-            .enumerate()
-            .filter_map(|(i, k)| {
+        match rtype {
+            Some(Rtype::DNSKEY) => Self::filter_keys(candidate_keys, |k| {
                 matches!(
                     k.purpose(),
                     IntendedKeyPurpose::KSK | IntendedKeyPurpose::CSK
                 )
-                .then_some(i)
-            })
-            .collect::<HashSet<_>>()
-    }
+            }),
 
-    fn select_non_dnskey_signing_keys(
-        candidate_keys: &[DnssecSigningKey<Octs, Inner>],
-    ) -> HashSet<usize> {
-        candidate_keys
-            .iter()
-            .enumerate()
-            .filter_map(|(i, k)| {
+            _ => Self::filter_keys(candidate_keys, |k| {
                 matches!(
                     k.purpose(),
                     IntendedKeyPurpose::ZSK | IntendedKeyPurpose::CSK
                 )
-                .then_some(i)
-            })
+            }),
+        }
+    }
+
+    fn filter_keys(
+        candidate_keys: &[DnssecSigningKey<Octs, Inner>],
+        filter: fn(&DnssecSigningKey<Octs, Inner>) -> bool,
+    ) -> HashSet<usize> {
+        candidate_keys
+            .iter()
+            .enumerate()
+            .filter_map(|(i, k)| filter(k).then_some(i))
             .collect::<HashSet<_>>()
     }
 }
@@ -1423,13 +1423,15 @@ where
         // Work with indices because SigningKey doesn't impl PartialEq so we
         // cannot use a HashSet to make a unique set of them.
 
-        let dnskey_signing_key_idxs =
-            KeyStrat::select_dnskey_signing_keys(keys);
+        let dnskey_signing_key_idxs = KeyStrat::select_signing_keys_for_rtype(
+            keys,
+            Some(Rtype::DNSKEY),
+        );
 
-        let rrset_signing_key_idxs =
-            KeyStrat::select_non_dnskey_signing_keys(keys);
+        let non_dnskey_signing_key_idxs =
+            KeyStrat::select_signing_keys_for_rtype(keys, None);
 
-        let keys_in_use_idxs: HashSet<_> = rrset_signing_key_idxs
+        let keys_in_use_idxs: HashSet<_> = non_dnskey_signing_key_idxs
             .iter()
             .chain(dnskey_signing_key_idxs.iter())
             .collect();
@@ -1457,18 +1459,21 @@ where
                 "# DNSKEY RR signing keys: {}",
                 dnskey_signing_key_idxs.len()
             );
-            debug!("# RRSET signing keys: {}", rrset_signing_key_idxs.len());
+            debug!(
+                "# Non-DNSKEY RR signing keys: {}",
+                non_dnskey_signing_key_idxs.len()
+            );
 
             for idx in &keys_in_use_idxs {
                 debug_key("Key", keys[**idx].key());
             }
 
-            for idx in &rrset_signing_key_idxs {
-                debug_key("RRSET Signing Key", keys[*idx].key());
+            for idx in &dnskey_signing_key_idxs {
+                debug_key("DNSKEY RR signing key", keys[*idx].key());
             }
 
-            for idx in &dnskey_signing_key_idxs {
-                debug_key("DNSKEY Signing Key", keys[*idx].key());
+            for idx in &non_dnskey_signing_key_idxs {
+                debug_key("Non-DNSKEY RR signing key", keys[*idx].key());
             }
         }
 
@@ -1590,7 +1595,7 @@ where
                 let signing_key_idxs = if rrset.rtype() == Rtype::DNSKEY {
                     &dnskey_signing_key_idxs
                 } else {
-                    &rrset_signing_key_idxs
+                    &non_dnskey_signing_key_idxs
                 };
 
                 for key in signing_key_idxs.iter().map(|&idx| keys[idx].key())
