@@ -976,6 +976,8 @@ pub enum SigningError {
     KeyLacksSignatureValidityPeriod,
     DuplicateDnskey,
     OutOfMemory,
+    MissingApex,
+    EmptyApex,
 }
 
 //------------ Nsec3OptOut ---------------------------------------------------
@@ -1350,8 +1352,13 @@ where
 
         let mut families = families.peekable();
 
-        let apex_ttl =
-            families.peek().unwrap().records().next().unwrap().ttl();
+        let apex_ttl = families
+            .peek()
+            .ok_or(SigningError::MissingApex)?
+            .records()
+            .next()
+            .ok_or(SigningError::EmptyApex)?
+            .ttl();
 
         // Make DNSKEY RRs for all keys that will be used.
         let mut dnskey_rrs_to_sign = SortedRecords::<N, D>::new();
