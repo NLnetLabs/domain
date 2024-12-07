@@ -309,7 +309,7 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
 
         for res in source {
             match res.map_err(RecordError::MalformedRecord) {
-                Ok(Entry::Record(r)) => {
+                Ok(Entry::Record(r, _)) => {
                     let stored_rec = r.flatten_into();
                     let name = stored_rec.owner().clone();
                     if let Err(err) = zonefile.insert(stored_rec) {

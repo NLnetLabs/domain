@@ -42,7 +42,7 @@ fn main() {
                     );
                     eprintln!("  Error: {err}");
                     if let Some(entry) = &last_entry {
-                        if let Entry::Record(record) = &entry {
+                        if let Entry::Record(record, _) = &entry {
                             eprintln!(
                                 "\nThe last record read was:\n{record}."
                             );

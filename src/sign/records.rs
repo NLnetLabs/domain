@@ -140,6 +140,14 @@ where
     pub fn iter(&self) -> Iter<'_, Record<N, D>> {
         self.records.iter()
     }
+
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
 }
 
 impl<N: Send, S: Sorter> SortedRecords<N, StoredRecordData, S> {
@@ -266,7 +274,8 @@ where
     /// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155.html
     /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077.html
     /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
-    pub fn nsec3s<Octets, OctetsMut>(
+    #[allow(clippy::too_many_arguments)]
+    pub fn nsec3s<Octets, OctetsMut, CB>(
         &self,
         apex: &FamilyName<N>,
         ttl: Ttl,
@@ -274,6 +283,7 @@ where
         opt_out: Nsec3OptOut,
         assume_dnskeys_will_be_added: bool,
         capture_hash_to_owner_mappings: bool,
+        progress_cb: CB,
     ) -> Result<Nsec3Records<N, Octets>, Nsec3HashError>
     where
         N: ToName + Clone + From<Name<Octets>> + Display + Ord + Hash,
@@ -288,6 +298,7 @@ where
             + EmptyBuilder
             + FreezeBuilder,
         <OctetsMut as FreezeBuilder>::Octets: AsRef<[u8]>,
+        CB: Fn(usize, usize, Option<&'static str>),
     {
         // TODO:
         //   - Handle name collisions? (see RFC 5155 7.1 Zone Signing)
@@ -315,6 +326,9 @@ where
         // The owner name of a zone cut if we currently are at or below one.
         let mut cut: Option<FamilyName<N>> = None;
 
+        let num_families = self.families().count();
+        (progress_cb)(0, num_families, Some("Creating NSEC3 RRs"));
+
         let mut families = self.families();
 
         // Since the records are ordered, the first family is the apex --
@@ -336,12 +350,14 @@ where
             // If the owner is out of zone, we have moved out of our zone and
             // are done.
             if !family.is_in_zone(apex) {
+                (progress_cb)(1, 0, None);
                 break;
             }
 
             // If the family is below a zone cut, we must ignore it.
             if let Some(ref cut) = cut {
                 if family.owner().ends_with(cut.owner()) {
+                    (progress_cb)(1, 0, None);
                     continue;
                 }
             }
@@ -363,6 +379,7 @@ where
             //    delegations MAY be excluded."
             let has_ds = family.records().any(|rec| rec.rtype() == Rtype::DS);
             if cut.is_some() && !has_ds && opt_out == Nsec3OptOut::OptOut {
+                (progress_cb)(1, 0, None);
                 continue;
             }
 
@@ -418,6 +435,7 @@ where
                         builder.append_origin(&apex_owner).unwrap().into();
 
                     if let Err(pos) = ents.binary_search(&name) {
+                        (progress_cb)(n, 1, None);
                         ents.insert(pos, name);
                     }
                 }
@@ -469,8 +487,10 @@ where
                 last_nent_stack.push(last_nent);
             }
             last_nent_stack.push(name.owner().clone());
+            (progress_cb)(1, 1, None);
         }
 
+        (progress_cb)(0, 0, Some("Creating ENTs NSEC3 RRs"));
         for name in ents {
             // Create the type bitmap, empty for an ENT NSEC3.
             let bitmap = RtypeBitmap::<Octets>::builder();
@@ -492,6 +512,8 @@ where
 
             // Store the record by order of its owner name.
             nsec3s.push(rec);
+
+            (progress_cb)(1, 1, None);
         }
 
         // RFC 5155 7.1 step 7:
@@ -499,7 +521,9 @@ where
         //    value of the next NSEC3 RR in hash order.  The next hashed owner
         //    name of the last NSEC3 RR in the zone contains the value of the
         //    hashed owner name of the first NSEC3 RR in the hash order."
+        (progress_cb)(0, 0, Some("Sorting"));
         let mut nsec3s = SortedRecords::<N, Nsec3<Octets>, S>::from(nsec3s);
+        (progress_cb)(0, 0, Some("Hashing NSEC3 owner names"));
         for i in 1..=nsec3s.records.len() {
             // TODO: Detect duplicate hashes.
             let next_i = if i == nsec3s.records.len() { 0 } else { i };
@@ -517,6 +541,7 @@ where
             let last_rec = &mut nsec3s.records[i - 1];
             let last_nsec3: &mut Nsec3<Octets> = last_rec.data_mut();
             last_nsec3.set_next_owner(owner_hash.clone());
+            (progress_cb)(1, 0, None);
         }
 
         // RFC 5155 7.1 step 8:
@@ -1305,50 +1330,78 @@ impl<Octs, Inner: SignRaw> SigningKeyUsageStrategy<Octs, Inner>
     const NAME: &'static str = "Default key usage strategy";
 }
 
+pub trait ProgressReporter {
+    fn make_progress(&self, _increment: usize) {}
+
+    fn add_work(&self, _increment: usize) {}
+
+    fn change_phase(&self, _new_phase: &'static str) {}
+}
+
+impl ProgressReporter for () {}
+
 pub struct Signer<
     Octs,
     Inner,
     KeyStrat = DefaultSigningKeyUsageStrategy,
     Sort = DefaultSorter,
+    Progress = (),
 > where
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
+    Progress: ProgressReporter,
 {
+    progress_reporter: Option<Progress>,
+
     _phantom: PhantomData<(Octs, Inner, KeyStrat, Sort)>,
 }
 
-impl<Octs, Inner, KeyStrat, Sort> Default
-    for Signer<Octs, Inner, KeyStrat, Sort>
+impl<Octs, Inner, KeyStrat, Sort, Progress> Default
+    for Signer<Octs, Inner, KeyStrat, Sort, Progress>
 where
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
+    Progress: ProgressReporter,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Octs, Inner, KeyStrat, Sort> Signer<Octs, Inner, KeyStrat, Sort>
+impl<Octs, Inner, KeyStrat, Sort, Progress>
+    Signer<Octs, Inner, KeyStrat, Sort, Progress>
 where
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
+    Progress: ProgressReporter,
 {
     pub fn new() -> Self {
         Self {
+            progress_reporter: None,
             _phantom: PhantomData,
         }
     }
+
+    pub fn with_progress_reporter(
+        mut self,
+        progress_reporter: Progress,
+    ) -> Self {
+        self.progress_reporter = Some(progress_reporter);
+        self
+    }
 }
 
-impl<Octs, Inner, KeyStrat, Sort> Signer<Octs, Inner, KeyStrat, Sort>
+impl<Octs, Inner, KeyStrat, Sort, Progress>
+    Signer<Octs, Inner, KeyStrat, Sort, Progress>
 where
     Octs: AsRef<[u8]> + From<Box<[u8]>> + OctetsFrom<Vec<u8>>,
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
+    Progress: ProgressReporter,
 {
     /// Sign a zone using the given keys.
     ///
@@ -1436,6 +1489,17 @@ where
             }
         }
 
+        if let Some(reporter) = &self.progress_reporter {
+            let (num_families_low, num_families_high) = families.size_hint();
+            let estimated_num_families = std::cmp::max(
+                num_families_low,
+                num_families_high.unwrap_or_default(),
+            );
+            reporter.add_work(estimated_num_families);
+            reporter.add_work(keys_in_use_idxs.len());
+            reporter.change_phase("Creating DNSKEYs");
+        }
+
         let mut res: Vec<Record<N, ZoneRecordData<Octs, N>>> = Vec::new();
         let mut buf = Vec::new();
         let mut cut: Option<FamilyName<N>> = None;
@@ -1512,6 +1576,10 @@ where
                     key.public_key().key_tag()
                 );
             }
+
+            if let Some(progress) = &self.progress_reporter {
+                progress.make_progress(1);
+            }
         }
 
         // For all RRSETs below the apex
@@ -1519,12 +1587,18 @@ where
             // If the owner is out of zone, we have moved out of our zone and
             // are done.
             if !family.is_in_zone(apex) {
+                if let Some(progress) = &self.progress_reporter {
+                    progress.make_progress(1);
+                }
                 break;
             }
 
             // If the family is below a zone cut, we must ignore it.
             if let Some(ref cut) = cut {
                 if family.owner().ends_with(cut.owner()) {
+                    if let Some(progress) = &self.progress_reporter {
+                        progress.make_progress(1);
+                    }
                     continue;
                 }
             }
@@ -1571,6 +1645,10 @@ where
                         key.public_key().key_tag()
                     );
                 }
+            }
+
+            if let Some(progress) = &self.progress_reporter {
+                progress.make_progress(1);
             }
         }
 
