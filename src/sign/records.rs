@@ -1309,7 +1309,7 @@ where
                 key: &SigningKey<Octs, Inner>,
             ) {
                 debug!(
-                    "{prefix}: {}, owner={}, flags={} (SEP={}, ZSK={}))",
+                    "{prefix}: {}, owner={}, flags={} (SEP={}, ZSK={}, Key Tag={}))",
                     key.algorithm()
                         .to_mnemonic_str()
                         .map(|alg| format!("{alg} ({})", key.algorithm()))
@@ -1318,6 +1318,7 @@ where
                     key.flags(),
                     key.is_secure_entry_point(),
                     key.is_zone_signing_key(),
+                    key.public_key().key_tag(),
                 )
             }
 
