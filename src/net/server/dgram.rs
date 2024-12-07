@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
 use futures_util::stream::StreamExt;
+use log::{log_enabled, Level};
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
@@ -30,9 +31,7 @@ use tokio::time::interval;
 use tokio::time::timeout;
 use tokio::time::Instant;
 use tokio::time::MissedTickBehavior;
-use tracing::warn;
-use tracing::Level;
-use tracing::{enabled, error, trace};
+use tracing::{error, trace, warn};
 
 use crate::base::wire::Composer;
 use crate::base::Message;
@@ -496,7 +495,7 @@ where
                     let received_at = Instant::now();
                     self.metrics.inc_num_received_requests();
 
-                    if enabled!(Level::TRACE) {
+                    if log_enabled!(Level::Trace) {
                         let pcap_text = to_pcap_text(&buf, bytes_read);
                         trace!(%addr, pcap_text, "Received message");
                     }
@@ -553,7 +552,7 @@ where
                                         let bytes = target.as_dgram_slice();
 
                                         // Logging
-                                        if enabled!(Level::TRACE) {
+                                        if log_enabled!(Level::Trace) {
                                             let pcap_text = to_pcap_text(bytes, bytes.len());
                                             trace!(%addr, pcap_text, "Sending response");
                                         }
