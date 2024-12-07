@@ -1301,6 +1301,8 @@ where
             .chain(dnskey_signing_key_idxs.iter())
             .collect();
 
+        // TODO: use log::log_enabled instead.
+        // See: https://github.com/NLnetLabs/domain/pull/465
         if enabled!(Level::DEBUG) {
             fn debug_key<Octs: AsRef<[u8]>, Inner: SignRaw>(
                 prefix: &str,
