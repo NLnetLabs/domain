@@ -903,6 +903,10 @@ impl<'a, N, D> Rrset<'a, N, D> {
     pub fn iter(&self) -> slice::Iter<'a, Record<N, D>> {
         self.slice.iter()
     }
+
+    pub fn into_inner(self) -> &'a [Record<N, D>] {
+        self.slice
+    }
 }
 
 //------------ RecordsIter ---------------------------------------------------
@@ -1051,6 +1055,8 @@ pub enum SigningError {
     KeyLacksSignatureValidityPeriod,
     DuplicateDnskey,
     OutOfMemory,
+    MissingApex,
+    EmptyApex,
 }
 
 //------------ Nsec3OptOut ---------------------------------------------------
@@ -1358,11 +1364,13 @@ where
         add_used_dnskeys: bool,
     ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
     where
-        N: ToName + Clone + Send,
+        N: ToName + Clone + PartialEq + Send,
         D: RecordData
+            + Clone
             + ComposeRecordData
             + From<Dnskey<Octs>>
             + CanonicalOrd
+            + PartialEq
             + Send,
     {
         debug!("Signer settings: add_used_dnskeys={add_used_dnskeys}, strategy: {}", KeyStrat::NAME);
@@ -1383,13 +1391,15 @@ where
             .chain(dnskey_signing_key_idxs.iter())
             .collect();
 
+        // TODO: use log::log_enabled instead.
+        // See: https://github.com/NLnetLabs/domain/pull/465
         if enabled!(Level::DEBUG) {
             fn debug_key<Octs: AsRef<[u8]>, Inner: SignRaw>(
                 prefix: &str,
                 key: &SigningKey<Octs, Inner>,
             ) {
                 debug!(
-                    "{prefix}: {}, owner={}, flags={} (SEP={}, ZSK={}))",
+                    "{prefix}: {}, owner={}, flags={} (SEP={}, ZSK={}, Key Tag={}))",
                     key.algorithm()
                         .to_mnemonic_str()
                         .map(|alg| format!("{alg} ({})", key.algorithm()))
@@ -1398,6 +1408,7 @@ where
                     key.flags(),
                     key.is_secure_entry_point(),
                     key.is_zone_signing_key(),
+                    key.public_key().key_tag(),
                 )
             }
 
@@ -1434,48 +1445,76 @@ where
 
         let mut families = families.peekable();
 
-        let apex_ttl =
-            families.peek().unwrap().records().next().unwrap().ttl();
+        let apex_ttl = families
+            .peek()
+            .ok_or(SigningError::MissingApex)?
+            .records()
+            .next()
+            .ok_or(SigningError::EmptyApex)?
+            .ttl();
 
-        // Make DNSKEY RRs for all keys that will be used.
-        let mut dnskey_rrs_to_sign = SortedRecords::<N, D, Sort>::new();
-        for public_key in keys_in_use_idxs
-            .iter()
-            .map(|&&idx| keys[idx].key().public_key())
+        // Sign the apex
+        // SAFETY: We just checked above if the apex records existed.
+        let apex_family = families.next().unwrap();
+        let mut dnskey_rrs = vec![];
+        for rrset in apex_family
+            .rrsets()
+            .filter(|rrset| rrset.rtype() != Rtype::RRSIG)
         {
-            let dnskey = public_key.to_dnskey();
+            // If this is the apex DNSKEY RRSET, merge in the DNSKEYs of the
+            // keys we intend to sign with.
+            let (signing_key_idxs, rrset) = if rrset.rtype() == Rtype::DNSKEY
+            {
+                dnskey_rrs.extend_from_slice(rrset.into_inner());
 
-            // Save the DNSKEY RR so that we can generate an RRSIG for it.
-            dnskey_rrs_to_sign
-                .insert(Record::new(
-                    apex.owner().clone(),
-                    apex.class(),
-                    apex_ttl,
-                    Dnskey::convert(dnskey.clone()).into(),
-                ))
-                .map_err(|_| SigningError::DuplicateDnskey)?;
+                // Make DNSKEY RRs for all new keys that will be used.
+                for public_key in keys_in_use_idxs
+                    .iter()
+                    .map(|&&idx| keys[idx].key().public_key())
+                {
+                    let dnskey = public_key.to_dnskey();
 
-            if add_used_dnskeys {
-                // Add the DNSKEY RR to the final result so that we not only
-                // produce an RRSIG for it but tell the caller this is a new
-                // record to include in the final zone.
-                res.push(Record::new(
-                    apex.owner().clone(),
-                    apex.class(),
-                    apex_ttl,
-                    Dnskey::convert(dnskey).into(),
-                ));
+                    let dnskey_rr = Record::new(
+                        apex.owner().clone(),
+                        apex.class(),
+                        apex_ttl,
+                        Dnskey::convert(dnskey.clone()).into(),
+                    );
+
+                    if !dnskey_rrs.contains(&dnskey_rr) {
+                        if add_used_dnskeys {
+                            res.push(Record::new(
+                                apex.owner().clone(),
+                                apex.class(),
+                                apex_ttl,
+                                Dnskey::convert(dnskey).into(),
+                            ));
+                        }
+                        dnskey_rrs.push(dnskey_rr);
+                    }
+                }
+                (&dnskey_signing_key_idxs, Rrset::new(&dnskey_rrs))
+            } else {
+                (&non_dnskey_signing_key_idxs, rrset)
+            };
+
+            for key in signing_key_idxs.iter().map(|&idx| keys[idx].key()) {
+                // A copy of the family name. We’ll need it later.
+                let name = apex_family.family_name().cloned();
+
+                let rrsig_rr =
+                    Self::sign_rrset(key, &rrset, &name, apex, &mut buf)?;
+                res.push(rrsig_rr);
+                debug!(
+                    "Signed {} RRSET at the zone apex with keytag {}",
+                    rrset.rtype(),
+                    key.public_key().key_tag()
+                );
             }
         }
 
-        let dummy_dnskey_rrs = SortedRecords::<N, D>::new();
-        let families_iter = if add_used_dnskeys {
-            dnskey_rrs_to_sign.families().chain(families)
-        } else {
-            dummy_dnskey_rrs.families().chain(families)
-        };
-
-        for family in families_iter {
+        // For all RRSETs below the apex
+        for family in families {
             // If the owner is out of zone, we have moved out of our zone and
             // are done.
             if !family.is_in_zone(apex) {
@@ -1518,52 +1557,15 @@ where
                     }
                 }
 
-                let signing_key_idxs = if rrset.rtype() == Rtype::DNSKEY {
-                    &dnskey_signing_key_idxs
-                } else {
-                    &non_dnskey_signing_key_idxs
-                };
-
-                for key in signing_key_idxs.iter().map(|&idx| keys[idx].key())
+                for key in non_dnskey_signing_key_idxs
+                    .iter()
+                    .map(|&idx| keys[idx].key())
                 {
-                    let (inception, expiration) = key
-                        .signature_validity_period()
-                        .ok_or(SigningError::KeyLacksSignatureValidityPeriod)?
-                        .into_inner();
-
-                    let rrsig = ProtoRrsig::new(
-                        rrset.rtype(),
-                        key.algorithm(),
-                        name.owner().rrsig_label_count(),
-                        rrset.ttl(),
-                        expiration,
-                        inception,
-                        key.public_key().key_tag(),
-                        apex.owner().clone(),
-                    );
-
-                    buf.clear();
-                    rrsig.compose_canonical(&mut buf).unwrap();
-                    for record in rrset.iter() {
-                        record.compose_canonical(&mut buf).unwrap();
-                    }
-                    let signature =
-                        key.raw_secret_key().sign_raw(&buf).unwrap();
-                    let signature = signature.as_ref().to_vec();
-                    let Ok(signature) = signature.try_octets_into() else {
-                        return Err(SigningError::OutOfMemory);
-                    };
-
-                    let rrsig =
-                        rrsig.into_rrsig(signature).expect("long signature");
-                    res.push(Record::new(
-                        name.owner().clone(),
-                        name.class(),
-                        rrset.ttl(),
-                        ZoneRecordData::Rrsig(rrsig),
-                    ));
+                    let rrsig_rr =
+                        Self::sign_rrset(key, &rrset, &name, apex, &mut buf)?;
+                    res.push(rrsig_rr);
                     debug!(
-                        "Signed {} record with keytag {}",
+                        "Signed {} RRSET with keytag {}",
                         rrset.rtype(),
                         key.public_key().key_tag()
                     );
@@ -1574,5 +1576,53 @@ where
         debug!("Returning {} records from signing", res.len());
 
         Ok(res)
+    }
+
+    fn sign_rrset<N, D>(
+        key: &SigningKey<Octs, Inner>,
+        rrset: &Rrset<'_, N, D>,
+        name: &FamilyName<N>,
+        apex: &FamilyName<N>,
+        buf: &mut Vec<u8>,
+    ) -> Result<Record<N, ZoneRecordData<Octs, N>>, SigningError>
+    where
+        N: ToName + Clone + Send,
+        D: RecordData
+            + ComposeRecordData
+            + From<Dnskey<Octs>>
+            + CanonicalOrd
+            + Send,
+    {
+        let (inception, expiration) = key
+            .signature_validity_period()
+            .ok_or(SigningError::KeyLacksSignatureValidityPeriod)?
+            .into_inner();
+        let rrsig = ProtoRrsig::new(
+            rrset.rtype(),
+            key.algorithm(),
+            name.owner().rrsig_label_count(),
+            rrset.ttl(),
+            expiration,
+            inception,
+            key.public_key().key_tag(),
+            apex.owner().clone(),
+        );
+        buf.clear();
+        rrsig.compose_canonical(buf).unwrap();
+        for record in rrset.iter() {
+            record.compose_canonical(buf).unwrap();
+        }
+        let signature = key.raw_secret_key().sign_raw(&*buf).unwrap();
+        let signature = signature.as_ref().to_vec();
+        let Ok(signature) = signature.try_octets_into() else {
+            return Err(SigningError::OutOfMemory);
+        };
+        let rrsig = rrsig.into_rrsig(signature).expect("long signature");
+        Ok(Record::new(
+            name.owner().clone(),
+            name.class(),
+            rrset.ttl(),
+            ZoneRecordData::Rrsig(rrsig),
+        ))
     }
 }
