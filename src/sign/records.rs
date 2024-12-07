@@ -715,14 +715,15 @@ where
 impl<N: Send, D: Send, S: Sorter> Extend<Record<N, D>>
     for SortedRecords<N, D, S>
 where
-    N: ToName,
-    D: RecordData + CanonicalOrd,
+    N: ToName + PartialEq,
+    D: RecordData + CanonicalOrd + PartialEq,
 {
     fn extend<T: IntoIterator<Item = Record<N, D>>>(&mut self, iter: T) {
         for item in iter {
             self.records.push(item);
         }
         S::sort_by(&mut self.records, CanonicalOrd::canonical_cmp);
+        self.records.dedup();
     }
 }
 
