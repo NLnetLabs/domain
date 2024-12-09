@@ -1054,10 +1054,22 @@ where
 pub enum SigningError {
     /// One or more keys does not have a signature validity period defined.
     KeyLacksSignatureValidityPeriod,
-    DuplicateDnskey,
+
+    /// TODO
     OutOfMemory,
+
+    /// TODO
     MissingApex,
+
+    /// TODO
     EmptyApex,
+
+    /// At least one key must be provided to sign with.
+    NoKeysProvided,
+
+    /// None of the provided keys were deemed suitable by the
+    /// [`SigningKeyUsageStrategy`] used.
+    NoSuitableKeysFound,
 }
 
 //------------ Nsec3OptOut ---------------------------------------------------
@@ -1376,6 +1388,10 @@ where
     {
         debug!("Signer settings: add_used_dnskeys={add_used_dnskeys}, strategy: {}", KeyStrat::NAME);
 
+        if keys.is_empty() {
+            return Err(SigningError::NoKeysProvided);
+        }
+
         // Work with indices because SigningKey doesn't impl PartialEq so we
         // cannot use a HashSet to make a unique set of them.
 
@@ -1391,6 +1407,10 @@ where
             .iter()
             .chain(dnskey_signing_key_idxs.iter())
             .collect();
+
+        if keys_in_use_idxs.is_empty() {
+            return Err(SigningError::NoSuitableKeysFound);
+        }
 
         // TODO: use log::log_enabled instead.
         // See: https://github.com/NLnetLabs/domain/pull/465
