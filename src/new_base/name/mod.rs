@@ -13,3 +13,6 @@
 //! The owner of `example.org` is thus responsible for _every_ domain ending
 //! with the `.example.org` suffix.  The reverse order in which this hierarchy
 //! is expressed can sometimes be confusing.
+
+mod label;
+pub use label::Label;
