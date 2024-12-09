@@ -1335,7 +1335,7 @@ where
                 key: &SigningKey<Octs, Inner>,
             ) {
                 debug!(
-                    "{prefix}: {}, owner={}, flags={} (SEP={}, ZSK={}, Key Tag={}))",
+                    "{prefix} with algorithm {}, owner={}, flags={} (SEP={}, ZSK={}) and key tag={}",
                     key.algorithm()
                         .to_mnemonic_str()
                         .map(|alg| format!("{alg} ({})", key.algorithm()))
@@ -1348,26 +1348,30 @@ where
                 )
             }
 
-            debug!("# Keys: {}", keys_in_use_idxs.len());
+            let num_keys = keys_in_use_idxs.len();
             debug!(
-                "# DNSKEY RR signing keys: {}",
-                dnskey_signing_key_idxs.len()
-            );
-            debug!(
-                "# Non-DNSKEY RR signing keys: {}",
-                non_dnskey_signing_key_idxs.len()
+                "Signing with {} {}:",
+                num_keys,
+                if num_keys == 1 { "key" } else { "keys" }
             );
 
             for idx in &keys_in_use_idxs {
-                debug_key("Key", keys[**idx].key());
-            }
-
-            for idx in &dnskey_signing_key_idxs {
-                debug_key("DNSKEY RR signing key", keys[*idx].key());
-            }
-
-            for idx in &non_dnskey_signing_key_idxs {
-                debug_key("Non-DNSKEY RR signing key", keys[*idx].key());
+                let key = keys[**idx].key();
+                let is_dnskey_signing_key =
+                    dnskey_signing_key_idxs.contains(idx);
+                let is_non_dnskey_signing_key =
+                    non_dnskey_signing_key_idxs.contains(idx);
+                let usage =
+                    if is_dnskey_signing_key && is_non_dnskey_signing_key {
+                        "CSK"
+                    } else if is_dnskey_signing_key {
+                        "KSK"
+                    } else if is_non_dnskey_signing_key {
+                        "ZSK"
+                    } else {
+                        "Unused"
+                    };
+                debug_key(&format!("Key[{idx}]: {usage}"), key);
             }
         }
 
