@@ -1,8 +1,10 @@
 //! Actual signing.
+use core::cmp::Ordering;
 use core::convert::From;
 use core::fmt::Display;
 use core::marker::PhantomData;
 use core::ops::Deref;
+use core::slice::Iter;
 
 use std::boxed::Box;
 use std::collections::{HashMap, HashSet};
@@ -32,18 +34,73 @@ use crate::zonetree::StoredName;
 
 use super::{SignRaw, SigningKey};
 
+//------------ Sorter --------------------------------------------------------
+
+/// A DNS resource record sorter.
+///
+/// Implement this trait to use a different sorting algorithm than that
+/// implemented by [`DefaultSorter`], e.g. to use system resources in a
+/// different way when sorting.
+pub trait Sorter {
+    /// Sort the given DNS resource records.
+    ///
+    /// The imposed order should be compatible with the ordering defined by
+    /// RFC 8976 section 3.3.1, i.e. _"DNSSEC's canonical on-the-wire RR
+    /// format (without name compression) and ordering as specified in
+    /// Sections 6.1, 6.2, and 6.3 of [RFC4034] with the additional provision
+    /// that RRsets having the same owner name MUST be numerically ordered, in
+    /// ascending order, by their numeric RR TYPE"_.
+    fn sort_by<N, D, F>(records: &mut Vec<Record<N, D>>, compare: F)
+    where
+        Record<N, D>: Send,
+        F: Fn(&Record<N, D>, &Record<N, D>) -> Ordering + Sync;
+}
+
+//------------ DefaultSorter -------------------------------------------------
+
+/// The default [`Sorter`] implementation used by [`SortedRecords`].
+///
+/// The current implementation is the single threaded sort provided by Rust
+/// [`std::vec::Vec::sort_by()`].
+pub struct DefaultSorter;
+
+impl Sorter for DefaultSorter {
+    fn sort_by<N, D, F>(records: &mut Vec<Record<N, D>>, compare: F)
+    where
+        Record<N, D>: Send,
+        F: Fn(&Record<N, D>, &Record<N, D>) -> Ordering + Sync,
+    {
+        records.sort_by(compare);
+    }
+}
+
 //------------ SortedRecords -------------------------------------------------
 
 /// A collection of resource records sorted for signing.
+///
+/// The sort algorithm used defaults to [`DefaultSorter`] but can be
+/// overridden by being generic over an alternate implementation of
+/// [`Sorter`].
 #[derive(Clone)]
-pub struct SortedRecords<N, D> {
+pub struct SortedRecords<N, D, S = DefaultSorter>
+where
+    Record<N, D>: Send,
+    S: Sorter,
+{
     records: Vec<Record<N, D>>,
+
+    _phantom: PhantomData<S>,
 }
 
-impl<N, D> SortedRecords<N, D> {
+impl<N, D, S> SortedRecords<N, D, S>
+where
+    Record<N, D>: Send,
+    S: Sorter,
+{
     pub fn new() -> Self {
         SortedRecords {
             records: Vec::new(),
+            _phantom: Default::default(),
         }
     }
 
@@ -79,9 +136,13 @@ impl<N, D> SortedRecords<N, D> {
     {
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
+
+    pub fn iter(&self) -> Iter<'_, Record<N, D>> {
+        self.records.iter()
+    }
 }
 
-impl<N> SortedRecords<N, StoredRecordData> {
+impl<N: Send, S: Sorter> SortedRecords<N, StoredRecordData, S> {
     pub fn replace_soa(&mut self, new_soa: Soa<StoredName>) {
         if let Some(soa_rrset) = self
             .records
@@ -95,10 +156,11 @@ impl<N> SortedRecords<N, StoredRecordData> {
     }
 }
 
-impl<N, D> SortedRecords<N, D>
+impl<N, D, S> SortedRecords<N, D, S>
 where
     N: ToName + Send,
     D: RecordData + CanonicalOrd + Send,
+    S: Sorter,
     SortedRecords<N, D>: From<Vec<Record<N, D>>>,
 {
     pub fn nsecs<Octets>(
@@ -216,8 +278,8 @@ where
     where
         N: ToName + Clone + From<Name<Octets>> + Display + Ord + Hash,
         N: From<Name<<OctetsMut as FreezeBuilder>::Octets>>,
-        D: RecordData,
-        Octets: FromBuilder + OctetsFrom<Vec<u8>> + Clone + Default,
+        D: RecordData + From<Nsec3<Octets>>,
+        Octets: Send + FromBuilder + OctetsFrom<Vec<u8>> + Clone + Default,
         Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
         <Octets::Builder as OctetsBuilder>::AppendError: Debug,
         OctetsMut: OctetsBuilder
@@ -246,7 +308,7 @@ where
 
         // RFC 5155 7.1 step 5: _"Sort the set of NSEC3 RRs into hash order."
         // We store the NSEC3s as we create them in a self-sorting vec.
-        let mut nsec3s = SortedRecords::new();
+        let mut nsec3s = Vec::<Record<N, Nsec3<Octets>>>::new();
 
         let mut ents = Vec::<N>::new();
 
@@ -384,7 +446,7 @@ where
                 }
             }
 
-            let rec = Self::mk_nsec3(
+            let rec: Record<N, Nsec3<Octets>> = Self::mk_nsec3(
                 name.owner(),
                 params.hash_algorithm(),
                 nsec3_flags,
@@ -401,9 +463,7 @@ where
             }
 
             // Store the record by order of its owner name.
-            if nsec3s.insert(rec).is_err() {
-                return Err(Nsec3HashError::CollisionDetected);
-            }
+            nsec3s.push(rec);
 
             if let Some(last_nent) = last_nent {
                 last_nent_stack.push(last_nent);
@@ -431,9 +491,7 @@ where
             }
 
             // Store the record by order of its owner name.
-            if nsec3s.insert(rec).is_err() {
-                return Err(Nsec3HashError::CollisionDetected);
-            }
+            nsec3s.push(rec);
         }
 
         // RFC 5155 7.1 step 7:
@@ -441,7 +499,9 @@ where
         //    value of the next NSEC3 RR in hash order.  The next hashed owner
         //    name of the last NSEC3 RR in the zone contains the value of the
         //    hashed owner name of the first NSEC3 RR in the hash order."
+        let mut nsec3s = SortedRecords::<N, Nsec3<Octets>, S>::from(nsec3s);
         for i in 1..=nsec3s.records.len() {
+            // TODO: Detect duplicate hashes.
             let next_i = if i == nsec3s.records.len() { 0 } else { i };
             let cur_owner = nsec3s.records[next_i].owner();
             let name: Name<Octets> = cur_owner.try_to_name().unwrap();
@@ -533,7 +593,12 @@ where
 }
 
 /// Helper functions used to create NSEC3 records per RFC 5155.
-impl<N, D> SortedRecords<N, D> {
+impl<N, D, S> SortedRecords<N, D, S>
+where
+    N: ToName + Send,
+    D: RecordData + CanonicalOrd + Send,
+    S: Sorter,
+{
     #[allow(clippy::too_many_arguments)]
     fn mk_nsec3<Octets>(
         name: &N,
@@ -550,6 +615,7 @@ impl<N, D> SortedRecords<N, D> {
         Octets: FromBuilder + Clone + Default,
         <Octets as FromBuilder>::Builder:
             EmptyBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate,
+        Nsec3<Octets>: Into<D>,
     {
         // Create the base32hex ENT NSEC owner name.
         let base32hex_label =
@@ -608,24 +674,31 @@ impl<N, D> SortedRecords<N, D> {
     }
 }
 
-impl<N, D: CanonicalOrd> Default for SortedRecords<N, D> {
+impl<N: Send, D: Send + CanonicalOrd, S: Sorter> Default
+    for SortedRecords<N, D, S>
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<N, D> From<Vec<Record<N, D>>> for SortedRecords<N, D>
+impl<N, D, S: Sorter> From<Vec<Record<N, D>>> for SortedRecords<N, D, S>
 where
-    N: ToName,
-    D: RecordData + CanonicalOrd,
+    N: ToName + Send,
+    D: RecordData + CanonicalOrd + Send,
+    S: Sorter,
 {
     fn from(mut src: Vec<Record<N, D>>) -> Self {
-        src.sort_by(CanonicalOrd::canonical_cmp);
-        SortedRecords { records: src }
+        S::sort_by(&mut src, CanonicalOrd::canonical_cmp);
+        SortedRecords {
+            records: src,
+            _phantom: Default::default(),
+        }
     }
 }
 
-impl<N, D> FromIterator<Record<N, D>> for SortedRecords<N, D>
+impl<N: Send, D: Send, S: Sorter> FromIterator<Record<N, D>>
+    for SortedRecords<N, D, S>
 where
     N: ToName,
     D: RecordData + CanonicalOrd,
@@ -639,15 +712,18 @@ where
     }
 }
 
-impl<N, D> Extend<Record<N, D>> for SortedRecords<N, D>
+impl<N: Send, D: Send, S: Sorter> Extend<Record<N, D>>
+    for SortedRecords<N, D, S>
 where
-    N: ToName,
-    D: RecordData + CanonicalOrd,
+    N: ToName + PartialEq,
+    D: RecordData + CanonicalOrd + PartialEq,
 {
     fn extend<T: IntoIterator<Item = Record<N, D>>>(&mut self, iter: T) {
         for item in iter {
-            let _ = self.insert(item);
+            self.records.push(item);
         }
+        S::sort_by(&mut self.records, CanonicalOrd::canonical_cmp);
+        self.records.dedup();
     }
 }
 
@@ -1235,28 +1311,36 @@ impl<Octs, Inner: SignRaw> SigningKeyUsageStrategy<Octs, Inner>
     const NAME: &'static str = "Default key usage strategy";
 }
 
-pub struct Signer<Octs, Inner, KeyStrat = DefaultSigningKeyUsageStrategy>
-where
+pub struct Signer<
+    Octs,
+    Inner,
+    KeyStrat = DefaultSigningKeyUsageStrategy,
+    Sort = DefaultSorter,
+> where
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    Sort: Sorter,
 {
-    _phantom: PhantomData<(Octs, Inner, KeyStrat)>,
+    _phantom: PhantomData<(Octs, Inner, KeyStrat, Sort)>,
 }
 
-impl<Octs, Inner, KeyStrat> Default for Signer<Octs, Inner, KeyStrat>
+impl<Octs, Inner, KeyStrat, Sort> Default
+    for Signer<Octs, Inner, KeyStrat, Sort>
 where
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    Sort: Sorter,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Octs, Inner, KeyStrat> Signer<Octs, Inner, KeyStrat>
+impl<Octs, Inner, KeyStrat, Sort> Signer<Octs, Inner, KeyStrat, Sort>
 where
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    Sort: Sorter,
 {
     pub fn new() -> Self {
         Self {
@@ -1265,11 +1349,12 @@ where
     }
 }
 
-impl<Octs, Inner, KeyStrat> Signer<Octs, Inner, KeyStrat>
+impl<Octs, Inner, KeyStrat, Sort> Signer<Octs, Inner, KeyStrat, Sort>
 where
     Octs: AsRef<[u8]> + From<Box<[u8]>> + OctetsFrom<Vec<u8>>,
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    Sort: Sorter,
 {
     /// Sign a zone using the given keys.
     ///
