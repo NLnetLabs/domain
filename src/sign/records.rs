@@ -1527,7 +1527,9 @@ where
         let apex_ttl = families.peek().and_then(|first_family| {
             first_family
                 .records()
-                .find(|rr| rr.rtype() == Rtype::SOA)
+                .find(|rr| {
+                    rr.owner() == apex.owner() && rr.rtype() == Rtype::SOA
+                })
                 .map(|rr| rr.ttl())
         });
 
