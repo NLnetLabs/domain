@@ -462,7 +462,7 @@ ns2           3600   IN  AAAA    2001:db8::63
         zone.set_origin(Name::root());
         while let Some(entry) = zone.next_entry().unwrap() {
             match entry {
-                Entry::Record(record) => {
+                Entry::Record(record, _) => {
                     if record.rtype() != Rtype::ZONEMD {
                         continue;
                     }

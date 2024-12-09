@@ -376,7 +376,7 @@ fn match_section<
         }
         for (index, mat_rr) in match_section.iter().enumerate() {
             // Remove outer Record
-            let mat_rr = if let ZonefileEntry::Record(record) = mat_rr {
+            let mat_rr = if let ZonefileEntry::Record(record, _) = mat_rr {
                 record
             } else {
                 panic!("include not expected");
