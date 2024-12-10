@@ -48,6 +48,12 @@ tokio-stream   = { version = "0.1.1", optional = true }
 tracing        = { version = "0.1.40", optional = true }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
 
+# 'zerocopy' provides simple derives for converting types to and from byte
+# representations, along with network-endian integer primitives.  These are
+# used to define simple elements of DNS messages and their serialization.
+zerocopy = "0.8"
+zerocopy-derive = "0.8"
+
 [features]
 default     = ["std", "rand"]
 
