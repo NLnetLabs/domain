@@ -329,7 +329,11 @@ fn do_status(filename: &str, args: &[String]) {
     let ks = load_keyset(filename);
 
     println!("Keys:");
-    let keys = ks.keys();
+    let mut keys: Vec<_> = ks.keys().iter().collect();
+    keys.sort_by(|(pubref1, key1), (pubref2, key2)| {
+        (key1.timestamps().creation(), pubref1)
+            .cmp(&(key2.timestamps().creation(), pubref2))
+    });
     for (pubref, key) in keys {
         match key.keytype() {
             KeyType::Ksk(keystate)

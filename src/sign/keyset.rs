@@ -779,7 +779,9 @@ impl KeyTimestamps {
 ///
 /// Unix time is the number of seconds since midnight January first
 /// 1970 GMT.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(
+    Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize,
+)]
 pub struct UnixTime(Duration);
 
 impl UnixTime {
