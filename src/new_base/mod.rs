@@ -4,5 +4,9 @@
 //! with DNS.  Most importantly, it provides functionality for parsing and
 //! building DNS messages on the wire.
 
-pub mod message;
+mod message;
+pub use message::{Header, HeaderFlags, Message, SectionCounts};
+
 pub mod name;
+
+pub mod parse;
