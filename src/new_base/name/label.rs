@@ -1,16 +1,19 @@
 //! Labels in domain names.
 
-//----------- Label ----------------------------------------------------------
-
 use core::{
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
 };
 
+use zerocopy_derive::*;
+
+//----------- Label ----------------------------------------------------------
+
 /// A label in a domain name.
 ///
 /// A label contains up to 63 bytes of arbitrary data.
+#[derive(IntoBytes, Immutable, Unaligned)]
 #[repr(transparent)]
 pub struct Label([u8]);
 
