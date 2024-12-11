@@ -2,7 +2,7 @@
 
 use core::{fmt, ops::Range};
 
-use zerocopy::{FromBytes, Immutable, KnownLayout};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 mod message;
 pub use message::{MessagePart, ParseMessage, VisitMessagePart};
@@ -41,6 +41,40 @@ pub trait ParseFromMessage<'a>: Sized {
         message: &'a Message,
         range: Range<usize>,
     ) -> Result<Self, ParseError>;
+}
+
+//--- Carrying over 'zerocopy' traits
+
+// NOTE: We can't carry over 'read_from_prefix' because the trait impls would
+// conflict.  We kept 'ref_from_prefix' since it's more general.
+
+impl<'a, T: ?Sized> SplitFromMessage<'a> for &'a T
+where
+    T: FromBytes + KnownLayout + Immutable,
+{
+    fn split_from_message(
+        message: &'a Message,
+        start: usize,
+    ) -> Result<(Self, usize), ParseError> {
+        let message = message.as_bytes();
+        let bytes = message.get(start..).ok_or(ParseError)?;
+        let (this, rest) = T::ref_from_prefix(bytes)?;
+        Ok((this, message.len() - rest.len()))
+    }
+}
+
+impl<'a, T: ?Sized> ParseFromMessage<'a> for &'a T
+where
+    T: FromBytes + KnownLayout + Immutable,
+{
+    fn parse_from_message(
+        message: &'a Message,
+        range: Range<usize>,
+    ) -> Result<Self, ParseError> {
+        let message = message.as_bytes();
+        let bytes = message.get(range).ok_or(ParseError)?;
+        Ok(T::ref_from_bytes(bytes)?)
+    }
 }
 
 //----------- Low-level parsing traits ---------------------------------------

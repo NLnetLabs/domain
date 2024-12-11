@@ -1,19 +1,25 @@
 //! DNS questions.
 
-use zerocopy::{network_endian::U16, FromBytes};
+use core::ops::Range;
+
+use zerocopy::network_endian::U16;
 use zerocopy_derive::*;
 
 use super::{
-    name::ParsedName,
-    parse::{ParseError, ParseFrom, SplitFrom},
+    name::RevNameBuf,
+    parse::{
+        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+    },
+    Message,
 };
 
 //----------- Question -------------------------------------------------------
 
 /// A DNS question.
-pub struct Question<'a> {
+#[derive(Clone)]
+pub struct Question<N> {
     /// The domain name being requested.
-    pub qname: &'a ParsedName,
+    pub qname: N,
 
     /// The type of the requested records.
     pub qtype: QType,
@@ -22,11 +28,14 @@ pub struct Question<'a> {
     pub qclass: QClass,
 }
 
+/// An unparsed DNS question.
+pub type UnparsedQuestion = Question<RevNameBuf>;
+
 //--- Construction
 
-impl<'a> Question<'a> {
+impl<N> Question<N> {
     /// Construct a new [`Question`].
-    pub fn new(qname: &'a ParsedName, qtype: QType, qclass: QClass) -> Self {
+    pub fn new(qname: N, qtype: QType, qclass: QClass) -> Self {
         Self {
             qname,
             qtype,
@@ -35,22 +44,61 @@ impl<'a> Question<'a> {
     }
 }
 
-//--- Parsing
+//--- Parsing from DNS messages
 
-impl<'a> SplitFrom<'a> for Question<'a> {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        let (qname, rest) = <&ParsedName>::split_from(bytes)?;
-        let (qtype, rest) = QType::read_from_prefix(rest)?;
-        let (qclass, rest) = QClass::read_from_prefix(rest)?;
+impl<'a, N> SplitFromMessage<'a> for Question<N>
+where
+    N: SplitFromMessage<'a>,
+{
+    fn split_from_message(
+        message: &'a Message,
+        start: usize,
+    ) -> Result<(Self, usize), ParseError> {
+        let (qname, rest) = N::split_from_message(message, start)?;
+        let (&qtype, rest) = <&QType>::split_from_message(message, rest)?;
+        let (&qclass, rest) = <&QClass>::split_from_message(message, rest)?;
         Ok((Self::new(qname, qtype, qclass), rest))
     }
 }
 
-impl<'a> ParseFrom<'a> for Question<'a> {
+impl<'a, N> ParseFromMessage<'a> for Question<N>
+where
+    N: SplitFromMessage<'a>,
+{
+    fn parse_from_message(
+        message: &'a Message,
+        range: Range<usize>,
+    ) -> Result<Self, ParseError> {
+        let (qname, rest) = N::split_from_message(message, range.start)?;
+        let (&qtype, rest) = <&QType>::split_from_message(message, rest)?;
+        let &qclass =
+            <&QClass>::parse_from_message(message, rest..range.end)?;
+        Ok(Self::new(qname, qtype, qclass))
+    }
+}
+
+//--- Parsing from bytes
+
+impl<'a, N> SplitFrom<'a> for Question<N>
+where
+    N: SplitFrom<'a>,
+{
+    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        let (qname, rest) = N::split_from(bytes)?;
+        let (&qtype, rest) = <&QType>::split_from(rest)?;
+        let (&qclass, rest) = <&QClass>::split_from(rest)?;
+        Ok((Self::new(qname, qtype, qclass), rest))
+    }
+}
+
+impl<'a, N> ParseFrom<'a> for Question<N>
+where
+    N: SplitFrom<'a>,
+{
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (qname, rest) = <&ParsedName>::split_from(bytes)?;
-        let (qtype, rest) = QType::read_from_prefix(rest)?;
-        let qclass = QClass::read_from_bytes(rest)?;
+        let (qname, rest) = N::split_from(bytes)?;
+        let (&qtype, rest) = <&QType>::split_from(rest)?;
+        let &qclass = <&QClass>::parse_from(rest)?;
         Ok(Self::new(qname, qtype, qclass))
     }
 }

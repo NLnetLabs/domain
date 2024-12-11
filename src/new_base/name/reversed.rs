@@ -328,7 +328,7 @@ fn parse_segment<'a>(
     }
 }
 
-//--- Parsing from general byte strings
+//--- Parsing from bytes
 
 impl<'a> SplitFrom<'a> for RevNameBuf {
     fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
