@@ -12,4 +12,7 @@ pub mod name;
 mod question;
 pub use question::{QClass, QType, Question};
 
+pub mod record;
+pub use record::Record;
+
 pub mod parse;
