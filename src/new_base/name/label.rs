@@ -251,3 +251,19 @@ impl<'a> Iterator for LabelIter<'a> {
 }
 
 impl FusedIterator for LabelIter<'_> {}
+
+//--- Formatting
+
+impl fmt::Debug for LabelIter<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct Labels<'a>(&'a LabelIter<'a>);
+
+        impl fmt::Debug for Labels<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_list().entries(self.0.clone()).finish()
+            }
+        }
+
+        f.debug_tuple("LabelIter").field(&Labels(self)).finish()
+    }
+}

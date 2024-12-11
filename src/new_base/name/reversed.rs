@@ -3,6 +3,7 @@
 use core::{
     borrow::Borrow,
     cmp::Ordering,
+    fmt,
     hash::{Hash, Hasher},
     ops::{Deref, Range},
 };
@@ -141,6 +142,31 @@ impl Hash for RevName {
             // 'to_ascii_lowercase', so this method can be applied uniformly.
             state.write_u8(byte.to_ascii_lowercase())
         }
+    }
+}
+
+//--- Formatting
+
+impl fmt::Debug for RevName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct RevLabels<'a>(&'a RevName);
+
+        impl fmt::Debug for RevLabels<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let mut first = true;
+                self.0.labels().try_for_each(|label| {
+                    if !first {
+                        f.write_str(".")?;
+                    } else {
+                        first = false;
+                    }
+
+                    label.fmt(f)
+                })
+            }
+        }
+
+        f.debug_tuple("RevName").field(&RevLabels(self)).finish()
     }
 }
 
