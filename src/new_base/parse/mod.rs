@@ -1,6 +1,6 @@
 //! Parsing DNS messages from the wire format.
 
-use core::fmt;
+use core::{fmt, ops::Range};
 
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
@@ -12,6 +12,36 @@ pub use question::{ParseQuestion, ParseQuestions, VisitQuestion};
 
 mod record;
 pub use record::{ParseRecord, ParseRecords, VisitRecord};
+
+use super::Message;
+
+//----------- Message-aware parsing traits -----------------------------------
+
+/// A type that can be parsed from a DNS message.
+pub trait SplitFromMessage<'a>: Sized {
+    /// Parse a value of [`Self`] from the start of a byte string within a
+    /// particular DNS message.
+    ///
+    /// If parsing is successful, the parsed value and the rest of the string
+    /// are returned.  Otherwise, a [`ParseError`] is returned.
+    fn split_from_message(
+        message: &'a Message,
+        start: usize,
+    ) -> Result<(Self, usize), ParseError>;
+}
+
+/// A type that can be parsed from a string in a DNS message.
+pub trait ParseFromMessage<'a>: Sized {
+    /// Parse a value of [`Self`] from a byte string within a particular DNS
+    /// message.
+    ///
+    /// If parsing is successful, the parsed value is returned.  Otherwise, a
+    /// [`ParseError`] is returned.
+    fn parse_from_message(
+        message: &'a Message,
+        range: Range<usize>,
+    ) -> Result<Self, ParseError>;
+}
 
 //----------- Low-level parsing traits ---------------------------------------
 
