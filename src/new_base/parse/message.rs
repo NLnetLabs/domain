@@ -2,7 +2,7 @@
 
 use core::ops::ControlFlow;
 
-use crate::new_base::{Header, Question, Record};
+use crate::new_base::{Header, UnparsedQuestion, UnparsedRecord};
 
 /// A type that can be constructed by parsing a DNS message.
 pub trait ParseMessage<'a>: Sized {
@@ -36,14 +36,14 @@ pub trait VisitMessagePart<'a> {
 /// A component of a DNS message.
 pub enum MessagePart<'a> {
     /// A question.
-    Question(Question<'a>),
+    Question(&'a UnparsedQuestion),
 
     /// An answer record.
-    Answer(Record<'a>),
+    Answer(&'a UnparsedRecord<'a>),
 
     /// An authority record.
-    Authority(Record<'a>),
+    Authority(&'a UnparsedRecord<'a>),
 
     /// An additional record.
-    Additional(Record<'a>),
+    Additional(&'a UnparsedRecord<'a>),
 }

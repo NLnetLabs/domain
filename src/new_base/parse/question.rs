@@ -7,26 +7,26 @@ use std::boxed::Box;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
-use crate::new_base::Question;
+use crate::new_base::UnparsedQuestion;
 
 //----------- Trait definitions ----------------------------------------------
 
 /// A type that can be constructed by parsing exactly one DNS question.
-pub trait ParseQuestion<'a>: Sized {
+pub trait ParseQuestion: Sized {
     /// The type of parse errors.
     // TODO: Remove entirely?
     type Error;
 
     /// Parse the given DNS question.
     fn parse_question(
-        question: Question<'a>,
+        question: &UnparsedQuestion,
     ) -> Result<ControlFlow<Self>, Self::Error>;
 }
 
 /// A type that can be constructed by parsing zero or more DNS questions.
-pub trait ParseQuestions<'a>: Sized {
+pub trait ParseQuestions: Sized {
     /// The type of visitors for incrementally building the output.
-    type Visitor: Default + VisitQuestion<'a>;
+    type Visitor: Default + VisitQuestion;
 
     /// The type of errors from converting a visitor into [`Self`].
     // TODO: Just use 'Visitor::Error'?  Or remove entirely?
@@ -37,36 +37,36 @@ pub trait ParseQuestions<'a>: Sized {
 }
 
 /// A type that can visit DNS questions.
-pub trait VisitQuestion<'a> {
+pub trait VisitQuestion {
     /// The type of errors produced by visits.
     type Error;
 
     /// Visit a question.
     fn visit_question(
         &mut self,
-        question: Question<'a>,
+        question: &UnparsedQuestion,
     ) -> Result<ControlFlow<()>, Self::Error>;
 }
 
 //----------- Trait implementations ------------------------------------------
 
-impl<'a> ParseQuestion<'a> for Question<'a> {
+impl ParseQuestion for UnparsedQuestion {
     type Error = Infallible;
 
     fn parse_question(
-        question: Question<'a>,
+        question: &UnparsedQuestion,
     ) -> Result<ControlFlow<Self>, Self::Error> {
-        Ok(ControlFlow::Break(question))
+        Ok(ControlFlow::Break(question.clone()))
     }
 }
 
 //--- Impls for 'Option<T>'
 
-impl<'a, T: ParseQuestion<'a>> ParseQuestion<'a> for Option<T> {
+impl<T: ParseQuestion> ParseQuestion for Option<T> {
     type Error = T::Error;
 
     fn parse_question(
-        question: Question<'a>,
+        question: &UnparsedQuestion,
     ) -> Result<ControlFlow<Self>, Self::Error> {
         Ok(match T::parse_question(question)? {
             ControlFlow::Break(elem) => ControlFlow::Break(Some(elem)),
@@ -75,7 +75,7 @@ impl<'a, T: ParseQuestion<'a>> ParseQuestion<'a> for Option<T> {
     }
 }
 
-impl<'a, T: ParseQuestion<'a>> ParseQuestions<'a> for Option<T> {
+impl<T: ParseQuestion> ParseQuestions for Option<T> {
     type Visitor = Option<T>;
     type Error = Infallible;
 
@@ -84,12 +84,12 @@ impl<'a, T: ParseQuestion<'a>> ParseQuestions<'a> for Option<T> {
     }
 }
 
-impl<'a, T: ParseQuestion<'a>> VisitQuestion<'a> for Option<T> {
+impl<T: ParseQuestion> VisitQuestion for Option<T> {
     type Error = T::Error;
 
     fn visit_question(
         &mut self,
-        question: Question<'a>,
+        question: &UnparsedQuestion,
     ) -> Result<ControlFlow<()>, Self::Error> {
         if self.is_some() {
             return Ok(ControlFlow::Continue(()));
@@ -108,7 +108,7 @@ impl<'a, T: ParseQuestion<'a>> VisitQuestion<'a> for Option<T> {
 //--- Impls for 'Vec<T>'
 
 #[cfg(feature = "std")]
-impl<'a, T: ParseQuestion<'a>> ParseQuestions<'a> for Vec<T> {
+impl<T: ParseQuestion> ParseQuestions for Vec<T> {
     type Visitor = Vec<T>;
     type Error = Infallible;
 
@@ -118,12 +118,12 @@ impl<'a, T: ParseQuestion<'a>> ParseQuestions<'a> for Vec<T> {
 }
 
 #[cfg(feature = "std")]
-impl<'a, T: ParseQuestion<'a>> VisitQuestion<'a> for Vec<T> {
+impl<T: ParseQuestion> VisitQuestion for Vec<T> {
     type Error = T::Error;
 
     fn visit_question(
         &mut self,
-        question: Question<'a>,
+        question: &UnparsedQuestion,
     ) -> Result<ControlFlow<()>, Self::Error> {
         Ok(match T::parse_question(question)? {
             ControlFlow::Break(elem) => {
@@ -138,7 +138,7 @@ impl<'a, T: ParseQuestion<'a>> VisitQuestion<'a> for Vec<T> {
 //--- Impls for 'Box<[T]>'
 
 #[cfg(feature = "std")]
-impl<'a, T: ParseQuestion<'a>> ParseQuestions<'a> for Box<[T]> {
+impl<T: ParseQuestion> ParseQuestions for Box<[T]> {
     type Visitor = Vec<T>;
     type Error = Infallible;
 

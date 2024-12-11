@@ -10,9 +10,9 @@ pub use message::{Header, HeaderFlags, Message, SectionCounts};
 pub mod name;
 
 mod question;
-pub use question::{QClass, QType, Question};
+pub use question::{QClass, QType, Question, UnparsedQuestion};
 
 pub mod record;
-pub use record::Record;
+pub use record::{Record, UnparsedRecord};
 
 pub mod parse;

@@ -7,7 +7,7 @@ use std::boxed::Box;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
-use crate::new_base::Record;
+use crate::new_base::UnparsedRecord;
 
 //----------- Trait definitions ----------------------------------------------
 
@@ -19,7 +19,7 @@ pub trait ParseRecord<'a>: Sized {
 
     /// Parse the given DNS record.
     fn parse_record(
-        record: Record<'a>,
+        record: &UnparsedRecord<'a>,
     ) -> Result<ControlFlow<Self>, Self::Error>;
 }
 
@@ -44,19 +44,19 @@ pub trait VisitRecord<'a> {
     /// Visit a record.
     fn visit_record(
         &mut self,
-        record: Record<'a>,
+        record: &UnparsedRecord<'a>,
     ) -> Result<ControlFlow<()>, Self::Error>;
 }
 
 //----------- Trait implementations ------------------------------------------
 
-impl<'a> ParseRecord<'a> for Record<'a> {
+impl<'a> ParseRecord<'a> for UnparsedRecord<'a> {
     type Error = Infallible;
 
     fn parse_record(
-        record: Record<'a>,
+        record: &UnparsedRecord<'a>,
     ) -> Result<ControlFlow<Self>, Self::Error> {
-        Ok(ControlFlow::Break(record))
+        Ok(ControlFlow::Break(record.clone()))
     }
 }
 
@@ -66,7 +66,7 @@ impl<'a, T: ParseRecord<'a>> ParseRecord<'a> for Option<T> {
     type Error = T::Error;
 
     fn parse_record(
-        record: Record<'a>,
+        record: &UnparsedRecord<'a>,
     ) -> Result<ControlFlow<Self>, Self::Error> {
         Ok(match T::parse_record(record)? {
             ControlFlow::Break(elem) => ControlFlow::Break(Some(elem)),
@@ -89,7 +89,7 @@ impl<'a, T: ParseRecord<'a>> VisitRecord<'a> for Option<T> {
 
     fn visit_record(
         &mut self,
-        record: Record<'a>,
+        record: &UnparsedRecord<'a>,
     ) -> Result<ControlFlow<()>, Self::Error> {
         if self.is_some() {
             return Ok(ControlFlow::Continue(()));
@@ -123,7 +123,7 @@ impl<'a, T: ParseRecord<'a>> VisitRecord<'a> for Vec<T> {
 
     fn visit_record(
         &mut self,
-        record: Record<'a>,
+        record: &UnparsedRecord<'a>,
     ) -> Result<ControlFlow<()>, Self::Error> {
         Ok(match T::parse_record(record)? {
             ControlFlow::Break(elem) => {

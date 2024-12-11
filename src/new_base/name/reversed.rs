@@ -173,7 +173,7 @@ impl fmt::Debug for RevName {
 //----------- RevNameBuf -----------------------------------------------------
 
 /// A 256-byte buffer containing a [`RevName`].
-#[derive(Immutable, Unaligned)]
+#[derive(Clone, Immutable, Unaligned)]
 #[repr(C)] // make layout compatible with '[u8; 256]'
 pub struct RevNameBuf {
     /// The position of the root label in the buffer.
