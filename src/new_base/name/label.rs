@@ -4,9 +4,12 @@ use core::{
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
+    iter::FusedIterator,
 };
 
 use zerocopy_derive::*;
+
+use crate::new_base::parse::{ParseError, SplitFrom};
 
 //----------- Label ----------------------------------------------------------
 
@@ -44,6 +47,21 @@ impl Label {
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'Label' is 'repr(transparent)' to '[u8]'.
         unsafe { core::mem::transmute(bytes) }
+    }
+}
+
+//--- Parsing
+
+impl<'a> SplitFrom<'a> for &'a Label {
+    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        let (&size, rest) = bytes.split_first().ok_or(ParseError)?;
+        if size < 64 && rest.len() >= size as usize {
+            let (label, rest) = bytes.split_at(1 + size as usize);
+            // SAFETY: 'label' begins with a valid length octet.
+            Ok((unsafe { Label::from_bytes_unchecked(label) }, rest))
+        } else {
+            Err(ParseError)
+        }
     }
 }
 
@@ -182,3 +200,54 @@ impl fmt::Debug for Label {
             .finish()
     }
 }
+
+//----------- LabelIter ------------------------------------------------------
+
+/// An iterator over encoded [`Label`]s.
+#[derive(Clone)]
+pub struct LabelIter<'a> {
+    /// The buffer being read from.
+    ///
+    /// It is assumed to contain valid encoded labels.
+    bytes: &'a [u8],
+}
+
+//--- Construction
+
+impl<'a> LabelIter<'a> {
+    /// Construct a new [`LabelIter`].
+    ///
+    /// The byte string must contain a sequence of valid encoded labels.
+    pub const unsafe fn new_unchecked(bytes: &'a [u8]) -> Self {
+        Self { bytes }
+    }
+}
+
+//--- Inspection
+
+impl<'a> LabelIter<'a> {
+    /// The remaining labels.
+    pub const fn remaining(&self) -> &'a [u8] {
+        self.bytes
+    }
+}
+
+//--- Iteration
+
+impl<'a> Iterator for LabelIter<'a> {
+    type Item = &'a Label;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bytes.is_empty() {
+            return None;
+        }
+
+        // SAFETY: 'bytes' is assumed to only contain valid labels.
+        let (head, tail) =
+            unsafe { <&Label>::split_from(self.bytes).unwrap_unchecked() };
+        self.bytes = tail;
+        Some(head)
+    }
+}
+
+impl FusedIterator for LabelIter<'_> {}
