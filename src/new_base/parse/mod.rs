@@ -2,6 +2,17 @@
 
 use core::fmt;
 
+use zerocopy::{FromBytes, Immutable, KnownLayout};
+
+mod message;
+pub use message::{MessagePart, ParseMessage, VisitMessagePart};
+
+mod question;
+pub use question::{ParseQuestion, ParseQuestions, VisitQuestion};
+
+mod record;
+pub use record::{ParseRecord, ParseRecords, VisitRecord};
+
 //----------- Low-level parsing traits ---------------------------------------
 
 /// Parsing from the start of a byte string.
@@ -20,6 +31,29 @@ pub trait ParseFrom<'a>: Sized {
     /// If parsing is successful, the parsed value is returned.  Otherwise, a
     /// [`ParseError`] is returned.
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError>;
+}
+
+//--- Carrying over 'zerocopy' traits
+
+// NOTE: We can't carry over 'read_from_prefix' because the trait impls would
+// conflict.  We kept 'ref_from_prefix' since it's more general.
+
+impl<'a, T: ?Sized> SplitFrom<'a> for &'a T
+where
+    T: FromBytes + KnownLayout + Immutable,
+{
+    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        T::ref_from_prefix(bytes).map_err(|_| ParseError)
+    }
+}
+
+impl<'a, T: ?Sized> ParseFrom<'a> for &'a T
+where
+    T: FromBytes + KnownLayout + Immutable,
+{
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        T::ref_from_bytes(bytes).map_err(|_| ParseError)
+    }
 }
 
 //----------- ParseError -----------------------------------------------------
