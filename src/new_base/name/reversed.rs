@@ -226,15 +226,17 @@ impl<'a> SplitFromMessage<'a> for RevNameBuf {
         let orig_end = message.len() - rest.len();
 
         // Traverse compression pointers.
+        let mut old_start = start;
         while let Some(start) = pointer.map(usize::from) {
             // Ensure the referenced position comes earlier.
-            if start >= start {
+            if start >= old_start {
                 return Err(ParseError);
             }
 
             // Keep going, from the referenced position.
             let bytes = message.get(start..).ok_or(ParseError)?;
             (pointer, _) = parse_segment(bytes, &mut buffer)?;
+            old_start = start;
             continue;
         }
 
@@ -267,15 +269,17 @@ impl<'a> ParseFromMessage<'a> for RevNameBuf {
         }
 
         // Traverse compression pointers.
+        let mut old_start = range.start;
         while let Some(start) = pointer.map(usize::from) {
             // Ensure the referenced position comes earlier.
-            if start >= start {
+            if start >= old_start {
                 return Err(ParseError);
             }
 
             // Keep going, from the referenced position.
             let bytes = message.get(start..).ok_or(ParseError)?;
             (pointer, _) = parse_segment(bytes, &mut buffer)?;
+            old_start = start;
             continue;
         }
 

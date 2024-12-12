@@ -217,6 +217,8 @@ pub struct LabelIter<'a> {
 impl<'a> LabelIter<'a> {
     /// Construct a new [`LabelIter`].
     ///
+    /// # Safety
+    ///
     /// The byte string must contain a sequence of valid encoded labels.
     pub const unsafe fn new_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
