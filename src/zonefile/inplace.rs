@@ -183,10 +183,7 @@ impl Zonefile {
         loop {
             match EntryScanner::new(self)?.scan_entry()? {
                 ScannedEntry::Entry(entry) => return Ok(Some(entry)),
-                ScannedEntry::Origin(origin) => {
-                    self.origin = Some(origin.clone());
-                    return Ok(Some(Entry::Origin(origin)));
-                }
+                ScannedEntry::Origin(origin) => self.origin = Some(origin),
                 ScannedEntry::Ttl(ttl) => self.last_ttl = ttl,
                 ScannedEntry::Empty => {}
                 ScannedEntry::Eof => return Ok(None),
@@ -216,9 +213,6 @@ impl Iterator for Zonefile {
 /// An entry of a zonefile.
 #[derive(Clone, Debug)]
 pub enum Entry {
-    /// The origin has been detected.
-    Origin(Name<Bytes>),
-
     /// A DNS record.
     Record(ScannedRecord),
 
