@@ -439,15 +439,24 @@ where
         };
 
         for family in families {
+            debug!("NSEC3: Family '{}'", family.owner());
             // If the owner is out of zone, we have moved out of our zone and
             // are done.
             if !family.is_in_zone(apex) {
+                debug!(
+                    "NSEC3: Family '{}' is not in the zone, ignoring",
+                    family.owner()
+                );
                 break;
             }
 
             // If the family is below a zone cut, we must ignore it.
             if let Some(ref cut) = cut {
                 if family.owner().ends_with(cut.owner()) {
+                    debug!(
+                        "NSEC3: Family '{}' is below a zone cut, ignoring",
+                        family.owner()
+                    );
                     continue;
                 }
             }
@@ -459,6 +468,7 @@ where
             // family name for later. This also means below that if
             // `cut.is_some()` we are at the parent side of a zone.
             cut = if family.is_zone_cut(apex) {
+                debug!("NSEC3: Family '{}' is a zone cut", family.owner());
                 Some(name.clone())
             } else {
                 None
@@ -468,7 +478,15 @@ where
             //   "If Opt-Out is being used, owner names of unsigned
             //    delegations MAY be excluded."
             let has_ds = family.records().any(|rec| rec.rtype() == Rtype::DS);
+            debug!(
+                "NSEC3: Family '{}' cut={} has_ds={} opt_out={}",
+                family.owner(),
+                cut.is_some(),
+                has_ds,
+                opt_out == Nsec3OptOut::OptOut
+            );
             if cut.is_some() && !has_ds && opt_out == Nsec3OptOut::OptOut {
+                debug!("NSEC3: Family '{}' is an unsigned delegation and should be opted-out, ignoring", family.owner());
                 continue;
             }
 
@@ -524,6 +542,7 @@ where
                         builder.append_origin(&apex_owner).unwrap().into();
 
                     if let Err(pos) = ents.binary_search(&name) {
+                        debug!("NSEC3: Found ENT '{name}'");
                         ents.insert(pos, name);
                     }
                 }
@@ -535,6 +554,7 @@ where
 
             // Authoritative RRsets will be signed.
             if cut.is_none() || has_ds {
+                debug!("NSEC3: Family '{}' is not a zone cut and has a DS so add RRSIG to the bitmap", family.owner());
                 bitmap.add(Rtype::RRSIG).unwrap();
             }
 
@@ -542,12 +562,19 @@ where
             //   "For each RRSet at the original owner name, set the
             //    corresponding bit in the Type Bit Maps field."
             for rrset in family.rrsets() {
+                debug!(
+                    "NSEC3: Family '{}' adding {} to the bitmap",
+                    family.owner(),
+                    rrset.rtype()
+                );
                 bitmap.add(rrset.rtype()).unwrap();
             }
 
             if distance_to_apex == 0 {
+                debug!("NSEC3: Family '{}' is at the apex, adding NSEC3PARAM to the bitmap", family.owner());
                 bitmap.add(Rtype::NSEC3PARAM).unwrap();
                 if assume_dnskeys_will_be_added {
+                    debug!("NSEC3: Family '{}' is at the apex, adding DNSKEY to the bitmap", family.owner());
                     bitmap.add(Rtype::DNSKEY).unwrap();
                 }
             }
