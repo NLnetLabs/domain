@@ -317,6 +317,10 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
                     }
                 }
 
+                Ok(Entry::Origin(_)) => {
+                    // Nothing to do.
+                }
+
                 Ok(Entry::Include { .. }) => {
                     // Not supported at this time.
                 }
