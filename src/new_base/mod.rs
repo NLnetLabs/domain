@@ -12,7 +12,9 @@ pub mod name;
 mod question;
 pub use question::{QClass, QType, Question, UnparsedQuestion};
 
-pub mod record;
-pub use record::{Record, UnparsedRecord};
+mod record;
+pub use record::{
+    RClass, RType, Record, UnparsedRecord, UnparsedRecordData, TTL,
+};
 
 pub mod parse;
