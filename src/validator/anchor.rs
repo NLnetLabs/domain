@@ -103,8 +103,10 @@ impl TrustAnchors {
         for e in zonefile {
             let e = e?;
             match e {
-                Entry::Record(r) => new_self.add(r),
-                Entry::Origin(_) | Entry::Include { .. } => continue, // Just ignore include and origin
+                Entry::Record(r) => {
+                    new_self.add(r);
+                }
+                Entry::Include { path: _, origin: _ } => continue, // Just ignore include
             }
         }
         Ok(new_self)
@@ -121,8 +123,10 @@ impl TrustAnchors {
         for e in zonefile {
             let e = e?;
             match e {
-                Entry::Record(r) => new_self.add(r),
-                Entry::Origin(_) | Entry::Include { .. } => continue, // Just ignore include and origin
+                Entry::Record(r) => {
+                    new_self.add(r);
+                }
+                Entry::Include { path: _, origin: _ } => continue, // Just ignore include
             }
         }
         Ok(new_self)
@@ -138,8 +142,10 @@ impl TrustAnchors {
         for e in zonefile {
             let e = e?;
             match e {
-                Entry::Record(r) => self.add(r),
-                Entry::Origin(_) | Entry::Include { .. } => continue, // Just ignore include and origin
+                Entry::Record(r) => {
+                    self.add(r);
+                }
+                Entry::Include { path: _, origin: _ } => continue, // Just ignore include
             }
         }
         Ok(())
