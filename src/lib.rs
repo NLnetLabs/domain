@@ -194,6 +194,7 @@ pub mod base;
 pub mod dep;
 pub mod net;
 pub mod new_base;
+pub mod new_rdata;
 pub mod rdata;
 pub mod resolv;
 pub mod sign;
