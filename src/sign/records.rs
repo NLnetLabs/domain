@@ -47,6 +47,11 @@ impl<N, D> SortedRecords<N, D> {
         }
     }
 
+    /// Insert a record in sorted order.
+    ///
+    /// If inserting a lot of records at once prefer [`extend()`] instead
+    /// which will sort once after all insertions rather than once per
+    /// insertion.
     pub fn insert(&mut self, record: Record<N, D>) -> Result<(), Record<N, D>>
     where
         N: ToName,
@@ -1278,22 +1283,16 @@ where
     ///
     /// The given records MUST be sorted according to [`CanonicalOrd`].
     #[allow(clippy::type_complexity)]
-    pub fn sign<N, D>(
+    pub fn sign<N>(
         &self,
         apex: &FamilyName<N>,
-        families: RecordsIter<'_, N, D>,
+        families: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
         keys: &[DnssecSigningKey<Octs, Inner>],
         add_used_dnskeys: bool,
     ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
     where
-        N: ToName + Clone + PartialEq + Send,
-        D: RecordData
-            + Clone
-            + ComposeRecordData
-            + From<Dnskey<Octs>>
-            + CanonicalOrd
-            + PartialEq
-            + Send,
+        N: ToName + Clone + PartialEq + CanonicalOrd + Send,
+        Octs: Clone + Send,
     {
         debug!("Signer settings: add_used_dnskeys={add_used_dnskeys}, strategy: {}", KeyStrat::NAME);
 
@@ -1375,16 +1374,20 @@ where
         let mut families = families.peekable();
 
         // Are we signing the entire tree from the apex down or just some child records?
+        // Use the first found SOA RR as the apex. If no SOA RR can be found assume that
+        // we are only signing records below the apex.
         let apex_ttl = families.peek().and_then(|first_family| {
-            first_family
-                .records()
-                .find(|rr| {
-                    rr.owner() == apex.owner() && rr.rtype() == Rtype::SOA
-                })
-                .map(|rr| rr.ttl())
+            first_family.records().find_map(|rr| {
+                if rr.owner() == apex.owner() && rr.rtype() == Rtype::SOA {
+                    if let ZoneRecordData::Soa(soa) = rr.data() {
+                        return Some(soa.minimum());
+                    }
+                }
+                None
+            })
         });
 
-        if let Some(apex_ttl) = apex_ttl {
+        if let Some(soa_minimum_ttl) = apex_ttl {
             // Sign the apex
             // SAFETY: We just checked above if the apex records existed.
             let apex_family = families.next().unwrap();
@@ -1400,10 +1403,27 @@ where
                 .find(|rrset| rrset.rtype() == Rtype::DNSKEY);
 
             let mut apex_dnskey_rrs = vec![];
-            if let Some(apex_dnskey_rrset) = apex_dnskey_rrset {
-                apex_dnskey_rrs
-                    .extend_from_slice(apex_dnskey_rrset.into_inner());
-            }
+
+            // Determine the TTL of any existing DNSKEY RRSET and use that as the
+            // TTL for DNSKEY RRs that we add. If none, then fall back to the SOA
+            // mininmum TTL.
+            //
+            // Applicable sections from RFC 1033:
+            //   TTL's (Time To Live)
+            //     "Also, all RRs with the same name, class, and type should
+            //      have the same TTL value."
+            //
+            //   RESOURCE RECORDS
+            //     "If you leave the TTL field blank it will default to the
+            //     minimum time specified in the SOA record (described
+            //     later)."
+            let dnskey_rrset_ttl = if let Some(rrset) = apex_dnskey_rrset {
+                let ttl = rrset.ttl();
+                apex_dnskey_rrs.extend_from_slice(rrset.into_inner());
+                ttl
+            } else {
+                soa_minimum_ttl
+            };
 
             for public_key in keys_in_use_idxs
                 .iter()
@@ -1414,7 +1434,7 @@ where
                 let signing_key_dnskey_rr = Record::new(
                     apex.owner().clone(),
                     apex.class(),
-                    apex_ttl,
+                    dnskey_rrset_ttl,
                     Dnskey::convert(dnskey.clone()).into(),
                 );
 
@@ -1424,7 +1444,7 @@ where
                         res.push(Record::new(
                             apex.owner().clone(),
                             apex.class(),
-                            apex_ttl,
+                            dnskey_rrset_ttl,
                             Dnskey::convert(dnskey).into(),
                         ));
                     }
@@ -1547,6 +1567,13 @@ where
             .signature_validity_period()
             .ok_or(SigningError::KeyLacksSignatureValidityPeriod)?
             .into_inner();
+        // RFC 4034
+        // 3.  The RRSIG Resource Record
+        //   "The TTL value of an RRSIG RR MUST match the TTL value of the
+        //    RRset it covers.  This is an exception to the [RFC2181] rules
+        //    for TTL values of individual RRs within a RRset: individual
+        //    RRSIG RRs with the same owner name will have different TTL
+        //    values if the RRsets they cover have different TTL values."
         let rrsig = ProtoRrsig::new(
             rrset.rtype(),
             key.algorithm(),
