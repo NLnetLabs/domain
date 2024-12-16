@@ -23,6 +23,7 @@ New
 Bug fixes
 
 * NSEC records should include themselves in the generated bitmap. ([#417])
+* Trailing double quote wrongly preserved when parsing record data. ([#470])
 
 Unstable features
 
@@ -59,6 +60,7 @@ Other changes
 [#441]: https://github.com/NLnetLabs/domain/pull/441
 [#446]: https://github.com/NLnetLabs/domain/pull/446
 [#463]: https://github.com/NLnetLabs/domain/pull/463
+[#470]: https://github.com/NLnetLabs/domain/pull/470
 [@weilence]: https://github.com/weilence
 
 ## 0.10.3
