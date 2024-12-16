@@ -2,12 +2,17 @@
 
 use core::{fmt, net::Ipv4Addr, ops::Range, str::FromStr};
 
-use zerocopy::network_endian::{U16, U32};
+use zerocopy::{
+    network_endian::{U16, U32},
+    IntoBytes,
+};
 use zerocopy_derive::*;
 
 use crate::new_base::{
-    parse::{ParseError, ParseFromMessage, SplitFromMessage},
-    Message,
+    parse::{
+        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+    },
+    CharStr, Message,
 };
 
 //----------- A --------------------------------------------------------------
@@ -272,7 +277,41 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ptr<N> {
     }
 }
 
-// TODO: MINFO, HINFO, and TXT records, which need 'CharStr'.
+//----------- Hinfo ----------------------------------------------------------
+
+/// Information about the host computer.
+pub struct Hinfo<'a> {
+    /// The CPU type.
+    pub cpu: &'a CharStr,
+
+    /// The OS type.
+    pub os: &'a CharStr,
+}
+
+//--- Parsing from DNS messages
+
+impl<'a> ParseFromMessage<'a> for Hinfo<'a> {
+    fn parse_from_message(
+        message: &'a Message,
+        range: Range<usize>,
+    ) -> Result<Self, ParseError> {
+        message
+            .as_bytes()
+            .get(range)
+            .ok_or(ParseError)
+            .and_then(Self::parse_from)
+    }
+}
+
+//--- Parsing from bytes
+
+impl<'a> ParseFrom<'a> for Hinfo<'a> {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (cpu, rest) = <&CharStr>::split_from(bytes)?;
+        let os = <&CharStr>::parse_from(rest)?;
+        Ok(Self { cpu, os })
+    }
+}
 
 //----------- Mx -------------------------------------------------------------
 
@@ -317,3 +356,5 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Mx<N> {
         })
     }
 }
+
+// TODO: TXT records.
