@@ -9,6 +9,9 @@ pub use message::{Header, HeaderFlags, Message, SectionCounts};
 
 pub mod name;
 
+mod charstr;
+pub use charstr::CharStr;
+
 mod question;
 pub use question::{QClass, QType, Question, UnparsedQuestion};
 
