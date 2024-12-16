@@ -689,12 +689,13 @@ impl<N: Send, D: Send + CanonicalOrd, S: Sorter> Default
 
 impl<N, D, S: Sorter> From<Vec<Record<N, D>>> for SortedRecords<N, D, S>
 where
-    N: ToName + Send,
-    D: RecordData + CanonicalOrd + Send,
+    N: ToName + PartialEq + Send,
+    D: RecordData + CanonicalOrd + PartialEq + Send,
     S: Sorter,
 {
     fn from(mut src: Vec<Record<N, D>>) -> Self {
         S::sort_by(&mut src, CanonicalOrd::canonical_cmp);
+        src.dedup();
         SortedRecords {
             records: src,
             _phantom: Default::default(),
@@ -1667,6 +1668,15 @@ where
             expiration,
             inception,
             key.public_key().key_tag(),
+            // The fns provided by `ToName` state in their RustDoc that they
+            // "Converts the name into a single, uncompressed name" which
+            // matches the RFC 4034 section 3.1.7 requirement that "A sender
+            // MUST NOT use DNS name compression on the Signer's Name field
+            // when transmitting a RRSIG RR.".
+            //
+            // We don't need to make sure here that the signer name is in
+            // canonical form as required by RFC 4034 as the call to
+            // `compose_canonical()` below will take care of that.
             apex.owner().clone(),
         );
         buf.clear();
