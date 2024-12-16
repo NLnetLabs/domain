@@ -621,11 +621,12 @@ impl<N, D: CanonicalOrd> Default for SortedRecords<N, D> {
 
 impl<N, D> From<Vec<Record<N, D>>> for SortedRecords<N, D>
 where
-    N: ToName,
-    D: RecordData + CanonicalOrd,
+    N: ToName + PartialEq,
+    D: RecordData + CanonicalOrd + PartialEq,
 {
     fn from(mut src: Vec<Record<N, D>>) -> Self {
         src.sort_by(CanonicalOrd::canonical_cmp);
+        src.dedup();
         SortedRecords { records: src }
     }
 }
