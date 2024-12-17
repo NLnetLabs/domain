@@ -153,6 +153,14 @@ where
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
     }
+
+    pub fn as_slice(&self) -> &[Record<N, D>] {
+        self.records.as_slice()
+    }
+
+    pub fn into_inner(self) -> Vec<Record<N, D>> {
+        self.records
+    }
 }
 
 impl<N: Send, S: Sorter> SortedRecords<N, StoredRecordData, S> {
@@ -1552,7 +1560,8 @@ where
                 .rrsets()
                 .find(|rrset| rrset.rtype() == Rtype::DNSKEY);
 
-            let mut apex_dnskey_rrs = vec![];
+            let mut augmented_apex_dnskey_rrs =
+                SortedRecords::<_, _, Sort>::new();
 
             // Determine the TTL of any existing DNSKEY RRSET and use that as the
             // TTL for DNSKEY RRs that we add. If none, then fall back to the SOA
@@ -1569,7 +1578,7 @@ where
             //     later)."
             let dnskey_rrset_ttl = if let Some(rrset) = apex_dnskey_rrset {
                 let ttl = rrset.ttl();
-                apex_dnskey_rrs.extend_from_slice(rrset.into_inner());
+                augmented_apex_dnskey_rrs.extend(rrset.iter().cloned());
                 ttl
             } else {
                 soa_minimum_ttl
@@ -1588,31 +1597,37 @@ where
                     Dnskey::convert(dnskey.clone()).into(),
                 );
 
-                if !apex_dnskey_rrs.contains(&signing_key_dnskey_rr) {
-                    if add_used_dnskeys {
-                        // Add the DNSKEY RR to the set of new RRs to output for the zone.
-                        res.push(Record::new(
-                            apex.owner().clone(),
-                            apex.class(),
-                            dnskey_rrset_ttl,
-                            Dnskey::convert(dnskey).into(),
-                        ));
-                    }
+                // Add the DNSKEY RR to the set of DNSKEY RRs to create RRSIGs for.
+                let is_new_dnskey = augmented_apex_dnskey_rrs
+                    .insert(signing_key_dnskey_rr)
+                    .is_ok();
 
-                    // Add the DNSKEY RR to the set of DNSKEY RRs to create RRSIGs for.
-                    apex_dnskey_rrs.push(signing_key_dnskey_rr);
+                if add_used_dnskeys && is_new_dnskey {
+                    // Add the DNSKEY RR to the set of new RRs to output for the zone.
+                    res.push(Record::new(
+                        apex.owner().clone(),
+                        apex.class(),
+                        dnskey_rrset_ttl,
+                        Dnskey::convert(dnskey).into(),
+                    ));
                 }
             }
 
-            let apex_dnskey_rrsets = FamilyIter::new(&apex_dnskey_rrs);
+            let augmented_apex_dnskey_rrset =
+                Rrset::new(augmented_apex_dnskey_rrs.as_slice());
 
-            for rrset in apex_rrsets.chain(apex_dnskey_rrsets) {
-                // If this is the apex DNSKEY RRSET, merge in the DNSKEYs of the
-                // keys we intend to sign with.
-                let signing_key_idxs = if rrset.rtype() == Rtype::DNSKEY {
-                    &dnskey_signing_key_idxs
+            // Sign the apex RRSETs in canonical order.
+            for rrset in apex_rrsets {
+                // For the DNSKEY RRSET, use signing keys chosen for that
+                // purpose and sign the augmented set of DNSKEY RRs that we
+                // have generated rather than the original set in the
+                // zonefile.
+                let (rrset, signing_key_idxs) = if rrset.rtype()
+                    == Rtype::DNSKEY
+                {
+                    (&augmented_apex_dnskey_rrset, &dnskey_signing_key_idxs)
                 } else {
-                    &non_dnskey_signing_key_idxs
+                    (&rrset, &non_dnskey_signing_key_idxs)
                 };
 
                 for key in signing_key_idxs.iter().map(|&idx| keys[idx].key())
@@ -1621,7 +1636,7 @@ where
                     let name = apex_family.family_name().cloned();
 
                     let rrsig_rr =
-                        Self::sign_rrset(key, &rrset, &name, apex, &mut buf)?;
+                        Self::sign_rrset(key, rrset, &name, apex, &mut buf)?;
                     res.push(rrsig_rr);
                     debug!(
                         "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
