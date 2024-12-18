@@ -1467,17 +1467,18 @@ where
                 Rrset::new(augmented_apex_dnskey_rrs.as_slice());
 
             // Sign the apex RRSETs in canonical order.
-            for rrset in apex_rrsets {
+            for rrset in apex_rrsets
+                .filter(|rrset| rrset.rtype() != Rtype::DNSKEY)
+                .chain(std::iter::once(augmented_apex_dnskey_rrset))
+            {
                 // For the DNSKEY RRSET, use signing keys chosen for that
                 // purpose and sign the augmented set of DNSKEY RRs that we
                 // have generated rather than the original set in the
                 // zonefile.
-                let (rrset, signing_key_idxs) = if rrset.rtype()
-                    == Rtype::DNSKEY
-                {
-                    (&augmented_apex_dnskey_rrset, &dnskey_signing_key_idxs)
+                let signing_key_idxs = if rrset.rtype() == Rtype::DNSKEY {
+                    &dnskey_signing_key_idxs
                 } else {
-                    (&rrset, &non_dnskey_signing_key_idxs)
+                    &non_dnskey_signing_key_idxs
                 };
 
                 for key in signing_key_idxs.iter().map(|&idx| keys[idx].key())
@@ -1486,7 +1487,7 @@ where
                     let name = apex_family.family_name().cloned();
 
                     let rrsig_rr =
-                        Self::sign_rrset(key, rrset, &name, apex, &mut buf)?;
+                        Self::sign_rrset(key, &rrset, &name, apex, &mut buf)?;
                     res.push(rrsig_rr);
                     debug!(
                         "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
