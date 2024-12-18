@@ -4,8 +4,9 @@ use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
 use futures_util::stream::{once, Once, Stream};
+use log::{log_enabled, Level};
 use octseq::Octets;
-use tracing::{debug, enabled, error, trace, warn, Level};
+use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
@@ -141,7 +142,7 @@ where
                         //   "A DNS server that receives a query using UDP
                         //    transport that includes the edns-tcp-keepalive
                         //    option MUST ignore the option."
-                        if enabled!(Level::DEBUG)
+                        if log_enabled!(Level::Debug)
                             && opt_rec.opt().tcp_keepalive().is_some()
                         {
                             debug!("RFC 7828 3.2.1 violation: ignoring edns-tcp-keepalive option received via UDP");
@@ -161,7 +162,7 @@ where
                         let requestors_udp_payload_size =
                             opt_rec.udp_payload_size();
 
-                        if enabled!(Level::DEBUG)
+                        if log_enabled!(Level::Debug)
                             && requestors_udp_payload_size
                                 < MINIMUM_RESPONSE_BYTE_LEN
                         {
@@ -200,7 +201,7 @@ where
                             None => clamped_requestors_udp_payload_size,
                         };
 
-                        if enabled!(Level::TRACE) {
+                        if log_enabled!(Level::Trace) {
                             trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
                                 opt_rec.udp_payload_size(), server_max_response_size_hint, negotiated_hint);
                         }
