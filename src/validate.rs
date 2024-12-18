@@ -1759,6 +1759,9 @@ pub enum Nsec3HashError {
 
     /// The hashing process produced a hash that already exists.
     CollisionDetected,
+
+    /// The hash provider did not provide a hash for the given owner name.
+    MissingHash,
 }
 
 ///--- Display
@@ -1776,6 +1779,9 @@ impl std::fmt::Display for Nsec3HashError {
             }
             Nsec3HashError::CollisionDetected => {
                 f.write_str("Hash collision detected")
+            }
+            Nsec3HashError::MissingHash => {
+                f.write_str("Missing hash for owner name")
             }
         }
     }
