@@ -844,7 +844,7 @@ impl<N> FamilyName<N> {
     }
 }
 
-impl<'a, N: Clone> FamilyName<&'a N> {
+impl<N: Clone> FamilyName<&'_ N> {
     pub fn cloned(&self) -> FamilyName<N> {
         FamilyName {
             owner: (*self.owner).clone(),
