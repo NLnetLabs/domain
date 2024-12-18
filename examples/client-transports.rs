@@ -191,19 +191,14 @@ async fn main() {
     drop(request);
 
     // Create a transport connection for redundant connections.
-    let (redun, transp) = redundant::Connection::new();
-
-    // Start the run function on a separate task.
-    let run_fut = transp.run();
-    tokio::spawn(async move {
-        run_fut.await;
-        println!("redundant run terminated");
-    });
+    let redun = redundant::Connection::<
+        Box<dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync>,
+    >::new();
 
     // Add the previously created transports.
-    redun.add(Box::new(udptcp_conn.clone())).await.unwrap();
-    redun.add(Box::new(tcp_conn.clone())).await.unwrap();
-    redun.add(Box::new(tls_conn.clone())).await.unwrap();
+    redun.add(Box::new(udptcp_conn.clone()) as _);
+    redun.add(Box::new(tcp_conn.clone()) as _);
+    redun.add(Box::new(tls_conn.clone()) as _);
 
     // Start a few queries.
     for i in 1..10 {
