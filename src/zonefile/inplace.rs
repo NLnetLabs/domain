@@ -571,13 +571,19 @@ impl Scanner for EntryScanner<'_> {
         // Skip over symbols that don’t need converting at the beginning.
         while self.zonefile.buf.next_ascii_symbol()?.is_some() {}
 
+        if self.zonefile.buf.cat == ItemCat::None {
+            // The item has ended.  Remove the double quote.
+            let write = if is_quoted {
+                self.zonefile.buf.start - 1
+            } else {
+                self.zonefile.buf.start
+            };
+            self.zonefile.buf.next_item()?;
+            return Ok(self.zonefile.buf.split_to(write).freeze());
+        }
+
         // If we aren’t done yet, we have escaped characters to replace.
         let mut write = self.zonefile.buf.start;
-
-        if is_quoted {
-            // Discard the closing quote, it shouldn't be part of the value.
-            write -= 1;
-        }
 
         while let Some(sym) = self.zonefile.buf.next_symbol()? {
             self.zonefile.buf.buf[write] = sym.into_octet()?;
@@ -1561,6 +1567,8 @@ mod test {
         test(" \"quoted\"\n", b"quoted");
         test(" \"quoted\" ", b"quoted");
         test("\"quoted\" ", b"quoted");
+        test("\"qu\\oted\"", b"quoted");
+        test(" \"qu\\\\ot\\\\ed\" ", b"qu\\ot\\ed");
     }
 
     #[test]
