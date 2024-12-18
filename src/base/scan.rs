@@ -270,6 +270,9 @@ macro_rules! declare_error_trait {
 
             /// Creates an error when there are trailing tokens.
             fn trailing_tokens() -> Self;
+
+            /// Unknown record type.
+            fn unknown_rtype(rtype: crate::base::iana::Rtype) -> Self;
         }
     }
 }
@@ -299,6 +302,13 @@ impl ScannerError for std::io::Error {
 
     fn trailing_tokens() -> Self {
         std::io::Error::new(std::io::ErrorKind::Other, "trailing data")
+    }
+
+    fn unknown_rtype(rtype: crate::base::iana::Rtype) -> Self {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unknown record type {rtype}"),
+        )
     }
 }
 
@@ -1193,6 +1203,10 @@ impl ScannerError for StrError {
 
     fn trailing_tokens() -> Self {
         Self::custom("trailing data")
+    }
+
+    fn unknown_rtype(_rtype: crate::base::iana::Rtype) -> Self {
+        Self::custom("unknown record type")
     }
 }
 
