@@ -1832,7 +1832,10 @@ where
 //------------ Nsec3HashProvider ---------------------------------------------
 
 pub trait Nsec3HashProvider<N, Octs> {
-    fn get_or_create(&mut self, unhashed_owner_name: &N) -> Result<N, Nsec3HashError>;
+    fn get_or_create(
+        &mut self,
+        unhashed_owner_name: &N,
+    ) -> Result<N, Nsec3HashError>;
 }
 
 pub struct OnDemandNsec3HashProvider<N, SaltOcts> {
@@ -1878,7 +1881,10 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     SaltOcts: AsRef<[u8]>,
 {
-    fn get_or_create(&mut self, unhashed_owner_name: &N) -> Result<N, Nsec3HashError> {
+    fn get_or_create(
+        &mut self,
+        unhashed_owner_name: &N,
+    ) -> Result<N, Nsec3HashError> {
         mk_hashed_nsec3_owner_name(
             unhashed_owner_name,
             self.alg,
