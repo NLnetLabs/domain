@@ -23,7 +23,7 @@ use openssl::{
 use secrecy::ExposeSecret;
 
 use crate::{
-    base::iana::SecAlg,
+    base::iana::SecurityAlgorithm,
     validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature},
 };
 
@@ -36,7 +36,7 @@ use super::{
 /// A key pair backed by OpenSSL.
 pub struct KeyPair {
     /// The algorithm used by the key.
-    algorithm: SecAlg,
+    algorithm: SecurityAlgorithm,
 
     /// The private key.
     pkey: PKey<Private>,
@@ -169,7 +169,7 @@ impl KeyPair {
     pub fn to_bytes(&self) -> SecretKeyBytes {
         // TODO: Consider security implications of secret data in 'Vec's.
         match self.algorithm {
-            SecAlg::RSASHA256 => {
+            SecurityAlgorithm::RSASHA256 => {
                 let key = self.pkey.rsa().unwrap();
                 SecretKeyBytes::RsaSha256(RsaSecretKeyBytes {
                     n: key.n().to_vec().into(),
@@ -182,24 +182,24 @@ impl KeyPair {
                     q_i: key.iqmp().unwrap().to_vec().into(),
                 })
             }
-            SecAlg::ECDSAP256SHA256 => {
+            SecurityAlgorithm::ECDSAP256SHA256 => {
                 let key = self.pkey.ec_key().unwrap();
                 let key = key.private_key().to_vec_padded(32).unwrap();
                 let key: Box<[u8; 32]> = key.try_into().unwrap();
                 SecretKeyBytes::EcdsaP256Sha256(key.into())
             }
-            SecAlg::ECDSAP384SHA384 => {
+            SecurityAlgorithm::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
                 let key = key.private_key().to_vec_padded(48).unwrap();
                 let key: Box<[u8; 48]> = key.try_into().unwrap();
                 SecretKeyBytes::EcdsaP384Sha384(key.into())
             }
-            SecAlg::ED25519 => {
+            SecurityAlgorithm::ED25519 => {
                 let key = self.pkey.raw_private_key().unwrap();
                 let key: Box<[u8; 32]> = key.try_into().unwrap();
                 SecretKeyBytes::Ed25519(key.into())
             }
-            SecAlg::ED448 => {
+            SecurityAlgorithm::ED448 => {
                 let key = self.pkey.raw_private_key().unwrap();
                 let key: Box<[u8; 57]> = key.try_into().unwrap();
                 SecretKeyBytes::Ed448(key.into())
@@ -217,13 +217,13 @@ impl KeyPair {
         use openssl::sign::Signer;
 
         match self.algorithm {
-            SecAlg::RSASHA256 => {
+            SecurityAlgorithm::RSASHA256 => {
                 let mut s = Signer::new(MessageDigest::sha256(), &self.pkey)?;
                 s.set_rsa_padding(openssl::rsa::Padding::PKCS1)?;
                 s.sign_oneshot_to_vec(data)
             }
 
-            SecAlg::ECDSAP256SHA256 => {
+            SecurityAlgorithm::ECDSAP256SHA256 => {
                 let mut s = Signer::new(MessageDigest::sha256(), &self.pkey)?;
                 let signature = s.sign_oneshot_to_vec(data)?;
                 // Convert from DER to the fixed representation.
@@ -233,7 +233,7 @@ impl KeyPair {
                 r.append(&mut s);
                 Ok(r)
             }
-            SecAlg::ECDSAP384SHA384 => {
+            SecurityAlgorithm::ECDSAP384SHA384 => {
                 let mut s = Signer::new(MessageDigest::sha384(), &self.pkey)?;
                 let signature = s.sign_oneshot_to_vec(data)?;
                 // Convert from DER to the fixed representation.
@@ -244,11 +244,11 @@ impl KeyPair {
                 Ok(r)
             }
 
-            SecAlg::ED25519 => {
+            SecurityAlgorithm::ED25519 => {
                 let mut s = Signer::new_without_digest(&self.pkey)?;
                 s.sign_oneshot_to_vec(data)
             }
-            SecAlg::ED448 => {
+            SecurityAlgorithm::ED448 => {
                 let mut s = Signer::new_without_digest(&self.pkey)?;
                 s.sign_oneshot_to_vec(data)
             }
@@ -261,20 +261,20 @@ impl KeyPair {
 //--- SignRaw
 
 impl SignRaw for KeyPair {
-    fn algorithm(&self) -> SecAlg {
+    fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
     fn raw_public_key(&self) -> PublicKeyBytes {
         match self.algorithm {
-            SecAlg::RSASHA256 => {
+            SecurityAlgorithm::RSASHA256 => {
                 let key = self.pkey.rsa().unwrap();
                 PublicKeyBytes::RsaSha256(RsaPublicKeyBytes {
                     n: key.n().to_vec().into(),
                     e: key.e().to_vec().into(),
                 })
             }
-            SecAlg::ECDSAP256SHA256 => {
+            SecurityAlgorithm::ECDSAP256SHA256 => {
                 let key = self.pkey.ec_key().unwrap();
                 let form = openssl::ec::PointConversionForm::UNCOMPRESSED;
                 let mut ctx = openssl::bn::BigNumContext::new().unwrap();
@@ -284,7 +284,7 @@ impl SignRaw for KeyPair {
                     .unwrap();
                 PublicKeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
             }
-            SecAlg::ECDSAP384SHA384 => {
+            SecurityAlgorithm::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
                 let form = openssl::ec::PointConversionForm::UNCOMPRESSED;
                 let mut ctx = openssl::bn::BigNumContext::new().unwrap();
@@ -294,11 +294,11 @@ impl SignRaw for KeyPair {
                     .unwrap();
                 PublicKeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
             }
-            SecAlg::ED25519 => {
+            SecurityAlgorithm::ED25519 => {
                 let key = self.pkey.raw_public_key().unwrap();
                 PublicKeyBytes::Ed25519(key.try_into().unwrap())
             }
-            SecAlg::ED448 => {
+            SecurityAlgorithm::ED448 => {
                 let key = self.pkey.raw_public_key().unwrap();
                 PublicKeyBytes::Ed448(key.try_into().unwrap())
             }
@@ -313,22 +313,24 @@ impl SignRaw for KeyPair {
             .map_err(|_| SignError)?;
 
         match self.algorithm {
-            SecAlg::RSASHA256 => Ok(Signature::RsaSha256(signature)),
+            SecurityAlgorithm::RSASHA256 => {
+                Ok(Signature::RsaSha256(signature))
+            }
 
-            SecAlg::ECDSAP256SHA256 => signature
+            SecurityAlgorithm::ECDSAP256SHA256 => signature
                 .try_into()
                 .map(Signature::EcdsaP256Sha256)
                 .map_err(|_| SignError),
-            SecAlg::ECDSAP384SHA384 => signature
+            SecurityAlgorithm::ECDSAP384SHA384 => signature
                 .try_into()
                 .map(Signature::EcdsaP384Sha384)
                 .map_err(|_| SignError),
 
-            SecAlg::ED25519 => signature
+            SecurityAlgorithm::ED25519 => signature
                 .try_into()
                 .map(Signature::Ed25519)
                 .map_err(|_| SignError),
-            SecAlg::ED448 => signature
+            SecurityAlgorithm::ED448 => signature
                 .try_into()
                 .map(Signature::Ed448)
                 .map_err(|_| SignError),
@@ -451,30 +453,36 @@ mod tests {
     use std::{string::ToString, vec::Vec};
 
     use crate::{
-        base::iana::SecAlg,
+        base::iana::SecurityAlgorithm,
         sign::{GenerateParams, SecretKeyBytes, SignRaw},
         validate::Key,
     };
 
     use super::KeyPair;
 
-    const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA256, 60616),
-        (SecAlg::ECDSAP256SHA256, 42253),
-        (SecAlg::ECDSAP384SHA384, 33566),
-        (SecAlg::ED25519, 56037),
-        (SecAlg::ED448, 7379),
+    const KEYS: &[(SecurityAlgorithm, u16)] = &[
+        (SecurityAlgorithm::RSASHA256, 60616),
+        (SecurityAlgorithm::ECDSAP256SHA256, 42253),
+        (SecurityAlgorithm::ECDSAP384SHA384, 33566),
+        (SecurityAlgorithm::ED25519, 56037),
+        (SecurityAlgorithm::ED448, 7379),
     ];
 
     #[test]
     fn generate() {
         for &(algorithm, _) in KEYS {
             let params = match algorithm {
-                SecAlg::RSASHA256 => GenerateParams::RsaSha256 { bits: 3072 },
-                SecAlg::ECDSAP256SHA256 => GenerateParams::EcdsaP256Sha256,
-                SecAlg::ECDSAP384SHA384 => GenerateParams::EcdsaP384Sha384,
-                SecAlg::ED25519 => GenerateParams::Ed25519,
-                SecAlg::ED448 => GenerateParams::Ed448,
+                SecurityAlgorithm::RSASHA256 => {
+                    GenerateParams::RsaSha256 { bits: 3072 }
+                }
+                SecurityAlgorithm::ECDSAP256SHA256 => {
+                    GenerateParams::EcdsaP256Sha256
+                }
+                SecurityAlgorithm::ECDSAP384SHA384 => {
+                    GenerateParams::EcdsaP384Sha384
+                }
+                SecurityAlgorithm::ED25519 => GenerateParams::Ed25519,
+                SecurityAlgorithm::ED448 => GenerateParams::Ed448,
                 _ => unreachable!(),
             };
 
@@ -486,11 +494,17 @@ mod tests {
     fn generated_roundtrip() {
         for &(algorithm, _) in KEYS {
             let params = match algorithm {
-                SecAlg::RSASHA256 => GenerateParams::RsaSha256 { bits: 3072 },
-                SecAlg::ECDSAP256SHA256 => GenerateParams::EcdsaP256Sha256,
-                SecAlg::ECDSAP384SHA384 => GenerateParams::EcdsaP384Sha384,
-                SecAlg::ED25519 => GenerateParams::Ed25519,
-                SecAlg::ED448 => GenerateParams::Ed448,
+                SecurityAlgorithm::RSASHA256 => {
+                    GenerateParams::RsaSha256 { bits: 3072 }
+                }
+                SecurityAlgorithm::ECDSAP256SHA256 => {
+                    GenerateParams::EcdsaP256Sha256
+                }
+                SecurityAlgorithm::ECDSAP384SHA384 => {
+                    GenerateParams::EcdsaP384Sha384
+                }
+                SecurityAlgorithm::ED25519 => GenerateParams::Ed25519,
+                SecurityAlgorithm::ED448 => GenerateParams::Ed448,
                 _ => unreachable!(),
             };
 

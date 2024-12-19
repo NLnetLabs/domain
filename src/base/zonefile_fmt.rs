@@ -236,7 +236,7 @@ mod test {
     use std::string::ToString as _;
     use std::vec::Vec;
 
-    use crate::base::iana::{Class, DigestAlg, SecAlg};
+    use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
     use crate::base::zonefile_fmt::ZonefileFmt;
     use crate::base::{Name, Record, Ttl};
     use crate::rdata::{Cds, Cname, Ds, Mx, Txt, A};
@@ -271,8 +271,8 @@ mod test {
         let record = create_record(
             Ds::new(
                 5414,
-                SecAlg::ED25519,
-                DigestAlg::SHA256,
+                SecurityAlgorithm::ED25519,
+                DigestAlgorithm::SHA256,
                 &[0xDE, 0xAD, 0xBE, 0xEF],
             )
             .unwrap(),
@@ -298,8 +298,8 @@ mod test {
         let record = create_record(
             Cds::new(
                 5414,
-                SecAlg::ED25519,
-                DigestAlg::SHA256,
+                SecurityAlgorithm::ED25519,
+                DigestAlgorithm::SHA256,
                 &[0xDE, 0xAD, 0xBE, 0xEF],
             )
             .unwrap(),

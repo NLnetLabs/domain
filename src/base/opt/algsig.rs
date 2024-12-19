@@ -14,7 +14,7 @@
 //!
 //! [RFC 6975]: https://tools.ietf.org/html/rfc6975
 
-use super::super::iana::{OptionCode, SecAlg};
+use super::super::iana::{OptionCode, SecurityAlgorithm};
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, ParseError};
 use super::{
@@ -34,14 +34,14 @@ use core::marker::PhantomData;
 /// This type provides the option data for the three options DAU, DHU, and
 /// N3U which allow a client to specify the cryptographic algorithms it
 /// supports for DNSSEC signatures, DS hashes, and NSEC3 hashes respectively.
-/// Each of them contains a sequence of [`SecAlg`] values in wire format.
+/// Each of them contains a sequence of [`SecurityAlgorithm`] values in wire format.
 ///
 /// Which exact option is to be used is specified via the `Variant` type
 /// argument. Three marker types `DauVariant`, `DhuVariant` and `N3uVariant`
 /// are defined with accompanying type aliases [`Dau`], [`Dhu`], and [`N3u`].
 ///
 /// You can create a new value from anything that can be turned into an
-/// iterator over [`SecAlg`] via the
+/// iterator over [`SecurityAlgorithm`] via the
 /// [`from_sec_algs`][Understood::from_sec_algs] associated function.
 /// Once you have a value, you can iterate over the algorithms via the
 /// [`iter`][Understood::iter] method or use the [`IntoIterator`] implementation
@@ -54,7 +54,7 @@ pub struct Understood<Variant, Octs: ?Sized> {
 
     /// The octets with the data.
     ///
-    /// These octets contain a sequence of composed [`SecAlg`] values.
+    /// These octets contain a sequence of composed [`SecurityAlgorithm`] values.
     octets: Octs,
 }
 
@@ -119,7 +119,7 @@ impl<Variant, Octs> Understood<Variant, Octs> {
     /// The operation will fail if the iterator returns more than 32,767
     /// algorithms.
     pub fn from_sec_algs(
-        sec_algs: impl IntoIterator<Item = SecAlg>
+        sec_algs: impl IntoIterator<Item = SecurityAlgorithm>
     ) -> Result<Self, BuildDataError>
     where
         Octs: FromBuilder,
@@ -211,11 +211,11 @@ impl<Variant, Octs: ?Sized> Understood<Variant, Octs> {
     }
 
     /// Returns an iterator over the algorithms in the data.
-    pub fn iter(&self) -> SecAlgsIter
+    pub fn iter(&self) -> SecurityAlgorithmsIter
     where
         Octs: AsRef<[u8]>,
     {
-        SecAlgsIter::new(self.octets.as_ref())
+        SecurityAlgorithmsIter::new(self.octets.as_ref())
     }
 }
 
@@ -377,8 +377,8 @@ impl<'a, Variant, Octs> IntoIterator for &'a Understood<Variant, Octs>
 where
     Octs: AsRef<[u8]> + ?Sized
 {
-    type Item = SecAlg;
-    type IntoIter = SecAlgsIter<'a>;
+    type Item = SecurityAlgorithm;
+    type IntoIter = SecurityAlgorithmsIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -480,12 +480,12 @@ impl<Target: Composer> OptBuilder<'_, Target> {
     /// The DAU option lists the DNSSEC signature algorithms the requester
     /// supports.
     pub fn dau(
-        &mut self, algs: &impl AsRef<[SecAlg]>,
+        &mut self, algs: &impl AsRef<[SecurityAlgorithm]>,
     ) -> Result<(), BuildDataError> {
         Ok(self.push_raw_option(
             OptionCode::DAU,
             u16::try_from(
-                algs.as_ref().len() * usize::from(SecAlg::COMPOSE_LEN)
+                algs.as_ref().len() * usize::from(SecurityAlgorithm::COMPOSE_LEN)
             ).map_err(|_| BuildDataError::LongOptData)?,
             |octs| {
                 algs.as_ref().iter().try_for_each(|item| item.compose(octs))
@@ -497,12 +497,12 @@ impl<Target: Composer> OptBuilder<'_, Target> {
     ///
     /// The DHU option lists the DS hash algorithms the requester supports.
     pub fn dhu(
-        &mut self, algs: &impl AsRef<[SecAlg]>,
+        &mut self, algs: &impl AsRef<[SecurityAlgorithm]>,
     ) -> Result<(), BuildDataError> {
         Ok(self.push_raw_option(
             OptionCode::DHU,
             u16::try_from(
-                algs.as_ref().len() * usize::from(SecAlg::COMPOSE_LEN)
+                algs.as_ref().len() * usize::from(SecurityAlgorithm::COMPOSE_LEN)
             ).map_err(|_| BuildDataError::LongOptData)?,
             |octs| {
                 algs.as_ref().iter().try_for_each(|item| item.compose(octs))
@@ -514,12 +514,12 @@ impl<Target: Composer> OptBuilder<'_, Target> {
     ///
     /// The N3U option lists the NSEC3 hash algorithms the requester supports.
     pub fn n3u(
-        &mut self, algs: &impl AsRef<[SecAlg]>,
+        &mut self, algs: &impl AsRef<[SecurityAlgorithm]>,
     ) -> Result<(), BuildDataError> {
         Ok(self.push_raw_option(
             OptionCode::N3U,
             u16::try_from(
-                algs.as_ref().len() * usize::from(SecAlg::COMPOSE_LEN)
+                algs.as_ref().len() * usize::from(SecurityAlgorithm::COMPOSE_LEN)
             ).map_err(|_| BuildDataError::LongOptData)?,
             |octs| {
                 algs.as_ref().iter().try_for_each(|item| item.compose(octs))
@@ -528,21 +528,21 @@ impl<Target: Composer> OptBuilder<'_, Target> {
     }
 }
 
-//------------ SecAlgsIter ---------------------------------------------------
+//------------ SecurityAlgorithmsIter ----------------------------------------
 
-pub struct SecAlgsIter<'a>(slice::Iter<'a, u8>);
+pub struct SecurityAlgorithmsIter<'a>(slice::Iter<'a, u8>);
 
-impl<'a> SecAlgsIter<'a> {
+impl<'a> SecurityAlgorithmsIter<'a> {
     fn new(slice: &'a [u8]) -> Self {
-        SecAlgsIter(slice.iter())
+        SecurityAlgorithmsIter(slice.iter())
     }
 }
 
-impl Iterator for SecAlgsIter<'_> {
-    type Item = SecAlg;
+impl Iterator for SecurityAlgorithmsIter<'_> {
+    type Item = SecurityAlgorithm;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|x| SecAlg::from_int(*x))
+        self.0.next().map(|x| SecurityAlgorithm::from_int(*x))
     }
 }
 

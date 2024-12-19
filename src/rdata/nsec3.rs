@@ -6,7 +6,7 @@
 
 use super::dnssec::RtypeBitmap;
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Nsec3HashAlg, Rtype};
+use crate::base::iana::{Nsec3HashAlgorithm, Rtype};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
@@ -46,7 +46,7 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
     ))
 )]
 pub struct Nsec3<Octs> {
-    hash_algorithm: Nsec3HashAlg,
+    hash_algorithm: Nsec3HashAlgorithm,
     flags: u8,
     iterations: u16,
     salt: Nsec3Salt<Octs>,
@@ -61,7 +61,7 @@ impl Nsec3<()> {
 
 impl<Octs> Nsec3<Octs> {
     pub fn new(
-        hash_algorithm: Nsec3HashAlg,
+        hash_algorithm: Nsec3HashAlgorithm,
         flags: u8,
         iterations: u16,
         salt: Nsec3Salt<Octs>,
@@ -78,7 +78,7 @@ impl<Octs> Nsec3<Octs> {
         }
     }
 
-    pub fn hash_algorithm(&self) -> Nsec3HashAlg {
+    pub fn hash_algorithm(&self) -> Nsec3HashAlgorithm {
         self.hash_algorithm
     }
 
@@ -132,7 +132,7 @@ impl<Octs> Nsec3<Octs> {
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
+            Nsec3HashAlgorithm::scan(scanner)?,
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
@@ -146,7 +146,7 @@ impl<Octs: AsRef<[u8]>> Nsec3<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        let hash_algorithm = Nsec3HashAlg::parse(parser)?;
+        let hash_algorithm = Nsec3HashAlgorithm::parse(parser)?;
         let flags = u8::parse(parser)?;
         let iterations = u16::parse(parser)?;
         let salt = Nsec3Salt::parse(parser)?;
@@ -311,7 +311,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
-                Nsec3HashAlg::COMPOSE_LEN
+                Nsec3HashAlgorithm::COMPOSE_LEN
                     + u8::COMPOSE_LEN
                     + u16::COMPOSE_LEN,
                 self.salt.compose_len(),
@@ -411,7 +411,7 @@ where
     ))
 )]
 pub struct Nsec3param<Octs> {
-    hash_algorithm: Nsec3HashAlg,
+    hash_algorithm: Nsec3HashAlgorithm,
     flags: u8,
     iterations: u16,
     salt: Nsec3Salt<Octs>,
@@ -424,7 +424,7 @@ impl Nsec3param<()> {
 
 impl<Octs> Nsec3param<Octs> {
     pub fn new(
-        hash_algorithm: Nsec3HashAlg,
+        hash_algorithm: Nsec3HashAlgorithm,
         flags: u8,
         iterations: u16,
         salt: Nsec3Salt<Octs>,
@@ -437,7 +437,7 @@ impl<Octs> Nsec3param<Octs> {
         }
     }
 
-    pub fn hash_algorithm(&self) -> Nsec3HashAlg {
+    pub fn hash_algorithm(&self) -> Nsec3HashAlgorithm {
         self.hash_algorithm
     }
 
@@ -477,7 +477,7 @@ impl<Octs> Nsec3param<Octs> {
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Self::new(
-            Nsec3HashAlg::parse(parser)?,
+            Nsec3HashAlgorithm::parse(parser)?,
             u8::parse(parser)?,
             u16::parse(parser)?,
             Nsec3Salt::parse(parser)?,
@@ -488,7 +488,7 @@ impl<Octs> Nsec3param<Octs> {
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
+            Nsec3HashAlgorithm::scan(scanner)?,
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
@@ -636,7 +636,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
-                Nsec3HashAlg::COMPOSE_LEN
+                Nsec3HashAlgorithm::COMPOSE_LEN
                     + u8::COMPOSE_LEN
                     + u16::COMPOSE_LEN,
                 self.salt.compose_len(),
@@ -1554,7 +1554,7 @@ mod test {
         rtype.add(Rtype::A).unwrap();
         rtype.add(Rtype::SRV).unwrap();
         let rdata = Nsec3::new(
-            Nsec3HashAlg::SHA1,
+            Nsec3HashAlgorithm::SHA1,
             10,
             11,
             Nsec3Salt::from_octets(Vec::from("bar")).unwrap(),
@@ -1578,7 +1578,7 @@ mod test {
         rtype.add(Rtype::A).unwrap();
         rtype.add(Rtype::SRV).unwrap();
         let rdata = Nsec3::new(
-            Nsec3HashAlg::SHA1,
+            Nsec3HashAlgorithm::SHA1,
             10,
             11,
             Nsec3Salt::empty(),
@@ -1599,7 +1599,7 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsec3param_compose_parse_scan() {
         let rdata = Nsec3param::new(
-            Nsec3HashAlg::SHA1,
+            Nsec3HashAlgorithm::SHA1,
             10,
             11,
             Nsec3Salt::from_octets(Vec::from("bar")).unwrap(),

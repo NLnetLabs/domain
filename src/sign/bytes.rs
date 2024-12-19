@@ -6,7 +6,7 @@ use secrecy::{ExposeSecret, SecretBox};
 use std::boxed::Box;
 use std::vec::Vec;
 
-use crate::base::iana::SecAlg;
+use crate::base::iana::SecurityAlgorithm;
 use crate::utils::base64;
 use crate::validate::RsaPublicKeyBytes;
 
@@ -50,7 +50,7 @@ use crate::validate::RsaPublicKeyBytes;
 /// - `Algorithm` specifies the signing algorithm used by the private key.
 ///   This can affect the format of later fields.  The value consists of two
 ///   whitespace-separated words: the first is the ASCII decimal number of the
-///   algorithm (see [`SecAlg`]); the second is the name of the algorithm in
+///   algorithm (see [`SecurityAlgorithm`]); the second is the name of the algorithm in
 ///   ASCII parentheses (with no whitespace inside).  Valid combinations are:
 ///
 ///   - `8 (RSASHA256)`: RSA with the SHA-256 digest.
@@ -112,13 +112,13 @@ pub enum SecretKeyBytes {
 
 impl SecretKeyBytes {
     /// The algorithm used by this key.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
-            Self::RsaSha256(_) => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519(_) => SecAlg::ED25519,
-            Self::Ed448(_) => SecAlg::ED448,
+            Self::RsaSha256(_) => SecurityAlgorithm::RSASHA256,
+            Self::EcdsaP256Sha256(_) => SecurityAlgorithm::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecurityAlgorithm::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecurityAlgorithm::ED25519,
+            Self::Ed448(_) => SecurityAlgorithm::ED448,
         }
     }
 }
@@ -470,14 +470,14 @@ impl std::error::Error for BindFormatError {}
 mod tests {
     use std::{string::ToString, vec::Vec};
 
-    use crate::base::iana::SecAlg;
+    use crate::base::iana::SecurityAlgorithm;
 
-    const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA256, 60616),
-        (SecAlg::ECDSAP256SHA256, 42253),
-        (SecAlg::ECDSAP384SHA384, 33566),
-        (SecAlg::ED25519, 56037),
-        (SecAlg::ED448, 7379),
+    const KEYS: &[(SecurityAlgorithm, u16)] = &[
+        (SecurityAlgorithm::RSASHA256, 60616),
+        (SecurityAlgorithm::ECDSAP256SHA256, 42253),
+        (SecurityAlgorithm::ECDSAP384SHA384, 33566),
+        (SecurityAlgorithm::ED25519, 56037),
+        (SecurityAlgorithm::ED448, 7379),
     ];
 
     #[test]
