@@ -45,7 +45,7 @@
 //! format.
 //!
 //! ```
-//! # use domain::base::iana::SecAlg;
+//! # use domain::base::iana::SecurityAlgorithm;
 //! # use domain::{sign::*, validate};
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
@@ -62,7 +62,7 @@
 //!
 //! // Check that the owner, algorithm, and key tag matched expectations.
 //! assert_eq!(key.owner().to_string(), "test");
-//! assert_eq!(key.algorithm(), SecAlg::ED25519);
+//! assert_eq!(key.algorithm(), SecurityAlgorithm::ED25519);
 //! assert_eq!(key.public_key().key_tag(), 56037);
 //! ```
 //!
@@ -115,7 +115,7 @@
 use core::fmt;
 
 use crate::{
-    base::{iana::SecAlg, Name},
+    base::{iana::SecurityAlgorithm, Name},
     validate,
 };
 
@@ -230,7 +230,7 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
     }
 
     /// The signing algorithm used.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         self.inner.algorithm()
     }
 
@@ -271,7 +271,7 @@ pub trait SignRaw {
     /// See [RFC 8624, section 3.1] for IETF implementation recommendations.
     ///
     /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
-    fn algorithm(&self) -> SecAlg;
+    fn algorithm(&self) -> SecurityAlgorithm;
 
     /// The raw public key.
     ///
@@ -328,13 +328,13 @@ pub enum GenerateParams {
 
 impl GenerateParams {
     /// The algorithm of the generated key.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
-            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519 => SecAlg::ED25519,
-            Self::Ed448 => SecAlg::ED448,
+            Self::RsaSha256 { .. } => SecurityAlgorithm::RSASHA256,
+            Self::EcdsaP256Sha256 => SecurityAlgorithm::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384 => SecurityAlgorithm::ECDSAP384SHA384,
+            Self::Ed25519 => SecurityAlgorithm::ED25519,
+            Self::Ed448 => SecurityAlgorithm::ED448,
         }
     }
 }

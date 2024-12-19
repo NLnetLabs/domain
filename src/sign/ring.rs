@@ -19,7 +19,7 @@ use ring::signature::{
 use secrecy::ExposeSecret;
 
 use crate::{
-    base::iana::SecAlg,
+    base::iana::SecurityAlgorithm,
     validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature},
 };
 
@@ -141,12 +141,16 @@ impl KeyPair {
 //--- SignRaw
 
 impl SignRaw for KeyPair {
-    fn algorithm(&self) -> SecAlg {
+    fn algorithm(&self) -> SecurityAlgorithm {
         match self {
-            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256 { .. } => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384 { .. } => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519(_) => SecAlg::ED25519,
+            Self::RsaSha256 { .. } => SecurityAlgorithm::RSASHA256,
+            Self::EcdsaP256Sha256 { .. } => {
+                SecurityAlgorithm::ECDSAP256SHA256
+            }
+            Self::EcdsaP384Sha384 { .. } => {
+                SecurityAlgorithm::ECDSAP384SHA384
+            }
+            Self::Ed25519(_) => SecurityAlgorithm::ED25519,
         }
     }
 
@@ -366,18 +370,18 @@ mod tests {
     use std::{sync::Arc, vec::Vec};
 
     use crate::{
-        base::iana::SecAlg,
+        base::iana::SecurityAlgorithm,
         sign::{GenerateParams, SecretKeyBytes, SignRaw},
         validate::Key,
     };
 
     use super::KeyPair;
 
-    const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA256, 60616),
-        (SecAlg::ECDSAP256SHA256, 42253),
-        (SecAlg::ECDSAP384SHA384, 33566),
-        (SecAlg::ED25519, 56037),
+    const KEYS: &[(SecurityAlgorithm, u16)] = &[
+        (SecurityAlgorithm::RSASHA256, 60616),
+        (SecurityAlgorithm::ECDSAP256SHA256, 42253),
+        (SecurityAlgorithm::ECDSAP384SHA384, 33566),
+        (SecurityAlgorithm::ED25519, 56037),
     ];
 
     const GENERATE_PARAMS: &[GenerateParams] = &[

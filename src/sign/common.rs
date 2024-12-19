@@ -10,7 +10,7 @@ use std::sync::Arc;
 use ::ring::rand::SystemRandom;
 
 use crate::{
-    base::iana::SecAlg,
+    base::iana::SecurityAlgorithm,
     validate::{PublicKeyBytes, Signature},
 };
 
@@ -93,7 +93,7 @@ impl KeyPair {
 //--- SignRaw
 
 impl SignRaw for KeyPair {
-    fn algorithm(&self) -> SecAlg {
+    fn algorithm(&self) -> SecurityAlgorithm {
         match self {
             #[cfg(feature = "ring")]
             Self::Ring(key) => key.algorithm(),

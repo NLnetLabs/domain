@@ -1,6 +1,6 @@
 //! Delegation signer digest algorithm numbers.
 
-//------------ DigestAlg -----------------------------------------------------
+//------------ DigestAlgorithm -----------------------------------------------
 
 int_enum! {
     /// Delegation signer digest algorithm numbers.
@@ -13,7 +13,7 @@ int_enum! {
     ///
     /// [IANA registration]: https://www.iana.org/assignments/ds-rr-types/ds-rr-types.xhtml#ds-rr-types-1
     =>
-    DigestAlg, u8;
+    DigestAlgorithm, u8;
 
     /// Specifies that the SHA-1 hash function is used.
     ///
@@ -42,8 +42,8 @@ int_enum! {
     (SHA384 => 4, "SHA-384")
 }
 
-int_enum_str_decimal!(DigestAlg, u8);
-int_enum_zonefile_fmt_decimal!(DigestAlg, "digest type");
+int_enum_str_decimal!(DigestAlgorithm, u8);
+int_enum_zonefile_fmt_decimal!(DigestAlgorithm, "digest type");
 
 //============ Tests =========================================================
 
@@ -52,10 +52,10 @@ mod test {
     #[cfg(feature = "serde")]
     #[test]
     fn ser_de() {
-        use super::DigestAlg;
+        use super::DigestAlgorithm;
         use serde_test::{assert_tokens, Token};
 
-        assert_tokens(&DigestAlg::SHA384, &[Token::U8(4)]);
-        assert_tokens(&DigestAlg(100), &[Token::U8(100)]);
+        assert_tokens(&DigestAlgorithm::SHA384, &[Token::U8(4)]);
+        assert_tokens(&DigestAlgorithm(100), &[Token::U8(100)]);
     }
 }

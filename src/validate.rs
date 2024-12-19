@@ -5,7 +5,7 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-validate")))]
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Class, DigestAlg, SecAlg};
+use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
 use crate::base::name::Name;
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
@@ -47,7 +47,7 @@ use std::{error, fmt};
 /// - The DNSKEY record data, which has the following sub-fields:
 ///   - The key flags, which describe the key's uses.
 ///   - The protocol used (expected to be `3`).
-///   - The key algorithm (see [`SecAlg`]).
+///   - The key algorithm (see [`SecurityAlgorithm`]).
 ///   - The public key encoded as a Base64 string.
 #[derive(Clone)]
 pub struct Key<Octs> {
@@ -93,7 +93,7 @@ impl<Octs> Key<Octs> {
     }
 
     /// The signing algorithm used.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         self.key.algorithm()
     }
 
@@ -177,15 +177,15 @@ impl<Octs> Key<Octs> {
     /// The digest of this key.
     pub fn digest(
         &self,
-        algorithm: DigestAlg,
+        algorithm: DigestAlgorithm,
     ) -> Result<Ds<Box<[u8]>>, DigestError>
     where
         Octs: AsRef<[u8]>,
     {
         let mut context = ring::digest::Context::new(match algorithm {
-            DigestAlg::SHA1 => &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
-            DigestAlg::SHA256 => &ring::digest::SHA256,
-            DigestAlg::SHA384 => &ring::digest::SHA384,
+            DigestAlgorithm::SHA1 => &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
+            DigestAlgorithm::SHA256 => &ring::digest::SHA256,
+            DigestAlgorithm::SHA384 => &ring::digest::SHA384,
             _ => return Err(DigestError::UnsupportedAlgorithm),
         });
 
@@ -409,16 +409,18 @@ pub enum PublicKeyBytes {
 
 impl PublicKeyBytes {
     /// The algorithm used by this key.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
-            Self::RsaSha1(_) => SecAlg::RSASHA1,
-            Self::RsaSha1Nsec3Sha1(_) => SecAlg::RSASHA1_NSEC3_SHA1,
-            Self::RsaSha256(_) => SecAlg::RSASHA256,
-            Self::RsaSha512(_) => SecAlg::RSASHA512,
-            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519(_) => SecAlg::ED25519,
-            Self::Ed448(_) => SecAlg::ED448,
+            Self::RsaSha1(_) => SecurityAlgorithm::RSASHA1,
+            Self::RsaSha1Nsec3Sha1(_) => {
+                SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+            }
+            Self::RsaSha256(_) => SecurityAlgorithm::RSASHA256,
+            Self::RsaSha512(_) => SecurityAlgorithm::RSASHA512,
+            Self::EcdsaP256Sha256(_) => SecurityAlgorithm::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecurityAlgorithm::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecurityAlgorithm::ED25519,
+            Self::Ed448(_) => SecurityAlgorithm::ED448,
         }
     }
 
@@ -490,23 +492,27 @@ impl PublicKeyBytes {
 impl PublicKeyBytes {
     /// Parse a public key as stored in a DNSKEY record.
     pub fn from_dnskey_format(
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
         data: &[u8],
     ) -> Result<Self, FromDnskeyError> {
         match algorithm {
-            SecAlg::RSASHA1 => {
+            SecurityAlgorithm::RSASHA1 => {
                 RsaPublicKeyBytes::from_dnskey_format(data).map(Self::RsaSha1)
             }
-            SecAlg::RSASHA1_NSEC3_SHA1 => {
+            SecurityAlgorithm::RSASHA1_NSEC3_SHA1 => {
                 RsaPublicKeyBytes::from_dnskey_format(data)
                     .map(Self::RsaSha1Nsec3Sha1)
             }
-            SecAlg::RSASHA256 => RsaPublicKeyBytes::from_dnskey_format(data)
-                .map(Self::RsaSha256),
-            SecAlg::RSASHA512 => RsaPublicKeyBytes::from_dnskey_format(data)
-                .map(Self::RsaSha512),
+            SecurityAlgorithm::RSASHA256 => {
+                RsaPublicKeyBytes::from_dnskey_format(data)
+                    .map(Self::RsaSha256)
+            }
+            SecurityAlgorithm::RSASHA512 => {
+                RsaPublicKeyBytes::from_dnskey_format(data)
+                    .map(Self::RsaSha512)
+            }
 
-            SecAlg::ECDSAP256SHA256 => {
+            SecurityAlgorithm::ECDSAP256SHA256 => {
                 let mut key = Box::new([0u8; 65]);
                 if key.len() == 1 + data.len() {
                     key[0] = 0x04;
@@ -516,7 +522,7 @@ impl PublicKeyBytes {
                     Err(FromDnskeyError::InvalidKey)
                 }
             }
-            SecAlg::ECDSAP384SHA384 => {
+            SecurityAlgorithm::ECDSAP384SHA384 => {
                 let mut key = Box::new([0u8; 97]);
                 if key.len() == 1 + data.len() {
                     key[0] = 0x04;
@@ -527,11 +533,11 @@ impl PublicKeyBytes {
                 }
             }
 
-            SecAlg::ED25519 => Box::<[u8]>::from(data)
+            SecurityAlgorithm::ED25519 => Box::<[u8]>::from(data)
                 .try_into()
                 .map(Self::Ed25519)
                 .map_err(|_| FromDnskeyError::InvalidKey),
-            SecAlg::ED448 => Box::<[u8]>::from(data)
+            SecurityAlgorithm::ED448 => Box::<[u8]>::from(data)
                 .try_into()
                 .map(Self::Ed448)
                 .map_err(|_| FromDnskeyError::InvalidKey),
@@ -777,16 +783,18 @@ pub enum Signature {
 
 impl Signature {
     /// The algorithm used to make the signature.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
-            Self::RsaSha1(_) => SecAlg::RSASHA1,
-            Self::RsaSha1Nsec3Sha1(_) => SecAlg::RSASHA1_NSEC3_SHA1,
-            Self::RsaSha256(_) => SecAlg::RSASHA256,
-            Self::RsaSha512(_) => SecAlg::RSASHA512,
-            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519(_) => SecAlg::ED25519,
-            Self::Ed448(_) => SecAlg::ED448,
+            Self::RsaSha1(_) => SecurityAlgorithm::RSASHA1,
+            Self::RsaSha1Nsec3Sha1(_) => {
+                SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+            }
+            Self::RsaSha256(_) => SecurityAlgorithm::RSASHA256,
+            Self::RsaSha512(_) => SecurityAlgorithm::RSASHA512,
+            Self::EcdsaP256Sha256(_) => SecurityAlgorithm::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecurityAlgorithm::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecurityAlgorithm::ED25519,
+            Self::Ed448(_) => SecurityAlgorithm::ED448,
         }
     }
 }
@@ -846,7 +854,7 @@ pub trait DnskeyExt {
     fn digest<N: ToName>(
         &self,
         name: &N,
-        algorithm: DigestAlg,
+        algorithm: DigestAlgorithm,
     ) -> Result<digest::Digest, AlgorithmError>;
 }
 
@@ -875,7 +883,7 @@ where
     fn digest<N: ToName>(
         &self,
         name: &N,
-        algorithm: DigestAlg,
+        algorithm: DigestAlgorithm,
     ) -> Result<digest::Digest, AlgorithmError> {
         let mut buf: Vec<u8> = Vec::new();
         with_infallible(|| {
@@ -884,11 +892,11 @@ where
         });
 
         let mut ctx = match algorithm {
-            DigestAlg::SHA1 => {
+            DigestAlgorithm::SHA1 => {
                 digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
             }
-            DigestAlg::SHA256 => digest::Context::new(&digest::SHA256),
-            DigestAlg::SHA384 => digest::Context::new(&digest::SHA384),
+            DigestAlgorithm::SHA256 => digest::Context::new(&digest::SHA256),
+            DigestAlgorithm::SHA384 => digest::Context::new(&digest::SHA384),
             _ => {
                 return Err(AlgorithmError::Unsupported);
             }
@@ -900,10 +908,10 @@ where
 }
 
 // This needs to match the digests supported in digest.
-pub fn supported_digest(d: &DigestAlg) -> bool {
-    *d == DigestAlg::SHA1
-        || *d == DigestAlg::SHA256
-        || *d == DigestAlg::SHA384
+pub fn supported_digest(d: &DigestAlgorithm) -> bool {
+    *d == DigestAlgorithm::SHA1
+        || *d == DigestAlgorithm::SHA256
+        || *d == DigestAlgorithm::SHA384
 }
 
 //------------ Rrsig ---------------------------------------------------------
@@ -1075,22 +1083,22 @@ impl<Octets: AsRef<[u8]>, TN: ToName> RrsigExt for Rrsig<Octets, TN> {
         }
 
         // Note: Canonicalize the algorithm, otherwise matching named variants against Int(_) is not going to work
-        let sec_alg = SecAlg::from_int(self.algorithm().to_int());
+        let sec_alg = SecurityAlgorithm::from_int(self.algorithm().to_int());
         match sec_alg {
-            SecAlg::RSASHA1
-            | SecAlg::RSASHA1_NSEC3_SHA1
-            | SecAlg::RSASHA256
-            | SecAlg::RSASHA512 => {
+            SecurityAlgorithm::RSASHA1
+            | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+            | SecurityAlgorithm::RSASHA256
+            | SecurityAlgorithm::RSASHA512 => {
                 let (algorithm, min_bytes) = match sec_alg {
-                    SecAlg::RSASHA1 | SecAlg::RSASHA1_NSEC3_SHA1 => (
+                    SecurityAlgorithm::RSASHA1 | SecurityAlgorithm::RSASHA1_NSEC3_SHA1 => (
                         &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
                         1024 / 8,
                     ),
-                    SecAlg::RSASHA256 => (
+                    SecurityAlgorithm::RSASHA256 => (
                         &signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
                         1024 / 8,
                     ),
-                    SecAlg::RSASHA512 => (
+                    SecurityAlgorithm::RSASHA512 => (
                         &signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY,
                         1024 / 8,
                     ),
@@ -1106,12 +1114,13 @@ impl<Octets: AsRef<[u8]>, TN: ToName> RrsigExt for Rrsig<Octets, TN> {
                     .verify(algorithm, signed_data, signature)
                     .map_err(|_| AlgorithmError::BadSig)
             }
-            SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+            SecurityAlgorithm::ECDSAP256SHA256
+            | SecurityAlgorithm::ECDSAP384SHA384 => {
                 let algorithm = match sec_alg {
-                    SecAlg::ECDSAP256SHA256 => {
+                    SecurityAlgorithm::ECDSAP256SHA256 => {
                         &signature::ECDSA_P256_SHA256_FIXED
                     }
-                    SecAlg::ECDSAP384SHA384 => {
+                    SecurityAlgorithm::ECDSAP384SHA384 => {
                         &signature::ECDSA_P384_SHA384_FIXED
                     }
                     _ => unreachable!(),
@@ -1127,7 +1136,7 @@ impl<Octets: AsRef<[u8]>, TN: ToName> RrsigExt for Rrsig<Octets, TN> {
                     .verify(signed_data, signature)
                     .map_err(|_| AlgorithmError::BadSig)
             }
-            SecAlg::ED25519 => {
+            SecurityAlgorithm::ED25519 => {
                 let key = dnskey.public_key();
                 signature::UnparsedPublicKey::new(&signature::ED25519, &key)
                     .verify(signed_data, signature)
@@ -1139,12 +1148,12 @@ impl<Octets: AsRef<[u8]>, TN: ToName> RrsigExt for Rrsig<Octets, TN> {
 }
 
 // This needs to match the algorithms supported in signed_data.
-pub fn supported_algorithm(a: &SecAlg) -> bool {
-    *a == SecAlg::RSASHA1
-        || *a == SecAlg::RSASHA1_NSEC3_SHA1
-        || *a == SecAlg::RSASHA256
-        || *a == SecAlg::RSASHA512
-        || *a == SecAlg::ECDSAP256SHA256
+pub fn supported_algorithm(a: &SecurityAlgorithm) -> bool {
+    *a == SecurityAlgorithm::RSASHA1
+        || *a == SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+        || *a == SecurityAlgorithm::RSASHA256
+        || *a == SecurityAlgorithm::RSASHA512
+        || *a == SecurityAlgorithm::ECDSAP256SHA256
 }
 
 /// Return the RSA exponent and modulus components from DNSKEY record data.
@@ -1289,14 +1298,14 @@ mod test {
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Rrsig = crate::rdata::Rrsig<Vec<u8>, Name>;
 
-    const KEYS: &[(SecAlg, u16, usize)] = &[
-        (SecAlg::RSASHA1, 439, 2048),
-        (SecAlg::RSASHA1_NSEC3_SHA1, 22204, 2048),
-        (SecAlg::RSASHA256, 60616, 2048),
-        (SecAlg::ECDSAP256SHA256, 42253, 256),
-        (SecAlg::ECDSAP384SHA384, 33566, 384),
-        (SecAlg::ED25519, 56037, 256),
-        (SecAlg::ED448, 7379, 456),
+    const KEYS: &[(SecurityAlgorithm, u16, usize)] = &[
+        (SecurityAlgorithm::RSASHA1, 439, 2048),
+        (SecurityAlgorithm::RSASHA1_NSEC3_SHA1, 22204, 2048),
+        (SecurityAlgorithm::RSASHA256, 60616, 2048),
+        (SecurityAlgorithm::ECDSAP256SHA256, 42253, 256),
+        (SecurityAlgorithm::ECDSAP384SHA384, 33566, 384),
+        (SecurityAlgorithm::ED25519, 56037, 256),
+        (SecurityAlgorithm::ED448, 7379, 456),
     ];
 
     // Returns current root KSK/ZSK for testing (2048b)
@@ -1322,8 +1331,8 @@ mod test {
         )
         .unwrap();
         (
-            Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
-            Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
+            Dnskey::new(257, 3, SecurityAlgorithm::RSASHA256, ksk).unwrap(),
+            Dnskey::new(256, 3, SecurityAlgorithm::RSASHA256, zsk).unwrap(),
         )
     }
 
@@ -1338,8 +1347,8 @@ mod test {
         )
         .unwrap();
         (
-            Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
-            Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
+            Dnskey::new(257, 3, SecurityAlgorithm::RSASHA256, ksk).unwrap(),
+            Dnskey::new(256, 3, SecurityAlgorithm::RSASHA256, zsk).unwrap(),
         )
     }
 
@@ -1441,8 +1450,8 @@ mod test {
         let owner = Name::root();
         let expected = Ds::new(
             20326,
-            SecAlg::RSASHA256,
-            DigestAlg::SHA256,
+            SecurityAlgorithm::RSASHA256,
+            DigestAlgorithm::SHA256,
             base64::decode::<Vec<u8>>(
                 "4G1EuAuPHTmpXAsNfGXQhFjogECbvGg0VxBCN8f47I0=",
             )
@@ -1450,7 +1459,10 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            dnskey.digest(&owner, DigestAlg::SHA256).unwrap().as_ref(),
+            dnskey
+                .digest(&owner, DigestAlgorithm::SHA256)
+                .unwrap()
+                .as_ref(),
             expected.digest()
         );
     }
@@ -1459,7 +1471,7 @@ mod test {
     fn dnskey_digest_unsupported() {
         let (dnskey, _) = root_pubkey();
         let owner = Name::root();
-        assert!(dnskey.digest(&owner, DigestAlg::GOST).is_err());
+        assert!(dnskey.digest(&owner, DigestAlgorithm::GOST).is_err());
     }
 
     fn rrsig_verify_dnskey(ksk: Dnskey, zsk: Dnskey, rrsig: Rrsig) {
@@ -1496,7 +1508,7 @@ mod test {
         let (ksk, zsk) = root_pubkey();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::RSASHA256,
+            SecurityAlgorithm::RSASHA256,
             0,
             Ttl::from_secs(172800),
             1560211200.into(),
@@ -1514,7 +1526,7 @@ mod test {
         let (ksk, zsk) = net_pubkey();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::RSASHA256,
+            SecurityAlgorithm::RSASHA256,
             1,
             Ttl::from_secs(86400),
             Timestamp::from_str("20210921162830").unwrap(),
@@ -1534,7 +1546,8 @@ mod test {
         )
         .unwrap();
 
-        let short_key = Dnskey::new(256, 3, SecAlg::RSASHA256, data).unwrap();
+        let short_key =
+            Dnskey::new(256, 3, SecurityAlgorithm::RSASHA256, data).unwrap();
         let err = rrsig
             .verify_signed_data(&short_key, &vec![0; 100])
             .unwrap_err();
@@ -1547,7 +1560,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::ECDSAP256SHA256,
+                SecurityAlgorithm::ECDSAP256SHA256,
                 base64::decode::<Vec<u8>>(
                     "mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAe\
                     F+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
@@ -1558,7 +1571,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::ECDSAP256SHA256,
+                SecurityAlgorithm::ECDSAP256SHA256,
                 base64::decode::<Vec<u8>>(
                     "oJMRESz5E4gYzS/q6XDrvU1qMPYIjCWzJaOau8XNEZeqCYKD5ar0IR\
                     d8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA==",
@@ -1571,7 +1584,7 @@ mod test {
         let owner = Name::from_str("cloudflare.com.").unwrap();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::ECDSAP256SHA256,
+            SecurityAlgorithm::ECDSAP256SHA256,
             2,
             Ttl::from_secs(3600),
             1560314494.into(),
@@ -1594,7 +1607,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::ED25519,
+                SecurityAlgorithm::ED25519,
                 base64::decode::<Vec<u8>>(
                     "m1NELLVVQKl4fHVn/KKdeNO0PrYKGT3IGbYseT8XcKo=",
                 )
@@ -1604,7 +1617,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::ED25519,
+                SecurityAlgorithm::ED25519,
                 base64::decode::<Vec<u8>>(
                     "2tstZAjgmlDTePn0NVXrAHBJmg84LoaFVxzLl1anjGI=",
                 )
@@ -1618,7 +1631,7 @@ mod test {
                 .unwrap();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::ED25519,
+            SecurityAlgorithm::ED25519,
             2,
             Ttl::from_secs(3600),
             1559174400.into(),
@@ -1640,7 +1653,7 @@ mod test {
         let (ksk, zsk) = root_pubkey();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::RSASHA256,
+            SecurityAlgorithm::RSASHA256,
             0,
             Ttl::from_secs(172800),
             1560211200.into(),
@@ -1688,7 +1701,7 @@ mod test {
         let key = Dnskey::new(
             256,
             3,
-            SecAlg::RSASHA1,
+            SecurityAlgorithm::RSASHA1,
             base64::decode::<Vec<u8>>(
                 "AQOy1bZVvpPqhg4j7EJoM9rI3ZmyEx2OzDBVrZy/lvI5CQePxX\
                 HZS4i8dANH4DX3tbHol61ek8EFMcsGXxKciJFHyhl94C+NwILQd\
@@ -1700,7 +1713,7 @@ mod test {
         .unwrap();
         let rrsig = Rrsig::new(
             Rtype::MX,
-            SecAlg::RSASHA1,
+            SecurityAlgorithm::RSASHA1,
             2,
             Ttl::from_secs(3600),
             Timestamp::from_str("20040509183619").unwrap(),

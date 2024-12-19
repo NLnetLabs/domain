@@ -3,7 +3,7 @@
 use super::context::{Config, ValidationState};
 use super::group::ValidatedGroup;
 use super::utilities::{make_ede, star_closest_encloser};
-use crate::base::iana::{ExtendedErrorCode, Nsec3HashAlg};
+use crate::base::iana::{ExtendedErrorCode, Nsec3HashAlgorithm};
 use crate::base::name::{Label, ToName};
 use crate::base::opt::ExtendedError;
 use crate::base::{Name, ParsedName, Rtype};
@@ -934,7 +934,7 @@ pub async fn nsec3_for_nxdomain(
 /// The key of the NSEC3 cache. The name that needs to be hash, together
 /// with the hash algorithm, the number of iterations and the salt.
 #[derive(Eq, Hash, PartialEq)]
-struct Nsec3CacheKey(Name<Bytes>, Nsec3HashAlg, u16, Nsec3Salt<Bytes>);
+struct Nsec3CacheKey(Name<Bytes>, Nsec3HashAlgorithm, u16, Nsec3Salt<Bytes>);
 
 /// The NSEC3 hash cache.
 pub struct Nsec3Cache {
@@ -953,8 +953,8 @@ impl Nsec3Cache {
 
 /// Return if the NSEC3 hash algorithm is supported by the nsec3_hash
 /// function.
-pub fn supported_nsec3_hash(h: Nsec3HashAlg) -> bool {
-    h == Nsec3HashAlg::SHA1
+pub fn supported_nsec3_hash(h: Nsec3HashAlgorithm) -> bool {
+    h == Nsec3HashAlgorithm::SHA1
 }
 
 /// Compute the NSEC3 hash according to Section 5 of RFC 5155:
@@ -966,7 +966,7 @@ pub fn supported_nsec3_hash(h: Nsec3HashAlg) -> bool {
 ///    IH(salt, owner name, iterations),
 fn nsec3_hash<N, HashOcts>(
     owner: N,
-    algorithm: Nsec3HashAlg,
+    algorithm: Nsec3HashAlgorithm,
     iterations: u16,
     salt: &Nsec3Salt<HashOcts>,
 ) -> OwnerHash<Vec<u8>>
@@ -979,7 +979,7 @@ where
     owner.compose_canonical(&mut buf).expect("infallible");
     buf.append_slice(salt.as_slice()).expect("infallible");
 
-    let digest_type = if algorithm == Nsec3HashAlg::SHA1 {
+    let digest_type = if algorithm == Nsec3HashAlgorithm::SHA1 {
         &digest::SHA1_FOR_LEGACY_USE_ONLY
     } else {
         // totest, unsupported NSEC3 hash algorithm
@@ -1008,7 +1008,7 @@ where
 /// Return an NSEC3 hash using a cache.
 pub async fn cached_nsec3_hash(
     owner: &Name<Bytes>,
-    algorithm: Nsec3HashAlg,
+    algorithm: Nsec3HashAlgorithm,
     iterations: u16,
     salt: &Nsec3Salt<Bytes>,
     cache: &Nsec3Cache,
