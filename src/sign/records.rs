@@ -14,6 +14,7 @@ use std::string::{String, ToString};
 use std::vec::Vec;
 use std::{fmt, slice};
 
+use bytes::Bytes;
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::{FreezeBuilder, OctetsFrom, OctetsInto};
 use tracing::{debug, enabled, Level};
@@ -26,7 +27,9 @@ use crate::base::record::Record;
 use crate::base::{Name, NameBuilder, Ttl};
 use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap, RtypeBitmapBuilder};
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
-use crate::rdata::{Dnskey, Nsec, Nsec3, Nsec3param, Soa, ZoneRecordData};
+use crate::rdata::{
+    Dnskey, Nsec, Nsec3, Nsec3param, Rrsig, Soa, ZoneRecordData,
+};
 use crate::utils::base32;
 use crate::validate::{nsec3_hash, Nsec3HashError};
 use crate::zonetree::types::StoredRecordData;
@@ -126,6 +129,84 @@ where
         }
     }
 
+    /// Remove all records matching the owner name, class, and rtype.
+    /// Class and Rtype can be None to match any.
+    ///
+    /// Returns:
+    ///   - true: if one or more matching records were found (and removed)
+    ///   - false: if no matching record was found
+    pub fn remove_all_by_name_class_rtype(
+        &mut self,
+        name: N,
+        class: Option<Class>,
+        rtype: Option<Rtype>,
+    ) -> bool
+    where
+        N: ToName + Clone,
+        D: RecordData,
+    {
+        let mut found_one = false;
+        loop {
+            if self.remove_first_by_name_class_rtype(
+                name.clone(),
+                class,
+                rtype,
+            ) {
+                found_one = true
+            } else {
+                break;
+            }
+        }
+
+        found_one
+    }
+
+    /// Remove first records matching the owner name, class, and rtype.
+    /// Class and Rtype can be None to match any.
+    ///
+    /// Returns:
+    ///   - true: if a matching record was found (and removed)
+    ///   - false: if no matching record was found
+    pub fn remove_first_by_name_class_rtype(
+        &mut self,
+        name: N,
+        class: Option<Class>,
+        rtype: Option<Rtype>,
+    ) -> bool
+    where
+        N: ToName,
+        D: RecordData,
+    {
+        let idx = self.records.binary_search_by(|stored| {
+            // Ordering based on base::Record::canonical_cmp excluding comparison of data
+
+            if let Some(class) = class {
+                match stored.class().cmp(&class) {
+                    Ordering::Equal => {}
+                    res => return res,
+                }
+            }
+
+            match stored.owner().name_cmp(&name) {
+                Ordering::Equal => {}
+                res => return res,
+            }
+
+            if let Some(rtype) = rtype {
+                stored.rtype().cmp(&rtype)
+            } else {
+                Ordering::Equal
+            }
+        });
+        match idx {
+            Ok(idx) => {
+                self.records.remove(idx);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
     pub fn families(&self) -> RecordsIter<N, D> {
         RecordsIter::new(&self.records)
     }
@@ -155,7 +236,7 @@ where
     }
 }
 
-impl<N: Send, S: Sorter> SortedRecords<N, StoredRecordData, S> {
+impl<N: Send + ToName, S: Sorter> SortedRecords<N, StoredRecordData, S> {
     pub fn replace_soa(&mut self, new_soa: Soa<StoredName>) {
         if let Some(soa_rrset) = self
             .records
@@ -164,6 +245,31 @@ impl<N: Send, S: Sorter> SortedRecords<N, StoredRecordData, S> {
         {
             if let ZoneRecordData::Soa(current_soa) = soa_rrset.data_mut() {
                 *current_soa = new_soa;
+            }
+        }
+    }
+
+    pub fn replace_rrsig_for_apex_zonemd(
+        &mut self,
+        new_rrsig: Rrsig<Bytes, StoredName>,
+        apex: &FamilyName<StoredName>,
+    ) {
+        if let Some(zonemd_rrsig) = self.records.iter_mut().find(|record| {
+            if record.rtype() == Rtype::RRSIG
+                && record.owner().name_cmp(&apex.owner()) == Ordering::Equal
+            {
+                if let ZoneRecordData::Rrsig(rrsig) = record.data() {
+                    if rrsig.type_covered() == Rtype::ZONEMD {
+                        return true;
+                    }
+                }
+            }
+            false
+        }) {
+            if let ZoneRecordData::Rrsig(current_rrsig) =
+                zonemd_rrsig.data_mut()
+            {
+                *current_rrsig = new_rrsig;
             }
         }
     }
