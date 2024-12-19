@@ -7,7 +7,7 @@ use core::ops::Deref;
 use core::slice::Iter;
 
 use std::boxed::Box;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::string::{String, ToString};
@@ -288,14 +288,16 @@ where
     /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077.html
     /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
     #[allow(clippy::too_many_arguments)]
-    pub fn nsec3s<Octets, OctetsMut, CB>(
+    // TODO: Move to Signer and do HashProvider = OnDemandNsec3HashProvider
+    // TODO: Does it make sense to take both Nsec3param AND HashProvider as input?
+    pub fn nsec3s<Octets, OctetsMut, CB, HashProvider>(
         &self,
         apex: &FamilyName<N>,
         ttl: Ttl,
         params: Nsec3param<Octets>,
         opt_out: Nsec3OptOut,
         assume_dnskeys_will_be_added: bool,
-        capture_hash_to_owner_mappings: bool,
+        hash_provider: &mut HashProvider,
         progress_cb: CB,
     ) -> Result<Nsec3Records<N, Octets>, Nsec3HashError>
     where
@@ -312,6 +314,8 @@ where
             + FreezeBuilder,
         <OctetsMut as FreezeBuilder>::Octets: AsRef<[u8]>,
         CB: Fn(usize, usize, Option<&'static str>),
+        HashProvider: Nsec3HashProvider<N, Octets>,
+        Nsec3<Octets>: Into<D>,
     {
         // TODO:
         //   - Handle name collisions? (see RFC 5155 7.1 Zone Signing)
@@ -353,11 +357,11 @@ where
         let apex_label_count = apex_owner.iter_labels().count();
 
         let mut last_nent_stack: Vec<N> = vec![];
-        let mut nsec3_hash_map = if capture_hash_to_owner_mappings {
-            Some(HashMap::<N, N>::new())
-        } else {
-            None
-        };
+        // let mut nsec3_hash_map = if capture_hash_to_owner_mappings {
+        //     Some(HashMap::<N, N>::new())
+        // } else {
+        //     None
+        // };
 
         for family in families {
             // If the owner is out of zone, we have moved out of our zone and
@@ -479,6 +483,7 @@ where
 
             let rec: Record<N, Nsec3<Octets>> = Self::mk_nsec3(
                 name.owner(),
+                hash_provider,
                 params.hash_algorithm(),
                 nsec3_flags,
                 params.iterations(),
@@ -488,10 +493,10 @@ where
                 ttl,
             )?;
 
-            if let Some(nsec3_hash_map) = &mut nsec3_hash_map {
-                nsec3_hash_map
-                    .insert(rec.owner().clone(), name.owner().clone());
-            }
+            // if let Some(nsec3_hash_map) = &mut nsec3_hash_map {
+            //     nsec3_hash_map
+            //         .insert(rec.owner().clone(), name.owner().clone());
+            // }
 
             // Store the record by order of its owner name.
             nsec3s.push(rec);
@@ -510,6 +515,7 @@ where
 
             let rec = Self::mk_nsec3(
                 &name,
+                hash_provider,
                 params.hash_algorithm(),
                 nsec3_flags,
                 params.iterations(),
@@ -519,9 +525,9 @@ where
                 ttl,
             )?;
 
-            if let Some(nsec3_hash_map) = &mut nsec3_hash_map {
-                nsec3_hash_map.insert(rec.owner().clone(), name);
-            }
+            // if let Some(nsec3_hash_map) = &mut nsec3_hash_map {
+            //     nsec3_hash_map.insert(rec.owner().clone(), name);
+            // }
 
             // Store the record by order of its owner name.
             nsec3s.push(rec);
@@ -575,11 +581,11 @@ where
 
         let res = Nsec3Records::new(nsec3s.records, nsec3param);
 
-        if let Some(nsec3_hash_map) = nsec3_hash_map {
-            Ok(res.with_hashes(nsec3_hash_map))
-        } else {
-            Ok(res)
-        }
+        // if let Some(nsec3_hash_map) = nsec3_hash_map {
+        //     Ok(res.with_hashes(nsec3_hash_map))
+        // } else {
+        Ok(res)
+        // }
     }
 
     pub fn write<W>(&self, target: &mut W) -> Result<(), fmt::Error>
@@ -638,13 +644,14 @@ where
     S: Sorter,
 {
     #[allow(clippy::too_many_arguments)]
-    fn mk_nsec3<Octets>(
+    fn mk_nsec3<Octets, HashProvider>(
         name: &N,
+        hash_provider: &mut HashProvider,
         alg: Nsec3HashAlg,
         flags: u8,
         iterations: u16,
         salt: &Nsec3Salt<Octets>,
-        apex_owner: &N,
+        _apex_owner: &N,
         bitmap: RtypeBitmapBuilder<<Octets as FromBuilder>::Builder>,
         ttl: Ttl,
     ) -> Result<Record<N, Nsec3<Octets>>, Nsec3HashError>
@@ -654,14 +661,12 @@ where
         <Octets as FromBuilder>::Builder:
             EmptyBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate,
         Nsec3<Octets>: Into<D>,
+        HashProvider: Nsec3HashProvider<N, Octets>,
     {
-        // Create the base32hex ENT NSEC owner name.
-        let base32hex_label =
-            Self::mk_base32hex_label_for_name(name, alg, iterations, salt)?;
-
-        // Prepend it to the zone name to create the NSEC3 owner
-        // name.
-        let owner_name = Self::append_origin(base32hex_label, apex_owner);
+        // let owner_name = mk_hashed_nsec3_owner_name(
+        //     name, alg, iterations, salt, apex_owner,
+        // )?;
+        let owner_name = hash_provider.get_or_create(name)?;
 
         // RFC 5155 7.1. step 2:
         //   "The Next Hashed Owner Name field is left blank for the moment."
@@ -680,35 +685,6 @@ where
         );
 
         Ok(Record::new(owner_name, Class::IN, ttl, nsec3))
-    }
-
-    fn append_origin<Octets>(base32hex_label: String, apex_owner: &N) -> N
-    where
-        N: ToName + From<Name<Octets>>,
-        Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder:
-            EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    {
-        let mut builder = NameBuilder::<Octets::Builder>::new();
-        builder.append_label(base32hex_label.as_bytes()).unwrap();
-        let owner_name = builder.append_origin(apex_owner).unwrap();
-        let owner_name: N = owner_name.into();
-        owner_name
-    }
-
-    fn mk_base32hex_label_for_name<Octets>(
-        name: &N,
-        alg: Nsec3HashAlg,
-        iterations: u16,
-        salt: &Nsec3Salt<Octets>,
-    ) -> Result<String, Nsec3HashError>
-    where
-        N: ToName,
-        Octets: AsRef<[u8]>,
-    {
-        let hash_octets: Vec<u8> =
-            nsec3_hash(name, alg, iterations, salt)?.into_octets();
-        Ok(base32::encode_string_hex(&hash_octets).to_ascii_lowercase())
     }
 }
 
@@ -774,11 +750,6 @@ pub struct Nsec3Records<N, Octets> {
 
     /// The NSEC3PARAM record.
     pub param: Record<N, Nsec3param<Octets>>,
-
-    /// A map of hashes to owner names.
-    ///
-    /// For diagnostic purposes. None if not generated.
-    pub hashes: Option<HashMap<N, N>>,
 }
 
 impl<N, Octets> Nsec3Records<N, Octets> {
@@ -786,16 +757,7 @@ impl<N, Octets> Nsec3Records<N, Octets> {
         recs: Vec<Record<N, Nsec3<Octets>>>,
         param: Record<N, Nsec3param<Octets>>,
     ) -> Self {
-        Self {
-            recs,
-            param,
-            hashes: None,
-        }
-    }
-
-    pub fn with_hashes(mut self, hashes: HashMap<N, N>) -> Self {
-        self.hashes = Some(hashes);
-        self
+        Self { recs, param }
     }
 }
 
@@ -1790,5 +1752,117 @@ where
             rrset.ttl(),
             ZoneRecordData::Rrsig(rrsig),
         ))
+    }
+}
+
+pub fn mk_hashed_nsec3_owner_name<N, Octs, SaltOcts>(
+    name: &N,
+    alg: Nsec3HashAlg,
+    iterations: u16,
+    salt: &Nsec3Salt<SaltOcts>,
+    apex_owner: &N,
+) -> Result<N, Nsec3HashError>
+where
+    N: ToName + From<Name<Octs>>,
+    Octs: FromBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    SaltOcts: AsRef<[u8]>,
+{
+    let base32hex_label =
+        mk_base32hex_label_for_name(name, alg, iterations, salt)?;
+    Ok(append_origin(base32hex_label, apex_owner))
+}
+
+fn append_origin<N, Octs>(base32hex_label: String, apex_owner: &N) -> N
+where
+    N: ToName + From<Name<Octs>>,
+    Octs: FromBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
+    let mut builder = NameBuilder::<Octs::Builder>::new();
+    builder.append_label(base32hex_label.as_bytes()).unwrap();
+    let owner_name = builder.append_origin(apex_owner).unwrap();
+    let owner_name: N = owner_name.into();
+    owner_name
+}
+
+fn mk_base32hex_label_for_name<N, SaltOcts>(
+    name: &N,
+    alg: Nsec3HashAlg,
+    iterations: u16,
+    salt: &Nsec3Salt<SaltOcts>,
+) -> Result<String, Nsec3HashError>
+where
+    N: ToName,
+    SaltOcts: AsRef<[u8]>,
+{
+    let hash_octets: Vec<u8> =
+        nsec3_hash(name, alg, iterations, salt)?.into_octets();
+    Ok(base32::encode_string_hex(&hash_octets).to_ascii_lowercase())
+}
+
+//------------ Nsec3HashProvider ---------------------------------------------
+
+pub trait Nsec3HashProvider<N, Octs> {
+    fn get_or_create(
+        &mut self,
+        unhashed_owner_name: &N,
+    ) -> Result<N, Nsec3HashError>;
+}
+
+pub struct OnDemandNsec3HashProvider<N, SaltOcts> {
+    alg: Nsec3HashAlg,
+    iterations: u16,
+    salt: Nsec3Salt<SaltOcts>,
+    apex_owner: N,
+}
+
+impl<N, SaltOcts> OnDemandNsec3HashProvider<N, SaltOcts> {
+    pub fn new(
+        alg: Nsec3HashAlg,
+        iterations: u16,
+        salt: Nsec3Salt<SaltOcts>,
+        apex_owner: N,
+    ) -> Self {
+        Self {
+            alg,
+            iterations,
+            salt,
+            apex_owner,
+        }
+    }
+
+    pub fn algorithm(&self) -> Nsec3HashAlg {
+        self.alg
+    }
+
+    pub fn iterations(&self) -> u16 {
+        self.iterations
+    }
+
+    pub fn salt(&self) -> &Nsec3Salt<SaltOcts> {
+        &self.salt
+    }
+}
+
+impl<N, Octs, SaltOcts> Nsec3HashProvider<N, Octs>
+    for OnDemandNsec3HashProvider<N, SaltOcts>
+where
+    N: ToName + From<Name<Octs>>,
+    Octs: FromBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    SaltOcts: AsRef<[u8]>,
+{
+    fn get_or_create(
+        &mut self,
+        unhashed_owner_name: &N,
+    ) -> Result<N, Nsec3HashError> {
+        mk_hashed_nsec3_owner_name(
+            unhashed_owner_name,
+            self.alg,
+            self.iterations,
+            &self.salt,
+            &self.apex_owner,
+        )
     }
 }
