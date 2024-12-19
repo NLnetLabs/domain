@@ -778,13 +778,13 @@ fn entry2msg(entry: &Entry) -> (&Sections, Reply, Message<Vec<u8>>) {
     }
     let mut msg = msg.authority();
     for zone_file_entry in &sections.authority {
-        if let Record(rec) = zone_file_entry {
+        if let Record(rec, _) = zone_file_entry {
             msg.push(rec).unwrap();
         }
     }
     let mut msg = msg.additional();
     for zone_file_entry in &sections.additional.zone_entries {
-        if let Record(rec) = zone_file_entry {
+        if let Record(rec, _) = zone_file_entry {
             msg.push(rec).unwrap();
         }
     }
