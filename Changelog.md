@@ -17,10 +17,14 @@ New
   running resolver. In combination with `ResolvConf::new()` this can also be
   used to control the connections made when testing code that uses the stub
   resolver. ([#440])
+* Add `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
+  [#463])
 
 Bug fixes
 
 * NSEC records should include themselves in the generated bitmap. ([#417])
+* Trailing double quote wrongly preserved when parsing record data. ([#470],
+  [#472])
 
 Unstable features
 
@@ -46,6 +50,7 @@ Unstable features
 Other changes
 
 [#353]: https://github.com/NLnetLabs/domain/pull/353
+[#379]: https://github.com/NLnetLabs/domain/pull/379
 [#396]: https://github.com/NLnetLabs/domain/pull/396
 [#417]: https://github.com/NLnetLabs/domain/pull/417
 [#421]: https://github.com/NLnetLabs/domain/pull/421
@@ -54,6 +59,10 @@ Other changes
 [#427]: https://github.com/NLnetLabs/domain/pull/427
 [#440]: https://github.com/NLnetLabs/domain/pull/440
 [#441]: https://github.com/NLnetLabs/domain/pull/441
+[#446]: https://github.com/NLnetLabs/domain/pull/446
+[#463]: https://github.com/NLnetLabs/domain/pull/463
+[#470]: https://github.com/NLnetLabs/domain/pull/470
+[#472]: https://github.com/NLnetLabs/domain/pull/472
 [@weilence]: https://github.com/weilence
 
 ## 0.10.3
