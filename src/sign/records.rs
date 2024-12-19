@@ -410,6 +410,7 @@ where
             + FreezeBuilder,
         <OctetsMut as FreezeBuilder>::Octets: AsRef<[u8]>,
         HashProvider: Nsec3HashProvider<N, Octets>,
+        Nsec3<Octets>: Into<D>,
     {
         // TODO:
         //   - Handle name collisions? (see RFC 5155 7.1 Zone Signing)
