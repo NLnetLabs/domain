@@ -119,11 +119,11 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
 use core::fmt;
+use core::ops::RangeInclusive;
 
-use crate::{
-    base::{iana::SecAlg, Name},
-    validate,
-};
+use crate::base::{iana::SecAlg, Name};
+use crate::rdata::dnssec::Timestamp;
+use crate::validate::Key;
 
 pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
@@ -133,6 +133,7 @@ pub use self::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 pub mod common;
 pub mod keyset;
 pub mod openssl;
+pub mod records;
 pub mod ring;
 
 //----------- SigningKey -----------------------------------------------------
@@ -151,6 +152,13 @@ pub struct SigningKey<Octs, Inner: SignRaw> {
 
     /// The raw private key.
     inner: Inner,
+
+    /// The validity period to assign to any DNSSEC signatures created using
+    /// this key.
+    ///
+    /// The range spans from the inception timestamp up to and including the
+    /// expiration timestamp.
+    signature_validity_period: Option<RangeInclusive<Timestamp>>,
 }
 
 //--- Construction
@@ -162,7 +170,24 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
             owner,
             flags,
             inner,
+            signature_validity_period: None,
         }
+    }
+
+    pub fn with_validity(
+        mut self,
+        inception: Timestamp,
+        expiration: Timestamp,
+    ) -> Self {
+        self.signature_validity_period =
+            Some(RangeInclusive::new(inception, expiration));
+        self
+    }
+
+    pub fn signature_validity_period(
+        &self,
+    ) -> Option<RangeInclusive<Timestamp>> {
+        self.signature_validity_period.clone()
     }
 }
 
@@ -242,12 +267,12 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
     }
 
     /// The associated public key.
-    pub fn public_key(&self) -> validate::Key<&Octs>
+    pub fn public_key(&self) -> Key<&Octs>
     where
         Octs: AsRef<[u8]>,
     {
         let owner = Name::from_octets(self.owner.as_octets()).unwrap();
-        validate::Key::new(owner, self.flags, self.inner.raw_public_key())
+        Key::new(owner, self.flags, self.inner.raw_public_key())
     }
 
     /// The associated raw public key.
