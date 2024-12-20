@@ -40,6 +40,16 @@ Unstable features
   * A sample query router, called `QnameRouter`, that routes requests based
     on the QNAME field in the request ([#353]).
 
+* `unstable-client-transport`
+  * introduce timeout option in multi_stream ([#424]).
+  * improve probing in redundant ([#424]).
+  * restructure configuration for multi_stream and redundant ([#424]).
+  * introduce a load balancer client transport. This transport tries to
+    distribute requests equally over upstream transports ([#425]).
+
+* `unstable-sign`
+  * add key lifecycle management ([#459]).
+
 Other changes
 
 [#353]: https://github.com/NLnetLabs/domain/pull/353
@@ -51,6 +61,7 @@ Other changes
 [#440]: https://github.com/NLnetLabs/domain/pull/440
 [#441]: https://github.com/NLnetLabs/domain/pull/441
 [#446]: https://github.com/NLnetLabs/domain/pull/446
+[#459]: https://github.com/NLnetLabs/domain/pull/459
 [#463]: https://github.com/NLnetLabs/domain/pull/463
 [#470]: https://github.com/NLnetLabs/domain/pull/470
 [#472]: https://github.com/NLnetLabs/domain/pull/472
