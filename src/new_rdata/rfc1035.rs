@@ -108,6 +108,14 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ns<N> {
     }
 }
 
+//--- Parsing from bytes
+
+impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Ns<N> {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        N::parse_from(bytes).map(|name| Self { name })
+    }
+}
+
 //----------- Cname ----------------------------------------------------------
 
 /// The canonical name for this domain.
@@ -140,6 +148,14 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Cname<N> {
         range: Range<usize>,
     ) -> Result<Self, ParseError> {
         N::parse_from_message(message, range).map(|name| Self { name })
+    }
+}
+
+//--- Parsing from bytes
+
+impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Cname<N> {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        N::parse_from(bytes).map(|name| Self { name })
     }
 }
 
@@ -185,6 +201,30 @@ impl<'a, N: SplitFromMessage<'a>> ParseFromMessage<'a> for Soa<N> {
         let (&retry, rest) = <&U32>::split_from_message(message, rest)?;
         let (&expire, rest) = <&U32>::split_from_message(message, rest)?;
         let &minimum = <&U32>::parse_from_message(message, rest..range.end)?;
+
+        Ok(Self {
+            mname,
+            rname,
+            serial,
+            refresh,
+            retry,
+            expire,
+            minimum,
+        })
+    }
+}
+
+//--- Parsing from bytes
+
+impl<'a, N: SplitFrom<'a>> ParseFrom<'a> for Soa<N> {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (mname, rest) = N::split_from(bytes)?;
+        let (rname, rest) = N::split_from(rest)?;
+        let (&serial, rest) = <&U32>::split_from(rest)?;
+        let (&refresh, rest) = <&U32>::split_from(rest)?;
+        let (&retry, rest) = <&U32>::split_from(rest)?;
+        let (&expire, rest) = <&U32>::split_from(rest)?;
+        let &minimum = <&U32>::parse_from(rest)?;
 
         Ok(Self {
             mname,
@@ -277,6 +317,14 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ptr<N> {
     }
 }
 
+//--- Parsing from bytes
+
+impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Ptr<N> {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        N::parse_from(bytes).map(|name| Self { name })
+    }
+}
+
 //----------- Hinfo ----------------------------------------------------------
 
 /// Information about the host computer.
@@ -350,6 +398,19 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Mx<N> {
         let (&preference, rest) =
             <&U16>::split_from_message(message, range.start)?;
         let exchange = N::parse_from_message(message, rest..range.end)?;
+        Ok(Self {
+            preference,
+            exchange,
+        })
+    }
+}
+
+//--- Parsing from bytes
+
+impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Mx<N> {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (&preference, rest) = <&U16>::split_from(bytes)?;
+        let exchange = N::parse_from(rest)?;
         Ok(Self {
             preference,
             exchange,
