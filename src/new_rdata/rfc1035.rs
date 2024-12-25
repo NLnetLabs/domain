@@ -286,6 +286,7 @@ impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Ptr<N> {
 //----------- Hinfo ----------------------------------------------------------
 
 /// Information about the host computer.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hinfo<'a> {
     /// The CPU type.
     pub cpu: &'a CharStr,

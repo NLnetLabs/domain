@@ -1,6 +1,6 @@
 //! DNS "character strings".
 
-use core::ops::Range;
+use core::{fmt, ops::Range};
 
 use zerocopy::IntoBytes;
 use zerocopy_derive::*;
@@ -75,4 +75,52 @@ impl<'a> ParseFrom<'a> for &'a CharStr {
     }
 }
 
-// TODO: Formatting
+//--- Equality
+
+impl PartialEq for CharStr {
+    fn eq(&self, other: &Self) -> bool {
+        self.octets.eq_ignore_ascii_case(&other.octets)
+    }
+}
+
+impl Eq for CharStr {}
+
+//--- Formatting
+
+impl fmt::Debug for CharStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use fmt::Write;
+
+        struct Native<'a>(&'a [u8]);
+        impl fmt::Debug for Native<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("b\"")?;
+                for &b in self.0 {
+                    f.write_str(match b {
+                        b'"' => "\\\"",
+                        b' ' => " ",
+                        b'\n' => "\\n",
+                        b'\r' => "\\r",
+                        b'\t' => "\\t",
+                        b'\\' => "\\\\",
+
+                        _ => {
+                            if b.is_ascii_graphic() {
+                                f.write_char(b as char)?;
+                            } else {
+                                write!(f, "\\x{:02X}", b)?;
+                            }
+                            continue;
+                        }
+                    })?;
+                }
+                f.write_char('"')?;
+                Ok(())
+            }
+        }
+
+        f.debug_struct("CharStr")
+            .field("content", &Native(&self.octets))
+            .finish()
+    }
+}
