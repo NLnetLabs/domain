@@ -357,4 +357,44 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Mx<N> {
     }
 }
 
-// TODO: TXT records.
+//----------- Txt ------------------------------------------------------------
+
+/// Free-form text strings about this domain.
+#[derive(IntoBytes, Immutable, Unaligned)]
+#[repr(transparent)]
+pub struct Txt {
+    /// The text strings, as concatenated [`CharStr`]s.
+    content: [u8],
+}
+
+// TODO: Support for iterating over the contained 'CharStr's.
+
+//--- Parsing from DNS messages
+
+impl<'a> ParseFromMessage<'a> for &'a Txt {
+    fn parse_from_message(
+        message: &'a Message,
+        range: Range<usize>,
+    ) -> Result<Self, ParseError> {
+        message
+            .as_bytes()
+            .get(range)
+            .ok_or(ParseError)
+            .and_then(Self::parse_from)
+    }
+}
+
+//--- Parsing from bytes
+
+impl<'a> ParseFrom<'a> for &'a Txt {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        // NOTE: The input must contain at least one 'CharStr'.
+        let (_, mut rest) = <&CharStr>::split_from(bytes)?;
+        while !rest.is_empty() {
+            (_, rest) = <&CharStr>::split_from(rest)?;
+        }
+
+        // SAFETY: 'Txt' is 'repr(transparent)' to '[u8]'.
+        Ok(unsafe { core::mem::transmute::<&'a [u8], Self>(bytes) })
+    }
+}
