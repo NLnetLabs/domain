@@ -76,21 +76,7 @@ impl fmt::Display for A {
 //----------- Ns -------------------------------------------------------------
 
 /// The authoritative name server for this domain.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    FromBytes,
-    IntoBytes,
-    KnownLayout,
-    Immutable,
-    Unaligned,
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Ns<N: ?Sized> {
     /// The name of the authoritative server.
@@ -119,21 +105,7 @@ impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Ns<N> {
 //----------- Cname ----------------------------------------------------------
 
 /// The canonical name for this domain.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    FromBytes,
-    IntoBytes,
-    KnownLayout,
-    Immutable,
-    Unaligned,
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Cname<N: ?Sized> {
     /// The canonical name.
@@ -285,21 +257,7 @@ impl fmt::Debug for Wks {
 //----------- Ptr ------------------------------------------------------------
 
 /// A pointer to another domain name.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    FromBytes,
-    IntoBytes,
-    KnownLayout,
-    Immutable,
-    Unaligned,
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Ptr<N: ?Sized> {
     /// The referenced domain name.
@@ -364,21 +322,7 @@ impl<'a> ParseFrom<'a> for Hinfo<'a> {
 //----------- Mx -------------------------------------------------------------
 
 /// A host that can exchange mail for this domain.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    FromBytes,
-    IntoBytes,
-    KnownLayout,
-    Immutable,
-    Unaligned,
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct Mx<N: ?Sized> {
     /// The preference for this host over others.
