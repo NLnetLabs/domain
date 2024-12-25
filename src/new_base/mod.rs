@@ -21,3 +21,6 @@ pub use record::{
 };
 
 pub mod parse;
+
+mod serial;
+pub use serial::Serial;
