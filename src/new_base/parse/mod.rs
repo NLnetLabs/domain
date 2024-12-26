@@ -122,7 +122,7 @@ where
 
 //----------- ParseError -----------------------------------------------------
 
-/// A DNS parsing error.
+/// A DNS message parsing error.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParseError;
 

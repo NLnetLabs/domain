@@ -4,13 +4,10 @@
 //! with DNS.  Most importantly, it provides functionality for parsing and
 //! building DNS messages on the wire.
 
+//--- DNS messages
+
 mod message;
 pub use message::{Header, HeaderFlags, Message, SectionCounts};
-
-pub mod name;
-
-mod charstr;
-pub use charstr::CharStr;
 
 mod question;
 pub use question::{QClass, QType, Question, UnparsedQuestion};
@@ -20,7 +17,17 @@ pub use record::{
     RClass, RType, Record, UnparsedRecord, UnparsedRecordData, TTL,
 };
 
-pub mod parse;
+//--- Elements of DNS messages
+
+pub mod name;
+
+mod charstr;
+pub use charstr::CharStr;
 
 mod serial;
 pub use serial::Serial;
+
+//--- Wire format
+
+pub mod build;
+pub mod parse;
