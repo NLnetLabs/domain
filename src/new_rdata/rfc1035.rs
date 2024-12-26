@@ -9,6 +9,7 @@ use zerocopy::{
 use zerocopy_derive::*;
 
 use crate::new_base::{
+    build::{self, BuildInto, BuildIntoMessage, TruncationError},
     parse::{
         ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
     },
@@ -73,6 +74,28 @@ impl fmt::Display for A {
     }
 }
 
+//--- Building into DNS messages
+
+impl BuildIntoMessage for A {
+    fn build_into_message(
+        &self,
+        builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.as_bytes().build_into_message(builder)
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildInto for A {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.as_bytes().build_into(bytes)
+    }
+}
+
 //----------- Ns -------------------------------------------------------------
 
 /// The authoritative name server for this domain.
@@ -94,11 +117,33 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ns<N> {
     }
 }
 
+//--- Building into DNS messages
+
+impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ns<N> {
+    fn build_into_message(
+        &self,
+        builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.name.build_into_message(builder)
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Ns<N> {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
         N::parse_from(bytes).map(|name| Self { name })
+    }
+}
+
+//--- Building into bytes
+
+impl<N: ?Sized + BuildInto> BuildInto for Ns<N> {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.name.build_into(bytes)
     }
 }
 
@@ -123,11 +168,33 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Cname<N> {
     }
 }
 
+//--- Building into DNS messages
+
+impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Cname<N> {
+    fn build_into_message(
+        &self,
+        builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.name.build_into_message(builder)
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Cname<N> {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
         N::parse_from(bytes).map(|name| Self { name })
+    }
+}
+
+//--- Building into bytes
+
+impl<N: ?Sized + BuildInto> BuildInto for Cname<N> {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.name.build_into(bytes)
     }
 }
 
@@ -185,6 +252,25 @@ impl<'a, N: SplitFromMessage<'a>> ParseFromMessage<'a> for Soa<N> {
     }
 }
 
+//--- Building into DNS messages
+
+impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.mname.build_into_message(builder.delegate())?;
+        self.rname.build_into_message(builder.delegate())?;
+        builder.append_bytes(self.serial.as_bytes())?;
+        builder.append_bytes(self.refresh.as_bytes())?;
+        builder.append_bytes(self.retry.as_bytes())?;
+        builder.append_bytes(self.expire.as_bytes())?;
+        builder.append_bytes(self.minimum.as_bytes())?;
+        builder.commit();
+        Ok(())
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a, N: SplitFrom<'a>> ParseFrom<'a> for Soa<N> {
@@ -206,6 +292,24 @@ impl<'a, N: SplitFrom<'a>> ParseFrom<'a> for Soa<N> {
             expire,
             minimum,
         })
+    }
+}
+
+//--- Building into byte strings
+
+impl<N: BuildInto> BuildInto for Soa<N> {
+    fn build_into<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        bytes = self.mname.build_into(bytes)?;
+        bytes = self.rname.build_into(bytes)?;
+        bytes = self.serial.as_bytes().build_into(bytes)?;
+        bytes = self.refresh.as_bytes().build_into(bytes)?;
+        bytes = self.retry.as_bytes().build_into(bytes)?;
+        bytes = self.expire.as_bytes().build_into(bytes)?;
+        bytes = self.minimum.as_bytes().build_into(bytes)?;
+        Ok(bytes)
     }
 }
 
@@ -253,6 +357,28 @@ impl fmt::Debug for Wks {
     }
 }
 
+//--- Building into DNS messages
+
+impl BuildIntoMessage for Wks {
+    fn build_into_message(
+        &self,
+        builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.as_bytes().build_into_message(builder)
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildInto for Wks {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.as_bytes().build_into(bytes)
+    }
+}
+
 //----------- Ptr ------------------------------------------------------------
 
 /// A pointer to another domain name.
@@ -274,11 +400,33 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ptr<N> {
     }
 }
 
+//--- Building into DNS messages
+
+impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ptr<N> {
+    fn build_into_message(
+        &self,
+        builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.name.build_into_message(builder)
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Ptr<N> {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
         N::parse_from(bytes).map(|name| Self { name })
+    }
+}
+
+//--- Building into bytes
+
+impl<N: ?Sized + BuildInto> BuildInto for Ptr<N> {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.name.build_into(bytes)
     }
 }
 
@@ -309,6 +457,20 @@ impl<'a> ParseFromMessage<'a> for Hinfo<'a> {
     }
 }
 
+//--- Building into DNS messages
+
+impl BuildIntoMessage for Hinfo<'_> {
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.cpu.build_into_message(builder.delegate())?;
+        self.os.build_into_message(builder.delegate())?;
+        builder.commit();
+        Ok(())
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a> ParseFrom<'a> for Hinfo<'a> {
@@ -316,6 +478,19 @@ impl<'a> ParseFrom<'a> for Hinfo<'a> {
         let (cpu, rest) = <&CharStr>::split_from(bytes)?;
         let os = <&CharStr>::parse_from(rest)?;
         Ok(Self { cpu, os })
+    }
+}
+
+//--- Building into bytes
+
+impl BuildInto for Hinfo<'_> {
+    fn build_into<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        bytes = self.cpu.build_into(bytes)?;
+        bytes = self.os.build_into(bytes)?;
+        Ok(bytes)
     }
 }
 
@@ -349,6 +524,20 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Mx<N> {
     }
 }
 
+//--- Building into DNS messages
+
+impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        builder.append_bytes(self.preference.as_bytes())?;
+        self.exchange.build_into_message(builder.delegate())?;
+        builder.commit();
+        Ok(())
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Mx<N> {
@@ -359,6 +548,19 @@ impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Mx<N> {
             preference,
             exchange,
         })
+    }
+}
+
+//--- Building into byte strings
+
+impl<N: ?Sized + BuildInto> BuildInto for Mx<N> {
+    fn build_into<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        bytes = self.preference.as_bytes().build_into(bytes)?;
+        bytes = self.exchange.build_into(bytes)?;
+        Ok(bytes)
     }
 }
 
@@ -389,6 +591,17 @@ impl<'a> ParseFromMessage<'a> for &'a Txt {
     }
 }
 
+//--- Building into DNS messages
+
+impl BuildIntoMessage for Txt {
+    fn build_into_message(
+        &self,
+        builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.content.build_into_message(builder)
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a> ParseFrom<'a> for &'a Txt {
@@ -401,5 +614,16 @@ impl<'a> ParseFrom<'a> for &'a Txt {
 
         // SAFETY: 'Txt' is 'repr(transparent)' to '[u8]'.
         Ok(unsafe { core::mem::transmute::<&'a [u8], Self>(bytes) })
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildInto for Txt {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.content.build_into(bytes)
     }
 }
