@@ -29,6 +29,17 @@ impl<T: ?Sized + BuildIntoMessage> BuildIntoMessage for &T {
     }
 }
 
+impl BuildIntoMessage for [u8] {
+    fn build_into_message(
+        &self,
+        mut builder: Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        builder.append_bytes(self)?;
+        builder.commit();
+        Ok(())
+    }
+}
+
 //----------- Low-level building traits --------------------------------------
 
 /// Building into a byte string.
@@ -50,6 +61,21 @@ impl<T: ?Sized + BuildInto> BuildInto for &T {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         (**self).build_into(bytes)
+    }
+}
+
+impl BuildInto for [u8] {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        if self.len() <= bytes.len() {
+            let (bytes, rest) = bytes.split_at_mut(self.len());
+            bytes.copy_from_slice(self);
+            Ok(rest)
+        } else {
+            Err(TruncationError)
+        }
     }
 }
 
