@@ -6,6 +6,7 @@ use zerocopy::IntoBytes;
 use zerocopy_derive::*;
 
 use super::{
+    build::{self, BuildInto, BuildIntoMessage, TruncationError},
     parse::{
         ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
     },
@@ -48,6 +49,20 @@ impl<'a> ParseFromMessage<'a> for &'a CharStr {
     }
 }
 
+//--- Building into DNS messages
+
+impl BuildIntoMessage for CharStr {
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        builder.append_bytes(&[self.octets.len() as u8])?;
+        builder.append_bytes(&self.octets)?;
+        builder.commit();
+        Ok(())
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a> SplitFrom<'a> for &'a CharStr {
@@ -72,6 +87,20 @@ impl<'a> ParseFrom<'a> for &'a CharStr {
 
         // SAFETY: 'CharStr' is 'repr(transparent)' to '[u8]'.
         Ok(unsafe { core::mem::transmute::<&[u8], Self>(rest) })
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildInto for CharStr {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        let (length, bytes) =
+            bytes.split_first_mut().ok_or(TruncationError)?;
+        *length = self.octets.len() as u8;
+        self.octets.build_into(bytes)
     }
 }
 
