@@ -2,6 +2,33 @@
 
 use core::fmt;
 
+mod builder;
+pub use builder::{Builder, BuilderContext};
+
+//----------- Message-aware building traits ----------------------------------
+
+/// Building into a DNS message.
+pub trait BuildIntoMessage {
+    // Append this value to the DNS message.
+    ///
+    /// If the byte string is long enough to fit the message, it is appended
+    /// using the given message builder and committed.   Otherwise, a
+    /// [`TruncationError`] is returned.
+    fn build_into_message(
+        &self,
+        builder: Builder<'_>,
+    ) -> Result<(), TruncationError>;
+}
+
+impl<T: ?Sized + BuildIntoMessage> BuildIntoMessage for &T {
+    fn build_into_message(
+        &self,
+        builder: Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        (**self).build_into_message(builder)
+    }
+}
+
 //----------- Low-level building traits --------------------------------------
 
 /// Building into a byte string.
