@@ -7,11 +7,12 @@ use core::{
 
 use zerocopy::{
     network_endian::{U16, U32},
-    FromBytes, IntoBytes,
+    FromBytes, IntoBytes, SizeError,
 };
 use zerocopy_derive::*;
 
 use super::{
+    build::{self, BuildInto, BuildIntoMessage, TruncationError},
     name::RevNameBuf,
     parse::{
         ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
@@ -64,19 +65,104 @@ impl<N, D> Record<N, D> {
     }
 }
 
+//--- Parsing from DNS messages
+
+impl<'a, N, D> SplitFromMessage<'a> for Record<N, D>
+where
+    N: SplitFromMessage<'a>,
+    D: ParseFromMessage<'a>,
+{
+    fn split_from_message(
+        message: &'a Message,
+        start: usize,
+    ) -> Result<(Self, usize), ParseError> {
+        let (rname, rest) = N::split_from_message(message, start)?;
+        let (&rtype, rest) = <&RType>::split_from_message(message, rest)?;
+        let (&rclass, rest) = <&RClass>::split_from_message(message, rest)?;
+        let (&ttl, rest) = <&TTL>::split_from_message(message, rest)?;
+        let (&size, rest) = <&U16>::split_from_message(message, rest)?;
+        let size: usize = size.get().into();
+        let rdata = if message.as_bytes().len() - rest >= size {
+            D::parse_from_message(message, rest..rest + size)?
+        } else {
+            return Err(ParseError);
+        };
+
+        Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest + size))
+    }
+}
+
+impl<'a, N, D> ParseFromMessage<'a> for Record<N, D>
+where
+    N: SplitFromMessage<'a>,
+    D: ParseFromMessage<'a>,
+{
+    fn parse_from_message(
+        message: &'a Message,
+        range: Range<usize>,
+    ) -> Result<Self, ParseError> {
+        let message = &message.as_bytes()[..range.end];
+        let message = Message::ref_from_bytes(message)
+            .map_err(SizeError::from)
+            .expect("The input range ends past the message header");
+
+        let (this, rest) = Self::split_from_message(message, range.start)?;
+
+        if rest == range.end {
+            Ok(this)
+        } else {
+            Err(ParseError)
+        }
+    }
+}
+
+//--- Building into DNS messages
+
+impl<N, D> BuildIntoMessage for Record<N, D>
+where
+    N: BuildIntoMessage,
+    D: BuildIntoMessage,
+{
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.rname.build_into_message(builder.delegate())?;
+        builder.append_bytes(self.rtype.as_bytes())?;
+        builder.append_bytes(self.rclass.as_bytes())?;
+        builder.append_bytes(self.ttl.as_bytes())?;
+
+        // The offset of the record data size.
+        let offset = builder.appended().len();
+        builder.append_bytes(&0u16.to_be_bytes())?;
+        self.rdata.build_into_message(builder.delegate())?;
+        let size = builder.appended().len() - 2 - offset;
+        let size =
+            u16::try_from(size).expect("the record data never exceeds 64KiB");
+        builder.appended_mut()[offset..offset + 2]
+            .copy_from_slice(&size.to_be_bytes());
+
+        builder.commit();
+        Ok(())
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a, N, D> SplitFrom<'a> for Record<N, D>
 where
     N: SplitFrom<'a>,
-    D: SplitFrom<'a>,
+    D: ParseFrom<'a>,
 {
     fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (rname, rest) = N::split_from(bytes)?;
         let (rtype, rest) = RType::read_from_prefix(rest)?;
         let (rclass, rest) = RClass::read_from_prefix(rest)?;
         let (ttl, rest) = TTL::read_from_prefix(rest)?;
-        let (rdata, rest) = D::split_from(rest)?;
+        let (size, rest) = U16::read_from_prefix(rest)?;
+        let size: usize = size.get().into();
+        let (rdata, rest) = <[u8]>::ref_from_prefix_with_elems(rest, size)?;
+        let rdata = D::parse_from(rdata)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
     }
@@ -92,9 +178,41 @@ where
         let (rtype, rest) = RType::read_from_prefix(rest)?;
         let (rclass, rest) = RClass::read_from_prefix(rest)?;
         let (ttl, rest) = TTL::read_from_prefix(rest)?;
-        let rdata = D::parse_from(rest)?;
+        let (size, rest) = U16::read_from_prefix(rest)?;
+        let size: usize = size.get().into();
+        let rdata = <[u8]>::ref_from_bytes_with_elems(rest, size)?;
+        let rdata = D::parse_from(rdata)?;
 
         Ok(Self::new(rname, rtype, rclass, ttl, rdata))
+    }
+}
+
+//--- Building into byte strings
+
+impl<N, D> BuildInto for Record<N, D>
+where
+    N: BuildInto,
+    D: BuildInto,
+{
+    fn build_into<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        bytes = self.rname.build_into(bytes)?;
+        bytes = self.rtype.as_bytes().build_into(bytes)?;
+        bytes = self.rclass.as_bytes().build_into(bytes)?;
+        bytes = self.ttl.as_bytes().build_into(bytes)?;
+
+        let (size, bytes) =
+            <U16>::mut_from_prefix(bytes).map_err(|_| TruncationError)?;
+        let bytes_len = bytes.len();
+
+        let rest = self.rdata.build_into(bytes)?;
+        *size = u16::try_from(bytes_len - rest.len())
+            .expect("the record data never exceeds 64KiB")
+            .into();
+
+        Ok(rest)
     }
 }
 
@@ -194,18 +312,6 @@ impl UnparsedRecordData {
 
 //--- Parsing from DNS messages
 
-impl<'a> SplitFromMessage<'a> for &'a UnparsedRecordData {
-    fn split_from_message(
-        message: &'a Message,
-        start: usize,
-    ) -> Result<(Self, usize), ParseError> {
-        let message = message.as_bytes();
-        let bytes = message.get(start..).ok_or(ParseError)?;
-        let (this, rest) = Self::split_from(bytes)?;
-        Ok((this, message.len() - rest.len()))
-    }
-}
-
 impl<'a> ParseFromMessage<'a> for &'a UnparsedRecordData {
     fn parse_from_message(
         message: &'a Message,
@@ -217,26 +323,39 @@ impl<'a> ParseFromMessage<'a> for &'a UnparsedRecordData {
     }
 }
 
-//--- Parsing from bytes
+//--- Building into DNS messages
 
-impl<'a> SplitFrom<'a> for &'a UnparsedRecordData {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        let (size, rest) = U16::read_from_prefix(bytes)?;
-        let size = size.get() as usize;
-        let (data, rest) = <[u8]>::ref_from_prefix_with_elems(rest, size)?;
-        // SAFETY: 'data.len() == size' which is a 'u16'.
-        let this = unsafe { UnparsedRecordData::new_unchecked(data) };
-        Ok((this, rest))
+impl BuildIntoMessage for UnparsedRecordData {
+    fn build_into_message(
+        &self,
+        builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.0.build_into_message(builder)
     }
 }
 
+//--- Parsing from bytes
+
 impl<'a> ParseFrom<'a> for &'a UnparsedRecordData {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (size, rest) = U16::read_from_prefix(bytes)?;
-        let size = size.get() as usize;
-        let data = <[u8]>::ref_from_bytes_with_elems(rest, size)?;
-        // SAFETY: 'data.len() == size' which is a 'u16'.
-        Ok(unsafe { UnparsedRecordData::new_unchecked(data) })
+        if bytes.len() > 65535 {
+            // Too big to fit in an 'UnparsedRecordData'.
+            return Err(ParseError);
+        }
+
+        // SAFETY: 'bytes.len()' fits within a 'u16'.
+        Ok(unsafe { UnparsedRecordData::new_unchecked(bytes) })
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildInto for UnparsedRecordData {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.0.build_into(bytes)
     }
 }
 
