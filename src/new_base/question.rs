@@ -2,10 +2,11 @@
 
 use core::ops::Range;
 
-use zerocopy::network_endian::U16;
+use zerocopy::{network_endian::U16, IntoBytes};
 use zerocopy_derive::*;
 
 use super::{
+    build::{self, BuildInto, BuildIntoMessage, TruncationError},
     name::RevNameBuf,
     parse::{
         ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
@@ -77,6 +78,23 @@ where
     }
 }
 
+//--- Building into DNS messages
+
+impl<N> BuildIntoMessage for Question<N>
+where
+    N: BuildIntoMessage,
+{
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        self.qname.build_into_message(builder.delegate())?;
+        builder.append_bytes(self.qtype.as_bytes())?;
+        builder.append_bytes(self.qclass.as_bytes())?;
+        Ok(())
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a, N> SplitFrom<'a> for Question<N>
@@ -100,6 +118,23 @@ where
         let (&qtype, rest) = <&QType>::split_from(rest)?;
         let &qclass = <&QClass>::parse_from(rest)?;
         Ok(Self::new(qname, qtype, qclass))
+    }
+}
+
+//--- Building into byte strings
+
+impl<N> BuildInto for Question<N>
+where
+    N: BuildInto,
+{
+    fn build_into<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        bytes = self.qname.build_into(bytes)?;
+        bytes = self.qtype.as_bytes().build_into(bytes)?;
+        bytes = self.qclass.as_bytes().build_into(bytes)?;
+        Ok(bytes)
     }
 }
 
