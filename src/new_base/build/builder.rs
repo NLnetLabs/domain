@@ -70,6 +70,9 @@ impl<'b> Builder<'b> {
 
     /// Initialize an empty [`Builder`].
     ///
+    /// The message header is left uninitialized.  Use [`Self::header_mut()`]
+    /// to initialize it.
+    ///
     /// # Panics
     ///
     /// Panics if the buffer is less than 12 bytes long (which is the minimum
@@ -251,10 +254,17 @@ impl<'b> Builder<'b> {
     /// or TCP packet size is not considered.  If the message already exceeds
     /// this size, a [`TruncationError`] is returned.
     ///
-    /// This size will apply to all
+    /// This size will apply to all builders for this message (including those
+    /// that delegated to `self`).  It will not be automatically revoked if
+    /// message building fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the given size is less than 12 bytes.
     pub fn limit_to(&mut self, size: usize) -> Result<(), TruncationError> {
-        if self.context.size <= size {
-            self.context.max_size = size;
+        assert!(size >= 12);
+        if self.context.size <= size - 12 {
+            self.context.max_size = size - 12;
             Ok(())
         } else {
             Err(TruncationError)
