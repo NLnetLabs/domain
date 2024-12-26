@@ -12,6 +12,7 @@ use zerocopy::IntoBytes;
 use zerocopy_derive::*;
 
 use crate::new_base::{
+    build::{self, BuildInto, BuildIntoMessage, TruncationError},
     parse::{
         ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
     },
@@ -94,6 +95,45 @@ impl RevName {
     pub const fn labels(&self) -> LabelIter<'_> {
         // SAFETY: A 'RevName' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
+    }
+}
+
+//--- Building into DNS messages
+
+impl BuildIntoMessage for RevName {
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        builder.append_name(self)?;
+        builder.commit();
+        Ok(())
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildInto for RevName {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        if bytes.len() < self.len() {
+            return Err(TruncationError);
+        }
+
+        let (mut buffer, rest) = bytes.split_at_mut(self.len());
+
+        // Write out the labels in the name in reverse.
+        for label in self.labels() {
+            let label_buffer;
+            let offset = buffer.len() - label.len() - 1;
+            (buffer, label_buffer) = buffer.split_at_mut(offset);
+            label_buffer[0] = label.len() as u8;
+            label_buffer[1..].copy_from_slice(label.as_bytes());
+        }
+
+        Ok(rest)
     }
 }
 
@@ -332,6 +372,17 @@ fn parse_segment<'a>(
     }
 }
 
+//--- Building into DNS messages
+
+impl BuildIntoMessage for RevNameBuf {
+    fn build_into_message(
+        &self,
+        builder: build::Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        (**self).build_into_message(builder)
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a> SplitFrom<'a> for RevNameBuf {
@@ -366,6 +417,17 @@ impl<'a> ParseFrom<'a> for RevNameBuf {
         // NOTE: 'buffer' is now well-formed because we only stop when we
         // reach a root label (which has been prepended into it).
         Ok(buffer)
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildInto for RevNameBuf {
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        (**self).build_into(bytes)
     }
 }
 

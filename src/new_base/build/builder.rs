@@ -10,7 +10,7 @@ use zerocopy::{FromBytes, IntoBytes, SizeError};
 
 use crate::new_base::{name::RevName, Header, Message};
 
-use super::TruncationError;
+use super::{BuildInto, TruncationError};
 
 //----------- Builder --------------------------------------------------------
 
@@ -274,6 +274,7 @@ impl<'b> Builder<'b> {
             .get_mut(..size)
             .ok_or(TruncationError)
             .map(fill)
+            .map(|()| self.context.size += size)
     }
 
     /// Append some bytes.
@@ -292,16 +293,9 @@ impl<'b> Builder<'b> {
         name: &RevName,
     ) -> Result<(), TruncationError> {
         // TODO: Perform name compression.
-        self.append_with(name.len(), |mut buffer| {
-            // Write out the labels in the name in reverse.
-            for label in name.labels() {
-                let label_buffer;
-                let offset = buffer.len() - label.len() - 1;
-                (buffer, label_buffer) = buffer.split_at_mut(offset);
-                label_buffer[0] = label.len() as u8;
-                label_buffer[1..].copy_from_slice(label.as_bytes());
-            }
-        })
+        name.build_into(self.uninitialized())?;
+        self.mark_appended(name.len());
+        Ok(())
     }
 }
 
