@@ -449,11 +449,6 @@ where
         let apex_label_count = apex_owner.iter_labels().count();
 
         let mut last_nent_stack: Vec<N> = vec![];
-        // let mut nsec3_hash_map = if capture_hash_to_owner_mappings {
-        //     Some(HashMap::<N, N>::new())
-        // } else {
-        //     None
-        // };
 
         for family in families {
             trace!("Family: {}", family.family_name().owner());
@@ -606,11 +601,6 @@ where
                 ttl,
             )?;
 
-            // if let Some(nsec3_hash_map) = &mut nsec3_hash_map {
-            //     nsec3_hash_map
-            //         .insert(rec.owner().clone(), name.owner().clone());
-            // }
-
             // Store the record by order of its owner name.
             nsec3s.push(rec);
 
@@ -636,10 +626,6 @@ where
                 bitmap,
                 ttl,
             )?;
-
-            // if let Some(nsec3_hash_map) = &mut nsec3_hash_map {
-            //     nsec3_hash_map.insert(rec.owner().clone(), name);
-            // }
 
             // Store the record by order of its owner name.
             nsec3s.push(rec);
@@ -687,13 +673,7 @@ where
         //
         // Handled above.
 
-        let res = Nsec3Records::new(nsec3s.records, nsec3param);
-
-        // if let Some(nsec3_hash_map) = nsec3_hash_map {
-        //     Ok(res.with_hashes(nsec3_hash_map))
-        // } else {
-        Ok(res)
-        // }
+        Ok(Nsec3Records::new(nsec3s.records, nsec3param))
     }
 
     pub fn write<W>(&self, target: &mut W) -> Result<(), fmt::Error>
