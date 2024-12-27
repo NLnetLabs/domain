@@ -429,8 +429,8 @@ where
             nsec3_flags |= 0b0000_0001;
         }
 
-        // RFC 5155 7.1 step 5: _"Sort the set of NSEC3 RRs into hash order."
-        // We store the NSEC3s as we create them in a self-sorting vec.
+        // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash order."
+        // We store the NSEC3s as we create them and sort them afterwards.
         let mut nsec3s = Vec::<Record<N, Nsec3<Octets>>>::new();
 
         let mut ents = Vec::<N>::new();
