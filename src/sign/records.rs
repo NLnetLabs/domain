@@ -17,7 +17,7 @@ use std::{fmt, slice};
 use bytes::Bytes;
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::{FreezeBuilder, OctetsFrom, OctetsInto};
-use tracing::{debug, enabled, Level};
+use tracing::{debug, enabled, trace, Level};
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
@@ -456,15 +456,25 @@ where
         // };
 
         for family in families {
+            trace!("Family: {}", family.family_name().owner());
+
             // If the owner is out of zone, we have moved out of our zone and
             // are done.
             if !family.is_in_zone(apex) {
+                debug!(
+                    "Stopping NSEC3 generation at out-of-zone family {}",
+                    family.family_name().owner()
+                );
                 break;
             }
 
             // If the family is below a zone cut, we must ignore it.
             if let Some(ref cut) = cut {
                 if family.owner().ends_with(cut.owner()) {
+                    debug!(
+                        "Excluding family {} as it is below a zone cut",
+                        family.family_name().owner()
+                    );
                     continue;
                 }
             }
@@ -476,6 +486,10 @@ where
             // family name for later. This also means below that if
             // `cut.is_some()` we are at the parent side of a zone.
             cut = if family.is_zone_cut(apex) {
+                trace!(
+                    "Zone cut detected at family {}",
+                    family.family_name().owner()
+                );
                 Some(name.clone())
             } else {
                 None
@@ -486,6 +500,7 @@ where
             //    delegations MAY be excluded."
             let has_ds = family.records().any(|rec| rec.rtype() == Rtype::DS);
             if cut.is_some() && !has_ds && opt_out == Nsec3OptOut::OptOut {
+                debug!("Excluding family {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",family.family_name().owner());
                 continue;
             }
 
@@ -508,6 +523,11 @@ where
             let distance_to_root = name.owner().iter_labels().count();
             let distance_to_apex = distance_to_root - apex_label_count;
             if distance_to_apex > last_nent_distance_to_apex {
+                trace!(
+                    "Possible ENT detected at family {}",
+                    family.family_name().owner()
+                );
+
                 // Are there any empty nodes between this node and the apex?
                 // The zone file records are already sorted so if all of the
                 // parent labels had records at them, i.e. they were non-empty
@@ -541,6 +561,7 @@ where
                         builder.append_origin(&apex_owner).unwrap().into();
 
                     if let Err(pos) = ents.binary_search(&name) {
+                        debug!("Found ENT at {name}");
                         ents.insert(pos, name);
                     }
                 }
@@ -552,6 +573,7 @@ where
 
             // Authoritative RRsets will be signed.
             if cut.is_none() || has_ds {
+                trace!("Adding RRSIG to the bitmap as the RRSET is authoritative (not at zone cut and has DS)");
                 bitmap.add(Rtype::RRSIG).unwrap();
             }
 
@@ -559,12 +581,15 @@ where
             //   "For each RRSet at the original owner name, set the
             //    corresponding bit in the Type Bit Maps field."
             for rrset in family.rrsets() {
+                trace!("Adding {} to the bitmap", rrset.rtype());
                 bitmap.add(rrset.rtype()).unwrap();
             }
 
             if distance_to_apex == 0 {
+                trace!("Adding NSEC3PARAM to the bitmap as we are at the apex and RRSIG RRs are expected to be added");
                 bitmap.add(Rtype::NSEC3PARAM).unwrap();
                 if assume_dnskeys_will_be_added {
+                    trace!("Adding DNSKEY to the bitmap as we are at the apex and DNSKEY RRs are expected to be added");
                     bitmap.add(Rtype::DNSKEY).unwrap();
                 }
             }
@@ -599,6 +624,7 @@ where
             // Create the type bitmap, empty for an ENT NSEC3.
             let bitmap = RtypeBitmap::<Octets>::builder();
 
+            debug!("Generating NSEC3 RR for ENT at {name}");
             let rec = Self::mk_nsec3(
                 &name,
                 hash_provider,
@@ -624,6 +650,7 @@ where
         //    value of the next NSEC3 RR in hash order.  The next hashed owner
         //    name of the last NSEC3 RR in the zone contains the value of the
         //    hashed owner name of the first NSEC3 RR in the hash order."
+        trace!("Sorting NSEC3 RRs");
         let mut nsec3s = SortedRecords::<N, Nsec3<Octets>, S>::from(nsec3s);
         for i in 1..=nsec3s.records.len() {
             // TODO: Detect duplicate hashes.
@@ -1453,7 +1480,7 @@ where
         add_used_dnskeys: bool,
     ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
     where
-        N: ToName + Clone + PartialEq + CanonicalOrd + Send,
+        N: ToName + Display + Clone + PartialEq + CanonicalOrd + Send,
         Octs: Clone + Send,
     {
         debug!("Signer settings: add_used_dnskeys={add_used_dnskeys}, strategy: {}", KeyStrat::NAME);
@@ -1705,8 +1732,9 @@ where
                         Self::sign_rrset(key, &rrset, &name, apex, &mut buf)?;
                     res.push(rrsig_rr);
                     debug!(
-                        "Signed {} RRSET with keytag {}",
+                        "Signed {} RRSET at {} with keytag {}",
                         rrset.rtype(),
+                        rrset.family_name().owner(),
                         key.public_key().key_tag()
                     );
                 }
