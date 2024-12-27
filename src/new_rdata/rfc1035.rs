@@ -1,6 +1,8 @@
 //! Core record data types.
 
-use core::{fmt, ops::Range, str::FromStr};
+use core::ops::Range;
+#[cfg(feature = "std")]
+use core::{fmt, str::FromStr};
 
 #[cfg(feature = "std")]
 use std::net::Ipv4Addr;
@@ -338,6 +340,7 @@ pub struct Wks {
 
 //--- Formatting
 
+#[cfg(feature = "std")]
 impl fmt::Debug for Wks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         struct Ports<'a>(&'a [u8]);
