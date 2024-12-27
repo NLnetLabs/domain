@@ -210,7 +210,7 @@ impl<'b> Builder<'b> {
 
 //--- Interaction
 
-impl<'b> Builder<'b> {
+impl Builder<'_> {
     /// Rewind the builder, removing all committed content.
     pub fn rewind(&mut self) {
         self.context.size = self.commit;
