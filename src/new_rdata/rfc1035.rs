@@ -1,8 +1,9 @@
 //! Core record data types.
 
-use core::ops::Range;
+use core::{fmt, ops::Range};
+
 #[cfg(feature = "std")]
-use core::{fmt, str::FromStr};
+use core::str::FromStr;
 
 #[cfg(feature = "std")]
 use std::net::Ipv4Addr;
@@ -76,10 +77,10 @@ impl FromStr for A {
 
 //--- Formatting
 
-#[cfg(feature = "std")]
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Ipv4Addr::from(*self).fmt(f)
+        let [a, b, c, d] = self.octets;
+        write!(f, "{a}.{b}.{c}.{d}")
     }
 }
 
@@ -340,7 +341,6 @@ pub struct Wks {
 
 //--- Formatting
 
-#[cfg(feature = "std")]
 impl fmt::Debug for Wks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         struct Ports<'a>(&'a [u8]);
@@ -360,7 +360,7 @@ impl fmt::Debug for Wks {
         }
 
         f.debug_struct("Wks")
-            .field("address", &Ipv4Addr::from(self.address))
+            .field("address", &format_args!("{}", self.address))
             .field("protocol", &self.protocol)
             .field("ports", &Ports(&self.ports))
             .finish()
