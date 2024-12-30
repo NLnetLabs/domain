@@ -590,9 +590,9 @@ pub struct Txt {
 
 impl Txt {
     /// Iterate over the [`CharStr`]s in this record.
-    pub fn iter<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = Result<&'a CharStr, ParseError>> + 'a {
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = Result<&CharStr, ParseError>> + '_ {
         // NOTE: A TXT record always has at least one 'CharStr' within.
         let first = <&CharStr>::split_from(&self.content);
         core::iter::successors(Some(first), |prev| {
