@@ -70,7 +70,7 @@ impl<N, D> Record<N, D> {
 impl<'a, N, D> SplitFromMessage<'a> for Record<N, D>
 where
     N: SplitFromMessage<'a>,
-    D: ParseFromMessage<'a>,
+    D: ParseRecordData<'a>,
 {
     fn split_from_message(
         message: &'a Message,
@@ -83,7 +83,7 @@ where
         let (&size, rest) = <&U16>::split_from_message(message, rest)?;
         let size: usize = size.get().into();
         let rdata = if message.as_bytes().len() - rest >= size {
-            D::parse_from_message(message, rest..rest + size)?
+            D::parse_record_data(message, rest..rest + size, rtype)?
         } else {
             return Err(ParseError);
         };
@@ -95,7 +95,7 @@ where
 impl<'a, N, D> ParseFromMessage<'a> for Record<N, D>
 where
     N: SplitFromMessage<'a>,
-    D: ParseFromMessage<'a>,
+    D: ParseRecordData<'a>,
 {
     fn parse_from_message(
         message: &'a Message,
@@ -152,7 +152,7 @@ where
 impl<'a, N, D> SplitFrom<'a> for Record<N, D>
 where
     N: SplitFrom<'a>,
-    D: ParseFrom<'a>,
+    D: ParseRecordData<'a>,
 {
     fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (rname, rest) = N::split_from(bytes)?;
@@ -162,7 +162,7 @@ where
         let (size, rest) = U16::read_from_prefix(rest)?;
         let size: usize = size.get().into();
         let (rdata, rest) = <[u8]>::ref_from_prefix_with_elems(rest, size)?;
-        let rdata = D::parse_from(rdata)?;
+        let rdata = D::parse_record_data_bytes(rdata, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
     }
@@ -171,7 +171,7 @@ where
 impl<'a, N, D> ParseFrom<'a> for Record<N, D>
 where
     N: SplitFrom<'a>,
-    D: ParseFrom<'a>,
+    D: ParseRecordData<'a>,
 {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
         let (rname, rest) = N::split_from(bytes)?;
@@ -181,7 +181,7 @@ where
         let (size, rest) = U16::read_from_prefix(rest)?;
         let size: usize = size.get().into();
         let rdata = <[u8]>::ref_from_bytes_with_elems(rest, size)?;
-        let rdata = D::parse_from(rdata)?;
+        let rdata = D::parse_record_data_bytes(rdata, rtype)?;
 
         Ok(Self::new(rname, rtype, rclass, ttl, rdata))
     }
@@ -288,6 +288,24 @@ pub struct TTL {
     pub value: U32,
 }
 
+//----------- ParseRecordData ------------------------------------------------
+
+/// Parsing DNS record data.
+pub trait ParseRecordData<'a>: Sized {
+    /// Parse DNS record data of the given type from a DNS message.
+    fn parse_record_data(
+        message: &'a Message,
+        range: Range<usize>,
+        rtype: RType,
+    ) -> Result<Self, ParseError>;
+
+    /// Parse DNS record data of the given type from a byte string.
+    fn parse_record_data_bytes(
+        bytes: &'a [u8],
+        rtype: RType,
+    ) -> Result<Self, ParseError>;
+}
+
 //----------- UnparsedRecordData ---------------------------------------------
 
 /// Unparsed DNS record data.
@@ -310,18 +328,29 @@ impl UnparsedRecordData {
     }
 }
 
-//--- Parsing from DNS messages
+//--- Parsing record data
 
-impl<'a> ParseFromMessage<'a> for &'a UnparsedRecordData {
-    fn parse_from_message(
+impl<'a> ParseRecordData<'a> for &'a UnparsedRecordData {
+    fn parse_record_data(
         message: &'a Message,
         range: Range<usize>,
+        rtype: RType,
     ) -> Result<Self, ParseError> {
-        message
-            .as_bytes()
-            .get(range)
-            .ok_or(ParseError)
-            .and_then(Self::parse_from)
+        let bytes = message.as_bytes().get(range).ok_or(ParseError)?;
+        Self::parse_record_data_bytes(bytes, rtype)
+    }
+
+    fn parse_record_data_bytes(
+        bytes: &'a [u8],
+        _rtype: RType,
+    ) -> Result<Self, ParseError> {
+        if bytes.len() > 65535 {
+            // Too big to fit in an 'UnparsedRecordData'.
+            return Err(ParseError);
+        }
+
+        // SAFETY: 'bytes.len()' fits within a 'u16'.
+        Ok(unsafe { UnparsedRecordData::new_unchecked(bytes) })
     }
 }
 
@@ -333,20 +362,6 @@ impl BuildIntoMessage for UnparsedRecordData {
         builder: build::Builder<'_>,
     ) -> Result<(), TruncationError> {
         self.0.build_into_message(builder)
-    }
-}
-
-//--- Parsing from bytes
-
-impl<'a> ParseFrom<'a> for &'a UnparsedRecordData {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        if bytes.len() > 65535 {
-            // Too big to fit in an 'UnparsedRecordData'.
-            return Err(ParseError);
-        }
-
-        // SAFETY: 'bytes.len()' fits within a 'u16'.
-        Ok(unsafe { UnparsedRecordData::new_unchecked(bytes) })
     }
 }
 
