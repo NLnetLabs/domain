@@ -164,14 +164,14 @@ impl<N: ?Sized + BuildInto> BuildInto for Ns<N> {
 /// The canonical name for this domain.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct Cname<N: ?Sized> {
+pub struct CName<N: ?Sized> {
     /// The canonical name.
     pub name: N,
 }
 
 //--- Parsing from DNS messages
 
-impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Cname<N> {
+impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for CName<N> {
     fn parse_from_message(
         message: &'a Message,
         range: Range<usize>,
@@ -182,7 +182,7 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Cname<N> {
 
 //--- Building into DNS messages
 
-impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Cname<N> {
+impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for CName<N> {
     fn build_into_message(
         &self,
         builder: build::Builder<'_>,
@@ -193,7 +193,7 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Cname<N> {
 
 //--- Parsing from bytes
 
-impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Cname<N> {
+impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for CName<N> {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
         N::parse_from(bytes).map(|name| Self { name })
     }
@@ -201,7 +201,7 @@ impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Cname<N> {
 
 //--- Building into bytes
 
-impl<N: ?Sized + BuildInto> BuildInto for Cname<N> {
+impl<N: ?Sized + BuildInto> BuildInto for CName<N> {
     fn build_into<'b>(
         &self,
         bytes: &'b mut [u8],
@@ -442,11 +442,11 @@ impl<N: ?Sized + BuildInto> BuildInto for Ptr<N> {
     }
 }
 
-//----------- Hinfo ----------------------------------------------------------
+//----------- HInfo ----------------------------------------------------------
 
 /// Information about the host computer.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Hinfo<'a> {
+pub struct HInfo<'a> {
     /// The CPU type.
     pub cpu: &'a CharStr,
 
@@ -456,7 +456,7 @@ pub struct Hinfo<'a> {
 
 //--- Parsing from DNS messages
 
-impl<'a> ParseFromMessage<'a> for Hinfo<'a> {
+impl<'a> ParseFromMessage<'a> for HInfo<'a> {
     fn parse_from_message(
         message: &'a Message,
         range: Range<usize>,
@@ -471,7 +471,7 @@ impl<'a> ParseFromMessage<'a> for Hinfo<'a> {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for Hinfo<'_> {
+impl BuildIntoMessage for HInfo<'_> {
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
@@ -485,7 +485,7 @@ impl BuildIntoMessage for Hinfo<'_> {
 
 //--- Parsing from bytes
 
-impl<'a> ParseFrom<'a> for Hinfo<'a> {
+impl<'a> ParseFrom<'a> for HInfo<'a> {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
         let (cpu, rest) = <&CharStr>::split_from(bytes)?;
         let os = <&CharStr>::parse_from(rest)?;
@@ -495,7 +495,7 @@ impl<'a> ParseFrom<'a> for Hinfo<'a> {
 
 //--- Building into bytes
 
-impl BuildInto for Hinfo<'_> {
+impl BuildInto for HInfo<'_> {
     fn build_into<'b>(
         &self,
         mut bytes: &'b mut [u8],
@@ -586,7 +586,23 @@ pub struct Txt {
     content: [u8],
 }
 
-// TODO: Support for iterating over the contained 'CharStr's.
+//--- Interaction
+
+impl Txt {
+    /// Iterate over the [`CharStr`]s in this record.
+    pub fn iter<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = Result<&'a CharStr, ParseError>> + 'a {
+        // NOTE: A TXT record always has at least one 'CharStr' within.
+        let first = <&CharStr>::split_from(&self.content);
+        core::iter::successors(Some(first), |prev| {
+            prev.as_ref()
+                .ok()
+                .map(|(_elem, rest)| <&CharStr>::split_from(rest))
+        })
+        .map(|result| result.map(|(elem, _rest)| elem))
+    }
+}
 
 //--- Parsing from DNS messages
 
@@ -637,5 +653,28 @@ impl BuildInto for Txt {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         self.content.build_into(bytes)
+    }
+}
+
+//--- Formatting
+
+impl fmt::Debug for Txt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct Content<'a>(&'a Txt);
+        impl fmt::Debug for Content<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let mut list = f.debug_list();
+                for elem in self.0.iter() {
+                    if let Ok(elem) = elem {
+                        list.entry(&elem);
+                    } else {
+                        list.entry(&ParseError);
+                    }
+                }
+                list.finish()
+            }
+        }
+
+        f.debug_tuple("Txt").field(&Content(self)).finish()
     }
 }
