@@ -193,8 +193,6 @@ extern crate core;
 pub mod base;
 pub mod dep;
 pub mod net;
-pub mod new_base;
-pub mod new_rdata;
 pub mod rdata;
 pub mod resolv;
 pub mod sign;
@@ -205,3 +203,7 @@ pub mod validate;
 pub mod validator;
 pub mod zonefile;
 pub mod zonetree;
+
+pub mod new_base;
+pub mod new_edns;
+pub mod new_rdata;

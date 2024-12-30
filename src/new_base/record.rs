@@ -317,9 +317,11 @@ impl<'a> ParseFromMessage<'a> for &'a UnparsedRecordData {
         message: &'a Message,
         range: Range<usize>,
     ) -> Result<Self, ParseError> {
-        let message = message.as_bytes();
-        let bytes = message.get(range).ok_or(ParseError)?;
-        Self::parse_from(bytes)
+        message
+            .as_bytes()
+            .get(range)
+            .ok_or(ParseError)
+            .and_then(Self::parse_from)
     }
 }
 

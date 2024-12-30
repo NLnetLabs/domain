@@ -186,7 +186,7 @@ impl fmt::Debug for HeaderFlags {
             .field("should_recurse (rd)", &self.should_recurse())
             .field("can_recurse (ra)", &self.can_recurse())
             .field("rcode", &self.rcode())
-            .field("bits", &self.inner.get())
+            .field("bits", &self.bits())
             .finish()
     }
 }
