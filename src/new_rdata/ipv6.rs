@@ -1,4 +1,6 @@
 //! IPv6 record data types.
+//!
+//! See [RFC 3596](https://datatracker.ietf.org/doc/html/rfc3596).
 
 #[cfg(feature = "std")]
 use core::{fmt, str::FromStr};

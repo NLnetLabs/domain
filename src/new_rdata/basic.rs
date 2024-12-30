@@ -1,4 +1,6 @@
 //! Core record data types.
+//!
+//! See [RFC 1035](https://datatracker.ietf.org/doc/html/rfc1035).
 
 use core::{fmt, ops::Range};
 
