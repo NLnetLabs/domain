@@ -18,7 +18,7 @@ use super::Message;
 //----------- Message-aware parsing traits -----------------------------------
 
 /// A type that can be parsed from a DNS message.
-pub trait SplitFromMessage<'a>: Sized {
+pub trait SplitFromMessage<'a>: Sized + ParseFromMessage<'a> {
     /// Parse a value of [`Self`] from the start of a byte string within a
     /// particular DNS message.
     ///
@@ -80,7 +80,7 @@ where
 //----------- Low-level parsing traits ---------------------------------------
 
 /// Parsing from the start of a byte string.
-pub trait SplitFrom<'a>: Sized {
+pub trait SplitFrom<'a>: Sized + ParseFrom<'a> {
     /// Parse a value of [`Self`] from the start of the byte string.
     ///
     /// If parsing is successful, the parsed value and the rest of the string

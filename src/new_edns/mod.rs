@@ -2,14 +2,17 @@
 //!
 //! See [RFC 6891](https://datatracker.ietf.org/doc/html/rfc6891).
 
-use core::fmt;
+use core::{fmt, ops::Range};
 
 use zerocopy::{network_endian::U16, FromBytes, IntoBytes};
 use zerocopy_derive::*;
 
 use crate::{
     new_base::{
-        parse::{ParseError, SplitFrom, SplitFromMessage},
+        parse::{
+            ParseError, ParseFrom, ParseFromMessage, SplitFrom,
+            SplitFromMessage,
+        },
         Message,
     },
     new_rdata::Opt,
@@ -49,6 +52,19 @@ impl<'a> SplitFromMessage<'a> for EdnsRecord<'a> {
     }
 }
 
+impl<'a> ParseFromMessage<'a> for EdnsRecord<'a> {
+    fn parse_from_message(
+        message: &'a Message,
+        range: Range<usize>,
+    ) -> Result<Self, ParseError> {
+        message
+            .as_bytes()
+            .get(range)
+            .ok_or(ParseError)
+            .and_then(Self::parse_from)
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'a> SplitFrom<'a> for EdnsRecord<'a> {
@@ -76,6 +92,31 @@ impl<'a> SplitFrom<'a> for EdnsRecord<'a> {
             },
             rest,
         ))
+    }
+}
+
+impl<'a> ParseFrom<'a> for EdnsRecord<'a> {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        // Strip the record name (root) and the record type.
+        let rest = bytes.strip_prefix(&[0, 0, 41]).ok_or(ParseError)?;
+
+        let (&max_udp_payload, rest) = <&U16>::split_from(rest)?;
+        let (&ext_rcode, rest) = <&u8>::split_from(rest)?;
+        let (&version, rest) = <&u8>::split_from(rest)?;
+        let (&flags, rest) = <&EdnsFlags>::split_from(rest)?;
+
+        // Split the record size and data.
+        let (&size, rest) = <&U16>::split_from(rest)?;
+        let size: usize = size.get().into();
+        let options = Opt::ref_from_bytes_with_elems(rest, size)?;
+
+        Ok(Self {
+            max_udp_payload,
+            ext_rcode,
+            version,
+            flags,
+            options,
+        })
     }
 }
 
@@ -181,8 +222,8 @@ pub struct OptionCode {
 //----------- UnknownOption --------------------------------------------------
 
 /// Data for an unknown Extended DNS option.
-#[derive(Debug, FromBytes, IntoBytes, Immutable, Unaligned)]
-#[repr(transparent)]
+#[derive(Debug, FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
+#[repr(C)]
 pub struct UnknownOption {
     /// The unparsed option data.
     pub octets: [u8],

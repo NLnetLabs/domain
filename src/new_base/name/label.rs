@@ -9,7 +9,7 @@ use core::{
 
 use zerocopy_derive::*;
 
-use crate::new_base::parse::{ParseError, SplitFrom};
+use crate::new_base::parse::{ParseError, ParseFrom, SplitFrom};
 
 //----------- Label ----------------------------------------------------------
 
@@ -62,6 +62,14 @@ impl<'a> SplitFrom<'a> for &'a Label {
         } else {
             Err(ParseError)
         }
+    }
+}
+
+impl<'a> ParseFrom<'a> for &'a Label {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        Self::split_from(bytes).and_then(|(this, rest)| {
+            rest.is_empty().then_some(this).ok_or(ParseError)
+        })
     }
 }
 
