@@ -297,7 +297,10 @@ pub trait ParseRecordData<'a>: Sized {
         message: &'a Message,
         range: Range<usize>,
         rtype: RType,
-    ) -> Result<Self, ParseError>;
+    ) -> Result<Self, ParseError> {
+        let bytes = message.as_bytes().get(range).ok_or(ParseError)?;
+        Self::parse_record_data_bytes(bytes, rtype)
+    }
 
     /// Parse DNS record data of the given type from a byte string.
     fn parse_record_data_bytes(
@@ -331,15 +334,6 @@ impl UnparsedRecordData {
 //--- Parsing record data
 
 impl<'a> ParseRecordData<'a> for &'a UnparsedRecordData {
-    fn parse_record_data(
-        message: &'a Message,
-        range: Range<usize>,
-        rtype: RType,
-    ) -> Result<Self, ParseError> {
-        let bytes = message.as_bytes().get(range).ok_or(ParseError)?;
-        Self::parse_record_data_bytes(bytes, rtype)
-    }
-
     fn parse_record_data_bytes(
         bytes: &'a [u8],
         _rtype: RType,
