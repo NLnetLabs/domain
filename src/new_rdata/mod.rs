@@ -1,5 +1,19 @@
 //! Record data types.
 
+use core::ops::Range;
+
+use zerocopy_derive::*;
+
+use crate::new_base::{
+    build::{BuildInto, BuildIntoMessage, Builder, TruncationError},
+    parse::{
+        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+    },
+    Message, ParseRecordData, RType,
+};
+
+//----------- Concrete record data types -------------------------------------
+
 mod basic;
 pub use basic::{CName, HInfo, Mx, Ns, Ptr, Soa, Txt, Wks, A};
 
@@ -8,3 +22,165 @@ pub use ipv6::Aaaa;
 
 mod edns;
 pub use edns::Opt;
+
+//----------- RecordData -----------------------------------------------------
+
+/// DNS record data.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub enum RecordData<'a, N> {
+    /// The IPv4 address of a host responsible for this domain.
+    A(&'a A),
+
+    /// The authoritative name server for this domain.
+    Ns(Ns<N>),
+
+    /// The canonical name for this domain.
+    CName(CName<N>),
+
+    /// The start of a zone of authority.
+    Soa(Soa<N>),
+
+    /// Well-known services supported on this domain.
+    Wks(&'a Wks),
+
+    /// A pointer to another domain name.
+    Ptr(Ptr<N>),
+
+    /// Information about the host computer.
+    HInfo(HInfo<'a>),
+
+    /// A host that can exchange mail for this domain.
+    Mx(Mx<N>),
+
+    /// Free-form text strings about this domain.
+    Txt(&'a Txt),
+
+    /// The IPv6 address of a host responsible for this domain.
+    Aaaa(&'a Aaaa),
+
+    /// Data for an unknown DNS record type.
+    Unknown(RType, &'a UnknownRecordData),
+}
+
+//--- Parsing record data
+
+impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>
+where
+    N: SplitFrom<'a> + SplitFromMessage<'a>,
+{
+    fn parse_record_data(
+        message: &'a Message,
+        range: Range<usize>,
+        rtype: RType,
+    ) -> Result<Self, ParseError> {
+        match rtype {
+            RType::A => <&A>::parse_from_message(message, range).map(Self::A),
+            RType::NS => Ns::parse_from_message(message, range).map(Self::Ns),
+            RType::CNAME => {
+                CName::parse_from_message(message, range).map(Self::CName)
+            }
+            RType::SOA => {
+                Soa::parse_from_message(message, range).map(Self::Soa)
+            }
+            RType::WKS => {
+                <&Wks>::parse_from_message(message, range).map(Self::Wks)
+            }
+            RType::PTR => {
+                Ptr::parse_from_message(message, range).map(Self::Ptr)
+            }
+            RType::HINFO => {
+                HInfo::parse_from_message(message, range).map(Self::HInfo)
+            }
+            RType::MX => Mx::parse_from_message(message, range).map(Self::Mx),
+            RType::TXT => {
+                <&Txt>::parse_from_message(message, range).map(Self::Txt)
+            }
+            RType::AAAA => {
+                <&Aaaa>::parse_from_message(message, range).map(Self::Aaaa)
+            }
+            _ => <&UnknownRecordData>::parse_from_message(message, range)
+                .map(|data| Self::Unknown(rtype, data)),
+        }
+    }
+
+    fn parse_record_data_bytes(
+        bytes: &'a [u8],
+        rtype: RType,
+    ) -> Result<Self, ParseError> {
+        match rtype {
+            RType::A => <&A>::parse_from(bytes).map(Self::A),
+            RType::NS => Ns::parse_from(bytes).map(Self::Ns),
+            RType::CNAME => CName::parse_from(bytes).map(Self::CName),
+            RType::SOA => Soa::parse_from(bytes).map(Self::Soa),
+            RType::WKS => <&Wks>::parse_from(bytes).map(Self::Wks),
+            RType::PTR => Ptr::parse_from(bytes).map(Self::Ptr),
+            RType::HINFO => HInfo::parse_from(bytes).map(Self::HInfo),
+            RType::MX => Mx::parse_from(bytes).map(Self::Mx),
+            RType::TXT => <&Txt>::parse_from(bytes).map(Self::Txt),
+            RType::AAAA => <&Aaaa>::parse_from(bytes).map(Self::Aaaa),
+            _ => <&UnknownRecordData>::parse_from(bytes)
+                .map(|data| Self::Unknown(rtype, data)),
+        }
+    }
+}
+
+//--- Building record data
+
+impl<'a, N> BuildIntoMessage for RecordData<'a, N>
+where
+    N: BuildIntoMessage,
+{
+    fn build_into_message(
+        &self,
+        builder: Builder<'_>,
+    ) -> Result<(), TruncationError> {
+        match self {
+            Self::A(r) => r.build_into_message(builder),
+            Self::Ns(r) => r.build_into_message(builder),
+            Self::CName(r) => r.build_into_message(builder),
+            Self::Soa(r) => r.build_into_message(builder),
+            Self::Wks(r) => r.build_into_message(builder),
+            Self::Ptr(r) => r.build_into_message(builder),
+            Self::HInfo(r) => r.build_into_message(builder),
+            Self::Txt(r) => r.build_into_message(builder),
+            Self::Aaaa(r) => r.build_into_message(builder),
+            Self::Mx(r) => r.build_into_message(builder),
+            Self::Unknown(_, r) => r.octets.build_into_message(builder),
+        }
+    }
+}
+
+impl<'a, N> BuildInto for RecordData<'a, N>
+where
+    N: BuildInto,
+{
+    fn build_into<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        match self {
+            Self::A(r) => r.build_into(bytes),
+            Self::Ns(r) => r.build_into(bytes),
+            Self::CName(r) => r.build_into(bytes),
+            Self::Soa(r) => r.build_into(bytes),
+            Self::Wks(r) => r.build_into(bytes),
+            Self::Ptr(r) => r.build_into(bytes),
+            Self::HInfo(r) => r.build_into(bytes),
+            Self::Txt(r) => r.build_into(bytes),
+            Self::Aaaa(r) => r.build_into(bytes),
+            Self::Mx(r) => r.build_into(bytes),
+            Self::Unknown(_, r) => r.octets.build_into(bytes),
+        }
+    }
+}
+
+//----------- UnknownRecordData ----------------------------------------------
+
+/// Data for an unknown DNS record type.
+#[derive(Debug, FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
+#[repr(C)]
+pub struct UnknownRecordData {
+    /// The unparsed option data.
+    pub octets: [u8],
+}

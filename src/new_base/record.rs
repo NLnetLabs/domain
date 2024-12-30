@@ -240,6 +240,40 @@ pub struct RType {
     pub code: U16,
 }
 
+//--- Associated Constants
+
+impl RType {
+    /// The type of an [`A`](crate::new_rdata::A) record.
+    pub const A: Self = Self { code: U16::new(1) };
+
+    /// The type of an [`Ns`](crate::new_rdata::Ns) record.
+    pub const NS: Self = Self { code: U16::new(2) };
+
+    /// The type of a [`CName`](crate::new_rdata::CName) record.
+    pub const CNAME: Self = Self { code: U16::new(5) };
+
+    /// The type of an [`Soa`](crate::new_rdata::Soa) record.
+    pub const SOA: Self = Self { code: U16::new(6) };
+
+    /// The type of a [`Wks`](crate::new_rdata::Wks) record.
+    pub const WKS: Self = Self { code: U16::new(11) };
+
+    /// The type of a [`Ptr`](crate::new_rdata::Ptr) record.
+    pub const PTR: Self = Self { code: U16::new(12) };
+
+    /// The type of a [`HInfo`](crate::new_rdata::HInfo) record.
+    pub const HINFO: Self = Self { code: U16::new(13) };
+
+    /// The type of a [`Mx`](crate::new_rdata::Mx) record.
+    pub const MX: Self = Self { code: U16::new(15) };
+
+    /// The type of a [`Txt`](crate::new_rdata::Txt) record.
+    pub const TXT: Self = Self { code: U16::new(16) };
+
+    /// The type of an [`Aaaa`](crate::new_rdata::Aaaa) record.
+    pub const AAAA: Self = Self { code: U16::new(28) };
+}
+
 //----------- RClass ---------------------------------------------------------
 
 /// The class of a record.
