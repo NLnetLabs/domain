@@ -127,10 +127,7 @@ where
 
 //--- Building record data
 
-impl<'a, N> BuildIntoMessage for RecordData<'a, N>
-where
-    N: BuildIntoMessage,
-{
+impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
     fn build_into_message(
         &self,
         builder: Builder<'_>,
@@ -151,10 +148,7 @@ where
     }
 }
 
-impl<'a, N> BuildInto for RecordData<'a, N>
-where
-    N: BuildInto,
-{
+impl<N: BuildInto> BuildInto for RecordData<'_, N> {
     fn build_into<'b>(
         &self,
         bytes: &'b mut [u8],
