@@ -30,12 +30,11 @@ use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{
     Dnskey, Nsec, Nsec3, Nsec3param, Rrsig, Soa, ZoneRecordData,
 };
+use crate::sign::{SignRaw, SigningKey};
 use crate::utils::base32;
 use crate::validate::{nsec3_hash, Nsec3HashError};
 use crate::zonetree::types::StoredRecordData;
 use crate::zonetree::StoredName;
-
-use super::{SignRaw, SigningKey};
 
 //------------ Sorter --------------------------------------------------------
 
