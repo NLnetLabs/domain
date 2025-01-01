@@ -357,7 +357,18 @@ where
             }
             bitmap.add(Rtype::NSEC).unwrap();
             for rrset in family.rrsets() {
-                bitmap.add(rrset.rtype()).unwrap()
+                // RFC 4035 section 2.3:
+                //   "The bitmap for the NSEC RR at a delegation point
+                //    requires special attention.  Bits corresponding to the
+                //    delegation NS RRset and any RRsets for which the parent
+                //    zone has authoritative data MUST be set; bits
+                //    corresponding to any non-NS RRset for which the parent
+                //    is not authoritative MUST be clear."
+                if cut.is_none()
+                    || matches!(rrset.rtype(), Rtype::NS | Rtype::DS)
+                {
+                    bitmap.add(rrset.rtype()).unwrap()
+                }
             }
 
             prev = Some((name, bitmap.finalize()));
@@ -494,8 +505,18 @@ where
             // RFC 5155 7.1 step 2:
             //   "If Opt-Out is being used, owner names of unsigned
             //    delegations MAY be excluded."
+            // Note that:
+            //   - A "delegation inherently happens at a zone cut" (RFC 9499).
+            //   - An "unsigned delegation" aka an "insecure delegation" is a
+            //     "signed name containing a delegation (NS RRset), but
+            //     lacking a DS RRset, signifying a delegation to an unsigned
+            //     subzone" (RFC 9499).
+            // So we need to check for whether Opt-Out is being used at a zone
+            // cut that lacks a DS RR. We determine whether or not a DS RR is
+            // present even when Opt-Out is not being used because we also
+            // need to know there at a later step.
             let has_ds = family.records().any(|rec| rec.rtype() == Rtype::DS);
-            if cut.is_some() && !has_ds && opt_out == Nsec3OptOut::OptOut {
+            if opt_out == Nsec3OptOut::OptOut && cut.is_some() && !has_ds {
                 debug!("Excluding family {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",family.family_name().owner());
                 continue;
             }
@@ -566,18 +587,105 @@ where
             // Create the type bitmap.
             let mut bitmap = RtypeBitmap::<Octets>::builder();
 
-            // Authoritative RRsets will be signed.
+            // Authoritative RRsets will be signed by `sign()` so add the
+            // expected future RRSIG type now to the NSEC3 Type Bitmap we are
+            // constructing.
+            //
+            // RFC 4033 section 2:
+            // 2.  Definitions of Important DNSSEC Terms
+            //    Authoritative RRset: Within the context of a particular
+            //       zone, an RRset is "authoritative" if and only if the
+            //       owner name of the RRset lies within the subset of the
+            //       name space that is at or below the zone apex and at or
+            //       above the cuts that separate the zone from its children,
+            //       if any.  All RRsets at the zone apex are authoritative,
+            //       except for certain RRsets at this domain name that, if
+            //       present, belong to this zone's parent.  These RRset could
+            //       include a DS RRset, the NSEC RRset referencing this DS
+            //       RRset (the "parental NSEC"), and RRSIG RRs associated
+            //       with these RRsets, all of which are authoritative in the
+            //       parent zone.  Similarly, if this zone contains any
+            //       delegation points, only the parental NSEC RRset, DS
+            //       RRsets, and any RRSIG RRs associated with these RRsets
+            //       are authoritative for this zone.
             if cut.is_none() || has_ds {
-                trace!("Adding RRSIG to the bitmap as the RRSET is authoritative (not at zone cut and has DS)");
+                trace!("Adding RRSIG to the bitmap as the RRSET is authoritative (not at zone cut or has a DS RR)");
                 bitmap.add(Rtype::RRSIG).unwrap();
             }
 
             // RFC 5155 7.1 step 3:
             //   "For each RRSet at the original owner name, set the
             //    corresponding bit in the Type Bit Maps field."
+            //
+            // Note: When generating NSEC RRs (not NSEC3 RRs) RFC 4035 makes
+            // it clear that non-authoritative RRs should not be represented
+            // in the Type Bitmap but for NSEC3 generation that's less clear.
+            //
+            // RFC 4035 section 2.3:
+            // 2.3.  Including NSEC RRs in a Zone
+            //   ...
+            //   "bits corresponding to any non-NS RRset for which the parent
+            //   is not authoritative MUST be clear."
+            //
+            // RFC 5155 section 7.1:
+            // 7.1.  Zone Signing
+            //   ...
+            //   "o  The Type Bit Maps field of every NSEC3 RR in a signed
+            //       zone MUST indicate the presence of all types present at
+            //       the original owner name, except for the types solely
+            //       contributed by an NSEC3 RR itself.  Note that this means
+            //       that the NSEC3 type itself will never be present in the
+            //       Type Bit Maps."
+            //
+            // Thus the rules for the types to include in the Type Bitmap for
+            // NSEC RRs appear to be different for NSEC3 RRs. However, in
+            // practice common tooling implementations exclude types from the
+            // NSEC3 which are non-authoritative (e.g. glue and occluded
+            // records). One could argue that the following fragments of RFC
+            // 5155 support this:
+            //
+            // RFC 5155 section 7.1.
+            // 7.1.  Zone Signing
+            //   ...
+            //   "Other non-authoritative RRs are not represented by
+            //    NSEC3 RRs."
+            //   ...
+            //   "2.  For each unique original owner name in the zone add an
+            //   NSEC3 RR."
+            //
+            // (if one reads "in the zone" to exclude data occluded by a zone
+            // cut or glue records that are only authoritative in the child
+            // zone and not in the parent zone).
+            //
+            // RFC 4033 could also be interpreted as excluding
+            // non-authoritative data from DNSSEC and thus NSEC3:
+            //
+            // RFC 4033 section 9:
+            // 9.  Name Server Considerations
+            //   ...
+            //   "By itself, DNSSEC is not enough to protect the integrity of
+            //    an entire zone during zone transfer operations, as even a
+            //    signed zone contains some unsigned, nonauthoritative data if
+            //    the zone has any children."
+            //
+            // As such we exclude non-authoritative RRs from the NSEC3 Type
+            // Bitmap, with the EXCEPTION of the NS RR at a secure delegation
+            // as insecure delegations are explicitly included by RFC 5155:
+            //
+            // RFC 5155 section 7.1:
+            // 7.1.  Zone Signing
+            //   ...
+            //   "o  Each owner name within the zone that owns authoritative
+            //       RRSets MUST have a corresponding NSEC3 RR.  Owner names
+            //       that correspond to unsigned delegations MAY have a
+            //       corresponding NSEC3 RR."
             for rrset in family.rrsets() {
-                trace!("Adding {} to the bitmap", rrset.rtype());
-                bitmap.add(rrset.rtype()).unwrap();
+                if cut.is_none()
+                    || matches!(rrset.rtype(), Rtype::NS | Rtype::DS)
+                {
+                    trace!("Adding {} to the bitmap", rrset.rtype());
+                    bitmap.add(rrset.rtype()).unwrap();
+                }
             }
 
             if distance_to_apex == 0 {
