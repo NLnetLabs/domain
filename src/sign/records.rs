@@ -1201,6 +1201,23 @@ pub enum Nsec3OptOut {
 //         itself.  Note that this means that the NSEC3 type itself will
 //         never be present in the Type Bit Maps."
 
+//------------ DesignatedSigningKey ------------------------------------------
+
+pub trait DesignatedSigningKey<Octs, Inner>:
+    Deref<Target = SigningKey<Octs, Inner>>
+where
+    Octs: AsRef<[u8]>,
+    Inner: SignRaw,
+{
+    /// Should this key be used to "sign one or more other authentication keys
+    /// for a given zone" (RFC 4033 section 2 "Key Signing Key (KSK)").
+    fn signs_keys(&self) -> bool;
+
+    /// Should this key be used to "sign a zone" (RFC 4033 section 2 "Zone
+    /// Signing Key (ZSK)").
+    fn signs_zone_data(&self) -> bool;
+}
+
 //------------ IntendedKeyPurpose --------------------------------------------
 
 /// The purpose of a DNSSEC key from the perspective of an operator.
@@ -1278,31 +1295,7 @@ impl<Octs, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
         }
     }
 
-    pub fn into_inner(self) -> SigningKey<Octs, Inner> {
-        self.key
-    }
-}
-
-impl<Octs, Inner: SignRaw> Deref for DnssecSigningKey<Octs, Inner> {
-    type Target = SigningKey<Octs, Inner>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.key
-    }
-}
-
-impl<Octs, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
-    pub fn key(&self) -> &SigningKey<Octs, Inner> {
-        &self.key
-    }
-
-    pub fn purpose(&self) -> IntendedKeyPurpose {
-        self.purpose
-    }
-}
-
-impl<Octs: AsRef<[u8]>, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
-    pub fn ksk(key: SigningKey<Octs, Inner>) -> Self {
+    pub fn new_ksk(key: SigningKey<Octs, Inner>) -> Self {
         Self {
             key,
             purpose: IntendedKeyPurpose::KSK,
@@ -1310,7 +1303,7 @@ impl<Octs: AsRef<[u8]>, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
         }
     }
 
-    pub fn zsk(key: SigningKey<Octs, Inner>) -> Self {
+    pub fn new_zsk(key: SigningKey<Octs, Inner>) -> Self {
         Self {
             key,
             purpose: IntendedKeyPurpose::ZSK,
@@ -1318,7 +1311,7 @@ impl<Octs: AsRef<[u8]>, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
         }
     }
 
-    pub fn csk(key: SigningKey<Octs, Inner>) -> Self {
+    pub fn new_csk(key: SigningKey<Octs, Inner>) -> Self {
         Self {
             key,
             purpose: IntendedKeyPurpose::CSK,
@@ -1326,24 +1319,94 @@ impl<Octs: AsRef<[u8]>, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
         }
     }
 
-    pub fn inactive(key: SigningKey<Octs, Inner>) -> Self {
+    pub fn new_inactive_key(key: SigningKey<Octs, Inner>) -> Self {
         Self {
             key,
             purpose: IntendedKeyPurpose::Inactive,
             _phantom: Default::default(),
         }
     }
+}
 
-    pub fn inferred(key: SigningKey<Octs, Inner>) -> Self {
+impl<Octs, Inner> DnssecSigningKey<Octs, Inner>
+where
+    Octs: AsRef<[u8]>,
+    Inner: SignRaw,
+{
+    pub fn purpose(&self) -> IntendedKeyPurpose {
+        self.purpose
+    }
+
+    pub fn into_inner(self) -> SigningKey<Octs, Inner> {
+        self.key
+    }
+
+    // Note: This cannot be done as impl AsRef because AsRef requires that the
+    // lifetime of the returned reference be 'static, and we don't do impl Any
+    // as then the caller has to deal with Option or Result because the type
+    // might not impl DesignatedSigningKey.
+    pub fn as_designated_signing_key(
+        &self,
+    ) -> &dyn DesignatedSigningKey<Octs, Inner> {
+        self
+    }
+}
+
+//--- impl Deref
+
+impl<Octs, Inner> Deref for DnssecSigningKey<Octs, Inner>
+where
+    Octs: AsRef<[u8]>,
+    Inner: SignRaw,
+{
+    type Target = SigningKey<Octs, Inner>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.key
+    }
+}
+
+//--- impl From
+
+impl<Octs, Inner> From<SigningKey<Octs, Inner>>
+    for DnssecSigningKey<Octs, Inner>
+where
+    Octs: AsRef<[u8]>,
+    Inner: SignRaw,
+{
+    fn from(key: SigningKey<Octs, Inner>) -> Self {
         let public_key = key.public_key();
         match (
             public_key.is_secure_entry_point(),
             public_key.is_zone_signing_key(),
         ) {
-            (true, _) => Self::ksk(key),
-            (false, true) => Self::zsk(key),
-            (false, false) => Self::inactive(key),
+            (true, _) => Self::new_ksk(key),
+            (false, true) => Self::new_zsk(key),
+            (false, false) => Self::new_inactive_key(key),
         }
+    }
+}
+
+//--- impl DesignatedSigningKey
+
+impl<Octs, Inner> DesignatedSigningKey<Octs, Inner>
+    for DnssecSigningKey<Octs, Inner>
+where
+    Octs: AsRef<[u8]>,
+    Inner: SignRaw,
+{
+    fn signs_keys(&self) -> bool {
+        matches!(
+            self.purpose,
+            IntendedKeyPurpose::KSK | IntendedKeyPurpose::CSK
+        )
+    }
+
+    fn signs_zone_data(&self) -> bool {
+        matches!(
+            self.purpose,
+            IntendedKeyPurpose::ZSK | IntendedKeyPurpose::CSK
+        )
     }
 }
 
@@ -1356,46 +1419,43 @@ impl<Octs: AsRef<[u8]>, Inner: SignRaw> DnssecSigningKey<Octs, Inner> {
 // iterator over the Zone). Also move out the helper functions. Maybe put them
 // all into a Signer struct?
 
-pub trait SigningKeyUsageStrategy<Octs, Inner: SignRaw> {
+pub trait SigningKeyUsageStrategy<Octs, Inner>
+where
+    Octs: AsRef<[u8]>,
+    Inner: SignRaw,
+{
     const NAME: &'static str;
 
     fn select_signing_keys_for_rtype(
-        candidate_keys: &[DnssecSigningKey<Octs, Inner>],
+        candidate_keys: &[&dyn DesignatedSigningKey<Octs, Inner>],
         rtype: Option<Rtype>,
     ) -> HashSet<usize> {
-        match rtype {
-            Some(Rtype::DNSKEY) => Self::filter_keys(candidate_keys, |k| {
-                matches!(
-                    k.purpose(),
-                    IntendedKeyPurpose::KSK | IntendedKeyPurpose::CSK
-                )
-            }),
-
-            _ => Self::filter_keys(candidate_keys, |k| {
-                matches!(
-                    k.purpose(),
-                    IntendedKeyPurpose::ZSK | IntendedKeyPurpose::CSK
-                )
-            }),
+        if matches!(rtype, Some(Rtype::DNSKEY)) {
+            Self::filter_keys(candidate_keys, |k| k.signs_keys())
+        } else {
+            Self::filter_keys(candidate_keys, |k| k.signs_zone_data())
         }
     }
 
     fn filter_keys(
-        candidate_keys: &[DnssecSigningKey<Octs, Inner>],
-        filter: fn(&DnssecSigningKey<Octs, Inner>) -> bool,
+        candidate_keys: &[&dyn DesignatedSigningKey<Octs, Inner>],
+        filter: fn(&dyn DesignatedSigningKey<Octs, Inner>) -> bool,
     ) -> HashSet<usize> {
         candidate_keys
             .iter()
             .enumerate()
-            .filter_map(|(i, k)| filter(k).then_some(i))
+            .filter_map(|(i, &k)| filter(k).then_some(i))
             .collect::<HashSet<_>>()
     }
 }
 
 pub struct DefaultSigningKeyUsageStrategy;
 
-impl<Octs, Inner: SignRaw> SigningKeyUsageStrategy<Octs, Inner>
+impl<Octs, Inner> SigningKeyUsageStrategy<Octs, Inner>
     for DefaultSigningKeyUsageStrategy
+where
+    Octs: AsRef<[u8]>,
+    Inner: SignRaw,
 {
     const NAME: &'static str = "Default key usage strategy";
 }
@@ -1406,6 +1466,7 @@ pub struct Signer<
     KeyStrat = DefaultSigningKeyUsageStrategy,
     Sort = DefaultSorter,
 > where
+    Octs: AsRef<[u8]>,
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
@@ -1416,6 +1477,7 @@ pub struct Signer<
 impl<Octs, Inner, KeyStrat, Sort> Default
     for Signer<Octs, Inner, KeyStrat, Sort>
 where
+    Octs: AsRef<[u8]>,
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
@@ -1427,6 +1489,7 @@ where
 
 impl<Octs, Inner, KeyStrat, Sort> Signer<Octs, Inner, KeyStrat, Sort>
 where
+    Octs: AsRef<[u8]>,
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
@@ -1456,7 +1519,7 @@ where
         &self,
         apex: &FamilyName<N>,
         families: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
-        keys: &[DnssecSigningKey<Octs, Inner>],
+        keys: &[&dyn DesignatedSigningKey<Octs, Inner>],
         add_used_dnskeys: bool,
     ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
     where
@@ -1518,7 +1581,7 @@ where
             );
 
             for idx in &keys_in_use_idxs {
-                let key = keys[**idx].key();
+                let key = keys[**idx];
                 let is_dnskey_signing_key =
                     dnskey_signing_key_idxs.contains(idx);
                 let is_non_dnskey_signing_key =
@@ -1595,9 +1658,8 @@ where
                 soa_minimum_ttl
             };
 
-            for public_key in keys_in_use_idxs
-                .iter()
-                .map(|&&idx| keys[idx].key().public_key())
+            for public_key in
+                keys_in_use_idxs.iter().map(|&&idx| keys[idx].public_key())
             {
                 let dnskey = public_key.to_dnskey();
 
@@ -1642,8 +1704,7 @@ where
                     &non_dnskey_signing_key_idxs
                 };
 
-                for key in signing_key_idxs.iter().map(|&idx| keys[idx].key())
-                {
+                for key in signing_key_idxs.iter().map(|&idx| keys[idx]) {
                     // A copy of the family name. We’ll need it later.
                     let name = apex_family.family_name().cloned();
 
@@ -1704,9 +1765,8 @@ where
                     }
                 }
 
-                for key in non_dnskey_signing_key_idxs
-                    .iter()
-                    .map(|&idx| keys[idx].key())
+                for key in
+                    non_dnskey_signing_key_idxs.iter().map(|&idx| keys[idx])
                 {
                     let rrsig_rr =
                         Self::sign_rrset(key, &rrset, &name, apex, &mut buf)?;
