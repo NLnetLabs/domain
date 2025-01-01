@@ -97,6 +97,33 @@ pub trait ParseFrom<'a>: Sized {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError>;
 }
 
+/// Zero-copy parsing from a byte string.
+///
+/// # Safety
+///
+/// Every implementation of [`ParseBytesByRef`] must satisfy the invariants
+/// documented on [`parse_bytes_by_ref()`].  An incorrect implementation is
+/// considered to cause undefined behaviour.
+///
+/// Implementing types should almost always be unaligned, but foregoing this
+/// will not cause undefined behaviour (however, it will be very confusing for
+/// users).
+pub unsafe trait ParseBytesByRef {
+    /// Interpret a byte string as an instance of [`Self`].
+    ///
+    /// The byte string will be validated and re-interpreted as a reference to
+    /// [`Self`].  The whole byte string will be used.  If the input is not a
+    /// valid instance of [`Self`], a [`ParseError`] is returned.
+    ///
+    /// ## Invariants
+    ///
+    /// For the statement `let this: &T = T::parse_bytes_by_ref(bytes)?;`,
+    ///
+    /// - `bytes.as_ptr() == this as *const T as *const u8`.
+    /// - `bytes.len() == core::mem::size_of_val(this)`.
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError>;
+}
+
 //--- Carrying over 'zerocopy' traits
 
 // NOTE: We can't carry over 'read_from_prefix' because the trait impls would
