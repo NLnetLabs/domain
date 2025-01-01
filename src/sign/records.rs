@@ -347,9 +347,9 @@ where
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
             // RFC 4035 section 2.3:
-            //  "The type bitmap of every NSEC resource record in a signed
-            //   zone MUST indicate the presence of both the NSEC record
-            //   itself and its corresponding RRSIG record."
+            //   "The type bitmap of every NSEC resource record in a signed
+            //    zone MUST indicate the presence of both the NSEC record
+            //    itself and its corresponding RRSIG record."
             bitmap.add(Rtype::RRSIG).unwrap();
             if assume_dnskeys_will_be_added && family.owner() == &apex_owner {
                 // Assume there's gonna be a DNSKEY.
@@ -462,7 +462,9 @@ where
                 break;
             }
 
-            // If the family is below a zone cut, we must ignore it.
+            // If the family is below a zone cut, we must ignore it. As the
+            // RRs are required to be sorted all RRs below a zone cut should
+            // be encountered after the cut itself.
             if let Some(ref cut) = cut {
                 if family.owner().ends_with(cut.owner()) {
                     debug!(
@@ -561,8 +563,7 @@ where
                 }
             }
 
-            // Create the type bitmap, assume there will be an RRSIG and an
-            // NSEC3PARAM.
+            // Create the type bitmap.
             let mut bitmap = RtypeBitmap::<Octets>::builder();
 
             // Authoritative RRsets will be signed.
@@ -1260,7 +1261,7 @@ pub enum IntendedKeyPurpose {
 
 //------------ DnssecSigningKey ----------------------------------------------
 
-/// A key to be provided by an operator to a DNSSEC signer.
+/// A key that can be used for DNSSEC signing.
 ///
 /// This type carries metadata that signals to a DNSSEC signer how this key
 /// should impact the zone to be signed.
