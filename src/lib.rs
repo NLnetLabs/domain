@@ -190,6 +190,14 @@ extern crate std;
 #[macro_use]
 extern crate core;
 
+// The 'domain-macros' crate introduces 'derive' macros which can be used by
+// users of the 'domain' crate, but also by the 'domain' crate itself.  Within
+// those macros, references to declarations in the 'domain' crate are written
+// as '::domain::*' ... but this doesn't work when those proc macros are used
+// by the 'domain' crate itself.  The alias introduced here fixes this: now
+// '::domain' means the same thing within this crate as in dependents of it.
+extern crate self as domain;
+
 pub mod base;
 pub mod dep;
 pub mod net;
