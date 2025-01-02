@@ -235,36 +235,33 @@ unsafe impl ParseBytesByRef for [u8] {
     }
 }
 
-unsafe impl<const N: usize> SplitBytesByRef for [u8; N] {
+unsafe impl<T: SplitBytesByRef, const N: usize> SplitBytesByRef for [T; N] {
     fn split_bytes_by_ref(
-        bytes: &[u8],
+        mut bytes: &[u8],
     ) -> Result<(&Self, &[u8]), ParseError> {
-        if bytes.len() < N {
-            Err(ParseError)
-        } else {
-            let (bytes, rest) = bytes.split_at(N);
-
-            // SAFETY:
-            // - It is known that 'bytes.len() == N'.
-            // - Thus '&bytes' has the same layout as '[u8; N]'.
-            // - Thus it is safe to cast a pointer to it to '[u8; N]'.
-            // - The referenced data has the same lifetime as the output.
-            Ok((unsafe { &*bytes.as_ptr().cast::<[u8; N]>() }, rest))
+        let start = bytes.as_ptr();
+        for _ in 0..N {
+            (_, bytes) = T::split_bytes_by_ref(bytes)?;
         }
+
+        // SAFETY:
+        // - 'T::split_bytes_by_ref()' was called 'N' times on successive
+        //   positions, thus the original 'bytes' starts with 'N' instances
+        //   of 'T' (even if 'T' is a ZST and so all instances overlap).
+        // - 'N' consecutive 'T's have the same layout as '[T; N]'.
+        // - Thus it is safe to cast 'start' to '[T; N]'.
+        // - The referenced data has the same lifetime as the output.
+        Ok((unsafe { &*start.cast::<[T; N]>() }, bytes))
     }
 }
 
-unsafe impl<const N: usize> ParseBytesByRef for [u8; N] {
+unsafe impl<T: SplitBytesByRef, const N: usize> ParseBytesByRef for [T; N] {
     fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
-        if bytes.len() != N {
-            Err(ParseError)
+        let (this, rest) = Self::split_bytes_by_ref(bytes)?;
+        if rest.is_empty() {
+            Ok(this)
         } else {
-            // SAFETY:
-            // - It is known that 'bytes.len() == N'.
-            // - Thus '&bytes' has the same layout as '[u8; N]'.
-            // - Thus it is safe to cast a pointer to it to '[u8; N]'.
-            // - The referenced data has the same lifetime as the output.
-            Ok(unsafe { &*bytes.as_ptr().cast::<[u8; N]>() })
+            Err(ParseError)
         }
     }
 
