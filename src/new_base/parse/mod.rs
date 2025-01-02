@@ -72,36 +72,81 @@ impl<'a, T: ?Sized + ParseBytesByRef> ParseFromMessage<'a> for &'a T {
 //----------- Low-level parsing traits ---------------------------------------
 
 /// Parsing from the start of a byte string.
-pub trait SplitFrom<'a>: Sized + ParseFrom<'a> {
+pub trait SplitBytes<'a>: Sized + ParseBytes<'a> {
     /// Parse a value of [`Self`] from the start of the byte string.
     ///
     /// If parsing is successful, the parsed value and the rest of the string
     /// are returned.  Otherwise, a [`ParseError`] is returned.
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError>;
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError>;
 }
 
 /// Parsing from a byte string.
-pub trait ParseFrom<'a>: Sized {
+pub trait ParseBytes<'a>: Sized {
     /// Parse a value of [`Self`] from the given byte string.
     ///
     /// If parsing is successful, the parsed value is returned.  Otherwise, a
     /// [`ParseError`] is returned.
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError>;
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError>;
 }
 
-impl<'a, T: ?Sized + SplitBytesByRef> SplitFrom<'a> for &'a T {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+impl<'a, T: ?Sized + SplitBytesByRef> SplitBytes<'a> for &'a T {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         T::split_bytes_by_ref(bytes).map_err(|_| ParseError)
     }
 }
 
-impl<'a, T: ?Sized + ParseBytesByRef> ParseFrom<'a> for &'a T {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+impl<'a, T: ?Sized + ParseBytesByRef> ParseBytes<'a> for &'a T {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         T::parse_bytes_by_ref(bytes).map_err(|_| ParseError)
     }
 }
 
+impl<'a> SplitBytes<'a> for u8 {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        bytes.split_first().map(|(&f, r)| (f, r)).ok_or(ParseError)
+    }
+}
+
+impl<'a> ParseBytes<'a> for u8 {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let [result] = bytes else {
+            return Err(ParseError);
+        };
+
+        Ok(*result)
+    }
+}
+
+impl<'a> SplitBytes<'a> for U16 {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        Self::read_from_prefix(bytes).map_err(Into::into)
+    }
+}
+
+impl<'a> ParseBytes<'a> for U16 {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        Self::read_from_bytes(bytes).map_err(Into::into)
+    }
+}
+
+impl<'a> SplitBytes<'a> for U32 {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        Self::read_from_prefix(bytes).map_err(Into::into)
+    }
+}
+
+impl<'a> ParseBytes<'a> for U32 {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        Self::read_from_bytes(bytes).map_err(Into::into)
+    }
+}
+
 /// Zero-copy parsing from the start of a byte string.
+///
+/// This is an extension of [`ParseBytesByRef`] for types which can determine
+/// their own length when parsing.  It is usually implemented by [`Sized`]
+/// types (where the length is just the size of the type), although it can be
+/// sometimes implemented by unsized types.
 ///
 /// # Safety
 ///
@@ -109,9 +154,8 @@ impl<'a, T: ?Sized + ParseBytesByRef> ParseFrom<'a> for &'a T {
 /// documented on [`split_bytes_by_ref()`].  An incorrect implementation is
 /// considered to cause undefined behaviour.
 ///
-/// Implementing types should almost always be unaligned, but foregoing this
-/// will not cause undefined behaviour (however, it will be very confusing for
-/// users).
+/// Note that [`ParseBytesByRef`], required by this trait, also has several
+/// invariants that need to be considered with care.
 pub unsafe trait SplitBytesByRef: ParseBytesByRef {
     /// Interpret a byte string as an instance of [`Self`].
     ///
@@ -221,7 +265,7 @@ unsafe impl ParseBytesByRef for u8 {
             return Err(ParseError);
         };
 
-        return Ok(result);
+        Ok(result)
     }
 
     fn ptr_with_address(&self, addr: *const ()) -> *const Self {

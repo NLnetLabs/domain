@@ -16,7 +16,8 @@ use super::{
     build::{self, BuildInto, BuildIntoMessage, TruncationError},
     name::RevNameBuf,
     parse::{
-        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
+        SplitFromMessage,
     },
     Message,
 };
@@ -150,16 +151,16 @@ where
 
 //--- Parsing from bytes
 
-impl<'a, N, D> SplitFrom<'a> for Record<N, D>
+impl<'a, N, D> SplitBytes<'a> for Record<N, D>
 where
-    N: SplitFrom<'a>,
+    N: SplitBytes<'a>,
     D: ParseRecordData<'a>,
 {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        let (rname, rest) = N::split_from(bytes)?;
-        let (&rtype, rest) = <&RType>::split_from(rest)?;
-        let (&rclass, rest) = <&RClass>::split_from(rest)?;
-        let (&ttl, rest) = <&TTL>::split_from(rest)?;
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        let (rname, rest) = N::split_bytes(bytes)?;
+        let (&rtype, rest) = <&RType>::split_bytes(rest)?;
+        let (&rclass, rest) = <&RClass>::split_bytes(rest)?;
+        let (&ttl, rest) = <&TTL>::split_bytes(rest)?;
         let (size, rest) = U16::read_from_prefix(rest)?;
         let size: usize = size.get().into();
         let (rdata, rest) = <[u8]>::ref_from_prefix_with_elems(rest, size)?;
@@ -169,16 +170,16 @@ where
     }
 }
 
-impl<'a, N, D> ParseFrom<'a> for Record<N, D>
+impl<'a, N, D> ParseBytes<'a> for Record<N, D>
 where
-    N: SplitFrom<'a>,
+    N: SplitBytes<'a>,
     D: ParseRecordData<'a>,
 {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (rname, rest) = N::split_from(bytes)?;
-        let (&rtype, rest) = <&RType>::split_from(rest)?;
-        let (&rclass, rest) = <&RClass>::split_from(rest)?;
-        let (&ttl, rest) = <&TTL>::split_from(rest)?;
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (rname, rest) = N::split_bytes(bytes)?;
+        let (&rtype, rest) = <&RType>::split_bytes(rest)?;
+        let (&rclass, rest) = <&RClass>::split_bytes(rest)?;
+        let (&ttl, rest) = <&TTL>::split_bytes(rest)?;
         let (size, rest) = U16::read_from_prefix(rest)?;
         let size: usize = size.get().into();
         let rdata = <[u8]>::ref_from_bytes_with_elems(rest, size)?;

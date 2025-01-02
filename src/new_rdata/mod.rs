@@ -8,7 +8,8 @@ use zerocopy_derive::*;
 use crate::new_base::{
     build::{BuildInto, BuildIntoMessage, Builder, TruncationError},
     parse::{
-        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
+        SplitFromMessage,
     },
     Message, ParseRecordData, RType,
 };
@@ -68,7 +69,7 @@ pub enum RecordData<'a, N> {
 
 impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>
 where
-    N: SplitFrom<'a> + SplitFromMessage<'a>,
+    N: SplitBytes<'a> + SplitFromMessage<'a>,
 {
     fn parse_record_data(
         message: &'a Message,
@@ -110,17 +111,17 @@ where
         rtype: RType,
     ) -> Result<Self, ParseError> {
         match rtype {
-            RType::A => <&A>::parse_from(bytes).map(Self::A),
-            RType::NS => Ns::parse_from(bytes).map(Self::Ns),
-            RType::CNAME => CName::parse_from(bytes).map(Self::CName),
-            RType::SOA => Soa::parse_from(bytes).map(Self::Soa),
-            RType::WKS => <&Wks>::parse_from(bytes).map(Self::Wks),
-            RType::PTR => Ptr::parse_from(bytes).map(Self::Ptr),
-            RType::HINFO => HInfo::parse_from(bytes).map(Self::HInfo),
-            RType::MX => Mx::parse_from(bytes).map(Self::Mx),
-            RType::TXT => <&Txt>::parse_from(bytes).map(Self::Txt),
-            RType::AAAA => <&Aaaa>::parse_from(bytes).map(Self::Aaaa),
-            _ => <&UnknownRecordData>::parse_from(bytes)
+            RType::A => <&A>::parse_bytes(bytes).map(Self::A),
+            RType::NS => Ns::parse_bytes(bytes).map(Self::Ns),
+            RType::CNAME => CName::parse_bytes(bytes).map(Self::CName),
+            RType::SOA => Soa::parse_bytes(bytes).map(Self::Soa),
+            RType::WKS => <&Wks>::parse_bytes(bytes).map(Self::Wks),
+            RType::PTR => Ptr::parse_bytes(bytes).map(Self::Ptr),
+            RType::HINFO => HInfo::parse_bytes(bytes).map(Self::HInfo),
+            RType::MX => Mx::parse_bytes(bytes).map(Self::Mx),
+            RType::TXT => <&Txt>::parse_bytes(bytes).map(Self::Txt),
+            RType::AAAA => <&Aaaa>::parse_bytes(bytes).map(Self::Aaaa),
+            _ => <&UnknownRecordData>::parse_bytes(bytes)
                 .map(|data| Self::Unknown(rtype, data)),
         }
     }

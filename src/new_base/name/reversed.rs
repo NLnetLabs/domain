@@ -14,7 +14,7 @@ use zerocopy_derive::*;
 use crate::new_base::{
     build::{self, BuildInto, BuildIntoMessage, TruncationError},
     parse::{
-        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+        ParseError, ParseBytes, ParseFromMessage, SplitBytes, SplitFromMessage,
     },
     Message,
 };
@@ -385,8 +385,8 @@ impl BuildIntoMessage for RevNameBuf {
 
 //--- Parsing from bytes
 
-impl<'a> SplitFrom<'a> for RevNameBuf {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+impl<'a> SplitBytes<'a> for RevNameBuf {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let mut buffer = Self::empty();
 
         let (pointer, rest) = parse_segment(bytes, &mut buffer)?;
@@ -401,8 +401,8 @@ impl<'a> SplitFrom<'a> for RevNameBuf {
     }
 }
 
-impl<'a> ParseFrom<'a> for RevNameBuf {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+impl<'a> ParseBytes<'a> for RevNameBuf {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         let mut buffer = Self::empty();
 
         let (pointer, rest) = parse_segment(bytes, &mut buffer)?;

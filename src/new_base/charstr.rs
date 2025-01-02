@@ -8,7 +8,8 @@ use zerocopy_derive::*;
 use super::{
     build::{self, BuildInto, BuildIntoMessage, TruncationError},
     parse::{
-        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
+        SplitFromMessage,
     },
     Message,
 };
@@ -31,7 +32,7 @@ impl<'a> SplitFromMessage<'a> for &'a CharStr {
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let bytes = &message.as_bytes()[start..];
-        let (this, rest) = Self::split_from(bytes)?;
+        let (this, rest) = Self::split_bytes(bytes)?;
         Ok((this, bytes.len() - rest.len()))
     }
 }
@@ -45,7 +46,7 @@ impl<'a> ParseFromMessage<'a> for &'a CharStr {
             .as_bytes()
             .get(range)
             .ok_or(ParseError)
-            .and_then(Self::parse_from)
+            .and_then(Self::parse_bytes)
     }
 }
 
@@ -65,8 +66,8 @@ impl BuildIntoMessage for CharStr {
 
 //--- Parsing from bytes
 
-impl<'a> SplitFrom<'a> for &'a CharStr {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+impl<'a> SplitBytes<'a> for &'a CharStr {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (&length, rest) = bytes.split_first().ok_or(ParseError)?;
         if length as usize > rest.len() {
             return Err(ParseError);
@@ -78,8 +79,8 @@ impl<'a> SplitFrom<'a> for &'a CharStr {
     }
 }
 
-impl<'a> ParseFrom<'a> for &'a CharStr {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+impl<'a> ParseBytes<'a> for &'a CharStr {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         let (&length, rest) = bytes.split_first().ok_or(ParseError)?;
         if length as usize != rest.len() {
             return Err(ParseError);

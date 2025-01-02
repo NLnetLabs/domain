@@ -9,7 +9,7 @@ use core::{
 
 use zerocopy_derive::*;
 
-use crate::new_base::parse::{ParseError, ParseFrom, SplitFrom};
+use crate::new_base::parse::{ParseError, ParseBytes, SplitBytes};
 
 //----------- Label ----------------------------------------------------------
 
@@ -52,8 +52,8 @@ impl Label {
 
 //--- Parsing
 
-impl<'a> SplitFrom<'a> for &'a Label {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+impl<'a> SplitBytes<'a> for &'a Label {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (&size, rest) = bytes.split_first().ok_or(ParseError)?;
         if size < 64 && rest.len() >= size as usize {
             let (label, rest) = bytes.split_at(1 + size as usize);
@@ -65,9 +65,9 @@ impl<'a> SplitFrom<'a> for &'a Label {
     }
 }
 
-impl<'a> ParseFrom<'a> for &'a Label {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        Self::split_from(bytes).and_then(|(this, rest)| {
+impl<'a> ParseBytes<'a> for &'a Label {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        Self::split_bytes(bytes).and_then(|(this, rest)| {
             rest.is_empty().then_some(this).ok_or(ParseError)
         })
     }
@@ -254,7 +254,7 @@ impl<'a> Iterator for LabelIter<'a> {
 
         // SAFETY: 'bytes' is assumed to only contain valid labels.
         let (head, tail) =
-            unsafe { <&Label>::split_from(self.bytes).unwrap_unchecked() };
+            unsafe { <&Label>::split_bytes(self.bytes).unwrap_unchecked() };
         self.bytes = tail;
         Some(head)
     }

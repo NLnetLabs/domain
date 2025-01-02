@@ -20,7 +20,8 @@ use zerocopy_derive::*;
 use crate::new_base::{
     build::{self, BuildInto, BuildIntoMessage, TruncationError},
     parse::{
-        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
+        SplitFromMessage,
     },
     CharStr, Message, Serial,
 };
@@ -142,9 +143,9 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ns<N> {
 
 //--- Parsing from bytes
 
-impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Ns<N> {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        N::parse_from(bytes).map(|name| Self { name })
+impl<'a, N: ParseBytes<'a>> ParseBytes<'a> for Ns<N> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        N::parse_bytes(bytes).map(|name| Self { name })
     }
 }
 
@@ -193,9 +194,9 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for CName<N> {
 
 //--- Parsing from bytes
 
-impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for CName<N> {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        N::parse_from(bytes).map(|name| Self { name })
+impl<'a, N: ParseBytes<'a>> ParseBytes<'a> for CName<N> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        N::parse_bytes(bytes).map(|name| Self { name })
     }
 }
 
@@ -285,15 +286,15 @@ impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
 
 //--- Parsing from bytes
 
-impl<'a, N: SplitFrom<'a>> ParseFrom<'a> for Soa<N> {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (mname, rest) = N::split_from(bytes)?;
-        let (rname, rest) = N::split_from(rest)?;
-        let (&serial, rest) = <&Serial>::split_from(rest)?;
-        let (&refresh, rest) = <&U32>::split_from(rest)?;
-        let (&retry, rest) = <&U32>::split_from(rest)?;
-        let (&expire, rest) = <&U32>::split_from(rest)?;
-        let &minimum = <&U32>::parse_from(rest)?;
+impl<'a, N: SplitBytes<'a>> ParseBytes<'a> for Soa<N> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (mname, rest) = N::split_bytes(bytes)?;
+        let (rname, rest) = N::split_bytes(rest)?;
+        let (&serial, rest) = <&Serial>::split_bytes(rest)?;
+        let (&refresh, rest) = <&U32>::split_bytes(rest)?;
+        let (&retry, rest) = <&U32>::split_bytes(rest)?;
+        let (&expire, rest) = <&U32>::split_bytes(rest)?;
+        let &minimum = <&U32>::parse_bytes(rest)?;
 
         Ok(Self {
             mname,
@@ -425,9 +426,9 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ptr<N> {
 
 //--- Parsing from bytes
 
-impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Ptr<N> {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        N::parse_from(bytes).map(|name| Self { name })
+impl<'a, N: ParseBytes<'a>> ParseBytes<'a> for Ptr<N> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        N::parse_bytes(bytes).map(|name| Self { name })
     }
 }
 
@@ -465,7 +466,7 @@ impl<'a> ParseFromMessage<'a> for HInfo<'a> {
             .as_bytes()
             .get(range)
             .ok_or(ParseError)
-            .and_then(Self::parse_from)
+            .and_then(Self::parse_bytes)
     }
 }
 
@@ -485,10 +486,10 @@ impl BuildIntoMessage for HInfo<'_> {
 
 //--- Parsing from bytes
 
-impl<'a> ParseFrom<'a> for HInfo<'a> {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (cpu, rest) = <&CharStr>::split_from(bytes)?;
-        let os = <&CharStr>::parse_from(rest)?;
+impl<'a> ParseBytes<'a> for HInfo<'a> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (cpu, rest) = <&CharStr>::split_bytes(bytes)?;
+        let os = <&CharStr>::parse_bytes(rest)?;
         Ok(Self { cpu, os })
     }
 }
@@ -552,10 +553,10 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
 
 //--- Parsing from bytes
 
-impl<'a, N: ParseFrom<'a>> ParseFrom<'a> for Mx<N> {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (&preference, rest) = <&U16>::split_from(bytes)?;
-        let exchange = N::parse_from(rest)?;
+impl<'a, N: ParseBytes<'a>> ParseBytes<'a> for Mx<N> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (&preference, rest) = <&U16>::split_bytes(bytes)?;
+        let exchange = N::parse_bytes(rest)?;
         Ok(Self {
             preference,
             exchange,
@@ -594,11 +595,11 @@ impl Txt {
         &self,
     ) -> impl Iterator<Item = Result<&CharStr, ParseError>> + '_ {
         // NOTE: A TXT record always has at least one 'CharStr' within.
-        let first = <&CharStr>::split_from(&self.content);
+        let first = <&CharStr>::split_bytes(&self.content);
         core::iter::successors(Some(first), |prev| {
             prev.as_ref()
                 .ok()
-                .map(|(_elem, rest)| <&CharStr>::split_from(rest))
+                .map(|(_elem, rest)| <&CharStr>::split_bytes(rest))
         })
         .map(|result| result.map(|(elem, _rest)| elem))
     }
@@ -615,7 +616,7 @@ impl<'a> ParseFromMessage<'a> for &'a Txt {
             .as_bytes()
             .get(range)
             .ok_or(ParseError)
-            .and_then(Self::parse_from)
+            .and_then(Self::parse_bytes)
     }
 }
 
@@ -632,12 +633,12 @@ impl BuildIntoMessage for Txt {
 
 //--- Parsing from bytes
 
-impl<'a> ParseFrom<'a> for &'a Txt {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+impl<'a> ParseBytes<'a> for &'a Txt {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         // NOTE: The input must contain at least one 'CharStr'.
-        let (_, mut rest) = <&CharStr>::split_from(bytes)?;
+        let (_, mut rest) = <&CharStr>::split_bytes(bytes)?;
         while !rest.is_empty() {
-            (_, rest) = <&CharStr>::split_from(rest)?;
+            (_, rest) = <&CharStr>::split_bytes(rest)?;
         }
 
         // SAFETY: 'Txt' is 'repr(transparent)' to '[u8]'.

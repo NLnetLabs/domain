@@ -11,7 +11,7 @@ use zerocopy_derive::*;
 use crate::{
     new_base::{
         parse::{
-            ParseError, ParseFrom, ParseFromMessage, SplitFrom,
+            ParseError, ParseBytes, ParseFromMessage, SplitBytes,
             SplitFromMessage,
         },
         Message,
@@ -48,7 +48,7 @@ impl<'a> SplitFromMessage<'a> for EdnsRecord<'a> {
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let bytes = message.as_bytes().get(start..).ok_or(ParseError)?;
-        let (this, rest) = Self::split_from(bytes)?;
+        let (this, rest) = Self::split_bytes(bytes)?;
         Ok((this, message.as_bytes().len() - rest.len()))
     }
 }
@@ -62,24 +62,24 @@ impl<'a> ParseFromMessage<'a> for EdnsRecord<'a> {
             .as_bytes()
             .get(range)
             .ok_or(ParseError)
-            .and_then(Self::parse_from)
+            .and_then(Self::parse_bytes)
     }
 }
 
 //--- Parsing from bytes
 
-impl<'a> SplitFrom<'a> for EdnsRecord<'a> {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         // Strip the record name (root) and the record type.
         let rest = bytes.strip_prefix(&[0, 0, 41]).ok_or(ParseError)?;
 
-        let (&max_udp_payload, rest) = <&U16>::split_from(rest)?;
-        let (&ext_rcode, rest) = <&u8>::split_from(rest)?;
-        let (&version, rest) = <&u8>::split_from(rest)?;
-        let (&flags, rest) = <&EdnsFlags>::split_from(rest)?;
+        let (&max_udp_payload, rest) = <&U16>::split_bytes(rest)?;
+        let (&ext_rcode, rest) = <&u8>::split_bytes(rest)?;
+        let (&version, rest) = <&u8>::split_bytes(rest)?;
+        let (&flags, rest) = <&EdnsFlags>::split_bytes(rest)?;
 
         // Split the record size and data.
-        let (&size, rest) = <&U16>::split_from(rest)?;
+        let (&size, rest) = <&U16>::split_bytes(rest)?;
         let size: usize = size.get().into();
         let (options, rest) = Opt::ref_from_prefix_with_elems(rest, size)?;
 
@@ -96,18 +96,18 @@ impl<'a> SplitFrom<'a> for EdnsRecord<'a> {
     }
 }
 
-impl<'a> ParseFrom<'a> for EdnsRecord<'a> {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         // Strip the record name (root) and the record type.
         let rest = bytes.strip_prefix(&[0, 0, 41]).ok_or(ParseError)?;
 
-        let (&max_udp_payload, rest) = <&U16>::split_from(rest)?;
-        let (&ext_rcode, rest) = <&u8>::split_from(rest)?;
-        let (&version, rest) = <&u8>::split_from(rest)?;
-        let (&flags, rest) = <&EdnsFlags>::split_from(rest)?;
+        let (&max_udp_payload, rest) = <&U16>::split_bytes(rest)?;
+        let (&ext_rcode, rest) = <&u8>::split_bytes(rest)?;
+        let (&version, rest) = <&u8>::split_bytes(rest)?;
+        let (&flags, rest) = <&EdnsFlags>::split_bytes(rest)?;
 
         // Split the record size and data.
-        let (&size, rest) = <&U16>::split_from(rest)?;
+        let (&size, rest) = <&U16>::split_bytes(rest)?;
         let size: usize = size.get().into();
         let options = Opt::ref_from_bytes_with_elems(rest, size)?;
 

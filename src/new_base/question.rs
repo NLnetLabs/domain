@@ -10,7 +10,7 @@ use super::{
     build::{self, BuildInto, BuildIntoMessage, TruncationError},
     name::RevNameBuf,
     parse::{
-        ParseError, ParseFrom, ParseFromMessage, SplitFrom, SplitFromMessage,
+        ParseError, ParseBytes, ParseFromMessage, SplitBytes, SplitFromMessage,
     },
     Message,
 };
@@ -98,26 +98,26 @@ where
 
 //--- Parsing from bytes
 
-impl<'a, N> SplitFrom<'a> for Question<N>
+impl<'a, N> SplitBytes<'a> for Question<N>
 where
-    N: SplitFrom<'a>,
+    N: SplitBytes<'a>,
 {
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        let (qname, rest) = N::split_from(bytes)?;
-        let (&qtype, rest) = <&QType>::split_from(rest)?;
-        let (&qclass, rest) = <&QClass>::split_from(rest)?;
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        let (qname, rest) = N::split_bytes(bytes)?;
+        let (&qtype, rest) = <&QType>::split_bytes(rest)?;
+        let (&qclass, rest) = <&QClass>::split_bytes(rest)?;
         Ok((Self::new(qname, qtype, qclass), rest))
     }
 }
 
-impl<'a, N> ParseFrom<'a> for Question<N>
+impl<'a, N> ParseBytes<'a> for Question<N>
 where
-    N: SplitFrom<'a>,
+    N: SplitBytes<'a>,
 {
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (qname, rest) = N::split_from(bytes)?;
-        let (&qtype, rest) = <&QType>::split_from(rest)?;
-        let &qclass = <&QClass>::parse_from(rest)?;
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (qname, rest) = N::split_bytes(bytes)?;
+        let (&qtype, rest) = <&QType>::split_bytes(rest)?;
+        let &qclass = <&QClass>::parse_bytes(rest)?;
         Ok(Self::new(qname, qtype, qclass))
     }
 }
