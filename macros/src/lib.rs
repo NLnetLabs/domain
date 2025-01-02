@@ -3,7 +3,7 @@
 //! [`domain`]: https://docs.rs/domain
 
 use proc_macro as pm;
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use spanned::Spanned;
 use syn::*;
@@ -40,20 +40,8 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
             parse_quote!(::domain::new_base::parse::SplitBytes<'bytes>);
         let mut skeleton = ImplSkeleton::new(&input, false, bound);
 
-        // Pick a non-conflicting name for the parsing lifetime.
-        let lifetime = [format_ident!("bytes")]
-            .into_iter()
-            .chain((0u32..).map(|i| format_ident!("bytes_{}", i)))
-            .find(|id| {
-                skeleton.lifetimes.iter().all(|l| l.lifetime.ident != *id)
-            })
-            .map(|ident| Lifetime {
-                apostrophe: Span::call_site(),
-                ident,
-            })
-            .unwrap();
-
         // Add the parsing lifetime to the 'impl'.
+        let lifetime = skeleton.new_lifetime("bytes");
         if skeleton.lifetimes.len() > 0 {
             let lifetimes = skeleton.lifetimes.iter();
             let param = parse_quote! {
@@ -183,20 +171,8 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
             parse_quote!(::domain::new_base::parse::ParseBytes<'bytes>);
         let mut skeleton = ImplSkeleton::new(&input, false, bound);
 
-        // Pick a non-conflicting name for the parsing lifetime.
-        let lifetime = [format_ident!("bytes")]
-            .into_iter()
-            .chain((0u32..).map(|i| format_ident!("bytes_{}", i)))
-            .find(|id| {
-                skeleton.lifetimes.iter().all(|l| l.lifetime.ident != *id)
-            })
-            .map(|ident| Lifetime {
-                apostrophe: Span::call_site(),
-                ident,
-            })
-            .unwrap();
-
         // Add the parsing lifetime to the 'impl'.
+        let lifetime = skeleton.new_lifetime("bytes");
         if skeleton.lifetimes.len() > 0 {
             let lifetimes = skeleton.lifetimes.iter();
             let param = parse_quote! {

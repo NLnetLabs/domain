@@ -1,7 +1,7 @@
 //! Helpers for generating `impl` blocks.
 
-use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use proc_macro2::{Span, TokenStream};
+use quote::{format_ident, quote, ToTokens};
 use syn::{punctuated::Punctuated, visit::Visit, *};
 
 //----------- ImplSkeleton ---------------------------------------------------
@@ -172,6 +172,19 @@ impl ImplSkeleton {
             });
             self.where_clause.predicates.push(pred);
         }
+    }
+
+    /// Generate a unique lifetime with the given prefix.
+    pub fn new_lifetime(&self, prefix: &str) -> Lifetime {
+        [format_ident!("{}", prefix)]
+            .into_iter()
+            .chain((0u32..).map(|i| format_ident!("{}_{}", prefix, i)))
+            .find(|id| self.lifetimes.iter().all(|l| l.lifetime.ident != *id))
+            .map(|ident| Lifetime {
+                apostrophe: Span::call_site(),
+                ident,
+            })
+            .unwrap()
     }
 }
 
