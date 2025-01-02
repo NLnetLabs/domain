@@ -5,7 +5,6 @@
 use core::{fmt, ops::Range};
 
 use zerocopy::{network_endian::U16, IntoBytes};
-use zerocopy_derive::*;
 
 use domain_macros::*;
 
@@ -19,6 +18,11 @@ use crate::{
     },
     new_rdata::Opt,
 };
+
+//----------- EDNS option modules --------------------------------------------
+
+mod cookie;
+pub use cookie::{Cookie, CookieRequest};
 
 //----------- EdnsRecord -----------------------------------------------------
 
@@ -137,8 +141,8 @@ impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
     Clone,
     Default,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -217,8 +221,8 @@ pub enum EdnsOption<'b> {
     PartialOrd,
     Ord,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -233,7 +237,7 @@ pub struct OptionCode {
 //----------- UnknownOption --------------------------------------------------
 
 /// Data for an unknown Extended DNS option.
-#[derive(Debug, IntoBytes, Immutable, ParseBytesByRef)]
+#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef)]
 #[repr(C)]
 pub struct UnknownOption {
     /// The unparsed option data.
