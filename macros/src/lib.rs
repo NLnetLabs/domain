@@ -160,7 +160,7 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
                         if bytes.is_empty() {
                             Ok(Self #fields)
                         } else {
-                            Err()
+                            Err(::domain::new_base::parse::ParseError)
                         }
                     }
                 }
