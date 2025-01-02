@@ -5,19 +5,20 @@ use core::{
     ops::{Deref, Range},
 };
 
-use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::{
     network_endian::{U16, U32},
-    FromBytes, IntoBytes, SizeError,
+    FromBytes, IntoBytes,
 };
 use zerocopy_derive::*;
+
+use domain_macros::*;
 
 use super::{
     build::{self, BuildInto, BuildIntoMessage, TruncationError},
     name::RevNameBuf,
     parse::{
-        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
-        SplitFromMessage,
+        ParseBytes, ParseBytesByRef, ParseError, ParseFromMessage,
+        SplitBytes, SplitFromMessage,
     },
     Message,
 };
@@ -104,8 +105,7 @@ where
         range: Range<usize>,
     ) -> Result<Self, ParseError> {
         let message = &message.as_bytes()[..range.end];
-        let message = Message::ref_from_bytes(message)
-            .map_err(SizeError::from)
+        let message = Message::parse_bytes_by_ref(message)
             .expect("The input range ends past the message header");
 
         let (this, rest) = Self::split_from_message(message, range.start)?;
@@ -158,9 +158,9 @@ where
 {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (rname, rest) = N::split_bytes(bytes)?;
-        let (&rtype, rest) = <&RType>::split_bytes(rest)?;
-        let (&rclass, rest) = <&RClass>::split_bytes(rest)?;
-        let (&ttl, rest) = <&TTL>::split_bytes(rest)?;
+        let (rtype, rest) = RType::split_bytes(rest)?;
+        let (rclass, rest) = RClass::split_bytes(rest)?;
+        let (ttl, rest) = TTL::split_bytes(rest)?;
         let (size, rest) = U16::read_from_prefix(rest)?;
         let size: usize = size.get().into();
         let (rdata, rest) = <[u8]>::ref_from_prefix_with_elems(rest, size)?;
@@ -177,9 +177,9 @@ where
 {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         let (rname, rest) = N::split_bytes(bytes)?;
-        let (&rtype, rest) = <&RType>::split_bytes(rest)?;
-        let (&rclass, rest) = <&RClass>::split_bytes(rest)?;
-        let (&ttl, rest) = <&TTL>::split_bytes(rest)?;
+        let (rtype, rest) = RType::split_bytes(rest)?;
+        let (rclass, rest) = RClass::split_bytes(rest)?;
+        let (ttl, rest) = TTL::split_bytes(rest)?;
         let (size, rest) = U16::read_from_prefix(rest)?;
         let size: usize = size.get().into();
         let rdata = <[u8]>::ref_from_bytes_with_elems(rest, size)?;
@@ -232,7 +232,9 @@ where
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]
@@ -289,7 +291,9 @@ impl RType {
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]
@@ -312,7 +316,9 @@ pub struct RClass {
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]

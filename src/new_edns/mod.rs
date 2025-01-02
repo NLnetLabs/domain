@@ -4,15 +4,16 @@
 
 use core::{fmt, ops::Range};
 
-use domain_macros::{ParseBytesByRef, SplitBytesByRef};
-use zerocopy::{network_endian::U16, FromBytes, IntoBytes};
+use zerocopy::{network_endian::U16, IntoBytes};
 use zerocopy_derive::*;
+
+use domain_macros::*;
 
 use crate::{
     new_base::{
         parse::{
-            ParseError, ParseBytes, ParseFromMessage, SplitBytes,
-            SplitFromMessage,
+            ParseBytes, ParseBytesByRef, ParseError, ParseFromMessage,
+            SplitBytes, SplitFromMessage,
         },
         Message,
     },
@@ -81,7 +82,11 @@ impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
         // Split the record size and data.
         let (&size, rest) = <&U16>::split_bytes(rest)?;
         let size: usize = size.get().into();
-        let (options, rest) = Opt::ref_from_prefix_with_elems(rest, size)?;
+        if rest.len() < size {
+            return Err(ParseError);
+        }
+        let (options, rest) = rest.split_at(size);
+        let options = Opt::parse_bytes_by_ref(options)?;
 
         Ok((
             Self {
@@ -109,7 +114,10 @@ impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
         // Split the record size and data.
         let (&size, rest) = <&U16>::split_bytes(rest)?;
         let size: usize = size.get().into();
-        let options = Opt::ref_from_bytes_with_elems(rest, size)?;
+        if rest.len() != size {
+            return Err(ParseError);
+        }
+        let options = Opt::parse_bytes_by_ref(rest)?;
 
         Ok(Self {
             max_udp_payload,
@@ -131,7 +139,9 @@ impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]
@@ -209,7 +219,9 @@ pub enum EdnsOption<'b> {
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]

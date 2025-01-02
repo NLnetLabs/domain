@@ -8,9 +8,10 @@ use core::{
     ops::{Add, AddAssign},
 };
 
-use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::network_endian::U32;
 use zerocopy_derive::*;
+
+use domain_macros::*;
 
 //----------- Serial ---------------------------------------------------------
 
@@ -24,7 +25,9 @@ use zerocopy_derive::*;
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]

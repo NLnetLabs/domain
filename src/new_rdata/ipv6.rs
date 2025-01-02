@@ -8,9 +8,10 @@ use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::net::Ipv6Addr;
 
-use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::IntoBytes;
 use zerocopy_derive::*;
+
+use domain_macros::*;
 
 use crate::new_base::build::{
     self, BuildInto, BuildIntoMessage, TruncationError,
@@ -30,7 +31,9 @@ use crate::new_base::build::{
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]

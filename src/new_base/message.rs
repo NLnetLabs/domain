@@ -5,10 +5,14 @@ use core::fmt;
 use zerocopy::network_endian::U16;
 use zerocopy_derive::*;
 
+use domain_macros::*;
+
 //----------- Message --------------------------------------------------------
 
 /// A DNS message.
-#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, ParseBytesByRef,
+)]
 #[repr(C, packed)]
 pub struct Message {
     /// The message header.
@@ -31,6 +35,10 @@ pub struct Message {
     KnownLayout,
     Immutable,
     Unaligned,
+    ParseBytes,
+    ParseBytesByRef,
+    SplitBytes,
+    SplitBytesByRef,
 )]
 #[repr(C)]
 pub struct Header {
@@ -71,6 +79,10 @@ impl fmt::Display for Header {
     KnownLayout,
     Immutable,
     Unaligned,
+    ParseBytes,
+    ParseBytesByRef,
+    SplitBytes,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct HeaderFlags {
@@ -232,6 +244,10 @@ impl fmt::Display for HeaderFlags {
     KnownLayout,
     Immutable,
     Unaligned,
+    ParseBytes,
+    ParseBytesByRef,
+    SplitBytes,
+    SplitBytesByRef,
 )]
 #[repr(C)]
 pub struct SectionCounts {

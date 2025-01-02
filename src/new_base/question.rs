@@ -2,23 +2,22 @@
 
 use core::ops::Range;
 
-use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::{network_endian::U16, IntoBytes};
 use zerocopy_derive::*;
+
+use domain_macros::*;
 
 use super::{
     build::{self, BuildInto, BuildIntoMessage, TruncationError},
     name::RevNameBuf,
-    parse::{
-        ParseError, ParseBytes, ParseFromMessage, SplitBytes, SplitFromMessage,
-    },
+    parse::{ParseError, ParseFromMessage, SplitFromMessage},
     Message,
 };
 
 //----------- Question -------------------------------------------------------
 
 /// A DNS question.
-#[derive(Clone)]
+#[derive(Clone, ParseBytes, SplitBytes)]
 pub struct Question<N> {
     /// The domain name being requested.
     pub qname: N,
@@ -96,32 +95,6 @@ where
     }
 }
 
-//--- Parsing from bytes
-
-impl<'a, N> SplitBytes<'a> for Question<N>
-where
-    N: SplitBytes<'a>,
-{
-    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        let (qname, rest) = N::split_bytes(bytes)?;
-        let (&qtype, rest) = <&QType>::split_bytes(rest)?;
-        let (&qclass, rest) = <&QClass>::split_bytes(rest)?;
-        Ok((Self::new(qname, qtype, qclass), rest))
-    }
-}
-
-impl<'a, N> ParseBytes<'a> for Question<N>
-where
-    N: SplitBytes<'a>,
-{
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (qname, rest) = N::split_bytes(bytes)?;
-        let (&qtype, rest) = <&QType>::split_bytes(rest)?;
-        let &qclass = <&QClass>::parse_bytes(rest)?;
-        Ok(Self::new(qname, qtype, qclass))
-    }
-}
-
 //--- Building into byte strings
 
 impl<N> BuildInto for Question<N>
@@ -153,7 +126,9 @@ where
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]
@@ -176,7 +151,9 @@ pub struct QType {
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]

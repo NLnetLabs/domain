@@ -4,6 +4,8 @@
 
 use zerocopy_derive::*;
 
+use domain_macros::*;
+
 use crate::new_base::build::{
     self, BuildInto, BuildIntoMessage, TruncationError,
 };
@@ -17,13 +19,11 @@ use crate::new_base::build::{
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
 )]
-#[repr(C)] // 'derive(KnownLayout)' doesn't work with 'repr(transparent)'.
+#[repr(transparent)]
 pub struct Opt {
     /// The raw serialized options.
     contents: [u8],

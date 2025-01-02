@@ -10,12 +10,13 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::net::Ipv4Addr;
 
-use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::{
     network_endian::{U16, U32},
     IntoBytes,
 };
 use zerocopy_derive::*;
+
+use domain_macros::*;
 
 use crate::new_base::{
     build::{self, BuildInto, BuildIntoMessage, TruncationError},
@@ -40,7 +41,9 @@ use crate::new_base::{
     Hash,
     IntoBytes,
     Immutable,
+    ParseBytes,
     ParseBytesByRef,
+    SplitBytes,
     SplitBytesByRef,
 )]
 #[repr(transparent)]
@@ -112,7 +115,18 @@ impl BuildInto for A {
 //----------- Ns -------------------------------------------------------------
 
 /// The authoritative name server for this domain.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    ParseBytes,
+    SplitBytes,
+)]
 #[repr(transparent)]
 pub struct Ns<N: ?Sized> {
     /// The name of the authoritative server.
@@ -141,14 +155,6 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ns<N> {
     }
 }
 
-//--- Parsing from bytes
-
-impl<'a, N: ParseBytes<'a>> ParseBytes<'a> for Ns<N> {
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        N::parse_bytes(bytes).map(|name| Self { name })
-    }
-}
-
 //--- Building into bytes
 
 impl<N: ?Sized + BuildInto> BuildInto for Ns<N> {
@@ -163,7 +169,18 @@ impl<N: ?Sized + BuildInto> BuildInto for Ns<N> {
 //----------- Cname ----------------------------------------------------------
 
 /// The canonical name for this domain.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    ParseBytes,
+    SplitBytes,
+)]
 #[repr(transparent)]
 pub struct CName<N: ?Sized> {
     /// The canonical name.
@@ -192,14 +209,6 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for CName<N> {
     }
 }
 
-//--- Parsing from bytes
-
-impl<'a, N: ParseBytes<'a>> ParseBytes<'a> for CName<N> {
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        N::parse_bytes(bytes).map(|name| Self { name })
-    }
-}
-
 //--- Building into bytes
 
 impl<N: ?Sized + BuildInto> BuildInto for CName<N> {
@@ -214,7 +223,7 @@ impl<N: ?Sized + BuildInto> BuildInto for CName<N> {
 //----------- Soa ------------------------------------------------------------
 
 /// The start of a zone of authority.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, ParseBytes, SplitBytes)]
 pub struct Soa<N> {
     /// The name server which provided this zone.
     pub mname: N,
@@ -281,30 +290,6 @@ impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
         builder.append_bytes(self.minimum.as_bytes())?;
         builder.commit();
         Ok(())
-    }
-}
-
-//--- Parsing from bytes
-
-impl<'a, N: SplitBytes<'a>> ParseBytes<'a> for Soa<N> {
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (mname, rest) = N::split_bytes(bytes)?;
-        let (rname, rest) = N::split_bytes(rest)?;
-        let (&serial, rest) = <&Serial>::split_bytes(rest)?;
-        let (&refresh, rest) = <&U32>::split_bytes(rest)?;
-        let (&retry, rest) = <&U32>::split_bytes(rest)?;
-        let (&expire, rest) = <&U32>::split_bytes(rest)?;
-        let &minimum = <&U32>::parse_bytes(rest)?;
-
-        Ok(Self {
-            mname,
-            rname,
-            serial,
-            refresh,
-            retry,
-            expire,
-            minimum,
-        })
     }
 }
 
@@ -395,7 +380,18 @@ impl BuildInto for Wks {
 //----------- Ptr ------------------------------------------------------------
 
 /// A pointer to another domain name.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    ParseBytes,
+    SplitBytes,
+)]
 #[repr(transparent)]
 pub struct Ptr<N: ?Sized> {
     /// The referenced domain name.
@@ -424,14 +420,6 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ptr<N> {
     }
 }
 
-//--- Parsing from bytes
-
-impl<'a, N: ParseBytes<'a>> ParseBytes<'a> for Ptr<N> {
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        N::parse_bytes(bytes).map(|name| Self { name })
-    }
-}
-
 //--- Building into bytes
 
 impl<N: ?Sized + BuildInto> BuildInto for Ptr<N> {
@@ -446,7 +434,7 @@ impl<N: ?Sized + BuildInto> BuildInto for Ptr<N> {
 //----------- HInfo ----------------------------------------------------------
 
 /// Information about the host computer.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, ParseBytes, SplitBytes)]
 pub struct HInfo<'a> {
     /// The CPU type.
     pub cpu: &'a CharStr,
@@ -484,16 +472,6 @@ impl BuildIntoMessage for HInfo<'_> {
     }
 }
 
-//--- Parsing from bytes
-
-impl<'a> ParseBytes<'a> for HInfo<'a> {
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (cpu, rest) = <&CharStr>::split_bytes(bytes)?;
-        let os = <&CharStr>::parse_bytes(rest)?;
-        Ok(Self { cpu, os })
-    }
-}
-
 //--- Building into bytes
 
 impl BuildInto for HInfo<'_> {
@@ -510,7 +488,18 @@ impl BuildInto for HInfo<'_> {
 //----------- Mx -------------------------------------------------------------
 
 /// A host that can exchange mail for this domain.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    ParseBytes,
+    SplitBytes,
+)]
 #[repr(C)]
 pub struct Mx<N: ?Sized> {
     /// The preference for this host over others.
@@ -548,19 +537,6 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
         self.exchange.build_into_message(builder.delegate())?;
         builder.commit();
         Ok(())
-    }
-}
-
-//--- Parsing from bytes
-
-impl<'a, N: ParseBytes<'a>> ParseBytes<'a> for Mx<N> {
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (&preference, rest) = <&U16>::split_bytes(bytes)?;
-        let exchange = N::parse_bytes(rest)?;
-        Ok(Self {
-            preference,
-            exchange,
-        })
     }
 }
 
