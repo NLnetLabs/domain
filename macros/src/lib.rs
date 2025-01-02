@@ -43,7 +43,7 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
         skeleton.bound = Some(
             parse_quote!(::domain::new_base::parse::SplitBytes<#lifetime>),
         );
-        if skeleton.lifetimes.len() > 0 {
+        if !skeleton.lifetimes.is_empty() {
             let lifetimes = skeleton.lifetimes.iter();
             let param = parse_quote! {
                 #lifetime: #(#lifetimes)+*
@@ -105,7 +105,7 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
             }
         });
 
-        Ok(skeleton.into_token_stream().into())
+        Ok(skeleton.into_token_stream())
     }
 
     let input = syn::parse_macro_input!(input as DeriveInput);
@@ -175,7 +175,7 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
         skeleton.bound = Some(
             parse_quote!(::domain::new_base::parse::ParseBytes<#lifetime>),
         );
-        if skeleton.lifetimes.len() > 0 {
+        if !skeleton.lifetimes.is_empty() {
             let lifetimes = skeleton.lifetimes.iter();
             let param = parse_quote! {
                 #lifetime: #(#lifetimes)+*
@@ -252,7 +252,7 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
             }
         });
 
-        Ok(skeleton.into_token_stream().into())
+        Ok(skeleton.into_token_stream())
     }
 
     let input = syn::parse_macro_input!(input as DeriveInput);
@@ -360,7 +360,7 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
             }
         });
 
-        Ok(skeleton.into_token_stream().into())
+        Ok(skeleton.into_token_stream())
     }
 
     let input = syn::parse_macro_input!(input as DeriveInput);
@@ -501,7 +501,7 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
             }
         });
 
-        Ok(skeleton.into_token_stream().into())
+        Ok(skeleton.into_token_stream())
     }
 
     let input = syn::parse_macro_input!(input as DeriveInput);
@@ -564,7 +564,7 @@ pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
             }
         });
 
-        Ok(skeleton.into_token_stream().into())
+        Ok(skeleton.into_token_stream())
     }
 
     let input = syn::parse_macro_input!(input as DeriveInput);
@@ -611,7 +611,7 @@ pub fn derive_as_bytes(input: pm::TokenStream) -> pm::TokenStream {
 
         // The default implementation of 'as_bytes()' works perfectly.
 
-        Ok(skeleton.into_token_stream().into())
+        Ok(skeleton.into_token_stream())
     }
 
     let input = syn::parse_macro_input!(input as DeriveInput);
