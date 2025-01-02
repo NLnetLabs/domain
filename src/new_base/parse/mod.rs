@@ -139,9 +139,9 @@ pub unsafe trait SplitBytesByRef: ParseBytesByRef {
 /// [`parse_bytes_by_ref()`]: Self::parse_bytes_by_ref()
 /// [`ptr_with_address()`]: Self::ptr_with_address()
 ///
-/// Implementing types should almost always be unaligned, but foregoing this
-/// will not cause undefined behaviour (however, it will be very confusing for
-/// users).
+/// Implementing types must also have no alignment (i.e. a valid instance of
+/// [`Self`] can occur at any address).  This eliminates the possibility of
+/// padding bytes, even when [`Self`] is part of a larger aggregate type.
 pub unsafe trait ParseBytesByRef {
     /// Interpret a byte string as an instance of [`Self`].
     ///

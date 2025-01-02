@@ -1,7 +1,7 @@
 //! Determining the memory layout of a type.
 
 use proc_macro2::Span;
-use syn::{punctuated::Punctuated, *};
+use syn::{punctuated::Punctuated, spanned::Spanned, *};
 
 //----------- Repr -----------------------------------------------------------
 
@@ -19,7 +19,7 @@ impl Repr {
     /// Determine the representation for a type from its attributes.
     ///
     /// This will fail if a stable representation cannot be found.
-    pub fn determine(attrs: &[Attribute]) -> Result<Self> {
+    pub fn determine(attrs: &[Attribute], bound: &str) -> Result<Self> {
         let mut repr = None;
         for attr in attrs {
             if !attr.path().is_ident("repr") {
@@ -45,7 +45,24 @@ impl Repr {
 
                     Meta::Path(p) if p.is_ident("Rust") => {
                         return Err(Error::new_spanned(p,
-                            "repr(Rust) is not stable, cannot derive this for it"));
+                            format!("repr(Rust) is not stable, cannot derive {bound} for it")));
+                    }
+
+                    Meta::Path(p) if p.is_ident("packed") => {
+                        // The alignment can be set to 1 safely.
+                    }
+
+                    Meta::List(meta)
+                        if meta.path.is_ident("packed")
+                            || meta.path.is_ident("aligned") =>
+                    {
+                        let span = meta.span();
+                        let lit: LitInt = parse2(meta.tokens)?;
+                        let n: usize = lit.base10_parse()?;
+                        if n != 1 {
+                            return Err(Error::new(span,
+                                format!("'Self' must be unaligned to derive {bound}")));
+                        }
                     }
 
                     meta => {
