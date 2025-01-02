@@ -440,4 +440,21 @@ impl Rtype {
     pub fn is_glue(&self) -> bool {
         matches!(*self, Rtype::A | Rtype::AAAA)
     }
+
+    /// Returns true if this record type represents a pseudo-RR.
+    /// 
+    /// The term "pseudo-RR" appears in [RFC
+    /// 9499](https://datatracker.ietf.org/doc/rfc9499/) Section 5 "Resource
+    /// Records" as an alias for "meta-RR" and is referenced by [RFC
+    /// 4034](https://datatracker.ietf.org/doc/rfc4034)/) in the context of
+    /// NSEC to denote types that "do not appear in zone data", with [RFC
+    /// 5155](https://datatracker.ietf.org/doc/rfc5155/) having text with
+    /// presumably the same goal but defined in terms of "META-TYPE" and
+    /// "QTYPE", the latter collectively being defined by [RFC
+    /// 2929](https://datatracker.ietf.org/doc/rfc2929/) and later as having
+    /// the decimal range 128 - 255 but with section 3.1 explicitly noting OPT
+    /// (TYPE 41) as an exception.
+    pub fn is_pseudo(&self) -> bool {
+        self.0 == 41 || (self.0 >= 128 && self.0 <= 255)
+    }
 }
