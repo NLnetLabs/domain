@@ -32,6 +32,21 @@ use domain_macros::*;
 #[repr(transparent)]
 pub struct Serial(U32);
 
+//--- Construction
+
+impl Serial {
+    /// Measure the current time (in seconds) in serial number space.
+    #[cfg(feature = "std")]
+    pub fn unix_time() -> Self {
+        use std::time::SystemTime;
+
+        let time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("The current time is after the Unix Epoch");
+        Self::from(time.as_secs() as u32)
+    }
+}
+
 //--- Addition
 
 impl Add<i32> for Serial {
