@@ -154,6 +154,8 @@ impl<'a> ParseBytes<'a> for U32 {
 /// documented on [`split_bytes_by_ref()`].  An incorrect implementation is
 /// considered to cause undefined behaviour.
 ///
+/// [`split_bytes_by_ref()`]: Self::split_bytes_by_ref()
+///
 /// Note that [`ParseBytesByRef`], required by this trait, also has several
 /// invariants that need to be considered with care.
 pub unsafe trait SplitBytesByRef: ParseBytesByRef {
