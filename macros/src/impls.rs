@@ -143,7 +143,16 @@ impl ImplSkeleton {
     /// If the type is concrete, a verifying statement is added for it.
     /// Otherwise, it is added to the where clause.
     pub fn require_bound(&mut self, target: Type, bound: TypeParamBound) {
-        if self.is_concrete(&target) {
+        let mut visitor = ConcretenessVisitor {
+            skeleton: self,
+            is_concrete: true,
+        };
+
+        // Concreteness applies to both the type and the bound.
+        visitor.visit_type(&target);
+        visitor.visit_type_param_bound(&bound);
+
+        if visitor.is_concrete {
             // Add a concrete requirement for this bound.
             self.requirements.stmts.push(parse_quote! {
                 const _: fn() = || {
@@ -154,53 +163,15 @@ impl ImplSkeleton {
         } else {
             // Add this bound to the `where` clause.
             let mut bounds = Punctuated::new();
-            bounds.push_value(bound);
+            bounds.push(bound);
             let pred = WherePredicate::Type(PredicateType {
                 lifetimes: None,
                 bounded_ty: target,
                 colon_token: Default::default(),
                 bounds,
             });
-            self.where_clause.predicates.push_value(pred);
+            self.where_clause.predicates.push(pred);
         }
-    }
-
-    /// Whether a type is concrete within this `impl` block.
-    pub fn is_concrete(&self, target: &Type) -> bool {
-        struct ConcretenessVisitor<'a> {
-            /// The `impl` skeleton being added to.
-            skeleton: &'a ImplSkeleton,
-
-            /// Whether the visited type is concrete.
-            is_concrete: bool,
-        }
-
-        impl<'ast> Visit<'ast> for ConcretenessVisitor<'_> {
-            fn visit_lifetime(&mut self, i: &'ast Lifetime) {
-                self.is_concrete = self.is_concrete
-                    && self
-                        .skeleton
-                        .lifetimes
-                        .iter()
-                        .all(|l| l.lifetime != *i);
-            }
-
-            fn visit_ident(&mut self, i: &'ast Ident) {
-                self.is_concrete = self.is_concrete
-                    && self.skeleton.types.iter().all(|t| t.ident != *i);
-                self.is_concrete = self.is_concrete
-                    && self.skeleton.consts.iter().all(|c| c.ident != *i);
-            }
-        }
-
-        let mut visitor = ConcretenessVisitor {
-            skeleton: self,
-            is_concrete: true,
-        };
-
-        visitor.visit_type(target);
-
-        visitor.is_concrete
     }
 }
 
@@ -233,5 +204,29 @@ impl ToTokens for ImplSkeleton {
             }
             .to_tokens(tokens);
         }
+    }
+}
+
+//----------- ConcretenessVisitor --------------------------------------------
+
+struct ConcretenessVisitor<'a> {
+    /// The `impl` skeleton being added to.
+    skeleton: &'a ImplSkeleton,
+
+    /// Whether the visited type is concrete.
+    is_concrete: bool,
+}
+
+impl<'ast> Visit<'ast> for ConcretenessVisitor<'_> {
+    fn visit_lifetime(&mut self, i: &'ast Lifetime) {
+        self.is_concrete = self.is_concrete
+            && self.skeleton.lifetimes.iter().all(|l| l.lifetime != *i);
+    }
+
+    fn visit_ident(&mut self, i: &'ast Ident) {
+        self.is_concrete = self.is_concrete
+            && self.skeleton.types.iter().all(|t| t.ident != *i);
+        self.is_concrete = self.is_concrete
+            && self.skeleton.consts.iter().all(|c| c.ident != *i);
     }
 }
