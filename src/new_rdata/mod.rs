@@ -2,11 +2,10 @@
 
 use core::ops::Range;
 
-use domain_macros::ParseBytesByRef;
-use zerocopy_derive::*;
+use domain_macros::*;
 
 use crate::new_base::{
-    build::{BuildInto, BuildIntoMessage, Builder, TruncationError},
+    build::{BuildBytes, BuildIntoMessage, Builder, TruncationError},
     parse::{
         ParseBytes, ParseError, ParseFromMessage, SplitBytes,
         SplitFromMessage,
@@ -150,23 +149,23 @@ impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
     }
 }
 
-impl<N: BuildInto> BuildInto for RecordData<'_, N> {
-    fn build_into<'b>(
+impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
+    fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         match self {
-            Self::A(r) => r.build_into(bytes),
-            Self::Ns(r) => r.build_into(bytes),
-            Self::CName(r) => r.build_into(bytes),
-            Self::Soa(r) => r.build_into(bytes),
-            Self::Wks(r) => r.build_into(bytes),
-            Self::Ptr(r) => r.build_into(bytes),
-            Self::HInfo(r) => r.build_into(bytes),
-            Self::Txt(r) => r.build_into(bytes),
-            Self::Aaaa(r) => r.build_into(bytes),
-            Self::Mx(r) => r.build_into(bytes),
-            Self::Unknown(_, r) => r.octets.build_into(bytes),
+            Self::A(r) => r.build_bytes(bytes),
+            Self::Ns(r) => r.build_bytes(bytes),
+            Self::CName(r) => r.build_bytes(bytes),
+            Self::Soa(r) => r.build_bytes(bytes),
+            Self::Wks(r) => r.build_bytes(bytes),
+            Self::Ptr(r) => r.build_bytes(bytes),
+            Self::HInfo(r) => r.build_bytes(bytes),
+            Self::Txt(r) => r.build_bytes(bytes),
+            Self::Aaaa(r) => r.build_bytes(bytes),
+            Self::Mx(r) => r.build_bytes(bytes),
+            Self::Unknown(_, r) => r.build_bytes(bytes),
         }
     }
 }
@@ -174,7 +173,7 @@ impl<N: BuildInto> BuildInto for RecordData<'_, N> {
 //----------- UnknownRecordData ----------------------------------------------
 
 /// Data for an unknown DNS record type.
-#[derive(Debug, IntoBytes, Immutable, ParseBytesByRef)]
+#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef)]
 #[repr(C)]
 pub struct UnknownRecordData {
     /// The unparsed option data.

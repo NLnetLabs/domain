@@ -21,7 +21,7 @@ pub struct ImplSkeleton {
     pub unsafety: Option<Token![unsafe]>,
 
     /// The trait being implemented.
-    pub bound: Path,
+    pub bound: Option<Path>,
 
     /// The type being implemented on.
     pub subject: Path,
@@ -38,7 +38,7 @@ pub struct ImplSkeleton {
 
 impl ImplSkeleton {
     /// Construct an [`ImplSkeleton`] for a [`DeriveInput`].
-    pub fn new(input: &DeriveInput, unsafety: bool, bound: Path) -> Self {
+    pub fn new(input: &DeriveInput, unsafety: bool) -> Self {
         let mut lifetimes = Vec::new();
         let mut types = Vec::new();
         let mut consts = Vec::new();
@@ -130,7 +130,7 @@ impl ImplSkeleton {
             types,
             consts,
             unsafety,
-            bound,
+            bound: None,
             subject,
             where_clause,
             contents,
@@ -202,10 +202,15 @@ impl ToTokens for ImplSkeleton {
             requirements,
         } = self;
 
+        let target = match bound {
+            Some(bound) => quote!(#bound for #subject),
+            None => quote!(#subject),
+        };
+
         quote! {
             #unsafety
             impl<#(#lifetimes,)* #(#types,)* #(#consts,)*>
-            #bound for #subject
+            #target
             #where_clause
             #contents
         }

@@ -10,16 +10,12 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::net::Ipv4Addr;
 
-use zerocopy::{
-    network_endian::{U16, U32},
-    IntoBytes,
-};
-use zerocopy_derive::*;
+use zerocopy::network_endian::{U16, U32};
 
 use domain_macros::*;
 
 use crate::new_base::{
-    build::{self, BuildInto, BuildIntoMessage, TruncationError},
+    build::{self, AsBytes, BuildIntoMessage, TruncationError},
     parse::{
         ParseBytes, ParseError, ParseFromMessage, SplitBytes,
         SplitFromMessage,
@@ -39,8 +35,8 @@ use crate::new_base::{
     PartialOrd,
     Ord,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -101,17 +97,6 @@ impl BuildIntoMessage for A {
     }
 }
 
-//--- Building into byte strings
-
-impl BuildInto for A {
-    fn build_into<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.as_bytes().build_into(bytes)
-    }
-}
-
 //----------- Ns -------------------------------------------------------------
 
 /// The authoritative name server for this domain.
@@ -124,6 +109,7 @@ impl BuildInto for A {
     PartialOrd,
     Ord,
     Hash,
+    BuildBytes,
     ParseBytes,
     SplitBytes,
 )]
@@ -155,17 +141,6 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ns<N> {
     }
 }
 
-//--- Building into bytes
-
-impl<N: ?Sized + BuildInto> BuildInto for Ns<N> {
-    fn build_into<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.name.build_into(bytes)
-    }
-}
-
 //----------- Cname ----------------------------------------------------------
 
 /// The canonical name for this domain.
@@ -178,6 +153,7 @@ impl<N: ?Sized + BuildInto> BuildInto for Ns<N> {
     PartialOrd,
     Ord,
     Hash,
+    BuildBytes,
     ParseBytes,
     SplitBytes,
 )]
@@ -209,21 +185,20 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for CName<N> {
     }
 }
 
-//--- Building into bytes
-
-impl<N: ?Sized + BuildInto> BuildInto for CName<N> {
-    fn build_into<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.name.build_into(bytes)
-    }
-}
-
 //----------- Soa ------------------------------------------------------------
 
 /// The start of a zone of authority.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, ParseBytes, SplitBytes)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    BuildBytes,
+    ParseBytes,
+    SplitBytes,
+)]
 pub struct Soa<N> {
     /// The name server which provided this zone.
     pub mname: N,
@@ -293,28 +268,10 @@ impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
     }
 }
 
-//--- Building into byte strings
-
-impl<N: BuildInto> BuildInto for Soa<N> {
-    fn build_into<'b>(
-        &self,
-        mut bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        bytes = self.mname.build_into(bytes)?;
-        bytes = self.rname.build_into(bytes)?;
-        bytes = self.serial.as_bytes().build_into(bytes)?;
-        bytes = self.refresh.as_bytes().build_into(bytes)?;
-        bytes = self.retry.as_bytes().build_into(bytes)?;
-        bytes = self.expire.as_bytes().build_into(bytes)?;
-        bytes = self.minimum.as_bytes().build_into(bytes)?;
-        Ok(bytes)
-    }
-}
-
 //----------- Wks ------------------------------------------------------------
 
 /// Well-known services supported on this domain.
-#[derive(IntoBytes, Immutable, ParseBytesByRef)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
 #[repr(C, packed)]
 pub struct Wks {
     /// The address of the host providing these services.
@@ -366,17 +323,6 @@ impl BuildIntoMessage for Wks {
     }
 }
 
-//--- Building into byte strings
-
-impl BuildInto for Wks {
-    fn build_into<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.as_bytes().build_into(bytes)
-    }
-}
-
 //----------- Ptr ------------------------------------------------------------
 
 /// A pointer to another domain name.
@@ -389,6 +335,7 @@ impl BuildInto for Wks {
     PartialOrd,
     Ord,
     Hash,
+    BuildBytes,
     ParseBytes,
     SplitBytes,
 )]
@@ -420,21 +367,10 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ptr<N> {
     }
 }
 
-//--- Building into bytes
-
-impl<N: ?Sized + BuildInto> BuildInto for Ptr<N> {
-    fn build_into<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.name.build_into(bytes)
-    }
-}
-
 //----------- HInfo ----------------------------------------------------------
 
 /// Information about the host computer.
-#[derive(Clone, Debug, PartialEq, Eq, ParseBytes, SplitBytes)]
+#[derive(Clone, Debug, PartialEq, Eq, BuildBytes, ParseBytes, SplitBytes)]
 pub struct HInfo<'a> {
     /// The CPU type.
     pub cpu: &'a CharStr,
@@ -450,6 +386,8 @@ impl<'a> ParseFromMessage<'a> for HInfo<'a> {
         message: &'a Message,
         range: Range<usize>,
     ) -> Result<Self, ParseError> {
+        use zerocopy::IntoBytes;
+
         message
             .as_bytes()
             .get(range)
@@ -472,19 +410,6 @@ impl BuildIntoMessage for HInfo<'_> {
     }
 }
 
-//--- Building into bytes
-
-impl BuildInto for HInfo<'_> {
-    fn build_into<'b>(
-        &self,
-        mut bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        bytes = self.cpu.build_into(bytes)?;
-        bytes = self.os.build_into(bytes)?;
-        Ok(bytes)
-    }
-}
-
 //----------- Mx -------------------------------------------------------------
 
 /// A host that can exchange mail for this domain.
@@ -497,6 +422,7 @@ impl BuildInto for HInfo<'_> {
     PartialOrd,
     Ord,
     Hash,
+    BuildBytes,
     ParseBytes,
     SplitBytes,
 )]
@@ -540,23 +466,10 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
     }
 }
 
-//--- Building into byte strings
-
-impl<N: ?Sized + BuildInto> BuildInto for Mx<N> {
-    fn build_into<'b>(
-        &self,
-        mut bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        bytes = self.preference.as_bytes().build_into(bytes)?;
-        bytes = self.exchange.build_into(bytes)?;
-        Ok(bytes)
-    }
-}
-
 //----------- Txt ------------------------------------------------------------
 
 /// Free-form text strings about this domain.
-#[derive(IntoBytes, Immutable, Unaligned)]
+#[derive(AsBytes, BuildBytes)]
 #[repr(transparent)]
 pub struct Txt {
     /// The text strings, as concatenated [`CharStr`]s.
@@ -588,6 +501,8 @@ impl<'a> ParseFromMessage<'a> for &'a Txt {
         message: &'a Message,
         range: Range<usize>,
     ) -> Result<Self, ParseError> {
+        use zerocopy::IntoBytes;
+
         message
             .as_bytes()
             .get(range)
@@ -619,17 +534,6 @@ impl<'a> ParseBytes<'a> for &'a Txt {
 
         // SAFETY: 'Txt' is 'repr(transparent)' to '[u8]'.
         Ok(unsafe { core::mem::transmute::<&'a [u8], Self>(bytes) })
-    }
-}
-
-//--- Building into byte strings
-
-impl BuildInto for Txt {
-    fn build_into<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.content.build_into(bytes)
     }
 }
 

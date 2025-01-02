@@ -2,6 +2,8 @@
 
 use core::fmt;
 
+use zerocopy::network_endian::{U16, U32};
+
 mod builder;
 pub use builder::{Builder, BuilderContext};
 
@@ -42,42 +44,126 @@ impl BuildIntoMessage for [u8] {
 
 //----------- Low-level building traits --------------------------------------
 
-/// Building into a byte string.
-pub trait BuildInto {
-    /// Append this value to the byte string.
+/// Serializing into a byte string.
+pub trait BuildBytes {
+    /// Serialize into a byte string.
     ///
-    /// If the byte string is long enough to fit the message, the remaining
-    /// (unfilled) part of the byte string is returned.   Otherwise, a
-    /// [`TruncationError`] is returned.
-    fn build_into<'b>(
+    /// `self` is serialized into a byte string and written to the given
+    /// buffer.  If the buffer is large enough, the whole object is written
+    /// and the remaining (unmodified) part of the buffer is returned.
+    ///
+    /// if the buffer is too small, a [`TruncationError`] is returned (and
+    /// parts of the buffer may be modified).
+    fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError>;
 }
 
-impl<T: ?Sized + BuildInto> BuildInto for &T {
-    fn build_into<'b>(
+impl<T: ?Sized + BuildBytes> BuildBytes for &T {
+    fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        (**self).build_into(bytes)
+        T::build_bytes(*self, bytes)
     }
 }
 
-impl BuildInto for [u8] {
-    fn build_into<'b>(
+impl BuildBytes for u8 {
+    fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        if self.len() <= bytes.len() {
-            let (bytes, rest) = bytes.split_at_mut(self.len());
-            bytes.copy_from_slice(self);
+        if let Some((elem, rest)) = bytes.split_first_mut() {
+            *elem = *self;
             Ok(rest)
         } else {
             Err(TruncationError)
         }
     }
 }
+
+impl BuildBytes for U16 {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.as_bytes().build_bytes(bytes)
+    }
+}
+
+impl BuildBytes for U32 {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.as_bytes().build_bytes(bytes)
+    }
+}
+
+impl<T: BuildBytes> BuildBytes for [T] {
+    fn build_bytes<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        for elem in self {
+            bytes = elem.build_bytes(bytes)?;
+        }
+        Ok(bytes)
+    }
+}
+
+impl<T: BuildBytes, const N: usize> BuildBytes for [T; N] {
+    fn build_bytes<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        for elem in self {
+            bytes = elem.build_bytes(bytes)?;
+        }
+        Ok(bytes)
+    }
+}
+
+/// Interpreting a value as a byte string.
+///
+/// # Safety
+///
+/// A type `T` can soundly implement [`AsBytes`] if and only if:
+///
+/// - It has no padding bytes.
+/// - It has no interior mutability.
+pub unsafe trait AsBytes {
+    /// Interpret this value as a sequence of bytes.
+    ///
+    /// ## Invariants
+    ///
+    /// For the statement `let bytes = this.as_bytes();`,
+    ///
+    /// - `bytes.as_ptr() as usize == this as *const _ as usize`.
+    /// - `bytes.len() == core::mem::size_of_val(this)`.
+    ///
+    /// The default implementation automatically satisfies these invariants.
+    fn as_bytes(&self) -> &[u8] {
+        // SAFETY:
+        // - 'Self' has no padding bytes and no interior mutability.
+        // - Its size in memory is exactly 'size_of_val(self)'.
+        unsafe {
+            core::slice::from_raw_parts(
+                self as *const Self as *const u8,
+                core::mem::size_of_val(self),
+            )
+        }
+    }
+}
+
+unsafe impl AsBytes for u8 {}
+
+unsafe impl<T: AsBytes> AsBytes for [T] {}
+unsafe impl<T: AsBytes, const N: usize> AsBytes for [T; N] {}
+
+unsafe impl AsBytes for U16 {}
+unsafe impl AsBytes for U32 {}
 
 //----------- TruncationError ------------------------------------------------
 

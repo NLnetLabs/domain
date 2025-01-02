@@ -10,7 +10,7 @@ use zerocopy::{FromBytes, IntoBytes, SizeError};
 
 use crate::new_base::{name::RevName, Header, Message};
 
-use super::{BuildInto, TruncationError};
+use super::{BuildBytes, TruncationError};
 
 //----------- Builder --------------------------------------------------------
 
@@ -303,7 +303,7 @@ impl Builder<'_> {
         name: &RevName,
     ) -> Result<(), TruncationError> {
         // TODO: Perform name compression.
-        name.build_into(self.uninitialized())?;
+        name.build_bytes(self.uninitialized())?;
         self.mark_appended(name.len());
         Ok(())
     }

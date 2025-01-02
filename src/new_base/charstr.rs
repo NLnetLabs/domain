@@ -3,10 +3,9 @@
 use core::{fmt, ops::Range};
 
 use zerocopy::IntoBytes;
-use zerocopy_derive::*;
 
 use super::{
-    build::{self, BuildInto, BuildIntoMessage, TruncationError},
+    build::{self, BuildBytes, BuildIntoMessage, TruncationError},
     parse::{
         ParseBytes, ParseError, ParseFromMessage, SplitBytes,
         SplitFromMessage,
@@ -17,7 +16,6 @@ use super::{
 //----------- CharStr --------------------------------------------------------
 
 /// A DNS "character string".
-#[derive(Immutable, Unaligned)]
 #[repr(transparent)]
 pub struct CharStr {
     /// The underlying octets.
@@ -93,15 +91,15 @@ impl<'a> ParseBytes<'a> for &'a CharStr {
 
 //--- Building into byte strings
 
-impl BuildInto for CharStr {
-    fn build_into<'b>(
+impl BuildBytes for CharStr {
+    fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         let (length, bytes) =
             bytes.split_first_mut().ok_or(TruncationError)?;
         *length = self.octets.len() as u8;
-        self.octets.build_into(bytes)
+        self.octets.build_bytes(bytes)
     }
 }
 

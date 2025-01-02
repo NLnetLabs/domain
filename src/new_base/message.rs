@@ -5,7 +5,7 @@ use core::fmt;
 use zerocopy::network_endian::U16;
 use zerocopy_derive::*;
 
-use domain_macros::*;
+use domain_macros::{AsBytes, *};
 
 //----------- Message --------------------------------------------------------
 
@@ -35,6 +35,8 @@ pub struct Message {
     KnownLayout,
     Immutable,
     Unaligned,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -79,6 +81,8 @@ impl fmt::Display for Header {
     KnownLayout,
     Immutable,
     Unaligned,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -244,6 +248,8 @@ impl fmt::Display for HeaderFlags {
     KnownLayout,
     Immutable,
     Unaligned,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,

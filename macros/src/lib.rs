@@ -36,12 +36,13 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
         };
 
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
-        let bound =
-            parse_quote!(::domain::new_base::parse::SplitBytes<'bytes>);
-        let mut skeleton = ImplSkeleton::new(&input, false, bound);
+        let mut skeleton = ImplSkeleton::new(&input, false);
 
         // Add the parsing lifetime to the 'impl'.
         let lifetime = skeleton.new_lifetime("bytes");
+        skeleton.bound = Some(
+            parse_quote!(::domain::new_base::parse::SplitBytes<#lifetime>),
+        );
         if skeleton.lifetimes.len() > 0 {
             let lifetimes = skeleton.lifetimes.iter();
             let param = parse_quote! {
@@ -167,12 +168,13 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
         };
 
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
-        let bound =
-            parse_quote!(::domain::new_base::parse::ParseBytes<'bytes>);
-        let mut skeleton = ImplSkeleton::new(&input, false, bound);
+        let mut skeleton = ImplSkeleton::new(&input, false);
 
         // Add the parsing lifetime to the 'impl'.
         let lifetime = skeleton.new_lifetime("bytes");
+        skeleton.bound = Some(
+            parse_quote!(::domain::new_base::parse::ParseBytes<#lifetime>),
+        );
         if skeleton.lifetimes.len() > 0 {
             let lifetimes = skeleton.lifetimes.iter();
             let param = parse_quote! {
@@ -311,8 +313,9 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
         };
 
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
-        let bound = parse_quote!(::domain::new_base::parse::SplitBytesByRef);
-        let mut skeleton = ImplSkeleton::new(&input, true, bound);
+        let mut skeleton = ImplSkeleton::new(&input, true);
+        skeleton.bound =
+            Some(parse_quote!(::domain::new_base::parse::SplitBytesByRef));
 
         // Establish bounds on the fields.
         for field in data.fields.iter() {
@@ -429,8 +432,9 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
         };
 
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
-        let bound = parse_quote!(::domain::new_base::parse::ParseBytesByRef);
-        let mut skeleton = ImplSkeleton::new(&input, true, bound);
+        let mut skeleton = ImplSkeleton::new(&input, true);
+        skeleton.bound =
+            Some(parse_quote!(::domain::new_base::parse::ParseBytesByRef));
 
         // Establish bounds on the fields.
         for field in fields.clone() {
@@ -496,6 +500,116 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                     as *const Self
             }
         });
+
+        Ok(skeleton.into_token_stream().into())
+    }
+
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    inner(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+//----------- BuildBytes -----------------------------------------------------
+
+#[proc_macro_derive(BuildBytes)]
+pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
+    fn inner(input: DeriveInput) -> Result<TokenStream> {
+        let data = match &input.data {
+            Data::Struct(data) => data,
+            Data::Enum(data) => {
+                return Err(Error::new_spanned(
+                    data.enum_token,
+                    "'BuildBytes' can only be 'derive'd for 'struct's",
+                ));
+            }
+            Data::Union(data) => {
+                return Err(Error::new_spanned(
+                    data.union_token,
+                    "'BuildBytes' can only be 'derive'd for 'struct's",
+                ));
+            }
+        };
+
+        // Construct an 'ImplSkeleton' so that we can add trait bounds.
+        let mut skeleton = ImplSkeleton::new(&input, false);
+        skeleton.bound =
+            Some(parse_quote!(::domain::new_base::build::BuildBytes));
+
+        // Get a lifetime for the input buffer.
+        let lifetime = skeleton.new_lifetime("bytes");
+
+        // Establish bounds on the fields.
+        for field in data.fields.iter() {
+            skeleton.require_bound(
+                field.ty.clone(),
+                parse_quote!(::domain::new_base::build::BuildBytes),
+            );
+        }
+
+        // Define 'build_bytes()'.
+        let names = data.fields.members();
+        let tys = data.fields.iter().map(|f| &f.ty);
+        skeleton.contents.stmts.push(parse_quote! {
+            fn build_bytes<#lifetime>(
+                &self,
+                mut bytes: & #lifetime mut [::domain::__core::primitive::u8],
+            ) -> ::domain::__core::result::Result<
+                & #lifetime mut [::domain::__core::primitive::u8],
+                ::domain::new_base::build::TruncationError,
+            > {
+                #(bytes = <#tys as ::domain::new_base::build::BuildBytes>
+                    ::build_bytes(&self.#names, bytes)?;)*
+                Ok(bytes)
+            }
+        });
+
+        Ok(skeleton.into_token_stream().into())
+    }
+
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    inner(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+//----------- AsBytes --------------------------------------------------------
+
+#[proc_macro_derive(AsBytes)]
+pub fn derive_as_bytes(input: pm::TokenStream) -> pm::TokenStream {
+    fn inner(input: DeriveInput) -> Result<TokenStream> {
+        let data = match &input.data {
+            Data::Struct(data) => data,
+            Data::Enum(data) => {
+                return Err(Error::new_spanned(
+                    data.enum_token,
+                    "'AsBytes' can only be 'derive'd for 'struct's",
+                ));
+            }
+            Data::Union(data) => {
+                return Err(Error::new_spanned(
+                    data.union_token,
+                    "'AsBytes' can only be 'derive'd for 'struct's",
+                ));
+            }
+        };
+
+        let _ = Repr::determine(&input.attrs, "AsBytes")?;
+
+        // Construct an 'ImplSkeleton' so that we can add trait bounds.
+        let mut skeleton = ImplSkeleton::new(&input, true);
+        skeleton.bound =
+            Some(parse_quote!(::domain::new_base::build::AsBytes));
+
+        // Establish bounds on the fields.
+        for field in data.fields.iter() {
+            skeleton.require_bound(
+                field.ty.clone(),
+                parse_quote!(::domain::new_base::build::AsBytes),
+            );
+        }
+
+        // The default implementation of 'as_bytes()' works perfectly.
 
         Ok(skeleton.into_token_stream().into())
     }

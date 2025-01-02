@@ -7,16 +7,16 @@ use core::{
     iter::FusedIterator,
 };
 
-use zerocopy_derive::*;
+use domain_macros::AsBytes;
 
-use crate::new_base::parse::{ParseError, ParseBytes, SplitBytes};
+use crate::new_base::parse::{ParseBytes, ParseError, SplitBytes};
 
 //----------- Label ----------------------------------------------------------
 
 /// A label in a domain name.
 ///
 /// A label contains up to 63 bytes of arbitrary data.
-#[derive(IntoBytes, Immutable, Unaligned)]
+#[derive(AsBytes)]
 #[repr(transparent)]
 pub struct Label([u8]);
 

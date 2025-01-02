@@ -9,12 +9,12 @@ use core::{
 };
 
 use zerocopy::IntoBytes;
-use zerocopy_derive::*;
 
 use crate::new_base::{
-    build::{self, BuildInto, BuildIntoMessage, TruncationError},
+    build::{self, BuildBytes, BuildIntoMessage, TruncationError},
     parse::{
-        ParseError, ParseBytes, ParseFromMessage, SplitBytes, SplitFromMessage,
+        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
+        SplitFromMessage,
     },
     Message,
 };
@@ -30,7 +30,6 @@ use super::LabelIter;
 /// use, making many common operations (e.g. comparing and ordering domain
 /// names) more computationally expensive.  A [`RevName`] stores the labels in
 /// reversed order for more efficient use.
-#[derive(Immutable, Unaligned)]
 #[repr(transparent)]
 pub struct RevName([u8]);
 
@@ -113,8 +112,8 @@ impl BuildIntoMessage for RevName {
 
 //--- Building into byte strings
 
-impl BuildInto for RevName {
-    fn build_into<'b>(
+impl BuildBytes for RevName {
+    fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
@@ -213,7 +212,7 @@ impl fmt::Debug for RevName {
 //----------- RevNameBuf -----------------------------------------------------
 
 /// A 256-byte buffer containing a [`RevName`].
-#[derive(Clone, Immutable, Unaligned)]
+#[derive(Clone)]
 #[repr(C)] // make layout compatible with '[u8; 256]'
 pub struct RevNameBuf {
     /// The position of the root label in the buffer.
@@ -422,12 +421,12 @@ impl<'a> ParseBytes<'a> for RevNameBuf {
 
 //--- Building into byte strings
 
-impl BuildInto for RevNameBuf {
-    fn build_into<'b>(
+impl BuildBytes for RevNameBuf {
+    fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        (**self).build_into(bytes)
+        (**self).build_bytes(bytes)
     }
 }
 

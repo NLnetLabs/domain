@@ -9,7 +9,6 @@ use core::{
 };
 
 use zerocopy::network_endian::U32;
-use zerocopy_derive::*;
 
 use domain_macros::*;
 
@@ -23,8 +22,8 @@ use domain_macros::*;
     PartialEq,
     Eq,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,

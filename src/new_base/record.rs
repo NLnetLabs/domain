@@ -9,12 +9,11 @@ use zerocopy::{
     network_endian::{U16, U32},
     FromBytes, IntoBytes,
 };
-use zerocopy_derive::*;
 
 use domain_macros::*;
 
 use super::{
-    build::{self, BuildInto, BuildIntoMessage, TruncationError},
+    build::{self, AsBytes, BuildBytes, BuildIntoMessage, TruncationError},
     name::RevNameBuf,
     parse::{
         ParseBytes, ParseBytesByRef, ParseError, ParseFromMessage,
@@ -191,25 +190,25 @@ where
 
 //--- Building into byte strings
 
-impl<N, D> BuildInto for Record<N, D>
+impl<N, D> BuildBytes for Record<N, D>
 where
-    N: BuildInto,
-    D: BuildInto,
+    N: BuildBytes,
+    D: BuildBytes,
 {
-    fn build_into<'b>(
+    fn build_bytes<'b>(
         &self,
         mut bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        bytes = self.rname.build_into(bytes)?;
-        bytes = self.rtype.as_bytes().build_into(bytes)?;
-        bytes = self.rclass.as_bytes().build_into(bytes)?;
-        bytes = self.ttl.as_bytes().build_into(bytes)?;
+        bytes = self.rname.build_bytes(bytes)?;
+        bytes = self.rtype.as_bytes().build_bytes(bytes)?;
+        bytes = self.rclass.as_bytes().build_bytes(bytes)?;
+        bytes = self.ttl.as_bytes().build_bytes(bytes)?;
 
         let (size, bytes) =
             <U16>::mut_from_prefix(bytes).map_err(|_| TruncationError)?;
         let bytes_len = bytes.len();
 
-        let rest = self.rdata.build_into(bytes)?;
+        let rest = self.rdata.build_bytes(bytes)?;
         *size = u16::try_from(bytes_len - rest.len())
             .expect("the record data never exceeds 64KiB")
             .into();
@@ -230,8 +229,8 @@ where
     PartialOrd,
     Ord,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -289,8 +288,8 @@ impl RType {
     PartialOrd,
     Ord,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -314,8 +313,8 @@ pub struct RClass {
     PartialOrd,
     Ord,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -351,7 +350,7 @@ pub trait ParseRecordData<'a>: Sized {
 //----------- UnparsedRecordData ---------------------------------------------
 
 /// Unparsed DNS record data.
-#[derive(Immutable, Unaligned)]
+#[derive(AsBytes, BuildBytes)]
 #[repr(transparent)]
 pub struct UnparsedRecordData([u8]);
 
@@ -395,17 +394,6 @@ impl BuildIntoMessage for UnparsedRecordData {
         builder: build::Builder<'_>,
     ) -> Result<(), TruncationError> {
         self.0.build_into_message(builder)
-    }
-}
-
-//--- Building into byte strings
-
-impl BuildInto for UnparsedRecordData {
-    fn build_into<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.0.build_into(bytes)
     }
 }
 

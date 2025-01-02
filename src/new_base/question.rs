@@ -2,13 +2,12 @@
 
 use core::ops::Range;
 
-use zerocopy::{network_endian::U16, IntoBytes};
-use zerocopy_derive::*;
+use zerocopy::network_endian::U16;
 
 use domain_macros::*;
 
 use super::{
-    build::{self, BuildInto, BuildIntoMessage, TruncationError},
+    build::{self, AsBytes, BuildIntoMessage, TruncationError},
     name::RevNameBuf,
     parse::{ParseError, ParseFromMessage, SplitFromMessage},
     Message,
@@ -17,7 +16,7 @@ use super::{
 //----------- Question -------------------------------------------------------
 
 /// A DNS question.
-#[derive(Clone, ParseBytes, SplitBytes)]
+#[derive(Clone, BuildBytes, ParseBytes, SplitBytes)]
 pub struct Question<N> {
     /// The domain name being requested.
     pub qname: N,
@@ -95,23 +94,6 @@ where
     }
 }
 
-//--- Building into byte strings
-
-impl<N> BuildInto for Question<N>
-where
-    N: BuildInto,
-{
-    fn build_into<'b>(
-        &self,
-        mut bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        bytes = self.qname.build_into(bytes)?;
-        bytes = self.qtype.as_bytes().build_into(bytes)?;
-        bytes = self.qclass.as_bytes().build_into(bytes)?;
-        Ok(bytes)
-    }
-}
-
 //----------- QType ----------------------------------------------------------
 
 /// The type of a question.
@@ -124,8 +106,8 @@ where
     PartialOrd,
     Ord,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -149,8 +131,8 @@ pub struct QType {
     PartialOrd,
     Ord,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,

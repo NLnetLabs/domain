@@ -8,13 +8,10 @@ use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::net::Ipv6Addr;
 
-use zerocopy::IntoBytes;
-use zerocopy_derive::*;
-
 use domain_macros::*;
 
 use crate::new_base::build::{
-    self, BuildInto, BuildIntoMessage, TruncationError,
+    self, AsBytes, BuildIntoMessage, TruncationError,
 };
 
 //----------- Aaaa -----------------------------------------------------------
@@ -29,8 +26,8 @@ use crate::new_base::build::{
     PartialOrd,
     Ord,
     Hash,
-    IntoBytes,
-    Immutable,
+    AsBytes,
+    BuildBytes,
     ParseBytes,
     ParseBytesByRef,
     SplitBytes,
@@ -88,16 +85,5 @@ impl BuildIntoMessage for Aaaa {
         builder: build::Builder<'_>,
     ) -> Result<(), TruncationError> {
         self.as_bytes().build_into_message(builder)
-    }
-}
-
-//--- Building into byte strings
-
-impl BuildInto for Aaaa {
-    fn build_into<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.as_bytes().build_into(bytes)
     }
 }
