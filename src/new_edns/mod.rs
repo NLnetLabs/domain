@@ -4,6 +4,7 @@
 
 use core::{fmt, ops::Range};
 
+use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::{network_endian::U16, FromBytes, IntoBytes};
 use zerocopy_derive::*;
 
@@ -128,11 +129,10 @@ impl<'a> ParseFrom<'a> for EdnsRecord<'a> {
     Clone,
     Default,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct EdnsFlags {
@@ -207,11 +207,10 @@ pub enum EdnsOption<'b> {
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct OptionCode {
@@ -222,7 +221,7 @@ pub struct OptionCode {
 //----------- UnknownOption --------------------------------------------------
 
 /// Data for an unknown Extended DNS option.
-#[derive(Debug, FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
+#[derive(Debug, IntoBytes, Immutable, ParseBytesByRef)]
 #[repr(C)]
 pub struct UnknownOption {
     /// The unparsed option data.

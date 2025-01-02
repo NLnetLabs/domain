@@ -2,6 +2,7 @@
 
 use core::ops::Range;
 
+use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::{network_endian::U16, IntoBytes};
 use zerocopy_derive::*;
 
@@ -150,11 +151,10 @@ where
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct QType {
@@ -174,11 +174,10 @@ pub struct QType {
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct QClass {

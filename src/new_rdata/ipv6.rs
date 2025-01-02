@@ -8,6 +8,7 @@ use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::net::Ipv6Addr;
 
+use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::IntoBytes;
 use zerocopy_derive::*;
 
@@ -27,11 +28,10 @@ use crate::new_base::build::{
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct Aaaa {

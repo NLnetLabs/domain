@@ -8,6 +8,7 @@ use core::{
     ops::{Add, AddAssign},
 };
 
+use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::network_endian::U32;
 use zerocopy_derive::*;
 
@@ -21,11 +22,10 @@ use zerocopy_derive::*;
     PartialEq,
     Eq,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct Serial(U32);

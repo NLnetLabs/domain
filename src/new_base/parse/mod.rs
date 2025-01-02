@@ -2,7 +2,10 @@
 
 use core::{fmt, ops::Range};
 
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+use zerocopy::{
+    network_endian::{U16, U32},
+    FromBytes, IntoBytes,
+};
 
 mod message;
 pub use message::{MessagePart, ParseMessage, VisitMessagePart};
@@ -43,37 +46,26 @@ pub trait ParseFromMessage<'a>: Sized {
     ) -> Result<Self, ParseError>;
 }
 
-//--- Carrying over 'zerocopy' traits
-
-// NOTE: We can't carry over 'read_from_prefix' because the trait impls would
-// conflict.  We kept 'ref_from_prefix' since it's more general.
-
-impl<'a, T: ?Sized> SplitFromMessage<'a> for &'a T
-where
-    T: FromBytes + KnownLayout + Immutable,
-{
+impl<'a, T: ?Sized + SplitBytesByRef> SplitFromMessage<'a> for &'a T {
     fn split_from_message(
         message: &'a Message,
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let message = message.as_bytes();
         let bytes = message.get(start..).ok_or(ParseError)?;
-        let (this, rest) = T::ref_from_prefix(bytes)?;
+        let (this, rest) = T::split_bytes_by_ref(bytes)?;
         Ok((this, message.len() - rest.len()))
     }
 }
 
-impl<'a, T: ?Sized> ParseFromMessage<'a> for &'a T
-where
-    T: FromBytes + KnownLayout + Immutable,
-{
+impl<'a, T: ?Sized + ParseBytesByRef> ParseFromMessage<'a> for &'a T {
     fn parse_from_message(
         message: &'a Message,
         range: Range<usize>,
     ) -> Result<Self, ParseError> {
         let message = message.as_bytes();
         let bytes = message.get(range).ok_or(ParseError)?;
-        Ok(T::ref_from_bytes(bytes)?)
+        T::parse_bytes_by_ref(bytes)
     }
 }
 
@@ -95,6 +87,18 @@ pub trait ParseFrom<'a>: Sized {
     /// If parsing is successful, the parsed value is returned.  Otherwise, a
     /// [`ParseError`] is returned.
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError>;
+}
+
+impl<'a, T: ?Sized + SplitBytesByRef> SplitFrom<'a> for &'a T {
+    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        T::split_bytes_by_ref(bytes).map_err(|_| ParseError)
+    }
+}
+
+impl<'a, T: ?Sized + ParseBytesByRef> ParseFrom<'a> for &'a T {
+    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        T::parse_bytes_by_ref(bytes).map_err(|_| ParseError)
+    }
 }
 
 /// Zero-copy parsing from the start of a byte string.
@@ -225,6 +229,42 @@ unsafe impl ParseBytesByRef for u8 {
     }
 }
 
+unsafe impl SplitBytesByRef for U16 {
+    fn split_bytes_by_ref(
+        bytes: &[u8],
+    ) -> Result<(&Self, &[u8]), ParseError> {
+        Self::ref_from_prefix(bytes).map_err(Into::into)
+    }
+}
+
+unsafe impl ParseBytesByRef for U16 {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+        Self::ref_from_bytes(bytes).map_err(Into::into)
+    }
+
+    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
+        addr.cast()
+    }
+}
+
+unsafe impl SplitBytesByRef for U32 {
+    fn split_bytes_by_ref(
+        bytes: &[u8],
+    ) -> Result<(&Self, &[u8]), ParseError> {
+        Self::ref_from_prefix(bytes).map_err(Into::into)
+    }
+}
+
+unsafe impl ParseBytesByRef for U32 {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+        Self::ref_from_bytes(bytes).map_err(Into::into)
+    }
+
+    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
+        addr.cast()
+    }
+}
+
 unsafe impl ParseBytesByRef for [u8] {
     fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
         Ok(bytes)
@@ -267,29 +307,6 @@ unsafe impl<T: SplitBytesByRef, const N: usize> ParseBytesByRef for [T; N] {
 
     fn ptr_with_address(&self, addr: *const ()) -> *const Self {
         addr.cast()
-    }
-}
-
-//--- Carrying over 'zerocopy' traits
-
-// NOTE: We can't carry over 'read_from_prefix' because the trait impls would
-// conflict.  We kept 'ref_from_prefix' since it's more general.
-
-impl<'a, T: ?Sized> SplitFrom<'a> for &'a T
-where
-    T: FromBytes + KnownLayout + Immutable,
-{
-    fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        T::ref_from_prefix(bytes).map_err(|_| ParseError)
-    }
-}
-
-impl<'a, T: ?Sized> ParseFrom<'a> for &'a T
-where
-    T: FromBytes + KnownLayout + Immutable,
-{
-    fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        T::ref_from_bytes(bytes).map_err(|_| ParseError)
     }
 }
 

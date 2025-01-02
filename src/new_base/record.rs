@@ -5,6 +5,7 @@ use core::{
     ops::{Deref, Range},
 };
 
+use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::{
     network_endian::{U16, U32},
     FromBytes, IntoBytes, SizeError,
@@ -156,9 +157,9 @@ where
 {
     fn split_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (rname, rest) = N::split_from(bytes)?;
-        let (rtype, rest) = RType::read_from_prefix(rest)?;
-        let (rclass, rest) = RClass::read_from_prefix(rest)?;
-        let (ttl, rest) = TTL::read_from_prefix(rest)?;
+        let (&rtype, rest) = <&RType>::split_from(rest)?;
+        let (&rclass, rest) = <&RClass>::split_from(rest)?;
+        let (&ttl, rest) = <&TTL>::split_from(rest)?;
         let (size, rest) = U16::read_from_prefix(rest)?;
         let size: usize = size.get().into();
         let (rdata, rest) = <[u8]>::ref_from_prefix_with_elems(rest, size)?;
@@ -175,9 +176,9 @@ where
 {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError> {
         let (rname, rest) = N::split_from(bytes)?;
-        let (rtype, rest) = RType::read_from_prefix(rest)?;
-        let (rclass, rest) = RClass::read_from_prefix(rest)?;
-        let (ttl, rest) = TTL::read_from_prefix(rest)?;
+        let (&rtype, rest) = <&RType>::split_from(rest)?;
+        let (&rclass, rest) = <&RClass>::split_from(rest)?;
+        let (&ttl, rest) = <&TTL>::split_from(rest)?;
         let (size, rest) = U16::read_from_prefix(rest)?;
         let size: usize = size.get().into();
         let rdata = <[u8]>::ref_from_bytes_with_elems(rest, size)?;
@@ -228,11 +229,10 @@ where
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct RType {
@@ -286,11 +286,10 @@ impl RType {
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct RClass {
@@ -310,11 +309,10 @@ pub struct RClass {
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct TTL {

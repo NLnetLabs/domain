@@ -10,6 +10,7 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::net::Ipv4Addr;
 
+use domain_macros::{ParseBytesByRef, SplitBytesByRef};
 use zerocopy::{
     network_endian::{U16, U32},
     IntoBytes,
@@ -36,11 +37,10 @@ use crate::new_base::{
     PartialOrd,
     Ord,
     Hash,
-    FromBytes,
     IntoBytes,
-    KnownLayout,
     Immutable,
-    Unaligned,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct A {
@@ -328,7 +328,7 @@ impl<N: BuildInto> BuildInto for Soa<N> {
 //----------- Wks ------------------------------------------------------------
 
 /// Well-known services supported on this domain.
-#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
+#[derive(IntoBytes, Immutable, ParseBytesByRef)]
 #[repr(C, packed)]
 pub struct Wks {
     /// The address of the host providing these services.

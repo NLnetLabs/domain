@@ -2,6 +2,7 @@
 
 use core::ops::Range;
 
+use domain_macros::ParseBytesByRef;
 use zerocopy_derive::*;
 
 use crate::new_base::{
@@ -172,7 +173,7 @@ impl<N: BuildInto> BuildInto for RecordData<'_, N> {
 //----------- UnknownRecordData ----------------------------------------------
 
 /// Data for an unknown DNS record type.
-#[derive(Debug, FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
+#[derive(Debug, IntoBytes, Immutable, ParseBytesByRef)]
 #[repr(C)]
 pub struct UnknownRecordData {
     /// The unparsed option data.
