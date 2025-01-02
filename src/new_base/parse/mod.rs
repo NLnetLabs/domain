@@ -97,13 +97,47 @@ pub trait ParseFrom<'a>: Sized {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError>;
 }
 
+/// Zero-copy parsing from the start of a byte string.
+///
+/// # Safety
+///
+/// Every implementation of [`SplitBytesByRef`] must satisfy the invariants
+/// documented on [`split_bytes_by_ref()`].  An incorrect implementation is
+/// considered to cause undefined behaviour.
+///
+/// Implementing types should almost always be unaligned, but foregoing this
+/// will not cause undefined behaviour (however, it will be very confusing for
+/// users).
+pub unsafe trait SplitBytesByRef: ParseBytesByRef {
+    /// Interpret a byte string as an instance of [`Self`].
+    ///
+    /// The byte string will be validated and re-interpreted as a reference to
+    /// [`Self`].  The length of [`Self`] will be determined, possibly based
+    /// on the contents (but not the length!) of the input, and the remaining
+    /// bytes will be returned.  If the input does not begin with a valid
+    /// instance of [`Self`], a [`ParseError`] is returned.
+    ///
+    /// ## Invariants
+    ///
+    /// For the statement `let (this, rest) = T::split_bytes_by_ref(bytes)?;`,
+    ///
+    /// - `bytes.as_ptr() == this as *const T as *const u8`.
+    /// - `bytes.len() == core::mem::size_of_val(this) + rest.len()`.
+    /// - `bytes.as_ptr().offset(size_of_val(this)) == rest.as_ptr()`.
+    fn split_bytes_by_ref(bytes: &[u8])
+        -> Result<(&Self, &[u8]), ParseError>;
+}
+
 /// Zero-copy parsing from a byte string.
 ///
 /// # Safety
 ///
 /// Every implementation of [`ParseBytesByRef`] must satisfy the invariants
-/// documented on [`parse_bytes_by_ref()`].  An incorrect implementation is
-/// considered to cause undefined behaviour.
+/// documented on [`parse_bytes_by_ref()`] and [`ptr_with_address()`].  An
+/// incorrect implementation is considered to cause undefined behaviour.
+///
+/// [`parse_bytes_by_ref()`]: Self::parse_bytes_by_ref()
+/// [`ptr_with_address()`]: Self::ptr_with_address()
 ///
 /// Implementing types should almost always be unaligned, but foregoing this
 /// will not cause undefined behaviour (however, it will be very confusing for
@@ -122,6 +156,121 @@ pub unsafe trait ParseBytesByRef {
     /// - `bytes.as_ptr() == this as *const T as *const u8`.
     /// - `bytes.len() == core::mem::size_of_val(this)`.
     fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError>;
+
+    /// Change the address of a pointer to [`Self`].
+    ///
+    /// When [`Self`] is used as the last field in a type that also implements
+    /// [`ParseBytesByRef`], it may be dynamically sized, and so a pointer (or
+    /// reference) to it may include additional metadata.  This metadata is
+    /// included verbatim in any reference/pointer to the containing type.
+    ///
+    /// When the containing type implements [`ParseBytesByRef`], it needs to
+    /// construct a reference/pointer to itself, which includes this metadata.
+    /// Rust does not currently offer a general way to extract this metadata
+    /// or pair it with another address, so this function is necessary.  The
+    /// caller can construct a reference to [`Self`], then change its address
+    /// to point to the containing type, then cast that pointer to the right
+    /// type.
+    ///
+    /// # Implementing
+    ///
+    /// Most users will derive [`ParseBytesByRef`] and so don't need to worry
+    /// about this.  For manual implementations:
+    ///
+    /// In the future, an adequate default implementation for this function
+    /// may be provided.  Until then, it should be implemented using one of
+    /// the following expressions:
+    ///
+    /// ```ignore
+    /// fn ptr_with_address(
+    ///     &self,
+    ///     addr: *const (),
+    /// ) -> *const Self {
+    ///     // If 'Self' is Sized:
+    ///     addr.cast::<Self>()
+    ///
+    ///     // If 'Self' is an aggregate whose last field is 'last':
+    ///     self.last.ptr_with_address(addr) as *const Self
+    /// }
+    /// ```
+    ///
+    /// # Invariants
+    ///
+    /// For the statement `let result = Self::ptr_with_address(ptr, addr);`:
+    ///
+    /// - `result as usize == addr as usize`.
+    /// - `core::ptr::metadata(result) == core::ptr::metadata(ptr)`.
+    fn ptr_with_address(&self, addr: *const ()) -> *const Self;
+}
+
+unsafe impl SplitBytesByRef for u8 {
+    fn split_bytes_by_ref(
+        bytes: &[u8],
+    ) -> Result<(&Self, &[u8]), ParseError> {
+        bytes.split_first().ok_or(ParseError)
+    }
+}
+
+unsafe impl ParseBytesByRef for u8 {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+        let [result] = bytes else {
+            return Err(ParseError);
+        };
+
+        return Ok(result);
+    }
+
+    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
+        addr.cast()
+    }
+}
+
+unsafe impl ParseBytesByRef for [u8] {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+        Ok(bytes)
+    }
+
+    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
+        core::ptr::slice_from_raw_parts(addr.cast(), self.len())
+    }
+}
+
+unsafe impl<const N: usize> SplitBytesByRef for [u8; N] {
+    fn split_bytes_by_ref(
+        bytes: &[u8],
+    ) -> Result<(&Self, &[u8]), ParseError> {
+        if bytes.len() < N {
+            Err(ParseError)
+        } else {
+            let (bytes, rest) = bytes.split_at(N);
+
+            // SAFETY:
+            // - It is known that 'bytes.len() == N'.
+            // - Thus '&bytes' has the same layout as '[u8; N]'.
+            // - Thus it is safe to cast a pointer to it to '[u8; N]'.
+            // - The referenced data has the same lifetime as the output.
+            Ok((unsafe { &*bytes.as_ptr().cast::<[u8; N]>() }, rest))
+        }
+    }
+}
+
+unsafe impl<const N: usize> ParseBytesByRef for [u8; N] {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+        if bytes.len() != N {
+            Err(ParseError)
+        } else {
+            // SAFETY:
+            // - It is known that 'bytes.len() == N'.
+            // - Thus '&bytes' has the same layout as '[u8; N]'.
+            // - Thus it is safe to cast a pointer to it to '[u8; N]'.
+            // - The referenced data has the same lifetime as the output.
+            Ok(unsafe { &*bytes.as_ptr().cast::<[u8; N]>() })
+        }
+    }
+
+    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
+        addr.cast()
+    }
 }
 
 //--- Carrying over 'zerocopy' traits
