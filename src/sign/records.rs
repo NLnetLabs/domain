@@ -357,7 +357,7 @@ where
             }
             bitmap.add(Rtype::NSEC).unwrap();
             for rrset in family.rrsets() {
-                // RFC 4035 section 2.3:
+                // RFC 4034 section 4.1.2: (and also RFC 4035 section 2.3)
                 //   "The bitmap for the NSEC RR at a delegation point
                 //    requires special attention.  Bits corresponding to the
                 //    delegation NS RRset and any RRsets for which the parent
@@ -367,7 +367,15 @@ where
                 if cut.is_none()
                     || matches!(rrset.rtype(), Rtype::NS | Rtype::DS)
                 {
-                    bitmap.add(rrset.rtype()).unwrap()
+                    // RFC 4034 section 4.1.2:
+                    //   "Bits representing pseudo-types MUST be clear, as
+                    //    they do not appear in zone data."
+                    //
+                    // TODO: Should this check be moved into
+                    // RtypeBitmapBuilder itself?
+                    if !rrset.rtype().is_pseudo() {
+                        bitmap.add(rrset.rtype()).unwrap()
+                    }
                 }
             }
 
@@ -683,8 +691,19 @@ where
                 if cut.is_none()
                     || matches!(rrset.rtype(), Rtype::NS | Rtype::DS)
                 {
-                    trace!("Adding {} to the bitmap", rrset.rtype());
-                    bitmap.add(rrset.rtype()).unwrap();
+                    // RFC 5155 section 3.2:
+                    //   "Bits representing Meta-TYPEs or QTYPEs as specified
+                    //    in Section 3.1 of [RFC2929] or within the range
+                    //    reserved for assignment only to QTYPEs and
+                    //    Meta-TYPEs MUST be set to 0, since they do not
+                    //    appear in zone data".
+                    //
+                    // TODO: Should this check be moved into
+                    // RtypeBitmapBuilder itself?
+                    if !rrset.rtype().is_pseudo() {
+                        trace!("Adding {} to the bitmap", rrset.rtype());
+                        bitmap.add(rrset.rtype()).unwrap();
+                    }
                 }
             }
 
