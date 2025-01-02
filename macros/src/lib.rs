@@ -11,6 +11,9 @@ use syn::*;
 mod impls;
 use impls::ImplSkeleton;
 
+mod repr;
+use repr::Repr;
+
 //----------- ParseBytesByRef ------------------------------------------------
 
 #[proc_macro_derive(ParseBytesByRef)]
@@ -32,7 +35,7 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
             }
         };
 
-        // TODO: Ensure that the type is 'repr(C)' or 'repr(transparent)'.
+        let _ = Repr::determine(&input.attrs)?;
 
         // Split up the last field from the rest.
         let mut fields = data.fields.iter();
