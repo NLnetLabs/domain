@@ -4,12 +4,14 @@
 
 use proc_macro as pm;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
-use spanned::Spanned;
+use quote::{format_ident, ToTokens};
 use syn::*;
 
 mod impls;
 use impls::ImplSkeleton;
+
+mod data;
+use data::Struct;
 
 mod repr;
 use repr::Repr;
@@ -39,58 +41,30 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
         let mut skeleton = ImplSkeleton::new(&input, false);
 
         // Add the parsing lifetime to the 'impl'.
-        let lifetime = skeleton.new_lifetime("bytes");
+        let (lifetime, param) = skeleton.new_lifetime_param(
+            "bytes",
+            skeleton.lifetimes.iter().map(|l| l.lifetime.clone()),
+        );
+        skeleton.lifetimes.push(param);
         skeleton.bound = Some(
             parse_quote!(::domain::new_base::parse::SplitBytes<#lifetime>),
         );
-        if !skeleton.lifetimes.is_empty() {
-            let lifetimes = skeleton.lifetimes.iter();
-            let param = parse_quote! {
-                #lifetime: #(#lifetimes)+*
-            };
-            skeleton.lifetimes.push(param);
-        } else {
-            skeleton.lifetimes.push(parse_quote! { #lifetime })
-        }
+
+        // Inspect the 'struct' fields.
+        let data = Struct::new_as_self(&data.fields);
+        let builder = data.builder(field_prefixed);
 
         // Establish bounds on the fields.
-        for field in data.fields.iter() {
+        for field in data.fields() {
             skeleton.require_bound(
                 field.ty.clone(),
                 parse_quote!(::domain::new_base::parse::SplitBytes<#lifetime>),
             );
         }
 
-        // Construct a 'Self' expression.
-        let self_expr = match &data.fields {
-            Fields::Named(_) => {
-                let names = data.fields.members();
-                let exprs =
-                    names.clone().map(|n| format_ident!("field_{}", n));
-                quote! {
-                    Self {
-                        #(#names: #exprs,)*
-                    }
-                }
-            }
-
-            Fields::Unnamed(_) => {
-                let exprs = data
-                    .fields
-                    .members()
-                    .map(|n| format_ident!("field_{}", n));
-                quote! {
-                    Self(#(#exprs,)*)
-                }
-            }
-
-            Fields::Unit => quote! { Self },
-        };
-
         // Define 'parse_bytes()'.
-        let names =
-            data.fields.members().map(|n| format_ident!("field_{}", n));
-        let tys = data.fields.iter().map(|f| &f.ty);
+        let init_vars = builder.init_vars();
+        let tys = data.fields().map(|f| &f.ty);
         skeleton.contents.stmts.push(parse_quote! {
             fn split_bytes(
                 bytes: & #lifetime [::domain::__core::primitive::u8],
@@ -98,10 +72,10 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
                 (Self, & #lifetime [::domain::__core::primitive::u8]),
                 ::domain::new_base::parse::ParseError,
             > {
-                #(let (#names, bytes) =
+                #(let (#init_vars, bytes) =
                     <#tys as ::domain::new_base::parse::SplitBytes<#lifetime>>
                     ::split_bytes(bytes)?;)*
-                Ok((#self_expr, bytes))
+                Ok((#builder, bytes))
             }
         });
 
@@ -135,106 +109,62 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
             }
         };
 
-        // Split up the last field from the rest.
-        let mut fields = data.fields.iter();
-        let Some(last) = fields.next_back() else {
-            // This type has no fields.  Return a simple implementation.
-            assert!(input.generics.params.is_empty());
-            let where_clause = input.generics.where_clause;
-            let name = input.ident;
-
-            // This will tokenize to '{}', '()', or ''.
-            let fields = data.fields.to_token_stream();
-
-            return Ok(quote! {
-                impl <'bytes>
-                ::domain::new_base::parse::ParseBytes<'bytes>
-                for #name
-                #where_clause {
-                    fn parse_bytes(
-                        bytes: &'bytes [::domain::__core::primitive::u8],
-                    ) -> ::domain::__core::result::Result<
-                        Self,
-                        ::domain::new_base::parse::ParseError,
-                    > {
-                        if bytes.is_empty() {
-                            Ok(Self #fields)
-                        } else {
-                            Err(::domain::new_base::parse::ParseError)
-                        }
-                    }
-                }
-            });
-        };
-
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
         let mut skeleton = ImplSkeleton::new(&input, false);
 
         // Add the parsing lifetime to the 'impl'.
-        let lifetime = skeleton.new_lifetime("bytes");
+        let (lifetime, param) = skeleton.new_lifetime_param(
+            "bytes",
+            skeleton.lifetimes.iter().map(|l| l.lifetime.clone()),
+        );
+        skeleton.lifetimes.push(param);
         skeleton.bound = Some(
             parse_quote!(::domain::new_base::parse::ParseBytes<#lifetime>),
         );
-        if !skeleton.lifetimes.is_empty() {
-            let lifetimes = skeleton.lifetimes.iter();
-            let param = parse_quote! {
-                #lifetime: #(#lifetimes)+*
-            };
-            skeleton.lifetimes.push(param);
-        } else {
-            skeleton.lifetimes.push(parse_quote! { #lifetime })
-        }
+
+        // Inspect the 'struct' fields.
+        let data = Struct::new_as_self(&data.fields);
+        let builder = data.builder(field_prefixed);
 
         // Establish bounds on the fields.
-        for field in fields.clone() {
-            // This field should implement 'SplitBytes'.
+        for field in data.sized_fields() {
             skeleton.require_bound(
                 field.ty.clone(),
                 parse_quote!(::domain::new_base::parse::SplitBytes<#lifetime>),
             );
         }
-        // The last field should implement 'ParseBytes'.
-        skeleton.require_bound(
-            last.ty.clone(),
-            parse_quote!(::domain::new_base::parse::ParseBytes<#lifetime>),
-        );
+        if let Some(field) = data.unsized_field() {
+            skeleton.require_bound(
+                field.ty.clone(),
+                parse_quote!(::domain::new_base::parse::ParseBytes<#lifetime>),
+            );
+        }
 
-        // Construct a 'Self' expression.
-        let self_expr = match &data.fields {
-            Fields::Named(_) => {
-                let names = data.fields.members();
-                let exprs =
-                    names.clone().map(|n| format_ident!("field_{}", n));
-                quote! {
-                    Self {
-                        #(#names: #exprs,)*
+        // Finish early if the 'struct' has no fields.
+        if data.is_empty() {
+            skeleton.contents.stmts.push(parse_quote! {
+                fn parse_bytes(
+                    bytes: & #lifetime [::domain::__core::primitive::u8],
+                ) -> ::domain::__core::result::Result<
+                    Self,
+                    ::domain::new_base::parse::ParseError,
+                > {
+                    if bytes.is_empty() {
+                        Ok(#builder)
+                    } else {
+                        Err(::domain::new_base::parse::ParseError)
                     }
                 }
-            }
+            });
 
-            Fields::Unnamed(_) => {
-                let exprs = data
-                    .fields
-                    .members()
-                    .map(|n| format_ident!("field_{}", n));
-                quote! {
-                    Self(#(#exprs,)*)
-                }
-            }
-
-            Fields::Unit => unreachable!(),
-        };
+            return Ok(skeleton.into_token_stream());
+        }
 
         // Define 'parse_bytes()'.
-        let names = data
-            .fields
-            .members()
-            .take(fields.len())
-            .map(|n| format_ident!("field_{}", n));
-        let tys = fields.clone().map(|f| &f.ty);
-        let last_ty = &last.ty;
-        let last_name =
-            format_ident!("field_{}", data.fields.members().last().unwrap());
+        let init_vars = builder.sized_init_vars();
+        let tys = builder.sized_fields().map(|f| &f.ty);
+        let unsized_ty = &builder.unsized_field().unwrap().ty;
+        let unsized_init_var = builder.unsized_init_var().unwrap();
         skeleton.contents.stmts.push(parse_quote! {
             fn parse_bytes(
                 bytes: & #lifetime [::domain::__core::primitive::u8],
@@ -242,13 +172,13 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
                 Self,
                 ::domain::new_base::parse::ParseError,
             > {
-                #(let (#names, bytes) =
+                #(let (#init_vars, bytes) =
                     <#tys as ::domain::new_base::parse::SplitBytes<#lifetime>>
                     ::split_bytes(bytes)?;)*
-                let #last_name =
-                    <#last_ty as ::domain::new_base::parse::ParseBytes<#lifetime>>
+                let #unsized_init_var =
+                    <#unsized_ty as ::domain::new_base::parse::ParseBytes<#lifetime>>
                     ::parse_bytes(bytes)?;
-                Ok(#self_expr)
+                Ok(#builder)
             }
         });
 
@@ -284,50 +214,47 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
 
         let _ = Repr::determine(&input.attrs, "SplitBytesByRef")?;
 
-        // Split up the last field from the rest.
-        let mut fields = data.fields.iter();
-        let Some(last) = fields.next_back() else {
-            // This type has no fields.  Return a simple implementation.
-            let (impl_generics, ty_generics, where_clause) =
-                input.generics.split_for_impl();
-            let name = input.ident;
-
-            return Ok(quote! {
-                unsafe impl #impl_generics
-                ::domain::new_base::parse::SplitBytesByRef
-                for #name #ty_generics
-                #where_clause {
-                    fn split_bytes_by_ref(
-                        bytes: &[::domain::__core::primitive::u8],
-                    ) -> ::domain::__core::result::Result<
-                        (&Self, &[::domain::__core::primitive::u8]),
-                        ::domain::new_base::parse::ParseError,
-                    > {
-                        Ok((
-                            unsafe { &*bytes.as_ptr().cast::<Self>() },
-                            bytes,
-                        ))
-                    }
-                }
-            });
-        };
-
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
         let mut skeleton = ImplSkeleton::new(&input, true);
         skeleton.bound =
             Some(parse_quote!(::domain::new_base::parse::SplitBytesByRef));
 
+        // Inspect the 'struct' fields.
+        let data = Struct::new_as_self(&data.fields);
+
         // Establish bounds on the fields.
-        for field in data.fields.iter() {
+        for field in data.fields() {
             skeleton.require_bound(
                 field.ty.clone(),
                 parse_quote!(::domain::new_base::parse::SplitBytesByRef),
             );
         }
 
+        // Finish early if the 'struct' has no fields.
+        if data.is_empty() {
+            skeleton.contents.stmts.push(parse_quote! {
+                fn split_bytes_by_ref(
+                    bytes: &[::domain::__core::primitive::u8],
+                ) -> ::domain::__core::result::Result<
+                    (&Self, &[::domain::__core::primitive::u8]),
+                    ::domain::new_base::parse::ParseError,
+                > {
+                    Ok((
+                        // SAFETY: 'Self' is a 'struct' with no fields,
+                        // and so has size 0 and alignment 1.  It can be
+                        // constructed at any address.
+                        unsafe { &*bytes.as_ptr().cast::<Self>() },
+                        bytes,
+                    ))
+                }
+            });
+
+            return Ok(skeleton.into_token_stream());
+        }
+
         // Define 'split_bytes_by_ref()'.
-        let tys = fields.clone().map(|f| &f.ty);
-        let last_ty = &last.ty;
+        let tys = data.sized_fields().map(|f| &f.ty);
+        let unsized_ty = &data.unsized_field().unwrap().ty;
         skeleton.contents.stmts.push(parse_quote! {
             fn split_bytes_by_ref(
                 bytes: &[::domain::__core::primitive::u8],
@@ -340,10 +267,10 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                     <#tys as ::domain::new_base::parse::SplitBytesByRef>
                     ::split_bytes_by_ref(bytes)?;)*
                 let (last, rest) =
-                    <#last_ty as ::domain::new_base::parse::SplitBytesByRef>
+                    <#unsized_ty as ::domain::new_base::parse::SplitBytesByRef>
                     ::split_bytes_by_ref(bytes)?;
                 let ptr =
-                    <#last_ty as ::domain::new_base::parse::ParseBytesByRef>
+                    <#unsized_ty as ::domain::new_base::parse::ParseBytesByRef>
                     ::ptr_with_address(last, start as *const ());
 
                 // SAFETY:
@@ -392,67 +319,63 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
 
         let _ = Repr::determine(&input.attrs, "ParseBytesByRef")?;
 
-        // Split up the last field from the rest.
-        let mut fields = data.fields.iter();
-        let Some(last) = fields.next_back() else {
-            // This type has no fields.  Return a simple implementation.
-            let (impl_generics, ty_generics, where_clause) =
-                input.generics.split_for_impl();
-            let name = input.ident;
-
-            return Ok(quote! {
-                unsafe impl #impl_generics
-                ::domain::new_base::parse::ParseBytesByRef
-                for #name #ty_generics
-                #where_clause {
-                    fn parse_bytes_by_ref(
-                        bytes: &[::domain::__core::primitive::u8],
-                    ) -> ::domain::__core::result::Result<
-                        &Self,
-                        ::domain::new_base::parse::ParseError,
-                    > {
-                        if bytes.is_empty() {
-                            // SAFETY: 'Self' is a 'struct' with no fields,
-                            // and so has size 0 and alignment 1.  It can be
-                            // constructed at any address.
-                            Ok(unsafe { &*bytes.as_ptr().cast::<Self>() })
-                        } else {
-                            Err(::domain::new_base::parse::ParseError)
-                        }
-                    }
-
-                    fn ptr_with_address(
-                        &self,
-                        addr: *const (),
-                    ) -> *const Self {
-                        addr.cast()
-                    }
-                }
-            });
-        };
-
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
         let mut skeleton = ImplSkeleton::new(&input, true);
         skeleton.bound =
             Some(parse_quote!(::domain::new_base::parse::ParseBytesByRef));
 
+        // Inspect the 'struct' fields.
+        let data = Struct::new_as_self(&data.fields);
+
         // Establish bounds on the fields.
-        for field in fields.clone() {
-            // This field should implement 'SplitBytesByRef'.
+        for field in data.sized_fields() {
             skeleton.require_bound(
                 field.ty.clone(),
                 parse_quote!(::domain::new_base::parse::SplitBytesByRef),
             );
         }
-        // The last field should implement 'ParseBytesByRef'.
-        skeleton.require_bound(
-            last.ty.clone(),
-            parse_quote!(::domain::new_base::parse::ParseBytesByRef),
-        );
+        if let Some(field) = data.unsized_field() {
+            skeleton.require_bound(
+                field.ty.clone(),
+                parse_quote!(::domain::new_base::parse::ParseBytesByRef),
+            );
+        }
+
+        // Finish early if the 'struct' has no fields.
+        if data.is_empty() {
+            skeleton.contents.stmts.push(parse_quote! {
+                fn parse_bytes_by_ref(
+                    bytes: &[::domain::__core::primitive::u8],
+                ) -> ::domain::__core::result::Result<
+                    &Self,
+                    ::domain::new_base::parse::ParseError,
+                > {
+                    if bytes.is_empty() {
+                        // SAFETY: 'Self' is a 'struct' with no fields,
+                        // and so has size 0 and alignment 1.  It can be
+                        // constructed at any address.
+                        Ok(unsafe { &*bytes.as_ptr().cast::<Self>() })
+                    } else {
+                        Err(::domain::new_base::parse::ParseError)
+                    }
+                }
+            });
+
+            skeleton.contents.stmts.push(parse_quote! {
+                fn ptr_with_address(
+                    &self,
+                    addr: *const (),
+                ) -> *const Self {
+                    addr.cast()
+                }
+            });
+
+            return Ok(skeleton.into_token_stream());
+        }
 
         // Define 'parse_bytes_by_ref()'.
-        let tys = fields.clone().map(|f| &f.ty);
-        let last_ty = &last.ty;
+        let tys = data.sized_fields().map(|f| &f.ty);
+        let unsized_ty = &data.unsized_field().unwrap().ty;
         skeleton.contents.stmts.push(parse_quote! {
             fn parse_bytes_by_ref(
                 bytes: &[::domain::__core::primitive::u8],
@@ -465,10 +388,10 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                     <#tys as ::domain::new_base::parse::SplitBytesByRef>
                     ::split_bytes_by_ref(bytes)?;)*
                 let last =
-                    <#last_ty as ::domain::new_base::parse::ParseBytesByRef>
+                    <#unsized_ty as ::domain::new_base::parse::ParseBytesByRef>
                     ::parse_bytes_by_ref(bytes)?;
                 let ptr =
-                    <#last_ty as ::domain::new_base::parse::ParseBytesByRef>
+                    <#unsized_ty as ::domain::new_base::parse::ParseBytesByRef>
                     ::ptr_with_address(last, start as *const ());
 
                 // SAFETY:
@@ -486,17 +409,11 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
         });
 
         // Define 'ptr_with_address()'.
-        let last_name = match last.ident.as_ref() {
-            Some(ident) => Member::Named(ident.clone()),
-            None => Member::Unnamed(Index {
-                index: data.fields.len() as u32 - 1,
-                span: last.ty.span(),
-            }),
-        };
+        let unsized_member = data.unsized_member();
         skeleton.contents.stmts.push(parse_quote! {
             fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-                <#last_ty as ::domain::new_base::parse::ParseBytesByRef>
-                    ::ptr_with_address(&self.#last_name, addr)
+                <#unsized_ty as ::domain::new_base::parse::ParseBytesByRef>
+                    ::ptr_with_address(&self.#unsized_member, addr)
                     as *const Self
             }
         });
@@ -536,11 +453,14 @@ pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
         skeleton.bound =
             Some(parse_quote!(::domain::new_base::build::BuildBytes));
 
+        // Inspect the 'struct' fields.
+        let data = Struct::new_as_self(&data.fields);
+
         // Get a lifetime for the input buffer.
         let lifetime = skeleton.new_lifetime("bytes");
 
         // Establish bounds on the fields.
-        for field in data.fields.iter() {
+        for field in data.fields() {
             skeleton.require_bound(
                 field.ty.clone(),
                 parse_quote!(::domain::new_base::build::BuildBytes),
@@ -548,8 +468,8 @@ pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
         }
 
         // Define 'build_bytes()'.
-        let names = data.fields.members();
-        let tys = data.fields.iter().map(|f| &f.ty);
+        let members = data.members();
+        let tys = data.fields().map(|f| &f.ty);
         skeleton.contents.stmts.push(parse_quote! {
             fn build_bytes<#lifetime>(
                 &self,
@@ -559,7 +479,7 @@ pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
                 ::domain::new_base::build::TruncationError,
             > {
                 #(bytes = <#tys as ::domain::new_base::build::BuildBytes>
-                    ::build_bytes(&self.#names, bytes)?;)*
+                    ::build_bytes(&self.#members, bytes)?;)*
                 Ok(bytes)
             }
         });
@@ -618,4 +538,11 @@ pub fn derive_as_bytes(input: pm::TokenStream) -> pm::TokenStream {
     inner(input)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
+}
+
+//----------- Utility Functions ----------------------------------------------
+
+/// Add a `field_` prefix to member names.
+fn field_prefixed(member: Member) -> Ident {
+    format_ident!("field_{}", member)
 }

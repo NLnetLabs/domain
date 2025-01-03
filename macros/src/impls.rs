@@ -186,6 +186,22 @@ impl ImplSkeleton {
             })
             .unwrap()
     }
+
+    /// Generate a unique lifetime parameter with the given prefix and bounds.
+    pub fn new_lifetime_param(
+        &self,
+        prefix: &str,
+        bounds: impl IntoIterator<Item = Lifetime>,
+    ) -> (Lifetime, LifetimeParam) {
+        let lifetime = self.new_lifetime(prefix);
+        let mut bounds = bounds.into_iter().peekable();
+        let param = if bounds.peek().is_some() {
+            parse_quote! { #lifetime: #(#bounds)+* }
+        } else {
+            parse_quote! { #lifetime }
+        };
+        (lifetime, param)
+    }
 }
 
 impl ToTokens for ImplSkeleton {
