@@ -442,7 +442,7 @@ impl Rtype {
     }
 
     /// Returns true if this record type represents a pseudo-RR.
-    /// 
+    ///
     /// The term "pseudo-RR" appears in [RFC
     /// 9499](https://datatracker.ietf.org/doc/rfc9499/) Section 5 "Resource
     /// Records" as an alias for "meta-RR" and is referenced by [RFC
