@@ -22,14 +22,11 @@ use openssl::{
 };
 use secrecy::ExposeSecret;
 
-use crate::{
-    base::iana::SecAlg,
-    validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature},
-};
-
-use super::{
+use crate::base::iana::SecAlg;
+use crate::sign::{
     GenerateParams, RsaSecretKeyBytes, SecretKeyBytes, SignError, SignRaw,
 };
+use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
 //----------- KeyPair --------------------------------------------------------
 

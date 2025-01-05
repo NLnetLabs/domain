@@ -1517,7 +1517,9 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use crate::base::Name;
-    use crate::sign::keyset::{Action, KeySet, KeyType, RollType, UnixTime};
+    use crate::sign::keys::keyset::{
+        Action, KeySet, KeyType, RollType, UnixTime,
+    };
     use crate::std::string::ToString;
     use mock_instant::global::MockClock;
     use std::str::FromStr;

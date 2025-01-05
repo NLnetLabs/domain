@@ -127,14 +127,15 @@ use crate::validate::Key;
 
 pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
-mod bytes;
-pub use self::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
-
-pub mod common;
-pub mod keyset;
-pub mod openssl;
+pub mod crypto;
+pub mod error;
+pub mod hashing;
+pub mod keys;
 pub mod records;
-pub mod ring;
+pub mod signing;
+pub mod zone;
+
+pub use keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
 //----------- SigningKey -----------------------------------------------------
 
