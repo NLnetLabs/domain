@@ -11,7 +11,7 @@
 //! Signatures can be generated using a [`SigningKey`], which combines
 //! cryptographic key material with additional information that defines how
 //! the key should be used.  [`SigningKey`] relies on a cryptographic backend
-//! to provide the underlying signing operation (e.g. [`common::KeyPair`]).
+//! to provide the underlying signing operation (e.g. [`keys::keypair::KeyPair`]).
 //!
 //! # Example Usage
 //!
@@ -22,10 +22,10 @@
 //! # use domain::base::Name;
 //! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
+//! let (sec_bytes, pub_bytes) = keys::keypair::generate(params).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
-//! let key_pair = common::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //!
 //! // Associate the key with important metadata.
 //! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
@@ -55,7 +55,7 @@
 //! let pub_key = validate::Key::<Vec<u8>>::parse_from_bind(&pub_text).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
-//! let key_pair = common::KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
+//! let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
 //!
 //! // Associate the key with important metadata.
 //! let key = SigningKey::new(pub_key.owner().clone(), pub_key.flags(), key_pair);

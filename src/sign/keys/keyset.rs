@@ -7,7 +7,7 @@
 //!
 //! ```no_run
 //! use domain::base::Name;
-//! use domain::sign::keyset::{KeySet, RollType, UnixTime};
+//! use domain::sign::keys::keyset::{KeySet, RollType, UnixTime};
 //! use std::fs::File;
 //! use std::io::Write;
 //! use std::str::FromStr;
