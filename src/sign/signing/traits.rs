@@ -76,7 +76,7 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Self: SortedExtend<N, Octs>,
 {
-    fn sign<Key, KeyStrat, Sort, HP, OctsMut>(
+    fn sign_zone<Key, KeyStrat, Sort, HP, OctsMut>(
         &mut self,
         signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
         signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
@@ -229,7 +229,7 @@ where
 
     // TODO: This is almost a duplicate of SignableZoneInPlace::sign().
     // Factor out the common code.
-    fn sign_into<Key, KeyStrat, Sort, HP, T, OctsMut>(
+    fn sign_zone<Key, KeyStrat, Sort, HP, T, OctsMut>(
         &self,
         signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
         signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
