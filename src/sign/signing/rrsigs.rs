@@ -37,15 +37,15 @@ use crate::sign::{SignRaw, SigningKey};
 /// The given records MUST be sorted according to [`CanonicalOrd`].
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
-pub fn generate_rrsigs<N, Octs, Inner, KeyStrat, Sort>(
+pub fn generate_rrsigs<N, Octs, KeyPair, KeyStrat, Sort>(
     apex: &FamilyName<N>,
     families: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
-    keys: &[&dyn DesignatedSigningKey<Octs, Inner>],
+    keys: &[&dyn DesignatedSigningKey<Octs, KeyPair>],
     add_used_dnskeys: bool,
 ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
 where
-    Inner: SignRaw,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    KeyPair: SignRaw,
+    KeyStrat: SigningKeyUsageStrategy<Octs, KeyPair>,
     N: ToName
         + PartialEq
         + Clone
