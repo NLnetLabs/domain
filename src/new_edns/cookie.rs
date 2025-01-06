@@ -130,7 +130,9 @@ impl fmt::Display for CookieRequest {
 //----------- Cookie ---------------------------------------------------------
 
 /// A DNS cookie.
-#[derive(PartialEq, Eq, Hash, AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(
+    Debug, PartialEq, Eq, Hash, AsBytes, BuildBytes, ParseBytesByRef,
+)]
 #[repr(C)]
 pub struct Cookie {
     /// The request for this cookie.

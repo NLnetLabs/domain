@@ -10,6 +10,7 @@ use domain_macros::*;
 
 use crate::{
     new_base::{
+        build::{AsBytes, BuildBytes, TruncationError},
         parse::{
             ParseBytes, ParseBytesByRef, ParseError, ParseFromMessage,
             SplitBytes, SplitFromMessage,
@@ -208,8 +209,115 @@ impl fmt::Debug for EdnsFlags {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum EdnsOption<'b> {
+    /// A request for a DNS cookie.
+    CookieRequest(&'b CookieRequest),
+
+    /// A DNS cookie.
+    Cookie(&'b Cookie),
+
+    /// An extended DNS error.
+    ExtError(&'b ExtError),
+
     /// An unknown option.
     Unknown(OptionCode, &'b UnknownOption),
+}
+
+//--- Inspection
+
+impl EdnsOption<'_> {
+    /// The code for this option.
+    pub fn code(&self) -> OptionCode {
+        match self {
+            Self::CookieRequest(_) => OptionCode::COOKIE,
+            Self::Cookie(_) => OptionCode::COOKIE,
+            Self::ExtError(_) => OptionCode::EXT_ERROR,
+            Self::Unknown(code, _) => *code,
+        }
+    }
+}
+
+//--- Parsing from bytes
+
+impl<'b> ParseBytes<'b> for EdnsOption<'b> {
+    fn parse_bytes(bytes: &'b [u8]) -> Result<Self, ParseError> {
+        let (code, rest) = OptionCode::split_bytes(bytes)?;
+        let (size, rest) = U16::split_bytes(rest)?;
+        if rest.len() != size.get() as usize {
+            return Err(ParseError);
+        }
+
+        match code {
+            OptionCode::COOKIE => match size.get() {
+                8 => CookieRequest::parse_bytes_by_ref(rest)
+                    .map(Self::CookieRequest),
+                16..=40 => Cookie::parse_bytes_by_ref(rest).map(Self::Cookie),
+                _ => Err(ParseError),
+            },
+
+            OptionCode::EXT_ERROR => {
+                ExtError::parse_bytes_by_ref(rest).map(Self::ExtError)
+            }
+
+            _ => {
+                let data = UnknownOption::parse_bytes_by_ref(rest)?;
+                Ok(Self::Unknown(code, data))
+            }
+        }
+    }
+}
+
+impl<'b> SplitBytes<'b> for EdnsOption<'b> {
+    fn split_bytes(bytes: &'b [u8]) -> Result<(Self, &'b [u8]), ParseError> {
+        let (code, rest) = OptionCode::split_bytes(bytes)?;
+        let (size, rest) = U16::split_bytes(rest)?;
+        if rest.len() < size.get() as usize {
+            return Err(ParseError);
+        }
+        let (bytes, rest) = rest.split_at(size.get() as usize);
+
+        match code {
+            OptionCode::COOKIE => match size.get() {
+                8 => CookieRequest::parse_bytes_by_ref(bytes)
+                    .map(Self::CookieRequest),
+                16..=40 => {
+                    Cookie::parse_bytes_by_ref(bytes).map(Self::Cookie)
+                }
+                _ => Err(ParseError),
+            },
+
+            OptionCode::EXT_ERROR => {
+                ExtError::parse_bytes_by_ref(bytes).map(Self::ExtError)
+            }
+
+            _ => {
+                let data = UnknownOption::parse_bytes_by_ref(bytes)?;
+                Ok(Self::Unknown(code, data))
+            }
+        }
+        .map(|this| (this, rest))
+    }
+}
+
+//--- Building byte strings
+
+impl BuildBytes for EdnsOption<'_> {
+    fn build_bytes<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        bytes = self.code().build_bytes(bytes)?;
+
+        let data = match self {
+            Self::CookieRequest(this) => this.as_bytes(),
+            Self::Cookie(this) => this.as_bytes(),
+            Self::ExtError(this) => this.as_bytes(),
+            Self::Unknown(_, this) => this.as_bytes(),
+        };
+
+        bytes = U16::new(data.len() as u16).build_bytes(bytes)?;
+        bytes = data.build_bytes(bytes)?;
+        Ok(bytes)
+    }
 }
 
 //----------- OptionCode -----------------------------------------------------
@@ -218,7 +326,6 @@ pub enum EdnsOption<'b> {
 #[derive(
     Copy,
     Clone,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -237,11 +344,44 @@ pub struct OptionCode {
     pub code: U16,
 }
 
+//--- Associated Constants
+
+impl OptionCode {
+    const fn new(code: u16) -> Self {
+        Self {
+            code: U16::new(code),
+        }
+    }
+
+    /// A DNS cookie (request).
+    pub const COOKIE: Self = Self::new(10);
+
+    /// An extended DNS error.
+    pub const EXT_ERROR: Self = Self::new(15);
+}
+
+//--- Formatting
+
+impl fmt::Debug for OptionCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::COOKIE => "OptionCode::COOKIE",
+            Self::EXT_ERROR => "OptionCode::EXT_ERROR",
+            _ => {
+                return f
+                    .debug_tuple("OptionCode")
+                    .field(&self.code.get())
+                    .finish();
+            }
+        })
+    }
+}
+
 //----------- UnknownOption --------------------------------------------------
 
 /// Data for an unknown Extended DNS option.
 #[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct UnknownOption {
     /// The unparsed option data.
     pub octets: [u8],

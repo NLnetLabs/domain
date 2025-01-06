@@ -83,6 +83,15 @@ impl BuildBytes for u8 {
     }
 }
 
+impl BuildBytes for str {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.as_bytes().build_bytes(bytes)
+    }
+}
+
 impl BuildBytes for U16 {
     fn build_bytes<'b>(
         &self,
@@ -158,6 +167,7 @@ pub unsafe trait AsBytes {
 }
 
 unsafe impl AsBytes for u8 {}
+unsafe impl AsBytes for str {}
 
 unsafe impl<T: AsBytes> AsBytes for [T] {}
 unsafe impl<T: AsBytes, const N: usize> AsBytes for [T; N] {}

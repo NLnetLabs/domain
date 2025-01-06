@@ -174,7 +174,7 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
 
 /// Data for an unknown DNS record type.
 #[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct UnknownRecordData {
     /// The unparsed option data.
     pub octets: [u8],

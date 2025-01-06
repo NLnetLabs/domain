@@ -11,7 +11,7 @@ use zerocopy::network_endian::U16;
 //----------- ExtError -------------------------------------------------------
 
 /// An extended DNS error.
-#[derive(ParseBytesByRef)]
+#[derive(AsBytes, ParseBytesByRef)]
 #[repr(C)]
 pub struct ExtError {
     /// The error code.
@@ -29,6 +29,17 @@ impl ExtError {
         } else {
             None
         }
+    }
+}
+
+//--- Formatting
+
+impl fmt::Debug for ExtError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtError")
+            .field("code", &self.code)
+            .field("text", &self.text())
+            .finish()
     }
 }
 
@@ -52,15 +63,16 @@ impl ExtError {
 )]
 #[repr(transparent)]
 pub struct ExtErrorCode {
-    inner: U16,
+    /// The error code.
+    pub code: U16,
 }
 
 //--- Associated Constants
 
 impl ExtErrorCode {
-    const fn new(inner: u16) -> Self {
+    const fn new(code: u16) -> Self {
         Self {
-            inner: U16::new(inner),
+            code: U16::new(code),
         }
     }
 
@@ -157,7 +169,7 @@ impl ExtErrorCode {
     ///
     /// Private-use codes occupy the range 49152 to 65535 (inclusive).
     pub fn is_private(&self) -> bool {
-        self.inner >= 49152
+        self.code >= 49152
     }
 }
 
@@ -197,13 +209,13 @@ impl fmt::Debug for ExtErrorCode {
             _ => {
                 return f
                     .debug_tuple("ExtErrorCode")
-                    .field(&self.inner.get())
+                    .field(&self.code.get())
                     .finish();
             }
         };
 
         f.debug_tuple("ExtErrorCode")
-            .field(&self.inner.get())
+            .field(&self.code.get())
             .field(&text)
             .finish()
     }
