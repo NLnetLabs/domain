@@ -24,6 +24,9 @@ use crate::{
 mod cookie;
 pub use cookie::{Cookie, CookieRequest};
 
+mod ext_err;
+pub use ext_err::{ExtError, ExtErrorCode};
+
 //----------- EdnsRecord -----------------------------------------------------
 
 /// An Extended DNS record.

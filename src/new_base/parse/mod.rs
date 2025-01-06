@@ -321,6 +321,23 @@ unsafe impl ParseBytesByRef for [u8] {
     }
 }
 
+unsafe impl ParseBytesByRef for str {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+        core::str::from_utf8(bytes).map_err(|_| ParseError)
+    }
+
+    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
+        // NOTE: The Rust Reference indicates that 'str' has the same layout
+        // as '[u8]' [1].  This is also the most natural layout for it.  Since
+        // there's no way to construct a '*const str' from raw parts, we will
+        // just construct a raw slice and transmute it.
+        //
+        // [1]: https://doc.rust-lang.org/reference/type-layout.html#str-layout
+
+        self.as_bytes().ptr_with_address(addr) as *const Self
+    }
+}
+
 unsafe impl<T: SplitBytesByRef, const N: usize> SplitBytesByRef for [T; N] {
     fn split_bytes_by_ref(
         mut bytes: &[u8],
