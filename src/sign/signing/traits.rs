@@ -26,7 +26,9 @@ use crate::sign::hashing::nsec3::{
     Nsec3Records,
 };
 use crate::sign::keys::keymeta::DesignatedSigningKey;
-use crate::sign::records::{FamilyName, RecordsIter, SortedRecords, Sorter};
+use crate::sign::records::{
+    DefaultSorter, FamilyName, RecordsIter, Rrset, SortedRecords, Sorter,
+};
 use crate::sign::signing::rrsigs::generate_rrsigs;
 use crate::sign::signing::strategy::SigningKeyUsageStrategy;
 use crate::sign::SignRaw;
@@ -415,4 +417,70 @@ where
 
     S: Sorter,
 {
+}
+
+//------------ Signable ------------------------------------------------------
+
+pub trait Signable<N, Octs, KeyPair, Sort = DefaultSorter>
+where
+    N: ToName
+        + CanonicalOrd
+        + Send
+        + Display
+        + Clone
+        + PartialEq
+        + From<Name<Octs>>,
+    KeyPair: SignRaw,
+    Octs: From<Box<[u8]>>
+        + From<&'static [u8]>
+        + FromBuilder
+        + Clone
+        + OctetsFrom<std::vec::Vec<u8>>
+        + Send,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    Sort: Sorter,
+{
+    fn families(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>>;
+
+    fn sign<KeyStrat>(
+        &self,
+        apex: &FamilyName<N>,
+        keys: &[&dyn DesignatedSigningKey<Octs, KeyPair>],
+    ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
+    where
+        KeyStrat: SigningKeyUsageStrategy<Octs, KeyPair>,
+    {
+        generate_rrsigs::<_, _, _, KeyStrat, Sort>(
+            apex,
+            self.families(),
+            keys,
+            false,
+        )
+    }
+}
+
+//--- impl Signable for Rrset
+
+impl<'a, N, Octs, KeyPair> Signable<N, Octs, KeyPair>
+    for Rrset<'a, N, ZoneRecordData<Octs, N>>
+where
+    KeyPair: SignRaw,
+    N: From<Name<Octs>>
+        + PartialEq
+        + Clone
+        + Display
+        + Send
+        + CanonicalOrd
+        + ToName,
+    Octs: octseq::FromBuilder
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + Clone
+        + From<&'static [u8]>
+        + From<Box<[u8]>>,
+    <Octs as FromBuilder>::Builder: AsRef<[u8]> + AsMut<[u8]> + EmptyBuilder,
+{
+    fn families(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>> {
+        RecordsIter::new(self.as_slice())
+    }
 }
