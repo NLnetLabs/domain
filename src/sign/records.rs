@@ -507,6 +507,10 @@ impl<'a, N, D> Rrset<'a, N, D> {
         self.slice.iter()
     }
 
+    pub fn as_slice(&self) -> &'a [Record<N, D>] {
+        self.slice
+    }
+
     pub fn into_inner(self) -> &'a [Record<N, D>] {
         self.slice
     }
