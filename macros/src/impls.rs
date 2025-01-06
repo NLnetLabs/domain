@@ -2,7 +2,11 @@
 
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
-use syn::{punctuated::Punctuated, visit::Visit, *};
+use syn::{
+    punctuated::Punctuated, visit::Visit, ConstParam, GenericArgument,
+    GenericParam, Ident, Lifetime, LifetimeParam, Token, TypeParam,
+    TypeParamBound, WhereClause, WherePredicate,
+};
 
 //----------- ImplSkeleton ---------------------------------------------------
 
@@ -21,24 +25,24 @@ pub struct ImplSkeleton {
     pub unsafety: Option<Token![unsafe]>,
 
     /// The trait being implemented.
-    pub bound: Option<Path>,
+    pub bound: Option<syn::Path>,
 
     /// The type being implemented on.
-    pub subject: Path,
+    pub subject: syn::Path,
 
     /// The where clause of the `impl` block.
     pub where_clause: WhereClause,
 
     /// The contents of the `impl`.
-    pub contents: Block,
+    pub contents: syn::Block,
 
     /// A `const` block for asserting requirements.
-    pub requirements: Block,
+    pub requirements: syn::Block,
 }
 
 impl ImplSkeleton {
     /// Construct an [`ImplSkeleton`] for a [`DeriveInput`].
-    pub fn new(input: &DeriveInput, unsafety: bool) -> Self {
+    pub fn new(input: &syn::DeriveInput, unsafety: bool) -> Self {
         let mut lifetimes = Vec::new();
         let mut types = Vec::new();
         let mut consts = Vec::new();
@@ -55,13 +59,13 @@ impl ImplSkeleton {
                 GenericParam::Type(value) => {
                     types.push(value.clone());
                     let id = value.ident.clone();
-                    let id = TypePath {
+                    let id = syn::TypePath {
                         qself: None,
-                        path: Path {
+                        path: syn::Path {
                             leading_colon: None,
-                            segments: [PathSegment {
+                            segments: [syn::PathSegment {
                                 ident: id,
-                                arguments: PathArguments::None,
+                                arguments: syn::PathArguments::None,
                             }]
                             .into_iter()
                             .collect(),
@@ -73,13 +77,13 @@ impl ImplSkeleton {
                 GenericParam::Const(value) => {
                     consts.push(value.clone());
                     let id = value.ident.clone();
-                    let id = TypePath {
+                    let id = syn::TypePath {
                         qself: None,
-                        path: Path {
+                        path: syn::Path {
                             leading_colon: None,
-                            segments: [PathSegment {
+                            segments: [syn::PathSegment {
                                 ident: id,
-                                arguments: PathArguments::None,
+                                arguments: syn::PathArguments::None,
                             }]
                             .into_iter()
                             .collect(),
@@ -92,12 +96,12 @@ impl ImplSkeleton {
 
         let unsafety = unsafety.then_some(<Token![unsafe]>::default());
 
-        let subject = Path {
+        let subject = syn::Path {
             leading_colon: None,
-            segments: [PathSegment {
+            segments: [syn::PathSegment {
                 ident: input.ident.clone(),
-                arguments: PathArguments::AngleBracketed(
-                    AngleBracketedGenericArguments {
+                arguments: syn::PathArguments::AngleBracketed(
+                    syn::AngleBracketedGenericArguments {
                         colon2_token: None,
                         lt_token: Default::default(),
                         args: subject_args,
@@ -115,12 +119,12 @@ impl ImplSkeleton {
                 predicates: Punctuated::new(),
             });
 
-        let contents = Block {
+        let contents = syn::Block {
             brace_token: Default::default(),
             stmts: Vec::new(),
         };
 
-        let requirements = Block {
+        let requirements = syn::Block {
             brace_token: Default::default(),
             stmts: Vec::new(),
         };
@@ -142,7 +146,11 @@ impl ImplSkeleton {
     ///
     /// If the type is concrete, a verifying statement is added for it.
     /// Otherwise, it is added to the where clause.
-    pub fn require_bound(&mut self, target: Type, bound: TypeParamBound) {
+    pub fn require_bound(
+        &mut self,
+        target: syn::Type,
+        bound: TypeParamBound,
+    ) {
         let mut visitor = ConcretenessVisitor {
             skeleton: self,
             is_concrete: true,
@@ -154,7 +162,7 @@ impl ImplSkeleton {
 
         if visitor.is_concrete {
             // Add a concrete requirement for this bound.
-            self.requirements.stmts.push(parse_quote! {
+            self.requirements.stmts.push(syn::parse_quote! {
                 const _: fn() = || {
                     fn assert_impl<T: ?Sized + #bound>() {}
                     assert_impl::<#target>();
@@ -164,7 +172,7 @@ impl ImplSkeleton {
             // Add this bound to the `where` clause.
             let mut bounds = Punctuated::new();
             bounds.push(bound);
-            let pred = WherePredicate::Type(PredicateType {
+            let pred = WherePredicate::Type(syn::PredicateType {
                 lifetimes: None,
                 bounded_ty: target,
                 colon_token: Default::default(),
@@ -196,9 +204,9 @@ impl ImplSkeleton {
         let lifetime = self.new_lifetime(prefix);
         let mut bounds = bounds.into_iter().peekable();
         let param = if bounds.peek().is_some() {
-            parse_quote! { #lifetime: #(#bounds)+* }
+            syn::parse_quote! { #lifetime: #(#bounds)+* }
         } else {
-            parse_quote! { #lifetime }
+            syn::parse_quote! { #lifetime }
         };
         (lifetime, param)
     }

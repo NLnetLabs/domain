@@ -1,7 +1,10 @@
 //! Determining the memory layout of a type.
 
 use proc_macro2::Span;
-use syn::{punctuated::Punctuated, spanned::Spanned, *};
+use syn::{
+    punctuated::Punctuated, spanned::Spanned, Attribute, Error, LitInt, Meta,
+    Token,
+};
 
 //----------- Repr -----------------------------------------------------------
 
@@ -19,7 +22,10 @@ impl Repr {
     /// Determine the representation for a type from its attributes.
     ///
     /// This will fail if a stable representation cannot be found.
-    pub fn determine(attrs: &[Attribute], bound: &str) -> Result<Self> {
+    pub fn determine(
+        attrs: &[Attribute],
+        bound: &str,
+    ) -> Result<Self, Error> {
         let mut repr = None;
         for attr in attrs {
             if !attr.path().is_ident("repr") {
@@ -57,7 +63,7 @@ impl Repr {
                             || meta.path.is_ident("aligned") =>
                     {
                         let span = meta.span();
-                        let lit: LitInt = parse2(meta.tokens)?;
+                        let lit: LitInt = syn::parse2(meta.tokens)?;
                         let n: usize = lit.base10_parse()?;
                         if n != 1 {
                             return Err(Error::new(span,

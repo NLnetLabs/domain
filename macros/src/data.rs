@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{spanned::Spanned, *};
+use syn::{spanned::Spanned, Field, Fields, Ident, Index, Member, Token};
 
 //----------- Struct ---------------------------------------------------------
 
