@@ -632,9 +632,7 @@ where
 /// treated specially by resolvers and could lead to unexpected behaviour.
 ///
 /// [1]: https://github.com/PowerDNS/pdns/issues/2304
-/// [2]: https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/dnssec_sign.c#L1511,
-///      https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/rr.c#L75 and
-///      https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/ldns/ldns.h#L136
+/// [2]: https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/dnssec_sign.c#L1511, https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/rr.c#L75 and https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/ldns/ldns.h#L136
 /// [3]: https://bind9.readthedocs.io/en/v9.18.14/chapter5.html#nsec3
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub enum Nsec3ParamTtlMode {
