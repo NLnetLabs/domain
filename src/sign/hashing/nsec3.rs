@@ -612,33 +612,12 @@ where
 /// for the NSEC3PARAM TTL, e.g. BIND, dnssec-signzone and OpenDNSSEC
 /// reportedly use 0 [1] while ldns-signzone uses 3600 [2] (as does an example
 /// in the BIND documentation [3]).
-///
-/// # Using a zero TTL
-///
-/// RFC 1034 section 3.6 "Resource Records" says _"a zero TTL prohibits
-/// caching"_. In principle TTLs are used for caching toward clients, RFC 5155
-/// section 4 "The NSEC3PARAM Resource Record" says _"The NSEC3PARAM RR is not
-/// used by validators or resolvers"_ and RFC 5155 section 7.3 "Secondary
-/// Servers" says that the NSEC3PARAM RR is used by secondary servers.
-///
-/// As secondary servers should presumably use the latest version of the
-/// NSEC3PARAM RR that they received from the primary without considering its
-/// TTL the actual TTL chosen should not matter.
-///
-/// However, if resolvers or other clients query the NSEC3PARAM they may
-/// honour the TTL when caching the RR, and a value of zero could permit an
-/// abusive or broken client to send an abnormally large number of requests
-/// for the NSEC3PARAM RR toward authoritative servers. A zero TTL may also be
-/// treated specially by resolvers and could lead to unexpected behaviour.
-///
-/// [1]: https://github.com/PowerDNS/pdns/issues/2304
-/// [2]: https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/dnssec_sign.c#L1511, https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/rr.c#L75 and https://github.com/NLnetLabs/ldns/blob/310ae27b23e071b20e5010b6916d73ba0435ab79/ldns/ldns.h#L136
-/// [3]: https://bind9.readthedocs.io/en/v9.18.14/chapter5.html#nsec3
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub enum Nsec3ParamTtlMode {
-    /// A user defined TTL value.
+    /// Use a fixed TTL value.
     Fixed(Ttl),
 
+    /// Use the TTL of the SOA record MINIMUM data field.
     #[default]
     SoaMinimum,
 }
@@ -650,14 +629,6 @@ impl Nsec3ParamTtlMode {
 
     pub fn soa_minimum() -> Self {
         Self::SoaMinimum
-    }
-
-    pub fn bind_and_opendnssec_like() -> Self {
-        Self::Fixed(Ttl::from_secs(0))
-    }
-
-    pub fn ldns_like() -> Self {
-        Self::Fixed(Ttl::from_secs(3600))
     }
 }
 
