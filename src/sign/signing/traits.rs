@@ -9,7 +9,7 @@ use std::hash::Hash;
 use std::vec::Vec;
 
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
-use octseq::{FreezeBuilder, OctetsFrom};
+use octseq::OctetsFrom;
 
 use super::config::SigningConfig;
 use crate::base::cmp::CanonicalOrd;
@@ -157,7 +157,7 @@ where
 
 //------------ sign_zone() ---------------------------------------------------
 
-fn sign_zone<N, Octs, OctsMut, S, Key, KeyStrat, Sort, HP, T>(
+fn sign_zone<N, Octs, S, Key, KeyStrat, Sort, HP, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T>,
     apex: &FamilyName<N>,
     signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
@@ -188,12 +188,6 @@ where
         + OctetsFrom<Vec<u8>>
         + From<Box<[u8]>>
         + Default,
-    OctsMut: Default
-        + OctetsBuilder
-        + AsRef<[u8]>
-        + AsMut<[u8]>
-        + EmptyBuilder
-        + FreezeBuilder<Octets = Octs>,
     T: RecordSlice<N, ZoneRecordData<Octs, N>>,
 {
     let soa = in_out
@@ -242,7 +236,7 @@ where
             // order." We store the NSEC3s as we create them and sort them
             // afterwards.
             let Nsec3Records { recs, mut param } =
-                generate_nsec3s::<N, Octs, OctsMut, HP, Sort>(
+                generate_nsec3s::<N, Octs, HP, Sort>(
                     apex,
                     ttl,
                     families,
@@ -323,7 +317,7 @@ where
     // TODO
     // fn iter_mut<T>(&mut self) -> T;
 
-    fn sign_zone<Key, KeyStrat, Sort, HP, T, OctsMut>(
+    fn sign_zone<Key, KeyStrat, Sort, HP, T>(
         &self,
         signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
         signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
@@ -340,16 +334,10 @@ where
         T: SortedExtend<N, Octs>
             + ?Sized
             + RecordSlice<N, ZoneRecordData<Octs, N>>,
-        OctsMut: Default
-            + OctetsBuilder
-            + AsRef<[u8]>
-            + AsMut<[u8]>
-            + EmptyBuilder
-            + FreezeBuilder<Octets = Octs>,
         Self: Sized,
     {
         let in_out = SignableZoneInOut::new_into(self, out);
-        sign_zone::<N, Octs, OctsMut, Self, Key, KeyStrat, Sort, HP, T>(
+        sign_zone::<N, Octs, Self, Key, KeyStrat, Sort, HP, T>(
             in_out,
             &self.apex(),
             signing_config,
@@ -441,7 +429,7 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Self: SortedExtend<N, Octs> + Sized,
 {
-    fn sign_zone<Key, KeyStrat, Sort, HP, OctsMut>(
+    fn sign_zone<Key, KeyStrat, Sort, HP>(
         &mut self,
         signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
         signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
@@ -454,16 +442,10 @@ where
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
         KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
         Sort: Sorter,
-        OctsMut: OctetsBuilder
-            + AsRef<[u8]>
-            + AsMut<[u8]>
-            + EmptyBuilder
-            + FreezeBuilder<Octets = Octs>
-            + Default,
     {
         let apex = self.apex();
         let in_out = SignableZoneInOut::new_in_place(self);
-        sign_zone::<N, Octs, OctsMut, Self, Key, KeyStrat, Sort, HP, Self>(
+        sign_zone::<N, Octs, Self, Key, KeyStrat, Sort, HP, Self>(
             in_out,
             &apex,
             signing_config,

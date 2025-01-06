@@ -7,7 +7,7 @@ use std::string::String;
 use std::vec::Vec;
 
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
-use octseq::{FreezeBuilder, OctetsFrom};
+use octseq::OctetsFrom;
 use tracing::{debug, trace};
 
 use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
@@ -36,7 +36,7 @@ use crate::validate::{nsec3_hash, Nsec3HashError};
 /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077.html
 /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
 // TODO: Add mutable iterator based variant.
-pub fn generate_nsec3s<N, Octs, OctsMut, HashProvider, Sort>(
+pub fn generate_nsec3s<N, Octs, HashProvider, Sort>(
     apex: &FamilyName<N>,
     ttl: Ttl,
     mut families: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
@@ -47,16 +47,9 @@ pub fn generate_nsec3s<N, Octs, OctsMut, HashProvider, Sort>(
 ) -> Result<Nsec3Records<N, Octs>, Nsec3HashError>
 where
     N: ToName + Clone + Display + Ord + Hash + Send + From<Name<Octs>>,
-    N: From<Name<<OctsMut as FreezeBuilder>::Octets>>,
     Octs: FromBuilder + OctetsFrom<Vec<u8>> + Default + Clone + Send,
     Octs::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
     <Octs::Builder as OctetsBuilder>::AppendError: Debug,
-    OctsMut: OctetsBuilder
-        + AsRef<[u8]>
-        + AsMut<[u8]>
-        + EmptyBuilder
-        + FreezeBuilder,
-    <OctsMut as FreezeBuilder>::Octets: AsRef<[u8]>,
     HashProvider: Nsec3HashProvider<N, Octs>,
     Sort: Sorter,
 {
@@ -202,7 +195,7 @@ where
                 let rev_label_it = name.owner().iter_labels().skip(n);
 
                 // Create next longest ENT name.
-                let mut builder = NameBuilder::<OctsMut>::new();
+                let mut builder = NameBuilder::<Octs::Builder>::new();
                 for label in rev_label_it.take(distance_to_apex - n) {
                     builder.append_label(label.as_slice()).unwrap();
                 }
