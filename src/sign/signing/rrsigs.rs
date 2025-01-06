@@ -145,18 +145,17 @@ where
     // Are we signing the entire tree from the apex down or just some child
     // records? Use the first found SOA RR as the apex. If no SOA RR can be
     // found assume that we are only signing records below the apex.
-    let apex_ttl = families.peek().and_then(|first_family| {
+    let soa_ttl = families.peek().and_then(|first_family| {
         first_family.records().find_map(|rr| {
             if rr.owner() == apex.owner() && rr.rtype() == Rtype::SOA {
-                if let ZoneRecordData::Soa(soa) = rr.data() {
-                    return Some(soa.minimum());
-                }
+                Some(rr.ttl())
+            } else {
+                None
             }
-            None
         })
     });
 
-    if let Some(soa_minimum_ttl) = apex_ttl {
+    if let Some(soa_ttl) = soa_ttl {
         // Sign the apex
         // SAFETY: We just checked above if the apex records existed.
         let apex_family = families.next().unwrap();
@@ -176,22 +175,26 @@ where
 
         // Determine the TTL of any existing DNSKEY RRSET and use that as the
         // TTL for DNSKEY RRs that we add. If none, then fall back to the SOA
-        // mininmum TTL.
+        // TTL.
         //
-        // Applicable sections from RFC 1033:
-        //   TTL's (Time To Live)
-        //     "Also, all RRs with the same name, class, and type should have
-        //      the same TTL value."
+        // https://datatracker.ietf.org/doc/html/rfc2181#section-5.2 5.2. TTLs
+        // of RRs in an RRSet "Consequently the use of differing TTLs in an
+        //   RRSet is hereby deprecated, the TTLs of all RRs in an RRSet must
+        //    be the same."
         //
-        //   RESOURCE RECORDS
-        //     "If you leave the TTL field blank it will default to the
-        //     minimum time specified in the SOA record (described later)."
+        // Note that while RFC 1033 says: RESOURCE RECORDS "If you leave the
+        //   TTL field blank it will default to the minimum time specified in
+        //     the SOA record (described later)."
+        //
+        // That RFC pre-dates RFC 1034, and neither dnssec-signzone nor
+        // ldns-signzone use the SOA MINIMUM as a default TTL, rather they use
+        // the TTL of the SOA RR as the default and so we will do the same.
         let dnskey_rrset_ttl = if let Some(rrset) = apex_dnskey_rrset {
             let ttl = rrset.ttl();
             augmented_apex_dnskey_rrs.sorted_extend(rrset.iter().cloned());
             ttl
         } else {
-            soa_minimum_ttl
+            soa_ttl
         };
 
         for public_key in

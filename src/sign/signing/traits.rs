@@ -249,7 +249,15 @@ where
 
             let ttl = match ttl_mode {
                 Nsec3ParamTtlMode::Fixed(ttl) => *ttl,
-                Nsec3ParamTtlMode::SoaMinimum => soa.ttl(),
+                Nsec3ParamTtlMode::Soa => soa.ttl(),
+                Nsec3ParamTtlMode::SoaMinimum => {
+                    if let ZoneRecordData::Soa(soa_data) = soa.data() {
+                        soa_data.minimum()
+                    } else {
+                        // Errm, this is unexpected.
+                        soa.ttl()
+                    }
+                }
             };
 
             param.set_ttl(ttl);

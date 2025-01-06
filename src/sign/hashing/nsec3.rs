@@ -606,19 +606,42 @@ where
 /// for the NSEC3PARAM TTL, e.g. BIND, dnssec-signzone and OpenDNSSEC
 /// reportedly use 0 [1] while ldns-signzone uses 3600 [2] (as does an example
 /// in the BIND documentation [3]).
+///
+/// The default approach used here is to use the TTL of the SOA RR, NOT the
+/// SOA MINIMUM. This is consistent with how a TTL is chosen by tools such as
+/// dnssec-signzone and ldns-signzone for other non-NSEC(3) records that are
+/// added to a zone such as DNSKEY RRs. We do not use a fixed value as the
+/// default as that seems strangely inconsistent with the rest of the zone,
+/// and especially not zero as that seems to be considered a complex case for
+/// resolvers to handle and may potentially lead to unwanted behaviour, and
+/// additional load on both authoritatives and resolvers if a (abusive) client
+/// should aggressively query the NSEC3PARAM RR. We also do not use the SOA
+/// MINIMUM TTL as that concerns (quoting RFC 1034) "the length of time that
+/// the negative result may be cached" and the NSEC3PARAM is not related to
+/// negative caching. As at least one other implementation uses SOA MINIMUM
+/// and this is not a hard-coded value that a caller can supply via the Fixed
+/// enum variant, we also support using SOA MINIMUM via the SoaMinimum
+/// variant.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub enum Nsec3ParamTtlMode {
     /// Use a fixed TTL value.
     Fixed(Ttl),
 
-    /// Use the TTL of the SOA record MINIMUM data field.
+    /// Use the TTL of the SOA record.
     #[default]
+    Soa,
+
+    /// Use the TTL of the SOA record MINIMUM data field.
     SoaMinimum,
 }
 
 impl Nsec3ParamTtlMode {
     pub fn fixed(ttl: Ttl) -> Self {
         Self::Fixed(ttl)
+    }
+
+    pub fn soa() -> Self {
+        Self::Soa
     }
 
     pub fn soa_minimum() -> Self {
