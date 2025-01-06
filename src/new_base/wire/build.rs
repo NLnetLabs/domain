@@ -12,7 +12,7 @@ pub trait BuildBytes {
     /// buffer.  If the buffer is large enough, the whole object is written
     /// and the remaining (unmodified) part of the buffer is returned.
     ///
-    /// if the buffer is too small, a [`TruncationError`] is returned (and
+    /// If the buffer is too small, a [`TruncationError`] is returned (and
     /// parts of the buffer may be modified).
     fn build_bytes<'b>(
         &self,
