@@ -442,6 +442,7 @@ where
 {
     fn families(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>>;
 
+    #[allow(clippy::type_complexity)]
     fn sign<KeyStrat>(
         &self,
         apex: &FamilyName<N>,
@@ -461,8 +462,8 @@ where
 
 //--- impl Signable for Rrset
 
-impl<'a, N, Octs, KeyPair> Signable<N, Octs, KeyPair>
-    for Rrset<'a, N, ZoneRecordData<Octs, N>>
+impl<N, Octs, KeyPair> Signable<N, Octs, KeyPair>
+    for Rrset<'_, N, ZoneRecordData<Octs, N>>
 where
     KeyPair: SignRaw,
     N: From<Name<Octs>>
