@@ -8,9 +8,9 @@ use core::{
     ops::{Add, AddAssign},
 };
 
-use zerocopy::network_endian::U32;
-
 use domain_macros::*;
+
+use super::wire::U32;
 
 //----------- Serial ---------------------------------------------------------
 

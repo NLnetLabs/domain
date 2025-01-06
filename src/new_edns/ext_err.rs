@@ -6,12 +6,12 @@ use core::fmt;
 
 use domain_macros::*;
 
-use zerocopy::network_endian::U16;
+use crate::new_base::wire::U16;
 
 //----------- ExtError -------------------------------------------------------
 
 /// An extended DNS error.
-#[derive(AsBytes, ParseBytesByRef)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
 #[repr(C)]
 pub struct ExtError {
     /// The error code.

@@ -6,11 +6,11 @@ use core::{
     ptr::{self, NonNull},
 };
 
-use zerocopy::{FromBytes, IntoBytes, SizeError};
-
-use crate::new_base::{name::RevName, Header, Message};
-
-use super::{BuildBytes, TruncationError};
+use crate::new_base::{
+    name::RevName,
+    wire::{AsBytes, BuildBytes, ParseBytesByRef, TruncationError},
+    Header, Message,
+};
 
 //----------- Builder --------------------------------------------------------
 
@@ -82,8 +82,7 @@ impl<'b> Builder<'b> {
         context: &'b mut BuilderContext,
     ) -> Self {
         assert!(buffer.len() >= 12);
-        let message = Message::mut_from_bytes(buffer)
-            .map_err(SizeError::from)
+        let message = Message::parse_bytes_by_mut(buffer)
             .expect("A 'Message' can fit in 12 bytes");
         context.size = 0;
         context.max_size = message.contents.len();
@@ -156,9 +155,8 @@ impl<'b> Builder<'b> {
     pub fn message(&self) -> &Message {
         // SAFETY: All of 'message' can be immutably borrowed by 'self'.
         let message = unsafe { &*self.message.as_ptr() };
-        let message = message.as_bytes();
-        Message::ref_from_bytes_with_elems(message, self.commit)
-            .map_err(SizeError::from)
+        let message = &message.as_bytes()[..12 + self.commit];
+        Message::parse_bytes_by_ref(message)
             .expect("'message' represents a valid 'Message'")
     }
 
@@ -170,9 +168,8 @@ impl<'b> Builder<'b> {
     pub fn cur_message(&self) -> &Message {
         // SAFETY: All of 'message' can be immutably borrowed by 'self'.
         let message = unsafe { &*self.message.as_ptr() };
-        let message = message.as_bytes();
-        Message::ref_from_bytes_with_elems(message, self.context.size)
-            .map_err(SizeError::from)
+        let message = &message.as_bytes()[..12 + self.context.size];
+        Message::parse_bytes_by_ref(message)
             .expect("'message' represents a valid 'Message'")
     }
 

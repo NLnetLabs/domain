@@ -5,11 +5,9 @@ use core::ops::Range;
 use domain_macros::*;
 
 use crate::new_base::{
-    build::{BuildBytes, BuildIntoMessage, Builder, TruncationError},
-    parse::{
-        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
-        SplitFromMessage,
-    },
+    build::{self, BuildIntoMessage},
+    parse::{ParseFromMessage, SplitFromMessage},
+    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
     Message, ParseRecordData, RType,
 };
 
@@ -131,7 +129,7 @@ where
 impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
     fn build_into_message(
         &self,
-        builder: Builder<'_>,
+        builder: build::Builder<'_>,
     ) -> Result<(), TruncationError> {
         match self {
             Self::A(r) => r.build_into_message(builder),

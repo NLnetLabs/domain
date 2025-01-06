@@ -2,17 +2,14 @@
 
 use core::fmt;
 
-use zerocopy::network_endian::U16;
-use zerocopy_derive::*;
-
 use domain_macros::{AsBytes, *};
+
+use super::wire::U16;
 
 //----------- Message --------------------------------------------------------
 
 /// A DNS message.
-#[derive(
-    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, ParseBytesByRef,
-)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
 #[repr(C, packed)]
 pub struct Message {
     /// The message header.
@@ -30,11 +27,6 @@ pub struct Message {
     Clone,
     Debug,
     Hash,
-    FromBytes,
-    IntoBytes,
-    KnownLayout,
-    Immutable,
-    Unaligned,
     AsBytes,
     BuildBytes,
     ParseBytes,
@@ -76,11 +68,6 @@ impl fmt::Display for Header {
     Clone,
     Default,
     Hash,
-    FromBytes,
-    IntoBytes,
-    KnownLayout,
-    Immutable,
-    Unaligned,
     AsBytes,
     BuildBytes,
     ParseBytes,
@@ -243,11 +230,6 @@ impl fmt::Display for HeaderFlags {
     PartialEq,
     Eq,
     Hash,
-    FromBytes,
-    IntoBytes,
-    KnownLayout,
-    Immutable,
-    Unaligned,
     AsBytes,
     BuildBytes,
     ParseBytes,

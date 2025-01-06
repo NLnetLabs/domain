@@ -32,3 +32,4 @@ pub use serial::Serial;
 
 pub mod build;
 pub mod parse;
+pub mod wire;

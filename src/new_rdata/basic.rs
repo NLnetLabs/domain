@@ -10,15 +10,14 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::net::Ipv4Addr;
 
-use zerocopy::network_endian::{U16, U32};
-
 use domain_macros::*;
 
 use crate::new_base::{
-    build::{self, AsBytes, BuildIntoMessage, TruncationError},
-    parse::{
-        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
-        SplitFromMessage,
+    build::{self, BuildIntoMessage},
+    parse::{ParseFromMessage, SplitFromMessage},
+    wire::{
+        AsBytes, ParseBytes, ParseError, SplitBytes, TruncationError, U16,
+        U32,
     },
     CharStr, Message, Serial,
 };
@@ -386,8 +385,6 @@ impl<'a> ParseFromMessage<'a> for HInfo<'a> {
         message: &'a Message,
         range: Range<usize>,
     ) -> Result<Self, ParseError> {
-        use zerocopy::IntoBytes;
-
         message
             .as_bytes()
             .get(range)
@@ -501,8 +498,6 @@ impl<'a> ParseFromMessage<'a> for &'a Txt {
         message: &'a Message,
         range: Range<usize>,
     ) -> Result<Self, ParseError> {
-        use zerocopy::IntoBytes;
-
         message
             .as_bytes()
             .get(range)

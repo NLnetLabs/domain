@@ -2,13 +2,12 @@
 
 use core::{fmt, ops::Range};
 
-use zerocopy::IntoBytes;
-
 use super::{
-    build::{self, BuildBytes, BuildIntoMessage, TruncationError},
-    parse::{
-        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
-        SplitFromMessage,
+    build::{self, BuildIntoMessage},
+    parse::{ParseFromMessage, SplitFromMessage},
+    wire::{
+        AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
+        TruncationError,
     },
     Message,
 };

@@ -10,8 +10,9 @@ use std::net::Ipv6Addr;
 
 use domain_macros::*;
 
-use crate::new_base::build::{
-    self, AsBytes, BuildIntoMessage, TruncationError,
+use crate::new_base::{
+    build::{self, BuildIntoMessage},
+    wire::{AsBytes, TruncationError},
 };
 
 //----------- Aaaa -----------------------------------------------------------

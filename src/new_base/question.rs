@@ -2,14 +2,13 @@
 
 use core::ops::Range;
 
-use zerocopy::network_endian::U16;
-
 use domain_macros::*;
 
 use super::{
-    build::{self, AsBytes, BuildIntoMessage, TruncationError},
+    build::{self, BuildIntoMessage},
     name::RevNameBuf,
-    parse::{ParseError, ParseFromMessage, SplitFromMessage},
+    parse::{ParseFromMessage, SplitFromMessage},
+    wire::{AsBytes, ParseError, TruncationError, U16},
     Message,
 };
 

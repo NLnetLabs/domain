@@ -9,7 +9,7 @@ use core::{
 
 use domain_macros::AsBytes;
 
-use crate::new_base::parse::{ParseBytes, ParseError, SplitBytes};
+use crate::new_base::wire::{ParseBytes, ParseError, SplitBytes};
 
 //----------- Label ----------------------------------------------------------
 
@@ -56,8 +56,8 @@ impl<'a> SplitBytes<'a> for &'a Label {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (&size, rest) = bytes.split_first().ok_or(ParseError)?;
         if size < 64 && rest.len() >= size as usize {
-            let (label, rest) = bytes.split_at(1 + size as usize);
-            // SAFETY: 'label' begins with a valid length octet.
+            let (label, rest) = rest.split_at(size as usize);
+            // SAFETY: 'label' is 'size < 64' bytes in size.
             Ok((unsafe { Label::from_bytes_unchecked(label) }, rest))
         } else {
             Err(ParseError)

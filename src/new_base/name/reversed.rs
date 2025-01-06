@@ -8,13 +8,12 @@ use core::{
     ops::{Deref, Range},
 };
 
-use zerocopy::IntoBytes;
-
 use crate::new_base::{
-    build::{self, BuildBytes, BuildIntoMessage, TruncationError},
-    parse::{
-        ParseBytes, ParseError, ParseFromMessage, SplitBytes,
-        SplitFromMessage,
+    build::{self, BuildIntoMessage},
+    parse::{ParseFromMessage, SplitFromMessage},
+    wire::{
+        AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
+        TruncationError,
     },
     Message,
 };
@@ -228,7 +227,7 @@ impl RevNameBuf {
     /// Construct an empty, invalid buffer.
     fn empty() -> Self {
         Self {
-            offset: 0,
+            offset: 255,
             buffer: [0; 255],
         }
     }

@@ -18,7 +18,7 @@ use domain_macros::*;
 use crate::new_base::Serial;
 
 #[cfg(all(feature = "std", feature = "siphasher"))]
-use crate::new_base::build::{AsBytes, TruncationError};
+use crate::new_base::wire::{AsBytes, TruncationError};
 
 //----------- CookieRequest --------------------------------------------------
 
@@ -71,7 +71,7 @@ impl CookieRequest {
 
         use siphasher::sip::SipHasher24;
 
-        use crate::new_base::build::BuildBytes;
+        use crate::new_base::wire::BuildBytes;
 
         // Build and hash the cookie simultaneously.
         let mut hasher = SipHasher24::new_with_key(secret);

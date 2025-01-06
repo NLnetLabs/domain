@@ -5,19 +5,13 @@ use core::{
     ops::{Deref, Range},
 };
 
-use zerocopy::{
-    network_endian::{U16, U32},
-    FromBytes, IntoBytes,
-};
-
-use domain_macros::*;
-
 use super::{
-    build::{self, AsBytes, BuildBytes, BuildIntoMessage, TruncationError},
+    build::{self, BuildIntoMessage},
     name::RevNameBuf,
-    parse::{
-        ParseBytes, ParseBytesByRef, ParseError, ParseFromMessage,
-        SplitBytes, SplitFromMessage,
+    parse::{ParseFromMessage, SplitFromMessage},
+    wire::{
+        AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
+        SplitBytes, SplitBytesByRef, TruncationError, U16, U32,
     },
     Message,
 };
@@ -160,9 +154,13 @@ where
         let (rtype, rest) = RType::split_bytes(rest)?;
         let (rclass, rest) = RClass::split_bytes(rest)?;
         let (ttl, rest) = TTL::split_bytes(rest)?;
-        let (size, rest) = U16::read_from_prefix(rest)?;
+        let (size, rest) = U16::split_bytes(rest)?;
         let size: usize = size.get().into();
-        let (rdata, rest) = <[u8]>::ref_from_prefix_with_elems(rest, size)?;
+        if rest.len() < size {
+            return Err(ParseError);
+        }
+
+        let (rdata, rest) = rest.split_at(size);
         let rdata = D::parse_record_data_bytes(rdata, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
@@ -179,10 +177,13 @@ where
         let (rtype, rest) = RType::split_bytes(rest)?;
         let (rclass, rest) = RClass::split_bytes(rest)?;
         let (ttl, rest) = TTL::split_bytes(rest)?;
-        let (size, rest) = U16::read_from_prefix(rest)?;
+        let (size, rest) = U16::split_bytes(rest)?;
         let size: usize = size.get().into();
-        let rdata = <[u8]>::ref_from_bytes_with_elems(rest, size)?;
-        let rdata = D::parse_record_data_bytes(rdata, rtype)?;
+        if rest.len() != size {
+            return Err(ParseError);
+        }
+
+        let rdata = D::parse_record_data_bytes(rest, rtype)?;
 
         Ok(Self::new(rname, rtype, rclass, ttl, rdata))
     }
@@ -205,7 +206,7 @@ where
         bytes = self.ttl.as_bytes().build_bytes(bytes)?;
 
         let (size, bytes) =
-            <U16>::mut_from_prefix(bytes).map_err(|_| TruncationError)?;
+            U16::split_bytes_by_mut(bytes).map_err(|_| TruncationError)?;
         let bytes_len = bytes.len();
 
         let rest = self.rdata.build_bytes(bytes)?;

@@ -4,16 +4,14 @@
 
 use core::{fmt, ops::Range};
 
-use zerocopy::{network_endian::U16, IntoBytes};
-
 use domain_macros::*;
 
 use crate::{
     new_base::{
-        build::{AsBytes, BuildBytes, TruncationError},
-        parse::{
-            ParseBytes, ParseBytesByRef, ParseError, ParseFromMessage,
-            SplitBytes, SplitFromMessage,
+        parse::{ParseFromMessage, SplitFromMessage},
+        wire::{
+            AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
+            SplitBytes, TruncationError, U16,
         },
         Message,
     },
