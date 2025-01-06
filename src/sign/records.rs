@@ -15,6 +15,8 @@ use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::base::Ttl;
 
+use super::signing::traits::RecordSlice;
+
 //------------ Sorter --------------------------------------------------------
 
 /// A DNS resource record sorter.
@@ -232,10 +234,6 @@ where
         self.records.iter()
     }
 
-    pub fn as_slice(&self) -> &[Record<N, D>] {
-        self.records.as_slice()
-    }
-
     pub(super) fn as_mut_slice(&mut self) -> &mut [Record<N, D>] {
         self.records.as_mut_slice()
     }
@@ -245,12 +243,15 @@ where
     }
 }
 
-impl<N, D, S> SortedRecords<N, D, S>
+impl<N, D, S> RecordSlice<N, D> for SortedRecords<N, D, S>
 where
     N: Send,
     D: Send,
     S: Sorter,
 {
+    fn as_slice(&self) -> &[Record<N, D>] {
+        self.records.as_slice()
+    }
 }
 
 impl<N, D, S> SortedRecords<N, D, S>

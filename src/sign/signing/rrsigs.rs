@@ -26,7 +26,7 @@ use crate::sign::records::{
     FamilyName, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::sign::signing::strategy::SigningKeyUsageStrategy;
-use crate::sign::signing::traits::SortedExtend;
+use crate::sign::signing::traits::{RecordSlice, SortedExtend};
 use crate::sign::{SignRaw, SigningKey};
 
 /// Generate RRSIG RRs for a collection of unsigned zone records.

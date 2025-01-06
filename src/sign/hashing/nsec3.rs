@@ -17,6 +17,7 @@ use crate::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Nsec3, Nsec3param, ZoneRecordData};
 use crate::sign::records::{FamilyName, RecordsIter, SortedRecords, Sorter};
+use crate::sign::signing::traits::RecordSlice;
 use crate::utils::base32;
 use crate::validate::{nsec3_hash, Nsec3HashError};
 
