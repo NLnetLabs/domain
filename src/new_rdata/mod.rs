@@ -18,7 +18,7 @@ mod ipv6;
 pub use ipv6::Aaaa;
 
 mod edns;
-pub use edns::Opt;
+pub use edns::{EdnsOptionsIter, Opt};
 
 //----------- RecordData -----------------------------------------------------
 
@@ -55,6 +55,9 @@ pub enum RecordData<'a, N> {
 
     /// The IPv6 address of a host responsible for this domain.
     Aaaa(&'a Aaaa),
+
+    /// Extended DNS options.
+    Opt(&'a Opt),
 
     /// Data for an unknown DNS record type.
     Unknown(RType, &'a UnknownRecordData),
@@ -96,6 +99,9 @@ where
             RType::AAAA => {
                 <&Aaaa>::parse_from_message(message, start).map(Self::Aaaa)
             }
+            RType::OPT => {
+                <&Opt>::parse_from_message(message, start).map(Self::Opt)
+            }
             _ => <&UnknownRecordData>::parse_from_message(message, start)
                 .map(|data| Self::Unknown(rtype, data)),
         }
@@ -116,6 +122,7 @@ where
             RType::MX => Mx::parse_bytes(bytes).map(Self::Mx),
             RType::TXT => <&Txt>::parse_bytes(bytes).map(Self::Txt),
             RType::AAAA => <&Aaaa>::parse_bytes(bytes).map(Self::Aaaa),
+            RType::OPT => <&Opt>::parse_bytes(bytes).map(Self::Opt),
             _ => <&UnknownRecordData>::parse_bytes(bytes)
                 .map(|data| Self::Unknown(rtype, data)),
         }
@@ -137,9 +144,10 @@ impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
             Self::Wks(r) => r.build_into_message(builder),
             Self::Ptr(r) => r.build_into_message(builder),
             Self::HInfo(r) => r.build_into_message(builder),
+            Self::Mx(r) => r.build_into_message(builder),
             Self::Txt(r) => r.build_into_message(builder),
             Self::Aaaa(r) => r.build_into_message(builder),
-            Self::Mx(r) => r.build_into_message(builder),
+            Self::Opt(r) => r.build_into_message(builder),
             Self::Unknown(_, r) => r.octets.build_into_message(builder),
         }
     }
@@ -158,9 +166,10 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
             Self::Wks(r) => r.build_bytes(bytes),
             Self::Ptr(r) => r.build_bytes(bytes),
             Self::HInfo(r) => r.build_bytes(bytes),
+            Self::Mx(r) => r.build_bytes(bytes),
             Self::Txt(r) => r.build_bytes(bytes),
             Self::Aaaa(r) => r.build_bytes(bytes),
-            Self::Mx(r) => r.build_bytes(bytes),
+            Self::Opt(r) => r.build_bytes(bytes),
             Self::Unknown(_, r) => r.build_bytes(bytes),
         }
     }
