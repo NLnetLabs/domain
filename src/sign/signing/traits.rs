@@ -254,7 +254,8 @@ where
                     if let ZoneRecordData::Soa(soa_data) = soa.data() {
                         soa_data.minimum()
                     } else {
-                        // Errm, this is unexpected.
+                        // Errm, this is unexpected. TODO: Should we abort
+                        // with an error here about a malformed zonefile?
                         soa.ttl()
                     }
                 }
