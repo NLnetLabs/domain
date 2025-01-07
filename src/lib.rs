@@ -1,6 +1,6 @@
 //! A DNS library for Rust.
 //!
-//! This crates provides a number of building blocks for developing
+//! This crate provides a number of building blocks for developing
 //! functionality related to the
 //! [Domain Name System (DNS)](https://www.rfc-editor.org/rfc/rfc9499.html).
 //! It provides fundamental types, traits, and code as well as a wide range
