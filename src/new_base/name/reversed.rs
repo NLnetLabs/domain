@@ -269,6 +269,7 @@ impl<'a> SplitFromMessage<'a> for RevNameBuf {
             }
 
             // Keep going, from the referenced position.
+            let start = start.checked_sub(12).ok_or(ParseError)?;
             let bytes = contents.get(start..).ok_or(ParseError)?;
             (pointer, _) = parse_segment(bytes, &mut buffer)?;
             old_start = start;

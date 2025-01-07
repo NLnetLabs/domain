@@ -8,7 +8,7 @@ use super::{
     parse::{ParseFromMessage, SplitFromMessage},
     wire::{
         AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
-        SplitBytes, SplitBytesByRef, TruncationError, U16, U32,
+        SizePrefixed, SplitBytes, SplitBytesByRef, TruncationError, U16, U32,
     },
     Message,
 };
@@ -73,16 +73,13 @@ where
         let (&rtype, rest) = <&RType>::split_from_message(message, rest)?;
         let (&rclass, rest) = <&RClass>::split_from_message(message, rest)?;
         let (&ttl, rest) = <&TTL>::split_from_message(message, rest)?;
-        let (&size, rest) = <&U16>::split_from_message(message, rest)?;
-        let size: usize = size.get().into();
-        let rdata = if message.contents.len() - rest >= size {
-            let message = message.slice_to(rest + size);
-            D::parse_record_data(message, rest, rtype)?
-        } else {
-            return Err(ParseError);
-        };
+        let rdata_start = rest;
+        let (_, rest) =
+            <&SizePrefixed<[u8]>>::split_from_message(message, rest)?;
+        let message = message.slice_to(rest);
+        let rdata = D::parse_record_data(message, rdata_start, rtype)?;
 
-        Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest + size))
+        Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
     }
 }
 
@@ -95,13 +92,14 @@ where
         message: &'a Message,
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (this, rest) = Self::split_from_message(message, start)?;
+        let (rname, rest) = N::split_from_message(message, start)?;
+        let (&rtype, rest) = <&RType>::split_from_message(message, rest)?;
+        let (&rclass, rest) = <&RClass>::split_from_message(message, rest)?;
+        let (&ttl, rest) = <&TTL>::split_from_message(message, rest)?;
+        let _ = <&SizePrefixed<[u8]>>::parse_from_message(message, rest)?;
+        let rdata = D::parse_record_data(message, rest, rtype)?;
 
-        if rest == message.contents.len() {
-            Ok(this)
-        } else {
-            Err(ParseError)
-        }
+        Ok(Self::new(rname, rtype, rclass, ttl, rdata))
     }
 }
 
@@ -148,13 +146,7 @@ where
         let (rtype, rest) = RType::split_bytes(rest)?;
         let (rclass, rest) = RClass::split_bytes(rest)?;
         let (ttl, rest) = TTL::split_bytes(rest)?;
-        let (size, rest) = U16::split_bytes(rest)?;
-        let size: usize = size.get().into();
-        if rest.len() < size {
-            return Err(ParseError);
-        }
-
-        let (rdata, rest) = rest.split_at(size);
+        let (rdata, rest) = <&SizePrefixed<[u8]>>::split_bytes(rest)?;
         let rdata = D::parse_record_data_bytes(rdata, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
@@ -171,13 +163,8 @@ where
         let (rtype, rest) = RType::split_bytes(rest)?;
         let (rclass, rest) = RClass::split_bytes(rest)?;
         let (ttl, rest) = TTL::split_bytes(rest)?;
-        let (size, rest) = U16::split_bytes(rest)?;
-        let size: usize = size.get().into();
-        if rest.len() != size {
-            return Err(ParseError);
-        }
-
-        let rdata = D::parse_record_data_bytes(rest, rtype)?;
+        let rdata = <&SizePrefixed<[u8]>>::parse_bytes(rest)?;
+        let rdata = D::parse_record_data_bytes(rdata, rtype)?;
 
         Ok(Self::new(rname, rtype, rclass, ttl, rdata))
     }
@@ -198,17 +185,9 @@ where
         bytes = self.rtype.as_bytes().build_bytes(bytes)?;
         bytes = self.rclass.as_bytes().build_bytes(bytes)?;
         bytes = self.ttl.as_bytes().build_bytes(bytes)?;
+        bytes = SizePrefixed::new(&self.rdata).build_bytes(bytes)?;
 
-        let (size, bytes) =
-            U16::split_bytes_by_mut(bytes).map_err(|_| TruncationError)?;
-        let bytes_len = bytes.len();
-
-        let rest = self.rdata.build_bytes(bytes)?;
-        *size = u16::try_from(bytes_len - rest.len())
-            .expect("the record data never exceeds 64KiB")
-            .into();
-
-        Ok(rest)
+        Ok(bytes)
     }
 }
 

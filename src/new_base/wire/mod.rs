@@ -1,4 +1,4 @@
-//! The basic wire format of network protocols.
+//! Low-level byte serialization.
 //!
 //! This is a low-level module providing simple and efficient mechanisms to
 //! parse data from and build data into byte sequences.  It takes inspiration
@@ -79,3 +79,6 @@ pub use parse::{
 
 mod ints;
 pub use ints::{U16, U32, U64};
+
+mod size_prefixed;
+pub use size_prefixed::SizePrefixed;

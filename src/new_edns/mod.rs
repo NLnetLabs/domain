@@ -11,7 +11,7 @@ use crate::{
         parse::{ParseFromMessage, SplitFromMessage},
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
-            SplitBytes, TruncationError, U16,
+            SizePrefixed, SplitBytes, TruncationError, U16,
         },
         Message,
     },
@@ -44,7 +44,7 @@ pub struct EdnsRecord<'a> {
     pub flags: EdnsFlags,
 
     /// Extended DNS options.
-    pub options: &'a Opt,
+    pub options: SizePrefixed<&'a Opt>,
 }
 
 //--- Parsing from DNS messages
@@ -84,15 +84,7 @@ impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
         let (&ext_rcode, rest) = <&u8>::split_bytes(rest)?;
         let (&version, rest) = <&u8>::split_bytes(rest)?;
         let (&flags, rest) = <&EdnsFlags>::split_bytes(rest)?;
-
-        // Split the record size and data.
-        let (&size, rest) = <&U16>::split_bytes(rest)?;
-        let size: usize = size.get().into();
-        if rest.len() < size {
-            return Err(ParseError);
-        }
-        let (options, rest) = rest.split_at(size);
-        let options = Opt::parse_bytes_by_ref(options)?;
+        let (options, rest) = <SizePrefixed<&Opt>>::split_bytes(rest)?;
 
         Ok((
             Self {
@@ -116,14 +108,7 @@ impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
         let (&ext_rcode, rest) = <&u8>::split_bytes(rest)?;
         let (&version, rest) = <&u8>::split_bytes(rest)?;
         let (&flags, rest) = <&EdnsFlags>::split_bytes(rest)?;
-
-        // Split the record size and data.
-        let (&size, rest) = <&U16>::split_bytes(rest)?;
-        let size: usize = size.get().into();
-        if rest.len() != size {
-            return Err(ParseError);
-        }
-        let options = Opt::parse_bytes_by_ref(rest)?;
+        let options = <SizePrefixed<&Opt>>::parse_bytes(rest)?;
 
         Ok(Self {
             max_udp_payload,
@@ -132,6 +117,26 @@ impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
             flags,
             options,
         })
+    }
+}
+
+//--- Building into bytes
+
+impl BuildBytes for EdnsRecord<'_> {
+    fn build_bytes<'b>(
+        &self,
+        mut bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        // Add the record name (root) and the record type.
+        bytes = [0, 0, 41].as_slice().build_bytes(bytes)?;
+
+        bytes = self.max_udp_payload.build_bytes(bytes)?;
+        bytes = self.ext_rcode.build_bytes(bytes)?;
+        bytes = self.version.build_bytes(bytes)?;
+        bytes = self.flags.build_bytes(bytes)?;
+        bytes = self.options.build_bytes(bytes)?;
+
+        Ok(bytes)
     }
 }
 
@@ -239,25 +244,22 @@ impl EdnsOption<'_> {
 impl<'b> ParseBytes<'b> for EdnsOption<'b> {
     fn parse_bytes(bytes: &'b [u8]) -> Result<Self, ParseError> {
         let (code, rest) = OptionCode::split_bytes(bytes)?;
-        let (size, rest) = U16::split_bytes(rest)?;
-        if rest.len() != size.get() as usize {
-            return Err(ParseError);
-        }
+        let data = <&SizePrefixed<[u8]>>::parse_bytes(rest)?;
 
         match code {
-            OptionCode::COOKIE => match size.get() {
-                8 => CookieRequest::parse_bytes_by_ref(rest)
+            OptionCode::COOKIE => match data.len() {
+                8 => CookieRequest::parse_bytes_by_ref(data)
                     .map(Self::CookieRequest),
-                16..=40 => Cookie::parse_bytes_by_ref(rest).map(Self::Cookie),
+                16..=40 => Cookie::parse_bytes_by_ref(data).map(Self::Cookie),
                 _ => Err(ParseError),
             },
 
             OptionCode::EXT_ERROR => {
-                ExtError::parse_bytes_by_ref(rest).map(Self::ExtError)
+                ExtError::parse_bytes_by_ref(data).map(Self::ExtError)
             }
 
             _ => {
-                let data = UnknownOption::parse_bytes_by_ref(rest)?;
+                let data = UnknownOption::parse_bytes_by_ref(data)?;
                 Ok(Self::Unknown(code, data))
             }
         }
@@ -267,32 +269,25 @@ impl<'b> ParseBytes<'b> for EdnsOption<'b> {
 impl<'b> SplitBytes<'b> for EdnsOption<'b> {
     fn split_bytes(bytes: &'b [u8]) -> Result<(Self, &'b [u8]), ParseError> {
         let (code, rest) = OptionCode::split_bytes(bytes)?;
-        let (size, rest) = U16::split_bytes(rest)?;
-        if rest.len() < size.get() as usize {
-            return Err(ParseError);
-        }
-        let (bytes, rest) = rest.split_at(size.get() as usize);
+        let (data, rest) = <&SizePrefixed<[u8]>>::split_bytes(rest)?;
 
-        match code {
-            OptionCode::COOKIE => match size.get() {
-                8 => CookieRequest::parse_bytes_by_ref(bytes)
-                    .map(Self::CookieRequest),
-                16..=40 => {
-                    Cookie::parse_bytes_by_ref(bytes).map(Self::Cookie)
-                }
-                _ => Err(ParseError),
+        let this = match code {
+            OptionCode::COOKIE => match data.len() {
+                8 => <&CookieRequest>::parse_bytes(data)
+                    .map(Self::CookieRequest)?,
+                16..=40 => <&Cookie>::parse_bytes(data).map(Self::Cookie)?,
+                _ => return Err(ParseError),
             },
 
             OptionCode::EXT_ERROR => {
-                ExtError::parse_bytes_by_ref(bytes).map(Self::ExtError)
+                <&ExtError>::parse_bytes(data).map(Self::ExtError)?
             }
 
-            _ => {
-                let data = UnknownOption::parse_bytes_by_ref(bytes)?;
-                Ok(Self::Unknown(code, data))
-            }
-        }
-        .map(|this| (this, rest))
+            _ => <&UnknownOption>::parse_bytes(data)
+                .map(|data| Self::Unknown(code, data))?,
+        };
+
+        Ok((this, rest))
     }
 }
 
@@ -311,9 +306,8 @@ impl BuildBytes for EdnsOption<'_> {
             Self::ExtError(this) => this.as_bytes(),
             Self::Unknown(_, this) => this.as_bytes(),
         };
+        bytes = SizePrefixed::new(data).build_bytes(bytes)?;
 
-        bytes = U16::new(data.len() as u16).build_bytes(bytes)?;
-        bytes = data.build_bytes(bytes)?;
         Ok(bytes)
     }
 }
