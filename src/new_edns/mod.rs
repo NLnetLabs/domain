@@ -2,7 +2,7 @@
 //!
 //! See [RFC 6891](https://datatracker.ietf.org/doc/html/rfc6891).
 
-use core::{fmt, ops::Range};
+use core::fmt;
 
 use domain_macros::*;
 
@@ -54,20 +54,20 @@ impl<'a> SplitFromMessage<'a> for EdnsRecord<'a> {
         message: &'a Message,
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        let bytes = message.as_bytes().get(start..).ok_or(ParseError)?;
+        let bytes = message.contents.get(start..).ok_or(ParseError)?;
         let (this, rest) = Self::split_bytes(bytes)?;
-        Ok((this, message.as_bytes().len() - rest.len()))
+        Ok((this, message.contents.len() - rest.len()))
     }
 }
 
 impl<'a> ParseFromMessage<'a> for EdnsRecord<'a> {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
         message
-            .as_bytes()
-            .get(range)
+            .contents
+            .get(start..)
             .ok_or(ParseError)
             .and_then(Self::parse_bytes)
     }

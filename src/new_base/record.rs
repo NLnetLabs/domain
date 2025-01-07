@@ -1,9 +1,6 @@
 //! DNS records.
 
-use core::{
-    borrow::Borrow,
-    ops::{Deref, Range},
-};
+use core::{borrow::Borrow, ops::Deref};
 
 use super::{
     build::{self, BuildIntoMessage},
@@ -78,8 +75,9 @@ where
         let (&ttl, rest) = <&TTL>::split_from_message(message, rest)?;
         let (&size, rest) = <&U16>::split_from_message(message, rest)?;
         let size: usize = size.get().into();
-        let rdata = if message.as_bytes().len() - rest >= size {
-            D::parse_record_data(message, rest..rest + size, rtype)?
+        let rdata = if message.contents.len() - rest >= size {
+            let message = message.slice_to(rest + size);
+            D::parse_record_data(message, rest, rtype)?
         } else {
             return Err(ParseError);
         };
@@ -95,15 +93,11 @@ where
 {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
-        let message = &message.as_bytes()[..range.end];
-        let message = Message::parse_bytes_by_ref(message)
-            .expect("The input range ends past the message header");
+        let (this, rest) = Self::split_from_message(message, start)?;
 
-        let (this, rest) = Self::split_from_message(message, range.start)?;
-
-        if rest == range.end {
+        if rest == message.contents.len() {
             Ok(this)
         } else {
             Err(ParseError)
@@ -334,10 +328,10 @@ pub trait ParseRecordData<'a>: Sized {
     /// Parse DNS record data of the given type from a DNS message.
     fn parse_record_data(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
         rtype: RType,
     ) -> Result<Self, ParseError> {
-        let bytes = message.as_bytes().get(range).ok_or(ParseError)?;
+        let bytes = message.contents.get(start..).ok_or(ParseError)?;
         Self::parse_record_data_bytes(bytes, rtype)
     }
 

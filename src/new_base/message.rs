@@ -2,9 +2,9 @@
 
 use core::fmt;
 
-use domain_macros::{AsBytes, *};
+use domain_macros::*;
 
-use super::wire::U16;
+use super::wire::{AsBytes, ParseBytesByRef, U16};
 
 //----------- Message --------------------------------------------------------
 
@@ -17,6 +17,19 @@ pub struct Message {
 
     /// The message contents.
     pub contents: [u8],
+}
+
+//--- Interaction
+
+impl Message {
+    /// Truncate the contents of this message to the given size.
+    ///
+    /// The returned value will have a `contents` field of the given size.
+    pub fn slice_to(&self, size: usize) -> &Self {
+        let bytes = &self.as_bytes()[..12 + size];
+        Self::parse_bytes_by_ref(bytes)
+            .expect("A 12-or-more byte string is a valid 'Message'")
+    }
 }
 
 //----------- Header ---------------------------------------------------------

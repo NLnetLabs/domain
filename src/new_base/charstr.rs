@@ -1,14 +1,11 @@
 //! DNS "character strings".
 
-use core::{fmt, ops::Range};
+use core::fmt;
 
 use super::{
     build::{self, BuildIntoMessage},
     parse::{ParseFromMessage, SplitFromMessage},
-    wire::{
-        AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
-        TruncationError,
-    },
+    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
     Message,
 };
 
@@ -28,7 +25,7 @@ impl<'a> SplitFromMessage<'a> for &'a CharStr {
         message: &'a Message,
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        let bytes = &message.as_bytes()[start..];
+        let bytes = message.contents.get(start..).ok_or(ParseError)?;
         let (this, rest) = Self::split_bytes(bytes)?;
         Ok((this, bytes.len() - rest.len()))
     }
@@ -37,11 +34,11 @@ impl<'a> SplitFromMessage<'a> for &'a CharStr {
 impl<'a> ParseFromMessage<'a> for &'a CharStr {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
         message
-            .as_bytes()
-            .get(range)
+            .contents
+            .get(start..)
             .ok_or(ParseError)
             .and_then(Self::parse_bytes)
     }

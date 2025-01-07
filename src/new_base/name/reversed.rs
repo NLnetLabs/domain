@@ -5,16 +5,13 @@ use core::{
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
-    ops::{Deref, Range},
+    ops::Deref,
 };
 
 use crate::new_base::{
     build::{self, BuildIntoMessage},
     parse::{ParseFromMessage, SplitFromMessage},
-    wire::{
-        AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
-        TruncationError,
-    },
+    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
     Message,
 };
 
@@ -255,13 +252,13 @@ impl<'a> SplitFromMessage<'a> for RevNameBuf {
         // disallow a name to point to data _after_ it.  Standard name
         // compressors will never generate such pointers.
 
-        let message = message.as_bytes();
+        let contents = &message.contents;
         let mut buffer = Self::empty();
 
         // Perform the first iteration early, to catch the end of the name.
-        let bytes = message.get(start..).ok_or(ParseError)?;
+        let bytes = contents.get(start..).ok_or(ParseError)?;
         let (mut pointer, rest) = parse_segment(bytes, &mut buffer)?;
-        let orig_end = message.len() - rest.len();
+        let orig_end = contents.len() - rest.len();
 
         // Traverse compression pointers.
         let mut old_start = start;
@@ -272,7 +269,7 @@ impl<'a> SplitFromMessage<'a> for RevNameBuf {
             }
 
             // Keep going, from the referenced position.
-            let bytes = message.get(start..).ok_or(ParseError)?;
+            let bytes = contents.get(start..).ok_or(ParseError)?;
             (pointer, _) = parse_segment(bytes, &mut buffer)?;
             old_start = start;
             continue;
@@ -288,17 +285,17 @@ impl<'a> SplitFromMessage<'a> for RevNameBuf {
 impl<'a> ParseFromMessage<'a> for RevNameBuf {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
         // See 'split_from_message()' for details.  The only differences are
         // in the range of the first iteration, and the check that the first
         // iteration exactly covers the input range.
 
-        let message = message.as_bytes();
+        let contents = &message.contents;
         let mut buffer = Self::empty();
 
         // Perform the first iteration early, to catch the end of the name.
-        let bytes = message.get(range.clone()).ok_or(ParseError)?;
+        let bytes = contents.get(start..).ok_or(ParseError)?;
         let (mut pointer, rest) = parse_segment(bytes, &mut buffer)?;
 
         if !rest.is_empty() {
@@ -307,7 +304,7 @@ impl<'a> ParseFromMessage<'a> for RevNameBuf {
         }
 
         // Traverse compression pointers.
-        let mut old_start = range.start;
+        let mut old_start = start;
         while let Some(start) = pointer.map(usize::from) {
             // Ensure the referenced position comes earlier.
             if start >= old_start {
@@ -315,7 +312,7 @@ impl<'a> ParseFromMessage<'a> for RevNameBuf {
             }
 
             // Keep going, from the referenced position.
-            let bytes = message.get(start..).ok_or(ParseError)?;
+            let bytes = contents.get(start..).ok_or(ParseError)?;
             (pointer, _) = parse_segment(bytes, &mut buffer)?;
             old_start = start;
             continue;

@@ -2,7 +2,7 @@
 //!
 //! See [RFC 1035](https://datatracker.ietf.org/doc/html/rfc1035).
 
-use core::{fmt, ops::Range};
+use core::fmt;
 
 #[cfg(feature = "std")]
 use core::str::FromStr;
@@ -123,9 +123,9 @@ pub struct Ns<N: ?Sized> {
 impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ns<N> {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
-        N::parse_from_message(message, range).map(|name| Self { name })
+        N::parse_from_message(message, start).map(|name| Self { name })
     }
 }
 
@@ -167,9 +167,9 @@ pub struct CName<N: ?Sized> {
 impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for CName<N> {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
-        N::parse_from_message(message, range).map(|name| Self { name })
+        N::parse_from_message(message, start).map(|name| Self { name })
     }
 }
 
@@ -226,15 +226,15 @@ pub struct Soa<N> {
 impl<'a, N: SplitFromMessage<'a>> ParseFromMessage<'a> for Soa<N> {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
-        let (mname, rest) = N::split_from_message(message, range.start)?;
+        let (mname, rest) = N::split_from_message(message, start)?;
         let (rname, rest) = N::split_from_message(message, rest)?;
         let (&serial, rest) = <&Serial>::split_from_message(message, rest)?;
         let (&refresh, rest) = <&U32>::split_from_message(message, rest)?;
         let (&retry, rest) = <&U32>::split_from_message(message, rest)?;
         let (&expire, rest) = <&U32>::split_from_message(message, rest)?;
-        let &minimum = <&U32>::parse_from_message(message, rest..range.end)?;
+        let &minimum = <&U32>::parse_from_message(message, rest)?;
 
         Ok(Self {
             mname,
@@ -349,9 +349,9 @@ pub struct Ptr<N: ?Sized> {
 impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ptr<N> {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
-        N::parse_from_message(message, range).map(|name| Self { name })
+        N::parse_from_message(message, start).map(|name| Self { name })
     }
 }
 
@@ -383,11 +383,11 @@ pub struct HInfo<'a> {
 impl<'a> ParseFromMessage<'a> for HInfo<'a> {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
         message
-            .as_bytes()
-            .get(range)
+            .contents
+            .get(start..)
             .ok_or(ParseError)
             .and_then(Self::parse_bytes)
     }
@@ -437,11 +437,10 @@ pub struct Mx<N: ?Sized> {
 impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Mx<N> {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
-        let (&preference, rest) =
-            <&U16>::split_from_message(message, range.start)?;
-        let exchange = N::parse_from_message(message, rest..range.end)?;
+        let (&preference, rest) = <&U16>::split_from_message(message, start)?;
+        let exchange = N::parse_from_message(message, rest)?;
         Ok(Self {
             preference,
             exchange,
@@ -496,11 +495,11 @@ impl Txt {
 impl<'a> ParseFromMessage<'a> for &'a Txt {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
         message
-            .as_bytes()
-            .get(range)
+            .contents
+            .get(start..)
             .ok_or(ParseError)
             .and_then(Self::parse_bytes)
     }

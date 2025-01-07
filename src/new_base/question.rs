@@ -1,7 +1,5 @@
 //! DNS questions.
 
-use core::ops::Range;
-
 use domain_macros::*;
 
 use super::{
@@ -66,12 +64,11 @@ where
 {
     fn parse_from_message(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
     ) -> Result<Self, ParseError> {
-        let (qname, rest) = N::split_from_message(message, range.start)?;
+        let (qname, rest) = N::split_from_message(message, start)?;
         let (&qtype, rest) = <&QType>::split_from_message(message, rest)?;
-        let &qclass =
-            <&QClass>::parse_from_message(message, rest..range.end)?;
+        let &qclass = <&QClass>::parse_from_message(message, rest)?;
         Ok(Self::new(qname, qtype, qclass))
     }
 }

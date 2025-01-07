@@ -1,7 +1,5 @@
 //! Record data types.
 
-use core::ops::Range;
-
 use domain_macros::*;
 
 use crate::new_base::{
@@ -70,35 +68,35 @@ where
 {
     fn parse_record_data(
         message: &'a Message,
-        range: Range<usize>,
+        start: usize,
         rtype: RType,
     ) -> Result<Self, ParseError> {
         match rtype {
-            RType::A => <&A>::parse_from_message(message, range).map(Self::A),
-            RType::NS => Ns::parse_from_message(message, range).map(Self::Ns),
+            RType::A => <&A>::parse_from_message(message, start).map(Self::A),
+            RType::NS => Ns::parse_from_message(message, start).map(Self::Ns),
             RType::CNAME => {
-                CName::parse_from_message(message, range).map(Self::CName)
+                CName::parse_from_message(message, start).map(Self::CName)
             }
             RType::SOA => {
-                Soa::parse_from_message(message, range).map(Self::Soa)
+                Soa::parse_from_message(message, start).map(Self::Soa)
             }
             RType::WKS => {
-                <&Wks>::parse_from_message(message, range).map(Self::Wks)
+                <&Wks>::parse_from_message(message, start).map(Self::Wks)
             }
             RType::PTR => {
-                Ptr::parse_from_message(message, range).map(Self::Ptr)
+                Ptr::parse_from_message(message, start).map(Self::Ptr)
             }
             RType::HINFO => {
-                HInfo::parse_from_message(message, range).map(Self::HInfo)
+                HInfo::parse_from_message(message, start).map(Self::HInfo)
             }
-            RType::MX => Mx::parse_from_message(message, range).map(Self::Mx),
+            RType::MX => Mx::parse_from_message(message, start).map(Self::Mx),
             RType::TXT => {
-                <&Txt>::parse_from_message(message, range).map(Self::Txt)
+                <&Txt>::parse_from_message(message, start).map(Self::Txt)
             }
             RType::AAAA => {
-                <&Aaaa>::parse_from_message(message, range).map(Self::Aaaa)
+                <&Aaaa>::parse_from_message(message, start).map(Self::Aaaa)
             }
-            _ => <&UnknownRecordData>::parse_from_message(message, range)
+            _ => <&UnknownRecordData>::parse_from_message(message, start)
                 .map(|data| Self::Unknown(rtype, data)),
         }
     }
