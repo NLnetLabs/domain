@@ -315,7 +315,7 @@ where
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
 {
-    fn apex(&self) -> FamilyName<N>;
+    fn apex(&self) -> Option<FamilyName<N>>;
 
     // TODO
     // fn iter_mut<T>(&mut self) -> T;
@@ -342,7 +342,7 @@ where
         let in_out = SignableZoneInOut::new_into(self, out);
         sign_zone::<N, Octs, Self, Key, KeyStrat, Sort, HP, T>(
             in_out,
-            &self.apex(),
+            &self.apex().ok_or(SigningError::NoSoaFound)?,
             signing_config,
             signing_keys,
         )
@@ -372,16 +372,8 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     S: Sorter,
 {
-    fn apex(&self) -> FamilyName<N> {
-        self.find_soa().unwrap().family_name().cloned()
-    }
-}
-
-//--- impl RecordSlice for Vec
-
-impl<N, D> RecordSlice<N, D> for Vec<Record<N, D>> {
-    fn as_slice(&self) -> &[Record<N, D>] {
-        Vec::as_slice(self)
+    fn apex(&self) -> Option<FamilyName<N>> {
+        self.find_soa().map(|soa| soa.family_name().cloned())
     }
 }
 
@@ -408,11 +400,10 @@ where
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
 {
-    fn apex(&self) -> FamilyName<N> {
+    fn apex(&self) -> Option<FamilyName<N>> {
         self.iter()
             .find(|r| r.rtype() == Rtype::SOA)
             .map(|r| FamilyName::new(r.owner().clone(), r.class()))
-            .unwrap()
     }
 }
 
@@ -446,7 +437,7 @@ where
         KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
         Sort: Sorter,
     {
-        let apex = self.apex();
+        let apex = self.apex().ok_or(SigningError::NoSoaFound)?;
         let in_out = SignableZoneInOut::new_in_place(self);
         sign_zone::<N, Octs, Self, Key, KeyStrat, Sort, HP, Self>(
             in_out,
