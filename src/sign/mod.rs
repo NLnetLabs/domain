@@ -139,8 +139,15 @@
 //! // Create a sorted collection of records.
 //! let mut records = SortedRecords::default();
 //!
-//! // Insert records into the collection.
-//! let soa = Soa::new(root.clone(), root.clone(), Serial::now(), Ttl::ZERO, Ttl::ZERO, Ttl::ZERO, Ttl::ZERO);
+//! // Insert records into the collection. Just a dummy SOA for this example.
+//! let soa = Soa::new(
+//!     root.clone(),
+//!     root.clone(),
+//!     Serial::now(),
+//!     Ttl::ZERO,
+//!     Ttl::ZERO,
+//!     Ttl::ZERO,
+//!     Ttl::ZERO);
 //! records.insert(Record::new(root, Class::IN, Ttl::ZERO, ZoneRecordData::Soa(soa)));
 //!
 //! // Generate or import signing keys (see above).
