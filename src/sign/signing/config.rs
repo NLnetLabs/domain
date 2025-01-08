@@ -1,12 +1,17 @@
 use core::marker::PhantomData;
 
+use octseq::{EmptyBuilder, FromBuilder};
+
+use crate::base::{Name, ToName};
 use crate::sign::hashing::config::HashingConfig;
 use crate::sign::hashing::nsec3::{
     Nsec3HashProvider, OnDemandNsec3HashProvider,
 };
-use crate::sign::records::Sorter;
+use crate::sign::records::{DefaultSorter, Sorter};
 use crate::sign::signing::strategy::SigningKeyUsageStrategy;
 use crate::sign::SignRaw;
+
+use super::strategy::DefaultSigningKeyUsageStrategy;
 
 //------------ SigningConfig -------------------------------------------------
 
@@ -51,14 +56,20 @@ where
     }
 }
 
-impl<N, Octs, Key, KeyStrat, Sort, HP> Default
-    for SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>
+impl<N, Octs, Key> Default
+    for SigningConfig<
+        N,
+        Octs,
+        Key,
+        DefaultSigningKeyUsageStrategy,
+        DefaultSorter,
+        OnDemandNsec3HashProvider<Octs>,
+    >
 where
-    HP: Nsec3HashProvider<N, Octs>,
-    Octs: AsRef<[u8]> + From<&'static [u8]>,
+    N: ToName + From<Name<Octs>>,
+    Octs: AsRef<[u8]> + From<&'static [u8]> + FromBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Key: SignRaw,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
-    Sort: Sorter,
 {
     fn default() -> Self {
         Self {
