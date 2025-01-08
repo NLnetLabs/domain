@@ -22,7 +22,7 @@ Currently, these blocks include:
   validation.
 
 The library is currently under
-[heavy development](https://blog.nlnetlabs.nl/domain-dns-building-blocks-for-rust-application-developers/)
+[heavy development](https://blog.nlnetlabs.nl/domain-foundations-the-first-of-our-five-year-vision/)
 and additional building blocks and features are being added.
 
 
