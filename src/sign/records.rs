@@ -310,8 +310,8 @@ where
     }
 }
 
-impl<N: Send, D: Send + CanonicalOrd, S: Sorter> Default
-    for SortedRecords<N, D, S>
+impl<N: Send, D: Send + CanonicalOrd> Default
+    for SortedRecords<N, D, DefaultSorter>
 {
     fn default() -> Self {
         Self::new()
