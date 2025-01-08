@@ -2,46 +2,49 @@
 //!
 //! **This module is experimental and likely to change significantly.**
 //!
-//! Signatures are at the heart of DNSSEC -- they confirm the authenticity of
-//! a DNS record served by a security-aware name server.  Signatures can be
-//! made "online" (in an authoritative name server while it is running) or
-//! "offline" (outside of a name server).  Once generated, signatures can be
-//! serialized as DNS records and stored alongside the authenticated records.
+//! This module provides support for DNSSEC signing of zones.
+//!
+//! DNSSEC signed zones consist of configuration data such as DNSKEY and
+//! NSEC3PARAM records, NSEC(3) chains used to provably deny the existence of
+//! records, and signatures that authenticate the authoritative content of the
+//! zone.
+//!
+//! # Overview
+//!
+//! This module provides support for working with DNSSEC signing keys and
+//! using them to DNSSEC sign sorted [`Record`] collections via the traits
+//! [`SignableZone`], [`SignableZoneInPlace`] and [`Signable`].
+//!
+//! <div class="warning">
+//!
+//! This module does **NOT** yet support signing of records stored in a
+//! [`Zone`].
+//!
+//! </div>
 //!
 //! Signatures can be generated using a [`SigningKey`], which combines
 //! cryptographic key material with additional information that defines how
 //! the key should be used.  [`SigningKey`] relies on a cryptographic backend
-//! to provide the underlying signing operation (e.g. [`keys::keypair::KeyPair`]).
+//! to provide the underlying signing operation (e.g.
+//! [`keys::keypair::KeyPair`]).
 //!
-//! # Example Usage
+//! While all records in a zone can be signed with a single key, it is useful
+//! to use one key, a Key Signing Key (KSK), "to sign the apex DNSKEY RRset in
+//! a zone" and another key, a Zone Signing Key (ZSK), "to sign all the RRsets
+//! in a zone that require signatures, other than the apex DNSKEY RRset" (see
+//! [RFC 6781 section 3.1]).
 //!
-//! At the moment, only "low-level" signing is supported.
+//! Cryptographically there is no difference between these key types, they are
+//! assigned by the operator to signal their intended usage. This module
+//! provides the [`DnssecSigningKey`] wrapper type around a [`SigningKey`] to
+//! allow the intended usage of the key to be signalled by the operator, and
+//! [`SigningKeyUsageStrategy`] to allow different key usage strategies to be
+//! defined and selected to influence how the different types of key affect
+//! signing.
 //!
-//! ```
-//! # use domain::sign::*;
-//! # use domain::base::Name;
-//! // Generate a new Ed25519 key.
-//! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_bytes) = keys::keypair::generate(params).unwrap();
+//! # Importing keys
 //!
-//! // Parse the key into Ring or OpenSSL.
-//! let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//!
-//! // Associate the key with important metadata.
-//! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
-//! let flags = 257; // key signing key
-//! let key = SigningKey::new(owner, flags, key_pair);
-//!
-//! // Access the public key (with metadata).
-//! let pub_key = key.public_key();
-//! println!("{:?}", pub_key);
-//!
-//! // Sign arbitrary byte sequences with the key.
-//! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
-//! println!("{:?}", sig);
-//! ```
-//!
-//! It is also possible to import keys stored on disk in the conventional BIND
+//! Keys can be imported from files stored on disk in the conventional BIND
 //! format.
 //!
 //! ```
@@ -65,6 +68,126 @@
 //! assert_eq!(key.algorithm(), SecAlg::ED25519);
 //! assert_eq!(key.public_key().key_tag(), 56037);
 //! ```
+//!
+//! # Generating keys
+//!
+//! Keys can also be generated.
+//!
+//! ```
+//! # use domain::base::Name;
+//! # use domain::sign::*;
+//! // Generate a new Ed25519 key.
+//! let params = GenerateParams::Ed25519;
+//! let (sec_bytes, pub_bytes) = keys::keypair::generate(params).unwrap();
+//!
+//! // Parse the key into Ring or OpenSSL.
+//! let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//!
+//! // Associate the key with important metadata.
+//! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
+//! let flags = 257; // key signing key
+//! let key = SigningKey::new(owner, flags, key_pair);
+//!
+//! // Access the public key (with metadata).
+//! let pub_key = key.public_key();
+//! println!("{:?}", pub_key);
+//! ```
+//!
+//! # Low level signing
+//!
+//! Given some data and a key, the data can be signed with the key.
+//!
+//! ```
+//! # use domain::base::Name;
+//! # use domain::sign::*;
+//! # let (sec_bytes, pub_bytes) = keys::keypair::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # let key = SigningKey::new(Name::<Vec<u8>>::root(), 257, key_pair);
+//! // Sign arbitrary byte sequences with the key.
+//! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
+//! println!("{:?}", sig);
+//! ```
+//!
+//! # High level signing
+//!
+//! Given a type for which [`SignableZone`] or [`SignableZoneInPlace`] is
+//! implemented, invoke `sign_zone()` on the type.
+//!
+//! <div class="warning">
+//!
+//! Currently there is no support for re-signing a zone, i.e. ensuring
+//! that any changes to the authoritative records in the zone are reflected
+//! by updating the NSEC(3) chain and generating additional signatures or
+//! regenerating existing ones that have expired.
+//!
+//! </div>
+//!
+//! ```
+//! # use domain::base::{*, iana::Class};
+//! # use domain::sign::*;
+//! # let (sec_bytes, pub_bytes) = keys::keypair::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # let root = Name::<Vec<u8>>::root();
+//! # let key = SigningKey::new(root.clone(), 257, key_pair);
+//! use domain::rdata::{rfc1035::Soa, ZoneRecordData};
+//! use domain::rdata::dnssec::Timestamp;
+//! use domain::sign::keys::keymeta::{DnssecSigningKey, DesignatedSigningKey};
+//! use domain::sign::records::{DefaultSorter, SortedRecords};
+//! use domain::sign::signing::config::SigningConfig;
+//! use domain::sign::signing::traits::SignableZoneInPlace;
+//!
+//! // Create a sorted collection of records.
+//! let mut records = SortedRecords::default();
+//!
+//! // Insert records into the collection.
+//! let soa = Soa::new(root.clone(), root.clone(), Serial::now(), Ttl::ZERO, Ttl::ZERO, Ttl::ZERO, Ttl::ZERO);
+//! records.insert(Record::new(root, Class::IN, Ttl::ZERO, ZoneRecordData::Soa(soa)));
+//!
+//! // Generate or import signing keys (see above).
+//!
+//! // Assign signature validity period and operator intent to the keys.
+//! let key = key.with_validity(Timestamp::now(), Timestamp::now());
+//! let dnssec_signing_key = DnssecSigningKey::new_csk(key);
+//! let keys = [&dnssec_signing_key as &dyn DesignatedSigningKey<_, _>];
+//!
+//! // Create a signing configuration.
+//! let mut signing_config = SigningConfig::default();
+//!
+//! // Then sign the zone in place.
+//! records.sign_zone(&mut signing_config, &keys).unwrap();
+//! ```
+//!
+//! If needed, individual RRsets can also be signed:``
+//!
+//! ```
+//! # use domain::base::Name;
+//! # use domain::base::iana::Class;
+//! # use domain::sign::*;
+//! # use domain::sign::keys::keymeta::{DesignatedSigningKey, DnssecSigningKey};
+//! # let (sec_bytes, pub_bytes) = keys::keypair::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # let root = Name::<Vec<u8>>::root();
+//! # let key = SigningKey::new(root, 257, key_pair);
+//! # let dnssec_signing_key = DnssecSigningKey::new_csk(key);
+//! # let keys = [&dnssec_signing_key as &dyn DesignatedSigningKey<_, _>];
+//! # let mut records = records::SortedRecords::<_, _, domain::sign::records::DefaultSorter>::new();
+//! use domain::sign::signing::traits::Signable;
+//! use domain::sign::signing::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
+//! let apex = records::FamilyName::new(Name::<Vec<u8>>::root(), Class::IN);
+//! let rrset = records::Rrset::new(&records);
+//! let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
+//! ```
+//!
+//! [`DnssecSigningKey`]: crate::sign::keys::keymeta::DnssecSigningKey
+//! [`Record`]: crate::base::record::Record
+//! [RFC 6871 section 3.1]: https://rfc-editor.org/rfc/rfc6781#section-3.1
+//! [`SigningKeyUsageStrategy`]:
+//!     crate::sign::signing::strategy::SigningKeyUsageStrategy
+//! [`Signable`]: crate::sign::signing::traits::Signable
+//! [`SignableZone`]: crate::sign::signing::traits::SignableZone
+//! [`SignableZoneInPlace`]: crate::sign::signing::traits::SignableZoneInPlace
+//! [`SortedRecords`]: crate::sign::SortedRecords
+//! [`Zone`]: crate::zonetree::Zone
 //!
 //! # Cryptography
 //!
@@ -111,8 +234,8 @@
 //!
 //! # Key Sets and Key Lifetime
 //! The [`keyset`] module provides a way to keep track of the collection of
-//! keys that are used to sign a particular zone. In addition, the lifetime
-//! of keys can be maintained using key rolls that phase out old keys and
+//! keys that are used to sign a particular zone. In addition, the lifetime of
+//! keys can be maintained using key rolls that phase out old keys and
 //! introduce new keys.
 
 #![cfg(feature = "unstable-sign")]
