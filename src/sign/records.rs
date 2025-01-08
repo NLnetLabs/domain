@@ -3,6 +3,7 @@ use core::cmp::Ordering;
 use core::convert::From;
 use core::iter::Extend;
 use core::marker::{PhantomData, Send};
+use core::ops::Deref;
 use core::slice::Iter;
 
 use std::vec::Vec;
@@ -14,8 +15,6 @@ use crate::base::name::ToName;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::base::Ttl;
-
-use super::signing::traits::RecordSlice;
 
 //------------ Sorter --------------------------------------------------------
 
@@ -243,14 +242,16 @@ where
     }
 }
 
-impl<N, D, S> RecordSlice<N, D> for SortedRecords<N, D, S>
+impl<N, D, S> Deref for SortedRecords<N, D, S>
 where
     N: Send,
     D: Send,
     S: Sorter,
 {
-    fn as_slice(&self) -> &[Record<N, D>] {
-        self.records.as_slice()
+    type Target = [Record<N, D>];
+
+    fn deref(&self) -> &Self::Target {
+        &self.records
     }
 }
 

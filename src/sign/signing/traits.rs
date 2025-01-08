@@ -3,6 +3,7 @@ use core::convert::From;
 use core::fmt::{Debug, Display};
 use core::iter::Extend;
 use core::marker::{PhantomData, Send};
+use core::ops::Deref;
 
 use std::boxed::Box;
 use std::hash::Hash;
@@ -62,12 +63,6 @@ where
     }
 }
 
-//------------ RecordSlice ---------------------------------------------------
-
-pub trait RecordSlice<N, D> {
-    fn as_slice(&self) -> &[Record<N, D>];
-}
-
 //------------ SignableZoneInOut ---------------------------------------------
 
 enum SignableZoneInOut<'a, 'b, N, Octs, S, T>
@@ -100,7 +95,7 @@ where
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     S: SignableZone<N, Octs>,
-    T: RecordSlice<N, ZoneRecordData<Octs, N>>
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
         + SortedExtend<N, Octs>
         + ?Sized,
 {
@@ -125,16 +120,15 @@ where
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     S: SignableZone<N, Octs>,
-    T: RecordSlice<N, ZoneRecordData<Octs, N>>
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
         + SortedExtend<N, Octs>
         + ?Sized,
 {
     fn as_slice(&self) -> &[Record<N, ZoneRecordData<Octs, N>>] {
         match self {
-            SignableZoneInOut::SignInPlace(input_output, _) => {
-                input_output.as_slice()
-            }
-            SignableZoneInOut::SignInto(input, _) => input.as_slice(),
+            SignableZoneInOut::SignInPlace(input_output, _) => input_output,
+
+            SignableZoneInOut::SignInto(input, _) => input,
         }
     }
 
@@ -188,7 +182,7 @@ where
         + OctetsFrom<Vec<u8>>
         + From<Box<[u8]>>
         + Default,
-    T: RecordSlice<N, ZoneRecordData<Octs, N>>,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>,
 {
     let soa = in_out
         .as_slice()
@@ -309,7 +303,7 @@ where
 //------------ SignableZone --------------------------------------------------
 
 pub trait SignableZone<N, Octs>:
-    RecordSlice<N, ZoneRecordData<Octs, N>>
+    Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
 where
     N: Clone + ToName + From<Name<Octs>> + PartialEq + Ord + Hash,
     Octs: Clone
@@ -340,9 +334,9 @@ where
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
         KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
         Sort: Sorter,
-        T: SortedExtend<N, Octs>
-            + ?Sized
-            + RecordSlice<N, ZoneRecordData<Octs, N>>,
+        T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
+            + SortedExtend<N, Octs>
+            + ?Sized,
         Self: Sized,
     {
         let in_out = SignableZoneInOut::new_into(self, out);

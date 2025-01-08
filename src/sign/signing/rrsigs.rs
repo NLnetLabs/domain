@@ -26,7 +26,7 @@ use crate::sign::records::{
     FamilyName, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::sign::signing::strategy::SigningKeyUsageStrategy;
-use crate::sign::signing::traits::{RecordSlice, SortedExtend};
+use crate::sign::signing::traits::SortedExtend;
 use crate::sign::{SignRaw, SigningKey};
 
 /// Generate RRSIG RRs for a collection of unsigned zone records.
@@ -228,7 +228,7 @@ where
         }
 
         let augmented_apex_dnskey_rrset =
-            Rrset::new(augmented_apex_dnskey_rrs.as_slice());
+            Rrset::new(&augmented_apex_dnskey_rrs);
 
         // Sign the apex RRSETs in canonical order.
         for rrset in apex_rrsets

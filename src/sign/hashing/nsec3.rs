@@ -17,7 +17,6 @@ use crate::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Nsec3, Nsec3param, ZoneRecordData};
 use crate::sign::records::{FamilyName, RecordsIter, SortedRecords, Sorter};
-use crate::sign::signing::traits::RecordSlice;
 use crate::utils::base32;
 use crate::validate::{nsec3_hash, Nsec3HashError};
 
@@ -378,7 +377,7 @@ where
     for i in 1..=num_nsec3s {
         // TODO: Detect duplicate hashes.
         let next_i = if i == num_nsec3s { 0 } else { i };
-        let cur_owner = nsec3s.as_slice()[next_i].owner();
+        let cur_owner = nsec3s.as_ref()[next_i].owner();
         let name: Name<Octs> = cur_owner.try_to_name().unwrap();
         let label = name.iter_labels().next().unwrap();
         let owner_hash = if let Ok(hash_octets) =
