@@ -143,16 +143,6 @@ where
     pub fn into_inner(self) -> SigningKey<Octs, Inner> {
         self.key
     }
-
-    // Note: This cannot be done as impl AsRef because AsRef requires that the
-    // lifetime of the returned reference be 'static, and we don't do impl Any
-    // as then the caller has to deal with Option or Result because the type
-    // might not impl DesignatedSigningKey.
-    pub fn as_designated_signing_key(
-        &self,
-    ) -> &dyn DesignatedSigningKey<Octs, Inner> {
-        self
-    }
 }
 
 //--- impl Deref
