@@ -164,7 +164,7 @@
 //! records.sign_zone(&mut signing_config, &keys).unwrap();
 //! ```
 //!
-//! If needed, individual RRsets can also be signed:``
+//! If needed, individual RRsets can also be signed:
 //!
 //! ```
 //! # use domain::base::Name;
