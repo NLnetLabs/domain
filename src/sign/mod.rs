@@ -440,7 +440,7 @@ where
     // the MINIMUM field of the SOA record and the TTL of the SOA itself".
     let ttl = min(soa_data.minimum(), soa.ttl());
 
-    let families = RecordsIter::new(in_out.as_slice());
+    let owner_rrs = RecordsIter::new(in_out.as_slice());
 
     match &mut signing_config.hashing {
         HashingConfig::Prehashed => {
@@ -451,7 +451,7 @@ where
             let nsecs = generate_nsecs(
                 apex,
                 ttl,
-                families,
+                owner_rrs,
                 signing_config.add_used_dnskeys,
             );
 
@@ -475,7 +475,7 @@ where
                 generate_nsec3s::<N, Octs, HP, Sort>(
                     apex,
                     ttl,
-                    families,
+                    owner_rrs,
                     params.clone(),
                     *opt_out,
                     signing_config.add_used_dnskeys,
@@ -526,12 +526,12 @@ where
     }
 
     if !signing_keys.is_empty() {
-        let families = RecordsIter::new(in_out.as_slice());
+        let owner_rrs = RecordsIter::new(in_out.as_slice());
 
         let rrsigs_and_dnskeys =
             generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
                 apex,
-                families,
+                owner_rrs,
                 signing_keys,
                 signing_config.add_used_dnskeys,
             )?;

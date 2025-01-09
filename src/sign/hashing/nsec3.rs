@@ -115,7 +115,7 @@ where
         // A copy of the owner name. We’ll need it later.
         let name = owner_rrs.owner().clone();
 
-        // If this family is the parent side of a zone cut, we keep the family
+        // If this owner is the parent side of a zone cut, we keep the owner
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
         cut = if owner_rrs.is_zone_cut(expected_apex) {
@@ -162,7 +162,7 @@ where
         let distance_to_root = name.iter_labels().count();
         let distance_to_apex = distance_to_root - apex_label_count;
         if distance_to_apex > last_nent_distance_to_apex {
-            trace!("Possible ENT detected at family {}", owner_rrs.owner());
+            trace!("Possible ENT detected at owner {}", owner_rrs.owner());
 
             // Are there any empty nodes between this node and the apex? The
             // zone file records are already sorted so if all of the parent
@@ -434,7 +434,11 @@ where
         EmptyBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate,
     HashProvider: Nsec3HashProvider<N, Octs>,
 {
-    let owner_name = hash_provider.get_or_create(apex_owner, name, unhashed_owner_name_is_ent)?;
+    let owner_name = hash_provider.get_or_create(
+        apex_owner,
+        name,
+        unhashed_owner_name_is_ent,
+    )?;
 
     // RFC 5155 7.1. step 2:
     //   "The Next Hashed Owner Name field is left blank for the moment."

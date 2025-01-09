@@ -245,7 +245,7 @@ where
             };
 
             for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
-                // A copy of the family name. We’ll need it later.
+                // A copy of the owner name. We’ll need it later.
                 let name = apex_owner_rrs.owner().clone();
 
                 let rrsig_rr =
@@ -269,17 +269,17 @@ where
             break;
         }
 
-        // If the family is below a zone cut, we must ignore it.
+        // If the owner is below a zone cut, we must ignore it.
         if let Some(ref cut) = cut {
             if owner_rrs.owner().ends_with(cut) {
                 continue;
             }
         }
 
-        // A copy of the family name. We’ll need it later.
+        // A copy of the owner name. We’ll need it later.
         let name = owner_rrs.owner().clone();
 
-        // If this family is the parent side of a zone cut, we keep the family
+        // If this owner is the parent side of a zone cut, we keep the owner
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
         cut = if owner_rrs.is_zone_cut(expected_apex) {

@@ -186,7 +186,7 @@ where
         }
     }
 
-    pub fn families(&self) -> RecordsIter<N, D> {
+    pub fn owner_rrs(&self) -> RecordsIter<N, D> {
         RecordsIter::new(&self.records)
     }
 
@@ -385,8 +385,8 @@ impl<'a, N, D> OwnerRrs<'a, N, D> {
         self.slice[0].class()
     }
 
-    pub fn rrsets(&self) -> FamilyIter<'a, N, D> {
-        FamilyIter::new(self.slice)
+    pub fn rrsets(&self) -> OwnerRrsIter<'a, N, D> {
+        OwnerRrsIter::new(self.slice)
     }
 
     pub fn records(&self) -> slice::Iter<'a, Record<N, D>> {
@@ -553,20 +553,21 @@ where
     }
 }
 
-//------------ FamilyIter ----------------------------------------------------
+//------------ OwnerRrsIter --------------------------------------------------
 
-/// An iterator that produces RRsets from a record family.
-pub struct FamilyIter<'a, N, D> {
+/// An iterator that produces RRsets from a set of records with the same owner
+/// name.
+pub struct OwnerRrsIter<'a, N, D> {
     slice: &'a [Record<N, D>],
 }
 
-impl<'a, N, D> FamilyIter<'a, N, D> {
+impl<'a, N, D> OwnerRrsIter<'a, N, D> {
     fn new(slice: &'a [Record<N, D>]) -> Self {
-        FamilyIter { slice }
+        OwnerRrsIter { slice }
     }
 }
 
-impl<'a, N, D> Iterator for FamilyIter<'a, N, D>
+impl<'a, N, D> Iterator for OwnerRrsIter<'a, N, D>
 where
     N: ToName + 'a,
     D: RecordData + 'a,
