@@ -189,7 +189,7 @@
 //! # let mut records = records::SortedRecords::<_, _, records::DefaultSorter>::new();
 //! use domain::sign::signing::traits::Signable;
 //! use domain::sign::signing::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
-//! let apex = records::FamilyName::new(Name::<Vec<u8>>::root(), Class::IN);
+//! let apex = Name::<Vec<u8>>::root();
 //! let rrset = records::Rrset::new(&records);
 //! let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
 //! ```
