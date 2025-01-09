@@ -50,6 +50,7 @@
 //! ```
 //! # use domain::base::iana::SecAlg;
 //! # use domain::{sign::*, validate};
+//! # use domain::sign::keys::signingkey::SigningKey;
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
 //! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
@@ -75,13 +76,15 @@
 //!
 //! ```
 //! # use domain::base::Name;
-//! # use domain::sign::*;
+//! # use domain::sign::keys::keypair;
+//! # use domain::sign::keys::keypair::GenerateParams;
+//! # use domain::sign::keys::signingkey::SigningKey;
 //! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_bytes) = keys::keypair::generate(params).unwrap();
+//! let (sec_bytes, pub_bytes) = keypair::generate(params).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
-//! let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //!
 //! // Associate the key with important metadata.
 //! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
@@ -99,9 +102,12 @@
 //!
 //! ```
 //! # use domain::base::Name;
-//! # use domain::sign::*;
-//! # let (sec_bytes, pub_bytes) = keys::keypair::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # use domain::sign::keys::keypair;
+//! # use domain::sign::keys::keypair::GenerateParams;
+//! # use domain::sign::keys::signingkey::SigningKey;
+//! # use domain::sign::signing::traits::SignRaw;
+//! # let (sec_bytes, pub_bytes) = keypair::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let key = SigningKey::new(Name::<Vec<u8>>::root(), 257, key_pair);
 //! // Sign arbitrary byte sequences with the key.
 //! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
@@ -124,9 +130,11 @@
 //!
 //! ```
 //! # use domain::base::{*, iana::Class};
-//! # use domain::sign::*;
-//! # let (sec_bytes, pub_bytes) = keys::keypair::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # use domain::sign::keys::keypair;
+//! # use domain::sign::keys::keypair::GenerateParams;
+//! # use domain::sign::keys::signingkey::SigningKey;
+//! # let (sec_bytes, pub_bytes) = keypair::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root.clone(), 257, key_pair);
 //! use domain::rdata::{rfc1035::Soa, ZoneRecordData};
@@ -169,15 +177,18 @@
 //! ```
 //! # use domain::base::Name;
 //! # use domain::base::iana::Class;
-//! # use domain::sign::*;
+//! # use domain::sign::keys::keypair;
+//! # use domain::sign::keys::keypair::GenerateParams;
 //! # use domain::sign::keys::keymeta::{DesignatedSigningKey, DnssecSigningKey};
-//! # let (sec_bytes, pub_bytes) = keys::keypair::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # use domain::sign::records;
+//! # use domain::sign::keys::signingkey::SigningKey;
+//! # let (sec_bytes, pub_bytes) = keypair::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root, 257, key_pair);
 //! # let dnssec_signing_key = DnssecSigningKey::new_csk(key);
 //! # let keys = [&dnssec_signing_key as &dyn DesignatedSigningKey<_, _>];
-//! # let mut records = records::SortedRecords::<_, _, domain::sign::records::DefaultSorter>::new();
+//! # let mut records = records::SortedRecords::<_, _, records::DefaultSorter>::new();
 //! use domain::sign::signing::traits::Signable;
 //! use domain::sign::signing::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
 //! let apex = records::FamilyName::new(Name::<Vec<u8>>::root(), Class::IN);
