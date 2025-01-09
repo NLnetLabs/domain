@@ -21,7 +21,7 @@ use crate::sign::error::{SignError, SigningError};
 use crate::sign::hashing::nsec3::Nsec3HashProvider;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::records::{
-    DefaultSorter, FamilyName, RecordsIter, Rrset, SortedRecords, Sorter,
+    DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::sign::sign_zone;
 use crate::sign::signing::config::SigningConfig;
@@ -147,7 +147,7 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Sort: Sorter,
 {
-    fn apex(&self) -> Option<FamilyName<N>>;
+    fn apex(&self) -> Option<N>;
 
     // TODO
     // fn iter_mut<T>(&mut self) -> T;
@@ -211,8 +211,8 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Sort: Sorter,
 {
-    fn apex(&self) -> Option<FamilyName<N>> {
-        self.find_soa().map(|soa| soa.family_name().cloned())
+    fn apex(&self) -> Option<N> {
+        self.find_soa().map(|soa| soa.owner().clone())
     }
 }
 
@@ -240,10 +240,10 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Sort: Sorter,
 {
-    fn apex(&self) -> Option<FamilyName<N>> {
+    fn apex(&self) -> Option<N> {
         self.iter()
             .find(|r| r.rtype() == Rtype::SOA)
-            .map(|r| FamilyName::new(r.owner().clone(), r.class()))
+            .map(|r| r.owner().clone())
     }
 }
 
@@ -335,12 +335,12 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Sort: Sorter,
 {
-    fn families(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>>;
+    fn owner_rrs(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>>;
 
     #[allow(clippy::type_complexity)]
     fn sign<KeyStrat>(
         &self,
-        apex: &FamilyName<N>,
+        expected_apex: &N,
         keys: &[DSK],
     ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
     where
@@ -348,8 +348,8 @@ where
         KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     {
         generate_rrsigs::<_, _, DSK, _, KeyStrat, Sort>(
-            apex,
-            self.families(),
+            expected_apex,
+            self.owner_rrs(),
             keys,
             false,
         )
@@ -377,7 +377,7 @@ where
         + From<Box<[u8]>>,
     <Octs as FromBuilder>::Builder: AsRef<[u8]> + AsMut<[u8]> + EmptyBuilder,
 {
-    fn families(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>> {
+    fn owner_rrs(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>> {
         RecordsIter::new(self.as_slice())
     }
 }

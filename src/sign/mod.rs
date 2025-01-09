@@ -294,7 +294,7 @@ use keys::keymeta::DesignatedSigningKey;
 use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
-use records::{FamilyName, RecordsIter, Sorter};
+use records::{RecordsIter, Sorter};
 use signing::config::SigningConfig;
 use signing::rrsigs::generate_rrsigs;
 use signing::strategy::SigningKeyUsageStrategy;
@@ -394,7 +394,7 @@ where
 
 pub fn sign_zone<N, Octs, S, DSK, Inner, KeyStrat, Sort, HP, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
-    apex: &FamilyName<N>,
+    apex: &N,
     signing_config: &mut SigningConfig<N, Octs, Inner, KeyStrat, Sort, HP>,
     signing_keys: &[DSK],
 ) -> Result<(), SigningError>

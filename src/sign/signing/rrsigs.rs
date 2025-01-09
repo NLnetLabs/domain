@@ -13,7 +13,7 @@ use octseq::{OctetsFrom, OctetsInto};
 use tracing::{debug, enabled, Level};
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::Rtype;
+use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
@@ -23,9 +23,7 @@ use crate::rdata::{Dnskey, ZoneRecordData};
 use crate::sign::error::SigningError;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::keys::signingkey::SigningKey;
-use crate::sign::records::{
-    FamilyName, RecordsIter, Rrset, SortedRecords, Sorter,
-};
+use crate::sign::records::{RecordsIter, Rrset, SortedRecords, Sorter};
 use crate::sign::signing::strategy::SigningKeyUsageStrategy;
 use crate::sign::signing::traits::{SignRaw, SortedExtend};
 
@@ -38,8 +36,8 @@ use crate::sign::signing::traits::{SignRaw, SortedExtend};
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
 pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
-    apex: &FamilyName<N>,
-    families: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
+    expected_apex: &N,
+    records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[DSK],
     add_used_dnskeys: bool,
 ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
@@ -140,34 +138,35 @@ where
 
     let mut res: Vec<Record<N, ZoneRecordData<Octs, N>>> = Vec::new();
     let mut buf = Vec::new();
-    let mut cut: Option<FamilyName<N>> = None;
-    let mut families = families.peekable();
+    let mut cut: Option<N> = None;
+    let mut records = records.peekable();
 
     // Are we signing the entire tree from the apex down or just some child
     // records? Use the first found SOA RR as the apex. If no SOA RR can be
     // found assume that we are only signing records below the apex.
-    let soa_ttl = families.peek().and_then(|first_family| {
-        first_family.records().find_map(|rr| {
-            if rr.owner() == apex.owner() && rr.rtype() == Rtype::SOA {
-                Some(rr.ttl())
-            } else {
-                None
-            }
-        })
-    });
+    let (soa_ttl, zone_class) = if let Some(rr) =
+        records.peek().and_then(|first_owner_rrs| {
+            first_owner_rrs.records().find(|rr| {
+                rr.owner() == expected_apex && rr.rtype() == Rtype::SOA
+            })
+        }) {
+        (Some(rr.ttl()), rr.class())
+    } else {
+        (None, Class::IN)
+    };
 
     if let Some(soa_ttl) = soa_ttl {
         // Sign the apex
         // SAFETY: We just checked above if the apex records existed.
-        let apex_family = families.next().unwrap();
+        let apex_owner_rrs = records.next().unwrap();
 
-        let apex_rrsets = apex_family
+        let apex_rrsets = apex_owner_rrs
             .rrsets()
             .filter(|rrset| rrset.rtype() != Rtype::RRSIG);
 
         // Generate or extend the DNSKEY RRSET with the keys that we will sign
         // apex DNSKEY RRs and zone RRs with.
-        let apex_dnskey_rrset = apex_family
+        let apex_dnskey_rrset = apex_owner_rrs
             .rrsets()
             .find(|rrset| rrset.rtype() == Rtype::DNSKEY);
 
@@ -204,8 +203,8 @@ where
             let dnskey = public_key.to_dnskey();
 
             let signing_key_dnskey_rr = Record::new(
-                apex.owner().clone(),
-                apex.class(),
+                expected_apex.clone(),
+                zone_class,
                 dnskey_rrset_ttl,
                 Dnskey::convert(dnskey.clone()).into(),
             );
@@ -220,8 +219,8 @@ where
                 // Add the DNSKEY RR to the set of new RRs to output for the
                 // zone.
                 res.push(Record::new(
-                    apex.owner().clone(),
-                    apex.class(),
+                    expected_apex.clone(),
+                    zone_class,
                     dnskey_rrset_ttl,
                     Dnskey::convert(dnskey).into(),
                 ));
@@ -247,10 +246,10 @@ where
 
             for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
                 // A copy of the family name. We’ll need it later.
-                let name = apex_family.family_name().cloned();
+                let name = apex_owner_rrs.owner().clone();
 
                 let rrsig_rr =
-                    sign_rrset(key, &rrset, &name, apex, &mut buf)?;
+                    sign_rrset(key, &rrset, &name, expected_apex, &mut buf)?;
                 res.push(rrsig_rr);
                 debug!(
                     "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
@@ -263,33 +262,33 @@ where
     }
 
     // For all RRSETs below the apex
-    for family in families {
+    for owner_rrs in records {
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
-        if !family.is_in_zone(apex) {
+        if !owner_rrs.is_in_zone(expected_apex) {
             break;
         }
 
         // If the family is below a zone cut, we must ignore it.
         if let Some(ref cut) = cut {
-            if family.owner().ends_with(cut.owner()) {
+            if owner_rrs.owner().ends_with(cut) {
                 continue;
             }
         }
 
         // A copy of the family name. We’ll need it later.
-        let name = family.family_name().cloned();
+        let name = owner_rrs.owner().clone();
 
         // If this family is the parent side of a zone cut, we keep the family
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
-        cut = if family.is_zone_cut(apex) {
+        cut = if owner_rrs.is_zone_cut(expected_apex) {
             Some(name.clone())
         } else {
             None
         };
 
-        for rrset in family.rrsets() {
+        for rrset in owner_rrs.rrsets() {
             if cut.is_some() {
                 // If we are at a zone cut, we only sign DS and NSEC records.
                 // NS records we must not sign and everything else shouldn’t
@@ -309,12 +308,12 @@ where
                 non_dnskey_signing_key_idxs.iter().map(|&idx| &keys[idx])
             {
                 let rrsig_rr =
-                    sign_rrset(key, &rrset, &name, apex, &mut buf)?;
+                    sign_rrset(key, &rrset, &name, expected_apex, &mut buf)?;
                 res.push(rrsig_rr);
                 debug!(
                     "Signed {} RRSET at {} with keytag {}",
                     rrset.rtype(),
-                    rrset.family_name().owner(),
+                    rrset.owner(),
                     key.public_key().key_tag()
                 );
             }
@@ -329,8 +328,8 @@ where
 pub fn sign_rrset<N, D, Octs, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset: &Rrset<'_, N, D>,
-    name: &FamilyName<N>,
-    apex: &FamilyName<N>,
+    rrset_owner: &N,
+    apex_owner: &N,
     buf: &mut Vec<u8>,
 ) -> Result<Record<N, ZoneRecordData<Octs, N>>, SigningError>
 where
@@ -357,7 +356,7 @@ where
     let rrsig = ProtoRrsig::new(
         rrset.rtype(),
         key.algorithm(),
-        name.owner().rrsig_label_count(),
+        rrset_owner.rrsig_label_count(),
         rrset.ttl(),
         expiration,
         inception,
@@ -371,7 +370,7 @@ where
         // We don't need to make sure here that the signer name is in
         // canonical form as required by RFC 4034 as the call to
         // `compose_canonical()` below will take care of that.
-        apex.owner().clone(),
+        apex_owner.clone(),
     );
     buf.clear();
     rrsig.compose_canonical(buf).unwrap();
@@ -385,8 +384,8 @@ where
     };
     let rrsig = rrsig.into_rrsig(signature).expect("long signature");
     Ok(Record::new(
-        name.owner().clone(),
-        name.class(),
+        rrset_owner.clone(),
+        rrset.class(),
         rrset.ttl(),
         ZoneRecordData::Rrsig(rrsig),
     ))

@@ -16,7 +16,7 @@ use crate::base::{Name, NameBuilder, Record, Ttl};
 use crate::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Nsec3, Nsec3param, ZoneRecordData};
-use crate::sign::records::{FamilyName, RecordsIter, SortedRecords, Sorter};
+use crate::sign::records::{RecordsIter, SortedRecords, Sorter};
 use crate::utils::base32;
 use crate::validate::{nsec3_hash, Nsec3HashError};
 
@@ -36,9 +36,9 @@ use crate::validate::{nsec3_hash, Nsec3HashError};
 /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
 // TODO: Add mutable iterator based variant.
 pub fn generate_nsec3s<N, Octs, HashProvider, Sort>(
-    apex: &FamilyName<N>,
+    expected_apex: &N,
     ttl: Ttl,
-    mut families: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
+    mut records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     params: Nsec3param<Octs>,
     opt_out: Nsec3OptOut,
     assume_dnskeys_will_be_added: bool,
@@ -73,55 +73,53 @@ where
     let mut ents = Vec::<N>::new();
 
     // The owner name of a zone cut if we currently are at or below one.
-    let mut cut: Option<FamilyName<N>> = None;
+    let mut cut: Option<N> = None;
 
-    // Since the records are ordered, the first family is the apex -- we can
+    // Since the records are ordered, the first owner is the apex -- we can
     // skip everything before that.
-    families.skip_before(apex);
+    records.skip_before(expected_apex);
 
     // We also need the apex for the last NSEC.
-    let apex_owner = families.first_owner().clone();
+    let first_rr = records.first();
+    let apex_owner = first_rr.owner().clone();
     let apex_label_count = apex_owner.iter_labels().count();
 
     let mut last_nent_stack: Vec<N> = vec![];
 
-    for family in families {
-        trace!("Family: {}", family.family_name().owner());
+    for owner_rrs in records {
+        trace!("Owner: {}", owner_rrs.owner());
 
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
-        if !family.is_in_zone(apex) {
+        if !owner_rrs.is_in_zone(expected_apex) {
             debug!(
-                "Stopping NSEC3 generation at out-of-zone family {}",
-                family.family_name().owner()
+                "Stopping NSEC3 generation at out-of-zone owner {}",
+                owner_rrs.owner()
             );
             break;
         }
 
-        // If the family is below a zone cut, we must ignore it. As the RRs
+        // If the owner is below a zone cut, we must ignore it. As the RRs
         // are required to be sorted all RRs below a zone cut should be
         // encountered after the cut itself.
         if let Some(ref cut) = cut {
-            if family.owner().ends_with(cut.owner()) {
+            if owner_rrs.owner().ends_with(cut) {
                 debug!(
-                    "Excluding family {} as it is below a zone cut",
-                    family.family_name().owner()
+                    "Excluding owner {} as it is below a zone cut",
+                    owner_rrs.owner()
                 );
                 continue;
             }
         }
 
-        // A copy of the family name. We’ll need it later.
-        let name = family.family_name().cloned();
+        // A copy of the owner name. We’ll need it later.
+        let name = owner_rrs.owner().clone();
 
         // If this family is the parent side of a zone cut, we keep the family
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
-        cut = if family.is_zone_cut(apex) {
-            trace!(
-                "Zone cut detected at family {}",
-                family.family_name().owner()
-            );
+        cut = if owner_rrs.is_zone_cut(expected_apex) {
+            trace!("Zone cut detected at owner {}", owner_rrs.owner());
             Some(name.clone())
         } else {
             None
@@ -140,9 +138,9 @@ where
         // that lacks a DS RR. We determine whether or not a DS RR is present
         // even when Opt-Out is not being used because we also need to know
         // there at a later step.
-        let has_ds = family.records().any(|rec| rec.rtype() == Rtype::DS);
+        let has_ds = owner_rrs.records().any(|rec| rec.rtype() == Rtype::DS);
         if opt_out == Nsec3OptOut::OptOut && cut.is_some() && !has_ds {
-            debug!("Excluding family {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",family.family_name().owner());
+            debug!("Excluding owner {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",owner_rrs.owner());
             continue;
         }
 
@@ -154,20 +152,17 @@ where
         let mut last_nent_distance_to_apex = 0;
         let mut last_nent = None;
         while let Some(this_last_nent) = last_nent_stack.pop() {
-            if name.owner().ends_with(&this_last_nent) {
+            if name.ends_with(&this_last_nent) {
                 last_nent_distance_to_apex =
                     this_last_nent.iter_labels().count() - apex_label_count;
                 last_nent = Some(this_last_nent);
                 break;
             }
         }
-        let distance_to_root = name.owner().iter_labels().count();
+        let distance_to_root = name.iter_labels().count();
         let distance_to_apex = distance_to_root - apex_label_count;
         if distance_to_apex > last_nent_distance_to_apex {
-            trace!(
-                "Possible ENT detected at family {}",
-                family.family_name().owner()
-            );
+            trace!("Possible ENT detected at family {}", owner_rrs.owner());
 
             // Are there any empty nodes between this node and the apex? The
             // zone file records are already sorted so if all of the parent
@@ -191,7 +186,7 @@ where
             //   - a.b.c.mail.example.com
             let distance = distance_to_apex - last_nent_distance_to_apex;
             for n in (1..=distance - 1).rev() {
-                let rev_label_it = name.owner().iter_labels().skip(n);
+                let rev_label_it = name.iter_labels().skip(n);
 
                 // Create next longest ENT name.
                 let mut builder = NameBuilder::<Octs::Builder>::new();
@@ -297,7 +292,7 @@ where
         //       RRSets MUST have a corresponding NSEC3 RR.  Owner names that
         //       correspond to unsigned delegations MAY have a corresponding
         //       NSEC3 RR."
-        for rrset in family.rrsets() {
+        for rrset in owner_rrs.rrsets() {
             if cut.is_none() || matches!(rrset.rtype(), Rtype::NS | Rtype::DS)
             {
                 // RFC 5155 section 3.2:
@@ -325,7 +320,7 @@ where
         }
 
         let rec: Record<N, Nsec3<Octs>> = mk_nsec3(
-            name.owner(),
+            &name,
             hash_provider,
             params.hash_algorithm(),
             nsec3_flags,
@@ -342,7 +337,7 @@ where
         if let Some(last_nent) = last_nent {
             last_nent_stack.push(last_nent);
         }
-        last_nent_stack.push(name.owner().clone());
+        last_nent_stack.push(name.clone());
     }
 
     for name in ents {
@@ -396,7 +391,7 @@ where
     //   "Finally, add an NSEC3PARAM RR with the same Hash Algorithm,
     //    Iterations, and Salt fields to the zone apex."
     let nsec3param = Record::new(
-        apex.owner().try_to_name::<Octs>().unwrap().into(),
+        expected_apex.try_to_name::<Octs>().unwrap().into(),
         Class::IN,
         ttl,
         params,

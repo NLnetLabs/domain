@@ -364,17 +364,17 @@ where
     }
 }
 
-//------------ Family --------------------------------------------------------
+//------------ OwnerRrs ------------------------------------------------------
 
-/// A set of records with the same owner name and class.
+/// A set of records with the same owner name.
 #[derive(Clone)]
-pub struct Family<'a, N, D> {
+pub struct OwnerRrs<'a, N, D> {
     slice: &'a [Record<N, D>],
 }
 
-impl<'a, N, D> Family<'a, N, D> {
+impl<'a, N, D> OwnerRrs<'a, N, D> {
     fn new(slice: &'a [Record<N, D>]) -> Self {
-        Family { slice }
+        OwnerRrs { slice }
     }
 
     pub fn owner(&self) -> &N {
@@ -385,10 +385,6 @@ impl<'a, N, D> Family<'a, N, D> {
         self.slice[0].class()
     }
 
-    pub fn family_name(&self) -> FamilyName<&N> {
-        FamilyName::new(self.owner(), self.class())
-    }
-
     pub fn rrsets(&self) -> FamilyIter<'a, N, D> {
         FamilyIter::new(self.slice)
     }
@@ -397,72 +393,20 @@ impl<'a, N, D> Family<'a, N, D> {
         self.slice.iter()
     }
 
-    pub fn is_zone_cut<NN>(&self, apex: &FamilyName<NN>) -> bool
+    pub fn is_zone_cut(&self, apex: &N) -> bool
     where
-        N: ToName,
-        NN: ToName,
+        N: ToName + PartialEq,
         D: RecordData,
     {
-        self.family_name().ne(apex)
+        self.owner().ne(apex)
             && self.records().any(|record| record.rtype() == Rtype::NS)
     }
 
-    pub fn is_in_zone<NN: ToName>(&self, apex: &FamilyName<NN>) -> bool
+    pub fn is_in_zone(&self, apex: &N) -> bool
     where
         N: ToName,
     {
-        self.owner().ends_with(&apex.owner) && self.class() == apex.class
-    }
-}
-
-//------------ FamilyName ----------------------------------------------------
-
-/// The identifier for a family, i.e., a owner name and class.
-#[derive(Clone)]
-pub struct FamilyName<N> {
-    owner: N,
-    class: Class,
-}
-
-impl<N> FamilyName<N> {
-    pub fn new(owner: N, class: Class) -> Self {
-        FamilyName { owner, class }
-    }
-
-    pub fn owner(&self) -> &N {
-        &self.owner
-    }
-
-    pub fn class(&self) -> Class {
-        self.class
-    }
-
-    pub fn into_record<D>(self, ttl: Ttl, data: D) -> Record<N, D>
-    where
-        N: Clone,
-    {
-        Record::new(self.owner.clone(), self.class, ttl, data)
-    }
-}
-
-impl<N: Clone> FamilyName<&N> {
-    pub fn cloned(&self) -> FamilyName<N> {
-        FamilyName {
-            owner: (*self.owner).clone(),
-            class: self.class,
-        }
-    }
-}
-
-impl<N: ToName, NN: ToName> PartialEq<FamilyName<NN>> for FamilyName<N> {
-    fn eq(&self, other: &FamilyName<NN>) -> bool {
-        self.owner.name_eq(&other.owner) && self.class == other.class
-    }
-}
-
-impl<N: ToName, NN: ToName, D> PartialEq<Record<NN, D>> for FamilyName<N> {
-    fn eq(&self, other: &Record<NN, D>) -> bool {
-        self.owner.name_eq(other.owner()) && self.class == other.class()
+        self.owner().ends_with(&apex)
     }
 }
 
@@ -484,10 +428,6 @@ impl<'a, N, D> Rrset<'a, N, D> {
 
     pub fn class(&self) -> Class {
         self.slice[0].class()
-    }
-
-    pub fn family_name(&self) -> FamilyName<&N> {
-        FamilyName::new(self.owner(), self.class())
     }
 
     pub fn rtype(&self) -> Rtype
@@ -520,7 +460,8 @@ impl<'a, N, D> Rrset<'a, N, D> {
 
 //------------ RecordsIter ---------------------------------------------------
 
-/// An iterator that produces families from sorted records.
+/// An iterator that produces groups of records belonging to the same owner
+/// from sorted records.
 pub struct RecordsIter<'a, N, D> {
     slice: &'a [Record<N, D>],
 }
@@ -530,19 +471,16 @@ impl<'a, N, D> RecordsIter<'a, N, D> {
         RecordsIter { slice }
     }
 
-    pub fn first_owner(&self) -> &'a N {
-        self.slice[0].owner()
+    pub fn first(&self) -> &'a Record<N, D> {
+        &self.slice[0]
     }
 
-    pub fn skip_before<NN: ToName>(&mut self, apex: &FamilyName<NN>)
+    pub fn skip_before(&mut self, apex: &N)
     where
-        N: ToName,
+        N: ToName + PartialEq,
     {
-        while let Some(first) = self.slice.first() {
-            if first.class() != apex.class() {
-                continue;
-            }
-            if apex == first || first.owner().ends_with(apex.owner()) {
+        while let Some(first) = self.slice.first().map(|r| r.owner()) {
+            if apex == first || first.ends_with(apex) {
                 break;
             }
             self.slice = &self.slice[1..]
@@ -555,7 +493,7 @@ where
     N: ToName + 'a,
     D: RecordData + 'a,
 {
-    type Item = Family<'a, N, D>;
+    type Item = OwnerRrs<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let first = match self.slice.first() {
@@ -564,16 +502,14 @@ where
         };
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
-            if !record.owner().name_eq(first.owner())
-                || record.class() != first.class()
-            {
+            if !record.owner().name_eq(first.owner()) {
                 break;
             }
             end += 1;
         }
         let (res, slice) = self.slice.split_at(end);
         self.slice = slice;
-        Some(Family::new(res))
+        Some(OwnerRrs::new(res))
     }
 }
 
@@ -606,7 +542,6 @@ where
         while let Some(record) = self.slice.get(end) {
             if !record.owner().name_eq(first.owner())
                 || record.rtype() != first.rtype()
-                || record.class() != first.class()
             {
                 break;
             }
