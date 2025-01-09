@@ -512,7 +512,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                         origin = new_origin.to_string();
                     }
                 } else {
-                    let mut zonefile = Zonefile::new();
+                    let mut zonefile = Zonefile::new().allow_invalid();
                     zonefile.extend_from_slice(
                         format!("$ORIGIN {origin}\n").as_bytes(),
                     );
