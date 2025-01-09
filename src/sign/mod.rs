@@ -162,8 +162,7 @@
 //!
 //! // Assign signature validity period and operator intent to the keys.
 //! let key = key.with_validity(Timestamp::now(), Timestamp::now());
-//! let dnssec_signing_key = DnssecSigningKey::new_csk(key);
-//! let keys = [&dnssec_signing_key as &dyn DesignatedSigningKey<_, _>];
+//! let keys = [DnssecSigningKey::new_csk(key)];
 //!
 //! // Create a signing configuration.
 //! let mut signing_config = SigningConfig::default();
@@ -186,8 +185,7 @@
 //! # let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root, 257, key_pair);
-//! # let dnssec_signing_key = DnssecSigningKey::new_csk(key);
-//! # let keys = [&dnssec_signing_key as &dyn DesignatedSigningKey<_, _>];
+//! # let keys = [DnssecSigningKey::new_csk(key)];
 //! # let mut records = records::SortedRecords::<_, _, records::DefaultSorter>::new();
 //! use domain::sign::signing::traits::Signable;
 //! use domain::sign::signing::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
@@ -394,15 +392,16 @@ where
 
 //------------ sign_zone() ---------------------------------------------------
 
-pub fn sign_zone<N, Octs, S, Key, KeyStrat, Sort, HP, T>(
+pub fn sign_zone<N, Octs, S, DSK, Inner, KeyStrat, Sort, HP, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
     apex: &FamilyName<N>,
-    signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
-    signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
+    signing_config: &mut SigningConfig<N, Octs, Inner, KeyStrat, Sort, HP>,
+    signing_keys: &[DSK],
 ) -> Result<(), SigningError>
 where
+    DSK: DesignatedSigningKey<Octs, Inner>,
     HP: Nsec3HashProvider<N, Octs>,
-    Key: SignRaw,
+    Inner: SignRaw,
     N: Display
         + Send
         + CanonicalOrd
@@ -414,7 +413,7 @@ where
     <Octs as FromBuilder>::Builder:
         Truncate + EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     S: SignableZone<N, Octs, Sort>,
     Sort: Sorter,
     T: SortedExtend<N, Octs, Sort> + ?Sized,
@@ -530,7 +529,7 @@ where
         let families = RecordsIter::new(in_out.as_slice());
 
         let rrsigs_and_dnskeys =
-            generate_rrsigs::<N, Octs, Key, KeyStrat, Sort>(
+            generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
                 apex,
                 families,
                 signing_keys,

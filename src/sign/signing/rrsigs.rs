@@ -37,15 +37,16 @@ use crate::sign::signing::traits::{SignRaw, SortedExtend};
 /// The given records MUST be sorted according to [`CanonicalOrd`].
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
-pub fn generate_rrsigs<N, Octs, KeyPair, KeyStrat, Sort>(
+pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     apex: &FamilyName<N>,
     families: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
-    keys: &[&dyn DesignatedSigningKey<Octs, KeyPair>],
+    keys: &[DSK],
     add_used_dnskeys: bool,
 ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
 where
-    KeyPair: SignRaw,
-    KeyStrat: SigningKeyUsageStrategy<Octs, KeyPair>,
+    DSK: DesignatedSigningKey<Octs, Inner>,
+    Inner: SignRaw,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     N: ToName
         + PartialEq
         + Clone
@@ -119,7 +120,7 @@ where
         );
 
         for idx in &keys_in_use_idxs {
-            let key = keys[**idx];
+            let key = &keys[**idx];
             let is_dnskey_signing_key = dnskey_signing_key_idxs.contains(idx);
             let is_non_dnskey_signing_key =
                 non_dnskey_signing_key_idxs.contains(idx);
@@ -244,7 +245,7 @@ where
                 &non_dnskey_signing_key_idxs
             };
 
-            for key in signing_key_idxs.iter().map(|&idx| keys[idx]) {
+            for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
                 // A copy of the family name. We’ll need it later.
                 let name = apex_family.family_name().cloned();
 
@@ -305,7 +306,7 @@ where
             }
 
             for key in
-                non_dnskey_signing_key_idxs.iter().map(|&idx| keys[idx])
+                non_dnskey_signing_key_idxs.iter().map(|&idx| &keys[idx])
             {
                 let rrsig_rr =
                     sign_rrset(key, &rrset, &name, apex, &mut buf)?;

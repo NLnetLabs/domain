@@ -152,26 +152,34 @@ where
     // TODO
     // fn iter_mut<T>(&mut self) -> T;
 
-    fn sign_zone<Key, KeyStrat, HP, T>(
+    fn sign_zone<DSK, Inner, KeyStrat, HP, T>(
         &self,
-        signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
-        signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
+        signing_config: &mut SigningConfig<
+            N,
+            Octs,
+            Inner,
+            KeyStrat,
+            Sort,
+            HP,
+        >,
+        signing_keys: &[DSK],
         out: &mut T,
     ) -> Result<(), SigningError>
     where
+        DSK: DesignatedSigningKey<Octs, Inner>,
         HP: Nsec3HashProvider<N, Octs>,
-        Key: SignRaw,
+        Inner: SignRaw,
         N: Display + Send + CanonicalOrd,
         <Octs as FromBuilder>::Builder: Truncate,
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
-        KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
+        KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
         T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
             + SortedExtend<N, Octs, Sort>
             + ?Sized,
         Self: Sized,
     {
         let in_out = SignableZoneInOut::new_into(self, out);
-        sign_zone::<N, Octs, Self, Key, KeyStrat, Sort, HP, T>(
+        sign_zone::<N, Octs, Self, DSK, Inner, KeyStrat, Sort, HP, T>(
             in_out,
             &self.apex().ok_or(SigningError::NoSoaFound)?,
             signing_config,
@@ -256,22 +264,23 @@ where
     Self: SortedExtend<N, Octs, S> + Sized,
     S: Sorter,
 {
-    fn sign_zone<Key, KeyStrat, HP>(
+    fn sign_zone<DSK, Inner, KeyStrat, HP>(
         &mut self,
-        signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, S, HP>,
-        signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
+        signing_config: &mut SigningConfig<N, Octs, Inner, KeyStrat, S, HP>,
+        signing_keys: &[DSK],
     ) -> Result<(), SigningError>
     where
+        DSK: DesignatedSigningKey<Octs, Inner>,
         HP: Nsec3HashProvider<N, Octs>,
-        Key: SignRaw,
+        Inner: SignRaw,
         N: Display + Send + CanonicalOrd,
         <Octs as FromBuilder>::Builder: Truncate,
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
-        KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
+        KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     {
         let apex = self.apex().ok_or(SigningError::NoSoaFound)?;
         let in_out = SignableZoneInOut::new_in_place(self);
-        sign_zone::<N, Octs, Self, Key, KeyStrat, S, HP, Self>(
+        sign_zone::<N, Octs, Self, DSK, Inner, KeyStrat, S, HP, Self>(
             in_out,
             &apex,
             signing_config,
@@ -307,7 +316,7 @@ where
 
 //------------ Signable ------------------------------------------------------
 
-pub trait Signable<N, Octs, KeyPair, Sort = DefaultSorter>
+pub trait Signable<N, Octs, DSK, Inner, Sort = DefaultSorter>
 where
     N: ToName
         + CanonicalOrd
@@ -316,7 +325,7 @@ where
         + Clone
         + PartialEq
         + From<Name<Octs>>,
-    KeyPair: SignRaw,
+    Inner: SignRaw,
     Octs: From<Box<[u8]>>
         + From<&'static [u8]>
         + FromBuilder
@@ -332,12 +341,13 @@ where
     fn sign<KeyStrat>(
         &self,
         apex: &FamilyName<N>,
-        keys: &[&dyn DesignatedSigningKey<Octs, KeyPair>],
+        keys: &[DSK],
     ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
     where
-        KeyStrat: SigningKeyUsageStrategy<Octs, KeyPair>,
+        DSK: DesignatedSigningKey<Octs, Inner>,
+        KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     {
-        generate_rrsigs::<_, _, _, KeyStrat, Sort>(
+        generate_rrsigs::<_, _, DSK, _, KeyStrat, Sort>(
             apex,
             self.families(),
             keys,
@@ -348,10 +358,10 @@ where
 
 //--- impl Signable for Rrset
 
-impl<N, Octs, KeyPair> Signable<N, Octs, KeyPair>
+impl<N, Octs, DSK, Inner> Signable<N, Octs, DSK, Inner>
     for Rrset<'_, N, ZoneRecordData<Octs, N>>
 where
-    KeyPair: SignRaw,
+    Inner: SignRaw,
     N: From<Name<Octs>>
         + PartialEq
         + Clone

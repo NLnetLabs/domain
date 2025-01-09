@@ -18,13 +18,17 @@ use super::strategy::DefaultSigningKeyUsageStrategy;
 /// Signing configuration for a DNSSEC signed zone.
 pub struct SigningConfig<
     N,
-    Octs: AsRef<[u8]> + From<&'static [u8]>,
-    Key: SignRaw,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
-    Sort: Sorter,
+    Octs,
+    Inner,
+    KeyStrat,
+    Sort,
     HP = OnDemandNsec3HashProvider<Octs>,
 > where
     HP: Nsec3HashProvider<N, Octs>,
+    Octs: AsRef<[u8]> + From<&'static [u8]>,
+    Inner: SignRaw,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    Sort: Sorter,
 {
     /// Hashing configuration.
     pub hashing: HashingConfig<N, Octs, HP>,
@@ -32,16 +36,16 @@ pub struct SigningConfig<
     /// Should keys used to sign the zone be added as DNSKEY RRs?
     pub add_used_dnskeys: bool,
 
-    _phantom: PhantomData<(Key, KeyStrat, Sort)>,
+    _phantom: PhantomData<(Inner, KeyStrat, Sort)>,
 }
 
-impl<N, Octs, Key, KeyStrat, Sort, HP>
-    SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>
+impl<N, Octs, Inner, KeyStrat, Sort, HP>
+    SigningConfig<N, Octs, Inner, KeyStrat, Sort, HP>
 where
     HP: Nsec3HashProvider<N, Octs>,
     Octs: AsRef<[u8]> + From<&'static [u8]>,
-    Key: SignRaw,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
+    Inner: SignRaw,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
 {
     pub fn new(
@@ -56,11 +60,11 @@ where
     }
 }
 
-impl<N, Octs, Key> Default
+impl<N, Octs, Inner> Default
     for SigningConfig<
         N,
         Octs,
-        Key,
+        Inner,
         DefaultSigningKeyUsageStrategy,
         DefaultSorter,
         OnDemandNsec3HashProvider<Octs>,
@@ -69,7 +73,7 @@ where
     N: ToName + From<Name<Octs>>,
     Octs: AsRef<[u8]> + From<&'static [u8]> + FromBuilder,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    Key: SignRaw,
+    Inner: SignRaw,
 {
     fn default() -> Self {
         Self {
