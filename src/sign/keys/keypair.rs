@@ -10,7 +10,8 @@ use std::sync::Arc;
 use ::ring::rand::SystemRandom;
 
 use crate::base::iana::SecAlg;
-use crate::sign::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
+use crate::sign::error::SignError;
+use crate::sign::{SecretKeyBytes, SignRaw};
 use crate::validate::{PublicKeyBytes, Signature};
 
 #[cfg(feature = "openssl")]
@@ -114,6 +115,54 @@ impl SignRaw for KeyPair {
             Self::Ring(key) => key.sign_raw(data),
             #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.sign_raw(data),
+        }
+    }
+}
+
+//----------- GenerateParams -------------------------------------------------
+
+/// Parameters for generating a secret key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GenerateParams {
+    /// Generate an RSA/SHA-256 keypair.
+    RsaSha256 {
+        /// The number of bits in the public modulus.
+        ///
+        /// A ~3000-bit key corresponds to a 128-bit security level.  However,
+        /// RSA is mostly used with 2048-bit keys.  Some backends (like Ring)
+        /// do not support smaller key sizes than that.
+        ///
+        /// For more information about security levels, see [NIST SP 800-57
+        /// part 1 revision 5], page 54, table 2.
+        ///
+        /// [NIST SP 800-57 part 1 revision 5]: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
+        bits: u32,
+    },
+
+    /// Generate an ECDSA P-256/SHA-256 keypair.
+    EcdsaP256Sha256,
+
+    /// Generate an ECDSA P-384/SHA-384 keypair.
+    EcdsaP384Sha384,
+
+    /// Generate an Ed25519 keypair.
+    Ed25519,
+
+    /// An Ed448 keypair.
+    Ed448,
+}
+
+//--- Inspection
+
+impl GenerateParams {
+    /// The algorithm of the generated key.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
+            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519 => SecAlg::ED25519,
+            Self::Ed448 => SecAlg::ED448,
         }
     }
 }

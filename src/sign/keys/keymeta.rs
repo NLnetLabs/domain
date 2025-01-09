@@ -2,7 +2,8 @@ use core::convert::From;
 use core::marker::PhantomData;
 use core::ops::Deref;
 
-use crate::sign::{SignRaw, SigningKey};
+use crate::sign::keys::signingkey::SigningKey;
+use crate::sign::SignRaw;
 
 //------------ DesignatedSigningKey ------------------------------------------
 

@@ -1,8 +1,7 @@
-use core::cmp::min;
 use core::convert::From;
 use core::fmt::{Debug, Display};
 use core::iter::Extend;
-use core::marker::{PhantomData, Send};
+use core::marker::Send;
 use core::ops::Deref;
 
 use std::boxed::Box;
@@ -12,27 +11,63 @@ use std::vec::Vec;
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::OctetsFrom;
 
-use super::config::SigningConfig;
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::Rtype;
+use crate::base::iana::{Rtype, SecAlg};
 use crate::base::name::ToName;
 use crate::base::record::Record;
 use crate::base::Name;
 use crate::rdata::ZoneRecordData;
-use crate::sign::error::SigningError;
-use crate::sign::hashing::config::HashingConfig;
-use crate::sign::hashing::nsec::generate_nsecs;
-use crate::sign::hashing::nsec3::{
-    generate_nsec3s, Nsec3Config, Nsec3HashProvider, Nsec3ParamTtlMode,
-    Nsec3Records,
-};
+use crate::sign::error::{SignError, SigningError};
+use crate::sign::hashing::nsec3::Nsec3HashProvider;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::records::{
     DefaultSorter, FamilyName, RecordsIter, Rrset, SortedRecords, Sorter,
 };
+use crate::sign::sign_zone;
+use crate::sign::signing::config::SigningConfig;
 use crate::sign::signing::rrsigs::generate_rrsigs;
 use crate::sign::signing::strategy::SigningKeyUsageStrategy;
-use crate::sign::SignRaw;
+use crate::sign::{PublicKeyBytes, SignableZoneInOut, Signature};
+
+//----------- SignRaw --------------------------------------------------------
+
+/// Low-level signing functionality.
+///
+/// Types that implement this trait own a private key and can sign arbitrary
+/// information (in the form of slices of bytes).
+///
+/// Implementing types should validate keys during construction, so that
+/// signing does not fail due to invalid keys.  If the implementing type
+/// allows [`sign_raw()`] to be called on unvalidated keys, it will have to
+/// check the validity of the key for every signature; this is unnecessary
+/// overhead when many signatures have to be generated.
+///
+/// [`sign_raw()`]: SignRaw::sign_raw()
+pub trait SignRaw {
+    /// The signature algorithm used.
+    ///
+    /// See [RFC 8624, section 3.1] for IETF implementation recommendations.
+    ///
+    /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
+    fn algorithm(&self) -> SecAlg;
+
+    /// The raw public key.
+    ///
+    /// This can be used to verify produced signatures.  It must use the same
+    /// algorithm as returned by [`algorithm()`].
+    ///
+    /// [`algorithm()`]: Self::algorithm()
+    fn raw_public_key(&self) -> PublicKeyBytes;
+
+    /// Sign the given bytes.
+    ///
+    /// # Errors
+    ///
+    /// See [`SignError`] for a discussion of possible failure cases.  To the
+    /// greatest extent possible, the implementation should check for failure
+    /// cases beforehand and prevent them (e.g. when the keypair is created).
+    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError>;
+}
 
 //------------ SortedExtend --------------------------------------------------
 
@@ -94,247 +129,6 @@ where
         // Requires that the vector first be sorted.
         self.dedup();
     }
-}
-
-//------------ SignableZoneInOut ---------------------------------------------
-
-enum SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
-where
-    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
-    Octs: Clone
-        + FromBuilder
-        + From<&'static [u8]>
-        + Send
-        + OctetsFrom<Vec<u8>>
-        + From<Box<[u8]>>
-        + Default,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    S: SignableZone<N, Octs, Sort>,
-    Sort: Sorter,
-    T: SortedExtend<N, Octs, Sort> + ?Sized,
-{
-    SignInPlace(&'a mut T, PhantomData<(N, Octs, Sort)>),
-    SignInto(&'a S, &'b mut T),
-}
-
-impl<'a, 'b, N, Octs, S, T, Sort>
-    SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
-where
-    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
-    Octs: Clone
-        + FromBuilder
-        + From<&'static [u8]>
-        + Send
-        + OctetsFrom<Vec<u8>>
-        + From<Box<[u8]>>
-        + Default,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    S: SignableZone<N, Octs, Sort>,
-    Sort: Sorter,
-    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
-        + SortedExtend<N, Octs, Sort>
-        + ?Sized,
-{
-    fn new_in_place(signable_zone: &'a mut T) -> Self {
-        Self::SignInPlace(signable_zone, Default::default())
-    }
-
-    fn new_into(signable_zone: &'a S, out: &'b mut T) -> Self {
-        Self::SignInto(signable_zone, out)
-    }
-}
-
-impl<N, Octs, S, T, Sort> SignableZoneInOut<'_, '_, N, Octs, S, T, Sort>
-where
-    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
-    Octs: Clone
-        + FromBuilder
-        + From<&'static [u8]>
-        + Send
-        + OctetsFrom<Vec<u8>>
-        + From<Box<[u8]>>
-        + Default,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    S: SignableZone<N, Octs, Sort>,
-    Sort: Sorter,
-    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
-        + SortedExtend<N, Octs, Sort>
-        + ?Sized,
-{
-    fn as_slice(&self) -> &[Record<N, ZoneRecordData<Octs, N>>] {
-        match self {
-            SignableZoneInOut::SignInPlace(input_output, _) => input_output,
-
-            SignableZoneInOut::SignInto(input, _) => input,
-        }
-    }
-
-    fn sorted_extend<
-        U: IntoIterator<Item = Record<N, ZoneRecordData<Octs, N>>>,
-    >(
-        &mut self,
-        iter: U,
-    ) {
-        match self {
-            SignableZoneInOut::SignInPlace(input_output, _) => {
-                input_output.sorted_extend(iter)
-            }
-            SignableZoneInOut::SignInto(_, output) => {
-                output.sorted_extend(iter)
-            }
-        }
-    }
-}
-
-//------------ sign_zone() ---------------------------------------------------
-
-fn sign_zone<N, Octs, S, Key, KeyStrat, Sort, HP, T>(
-    mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
-    apex: &FamilyName<N>,
-    signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
-    signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
-) -> Result<(), SigningError>
-where
-    HP: Nsec3HashProvider<N, Octs>,
-    Key: SignRaw,
-    N: Display
-        + Send
-        + CanonicalOrd
-        + Clone
-        + ToName
-        + From<Name<Octs>>
-        + Ord
-        + Hash,
-    <Octs as FromBuilder>::Builder:
-        Truncate + EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
-    S: SignableZone<N, Octs, Sort>,
-    Sort: Sorter,
-    T: SortedExtend<N, Octs, Sort> + ?Sized,
-    Octs: FromBuilder
-        + Clone
-        + From<&'static [u8]>
-        + Send
-        + OctetsFrom<Vec<u8>>
-        + From<Box<[u8]>>
-        + Default,
-    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>,
-{
-    let soa = in_out
-        .as_slice()
-        .iter()
-        .find(|r| r.rtype() == Rtype::SOA)
-        .ok_or(SigningError::NoSoaFound)?;
-    let ZoneRecordData::Soa(ref soa_data) = soa.data() else {
-        return Err(SigningError::NoSoaFound);
-    };
-
-    // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to say that
-    // the "TTL of the NSEC(3) RR that is returned MUST be the lesser of
-    // the MINIMUM field of the SOA record and the TTL of the SOA itself".
-    let ttl = min(soa_data.minimum(), soa.ttl());
-
-    let families = RecordsIter::new(in_out.as_slice());
-
-    match &mut signing_config.hashing {
-        HashingConfig::Prehashed => {
-            // Nothing to do.
-        }
-
-        HashingConfig::Nsec => {
-            let nsecs = generate_nsecs(
-                apex,
-                ttl,
-                families,
-                signing_config.add_used_dnskeys,
-            );
-
-            in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
-        }
-
-        HashingConfig::Nsec3(
-            Nsec3Config {
-                params,
-                opt_out,
-                ttl_mode,
-                hash_provider,
-                ..
-            },
-            extra,
-        ) if extra.is_empty() => {
-            // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
-            // order." We store the NSEC3s as we create them and sort them
-            // afterwards.
-            let Nsec3Records { recs, mut param } =
-                generate_nsec3s::<N, Octs, HP, Sort>(
-                    apex,
-                    ttl,
-                    families,
-                    params.clone(),
-                    *opt_out,
-                    signing_config.add_used_dnskeys,
-                    hash_provider,
-                )
-                .map_err(SigningError::Nsec3HashingError)?;
-
-            let ttl = match ttl_mode {
-                Nsec3ParamTtlMode::Fixed(ttl) => *ttl,
-                Nsec3ParamTtlMode::Soa => soa.ttl(),
-                Nsec3ParamTtlMode::SoaMinimum => {
-                    if let ZoneRecordData::Soa(soa_data) = soa.data() {
-                        soa_data.minimum()
-                    } else {
-                        // Errm, this is unexpected. TODO: Should we abort
-                        // with an error here about a malformed zonefile?
-                        soa.ttl()
-                    }
-                }
-            };
-
-            param.set_ttl(ttl);
-
-            // Add the generated NSEC3 records.
-            in_out.sorted_extend(
-                std::iter::once(Record::from_record(param))
-                    .chain(recs.into_iter().map(Record::from_record)),
-            );
-        }
-
-        HashingConfig::Nsec3(_nsec3_config, _extra) => {
-            todo!();
-        }
-
-        HashingConfig::TransitioningNsecToNsec3(
-            _nsec3_config,
-            _nsec_to_nsec3_transition_state,
-        ) => {
-            todo!();
-        }
-
-        HashingConfig::TransitioningNsec3ToNsec(
-            _nsec3_config,
-            _nsec3_to_nsec_transition_state,
-        ) => {
-            todo!();
-        }
-    }
-
-    if !signing_keys.is_empty() {
-        let families = RecordsIter::new(in_out.as_slice());
-
-        let rrsigs_and_dnskeys =
-            generate_rrsigs::<N, Octs, Key, KeyStrat, Sort>(
-                apex,
-                families,
-                signing_keys,
-                signing_config.add_used_dnskeys,
-            )?;
-
-        in_out.sorted_extend(rrsigs_and_dnskeys);
-    }
-
-    Ok(())
 }
 
 //------------ SignableZone --------------------------------------------------

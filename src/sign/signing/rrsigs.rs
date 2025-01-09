@@ -22,12 +22,12 @@ use crate::rdata::dnssec::ProtoRrsig;
 use crate::rdata::{Dnskey, ZoneRecordData};
 use crate::sign::error::SigningError;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
+use crate::sign::keys::signingkey::SigningKey;
 use crate::sign::records::{
     FamilyName, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::sign::signing::strategy::SigningKeyUsageStrategy;
-use crate::sign::signing::traits::SortedExtend;
-use crate::sign::{SignRaw, SigningKey};
+use crate::sign::signing::traits::{SignRaw, SortedExtend};
 
 /// Generate RRSIG RRs for a collection of unsigned zone records.
 ///
@@ -344,7 +344,7 @@ where
 {
     let (inception, expiration) = key
         .signature_validity_period()
-        .ok_or(SigningError::KeyLacksSignatureValidityPeriod)?
+        .ok_or(SigningError::NoSignatureValidityPeriodProvided)?
         .into_inner();
     // RFC 4034
     // 3.  The RRSIG Resource Record
@@ -377,7 +377,7 @@ where
     for record in rrset.iter() {
         record.compose_canonical(buf).unwrap();
     }
-    let signature = key.raw_secret_key().sign_raw(&*buf).unwrap();
+    let signature = key.raw_secret_key().sign_raw(&*buf)?;
     let signature = signature.as_ref().to_vec();
     let Ok(signature) = signature.try_octets_into() else {
         return Err(SigningError::OutOfMemory);

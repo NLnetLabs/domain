@@ -248,15 +248,6 @@
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
-use core::fmt;
-use core::ops::RangeInclusive;
-
-use crate::base::{iana::SecAlg, Name};
-use crate::rdata::dnssec::Timestamp;
-use crate::validate::Key;
-
-pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
-
 pub mod crypto;
 pub mod error;
 pub mod hashing;
@@ -265,313 +256,278 @@ pub mod records;
 pub mod signing;
 pub mod zone;
 
+pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
+
 pub use keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
-//----------- SigningKey -----------------------------------------------------
+use core::cmp::min;
+use core::fmt::Display;
+use core::hash::Hash;
+use core::marker::PhantomData;
+use core::ops::Deref;
 
-/// A signing key.
-///
-/// This associates important metadata with a raw cryptographic secret key.
-pub struct SigningKey<Octs, Inner: SignRaw> {
-    /// The owner of the key.
-    owner: Name<Octs>,
+use std::boxed::Box;
+use std::fmt::Debug;
+use std::vec::Vec;
 
-    /// The flags associated with the key.
-    ///
-    /// These flags are stored in the DNSKEY record.
-    flags: u16,
+use crate::base::{CanonicalOrd, ToName};
+use crate::base::{Name, Record, Rtype};
+use crate::rdata::ZoneRecordData;
 
-    /// The raw private key.
-    inner: Inner,
+use error::SigningError;
+use hashing::config::HashingConfig;
+use hashing::nsec::generate_nsecs;
+use hashing::nsec3::{
+    generate_nsec3s, Nsec3Config, Nsec3HashProvider, Nsec3ParamTtlMode,
+    Nsec3Records,
+};
+use keys::keymeta::DesignatedSigningKey;
+use octseq::{
+    EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
+};
+use records::{FamilyName, RecordsIter, Sorter};
+use signing::config::SigningConfig;
+use signing::rrsigs::generate_rrsigs;
+use signing::strategy::SigningKeyUsageStrategy;
+use signing::traits::{SignRaw, SignableZone, SortedExtend};
 
-    /// The validity period to assign to any DNSSEC signatures created using
-    /// this key.
-    ///
-    /// The range spans from the inception timestamp up to and including the
-    /// expiration timestamp.
-    signature_validity_period: Option<RangeInclusive<Timestamp>>,
+//------------ SignableZoneInOut ---------------------------------------------
+
+pub enum SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
+where
+    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
+    Octs: Clone
+        + FromBuilder
+        + From<&'static [u8]>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + From<Box<[u8]>>
+        + Default,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
+    T: SortedExtend<N, Octs, Sort> + ?Sized,
+{
+    SignInPlace(&'a mut T, PhantomData<(N, Octs, Sort)>),
+    SignInto(&'a S, &'b mut T),
 }
 
-//--- Construction
-
-impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
-    /// Construct a new signing key manually.
-    pub fn new(owner: Name<Octs>, flags: u16, inner: Inner) -> Self {
-        Self {
-            owner,
-            flags,
-            inner,
-            signature_validity_period: None,
-        }
+impl<'a, 'b, N, Octs, S, T, Sort>
+    SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
+where
+    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
+    Octs: Clone
+        + FromBuilder
+        + From<&'static [u8]>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + From<Box<[u8]>>
+        + Default,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
+        + SortedExtend<N, Octs, Sort>
+        + ?Sized,
+{
+    fn new_in_place(signable_zone: &'a mut T) -> Self {
+        Self::SignInPlace(signable_zone, Default::default())
     }
 
-    pub fn with_validity(
-        mut self,
-        inception: Timestamp,
-        expiration: Timestamp,
-    ) -> Self {
-        self.signature_validity_period =
-            Some(RangeInclusive::new(inception, expiration));
-        self
-    }
-
-    pub fn signature_validity_period(
-        &self,
-    ) -> Option<RangeInclusive<Timestamp>> {
-        self.signature_validity_period.clone()
-    }
-}
-
-//--- Inspection
-
-impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
-    /// The owner name attached to the key.
-    pub fn owner(&self) -> &Name<Octs> {
-        &self.owner
-    }
-
-    /// The flags attached to the key.
-    pub fn flags(&self) -> u16 {
-        self.flags
-    }
-
-    /// The raw secret key.
-    pub fn raw_secret_key(&self) -> &Inner {
-        &self.inner
-    }
-
-    /// Whether this is a zone signing key.
-    ///
-    /// From [RFC 4034, section 2.1.1]:
-    ///
-    /// > Bit 7 of the Flags field is the Zone Key flag.  If bit 7 has value
-    /// > 1, then the DNSKEY record holds a DNS zone key, and the DNSKEY RR's
-    /// > owner name MUST be the name of a zone.  If bit 7 has value 0, then
-    /// > the DNSKEY record holds some other type of DNS public key and MUST
-    /// > NOT be used to verify RRSIGs that cover RRsets.
-    ///
-    /// [RFC 4034, section 2.1.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.1
-    pub fn is_zone_signing_key(&self) -> bool {
-        self.flags & (1 << 8) != 0
-    }
-
-    /// Whether this key has been revoked.
-    ///
-    /// From [RFC 5011, section 3]:
-    ///
-    /// > Bit 8 of the DNSKEY Flags field is designated as the 'REVOKE' flag.
-    /// > If this bit is set to '1', AND the resolver sees an RRSIG(DNSKEY)
-    /// > signed by the associated key, then the resolver MUST consider this
-    /// > key permanently invalid for all purposes except for validating the
-    /// > revocation.
-    ///
-    /// [RFC 5011, section 3]: https://datatracker.ietf.org/doc/html/rfc5011#section-3
-    pub fn is_revoked(&self) -> bool {
-        self.flags & (1 << 7) != 0
-    }
-
-    /// Whether this is a secure entry point.
-    ///
-    /// From [RFC 4034, section 2.1.1]:
-    ///
-    /// > Bit 15 of the Flags field is the Secure Entry Point flag, described
-    /// > in [RFC3757].  If bit 15 has value 1, then the DNSKEY record holds a
-    /// > key intended for use as a secure entry point.  This flag is only
-    /// > intended to be a hint to zone signing or debugging software as to
-    /// > the intended use of this DNSKEY record; validators MUST NOT alter
-    /// > their behavior during the signature validation process in any way
-    /// > based on the setting of this bit.  This also means that a DNSKEY RR
-    /// > with the SEP bit set would also need the Zone Key flag set in order
-    /// > to be able to generate signatures legally.  A DNSKEY RR with the SEP
-    /// > set and the Zone Key flag not set MUST NOT be used to verify RRSIGs
-    /// > that cover RRsets.
-    ///
-    /// [RFC 4034, section 2.1.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.1
-    /// [RFC3757]: https://datatracker.ietf.org/doc/html/rfc3757
-    pub fn is_secure_entry_point(&self) -> bool {
-        self.flags & 1 != 0
-    }
-
-    /// The signing algorithm used.
-    pub fn algorithm(&self) -> SecAlg {
-        self.inner.algorithm()
-    }
-
-    /// The associated public key.
-    pub fn public_key(&self) -> Key<&Octs>
-    where
-        Octs: AsRef<[u8]>,
-    {
-        let owner = Name::from_octets(self.owner.as_octets()).unwrap();
-        Key::new(owner, self.flags, self.inner.raw_public_key())
-    }
-
-    /// The associated raw public key.
-    pub fn raw_public_key(&self) -> PublicKeyBytes {
-        self.inner.raw_public_key()
+    fn new_into(signable_zone: &'a S, out: &'b mut T) -> Self {
+        Self::SignInto(signable_zone, out)
     }
 }
 
-// TODO: Conversion to and from key files
-
-//----------- SignRaw --------------------------------------------------------
-
-/// Low-level signing functionality.
-///
-/// Types that implement this trait own a private key and can sign arbitrary
-/// information (in the form of slices of bytes).
-///
-/// Implementing types should validate keys during construction, so that
-/// signing does not fail due to invalid keys.  If the implementing type
-/// allows [`sign_raw()`] to be called on unvalidated keys, it will have to
-/// check the validity of the key for every signature; this is unnecessary
-/// overhead when many signatures have to be generated.
-///
-/// [`sign_raw()`]: SignRaw::sign_raw()
-pub trait SignRaw {
-    /// The signature algorithm used.
-    ///
-    /// See [RFC 8624, section 3.1] for IETF implementation recommendations.
-    ///
-    /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
-    fn algorithm(&self) -> SecAlg;
-
-    /// The raw public key.
-    ///
-    /// This can be used to verify produced signatures.  It must use the same
-    /// algorithm as returned by [`algorithm()`].
-    ///
-    /// [`algorithm()`]: Self::algorithm()
-    fn raw_public_key(&self) -> PublicKeyBytes;
-
-    /// Sign the given bytes.
-    ///
-    /// # Errors
-    ///
-    /// See [`SignError`] for a discussion of possible failure cases.  To the
-    /// greatest extent possible, the implementation should check for failure
-    /// cases beforehand and prevent them (e.g. when the keypair is created).
-    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError>;
-}
-
-//----------- GenerateParams -------------------------------------------------
-
-/// Parameters for generating a secret key.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GenerateParams {
-    /// Generate an RSA/SHA-256 keypair.
-    RsaSha256 {
-        /// The number of bits in the public modulus.
-        ///
-        /// A ~3000-bit key corresponds to a 128-bit security level.  However,
-        /// RSA is mostly used with 2048-bit keys.  Some backends (like Ring)
-        /// do not support smaller key sizes than that.
-        ///
-        /// For more information about security levels, see [NIST SP 800-57
-        /// part 1 revision 5], page 54, table 2.
-        ///
-        /// [NIST SP 800-57 part 1 revision 5]: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
-        bits: u32,
-    },
-
-    /// Generate an ECDSA P-256/SHA-256 keypair.
-    EcdsaP256Sha256,
-
-    /// Generate an ECDSA P-384/SHA-384 keypair.
-    EcdsaP384Sha384,
-
-    /// Generate an Ed25519 keypair.
-    Ed25519,
-
-    /// An Ed448 keypair.
-    Ed448,
-}
-
-//--- Inspection
-
-impl GenerateParams {
-    /// The algorithm of the generated key.
-    pub fn algorithm(&self) -> SecAlg {
+impl<N, Octs, S, T, Sort> SignableZoneInOut<'_, '_, N, Octs, S, T, Sort>
+where
+    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
+    Octs: Clone
+        + FromBuilder
+        + From<&'static [u8]>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + From<Box<[u8]>>
+        + Default,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
+        + SortedExtend<N, Octs, Sort>
+        + ?Sized,
+{
+    fn as_slice(&self) -> &[Record<N, ZoneRecordData<Octs, N>>] {
         match self {
-            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519 => SecAlg::ED25519,
-            Self::Ed448 => SecAlg::ED448,
+            SignableZoneInOut::SignInPlace(input_output, _) => input_output,
+
+            SignableZoneInOut::SignInto(input, _) => input,
+        }
+    }
+
+    fn sorted_extend<
+        U: IntoIterator<Item = Record<N, ZoneRecordData<Octs, N>>>,
+    >(
+        &mut self,
+        iter: U,
+    ) {
+        match self {
+            SignableZoneInOut::SignInPlace(input_output, _) => {
+                input_output.sorted_extend(iter)
+            }
+            SignableZoneInOut::SignInto(_, output) => {
+                output.sorted_extend(iter)
+            }
         }
     }
 }
 
-//============ Error Types ===================================================
+//------------ sign_zone() ---------------------------------------------------
 
-//----------- SignError ------------------------------------------------------
+pub fn sign_zone<N, Octs, S, Key, KeyStrat, Sort, HP, T>(
+    mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
+    apex: &FamilyName<N>,
+    signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
+    signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
+) -> Result<(), SigningError>
+where
+    HP: Nsec3HashProvider<N, Octs>,
+    Key: SignRaw,
+    N: Display
+        + Send
+        + CanonicalOrd
+        + Clone
+        + ToName
+        + From<Name<Octs>>
+        + Ord
+        + Hash,
+    <Octs as FromBuilder>::Builder:
+        Truncate + EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
+    T: SortedExtend<N, Octs, Sort> + ?Sized,
+    Octs: FromBuilder
+        + Clone
+        + From<&'static [u8]>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + From<Box<[u8]>>
+        + Default,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>,
+{
+    let soa = in_out
+        .as_slice()
+        .iter()
+        .find(|r| r.rtype() == Rtype::SOA)
+        .ok_or(SigningError::NoSoaFound)?;
+    let ZoneRecordData::Soa(ref soa_data) = soa.data() else {
+        return Err(SigningError::NoSoaFound);
+    };
 
-/// A signature failure.
-///
-/// In case such an error occurs, callers should stop using the key pair they
-/// attempted to sign with.  If such an error occurs with every key pair they
-/// have available, or if such an error occurs with a freshly-generated key
-/// pair, they should use a different cryptographic implementation.  If that
-/// is not possible, they must forego signing entirely.
-///
-/// # Failure Cases
-///
-/// Signing should be an infallible process.  There are three considerable
-/// failure cases for it:
-///
-/// - The secret key was invalid (e.g. its parameters were inconsistent).
-///
-///   Such a failure would mean that all future signing (with this key) will
-///   also fail.  In any case, the implementations provided by this crate try
-///   to verify the key (e.g. by checking the consistency of the private and
-///   public components) before any signing occurs, largely ruling this class
-///   of errors out.
-///
-/// - Not enough randomness could be obtained.  This applies to signature
-///   algorithms which use randomization (e.g. RSA and ECDSA).
-///
-///   On the vast majority of platforms, randomness can always be obtained.
-///   The [`getrandom` crate documentation][getrandom] notes:
-///
-///   > If an error does occur, then it is likely that it will occur on every
-///   > call to getrandom, hence after the first successful call one can be
-///   > reasonably confident that no errors will occur.
-///
-///   [getrandom]: https://docs.rs/getrandom
-///
-///   Thus, in case such a failure occurs, all future signing will probably
-///   also fail.
-///
-/// - Not enough memory could be allocated.
-///
-///   Signature algorithms have a small memory overhead, so an out-of-memory
-///   condition means that the program is nearly out of allocatable space.
-///
-///   Callers who do not expect allocations to fail (i.e. who are using the
-///   standard memory allocation routines, not their `try_` variants) will
-///   likely panic shortly after such an error.
-///
-///   Callers who are aware of their memory usage will likely restrict it far
-///   before they get to this point.  Systems running at near-maximum load
-///   tend to quickly become unresponsive and staggeringly slow.  If memory
-///   usage is an important consideration, programs will likely cap it before
-///   the system reaches e.g. 90% memory use.
-///
-///   As such, memory allocation failure should never really occur.  It is far
-///   more likely that one of the other errors has occurred.
-///
-/// It may be reasonable to panic in any such situation, since each kind of
-/// error is essentially unrecoverable.  However, applications where signing
-/// is an optional step, or where crashing is prohibited, may wish to recover
-/// from such an error differently (e.g. by foregoing signatures or informing
-/// an operator).
-#[derive(Clone, Debug)]
-pub struct SignError;
+    // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to say that
+    // the "TTL of the NSEC(3) RR that is returned MUST be the lesser of
+    // the MINIMUM field of the SOA record and the TTL of the SOA itself".
+    let ttl = min(soa_data.minimum(), soa.ttl());
 
-impl fmt::Display for SignError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("could not create a cryptographic signature")
+    let families = RecordsIter::new(in_out.as_slice());
+
+    match &mut signing_config.hashing {
+        HashingConfig::Prehashed => {
+            // Nothing to do.
+        }
+
+        HashingConfig::Nsec => {
+            let nsecs = generate_nsecs(
+                apex,
+                ttl,
+                families,
+                signing_config.add_used_dnskeys,
+            );
+
+            in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
+        }
+
+        HashingConfig::Nsec3(
+            Nsec3Config {
+                params,
+                opt_out,
+                ttl_mode,
+                hash_provider,
+                ..
+            },
+            extra,
+        ) if extra.is_empty() => {
+            // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
+            // order." We store the NSEC3s as we create them and sort them
+            // afterwards.
+            let Nsec3Records { recs, mut param } =
+                generate_nsec3s::<N, Octs, HP, Sort>(
+                    apex,
+                    ttl,
+                    families,
+                    params.clone(),
+                    *opt_out,
+                    signing_config.add_used_dnskeys,
+                    hash_provider,
+                )
+                .map_err(SigningError::Nsec3HashingError)?;
+
+            let ttl = match ttl_mode {
+                Nsec3ParamTtlMode::Fixed(ttl) => *ttl,
+                Nsec3ParamTtlMode::Soa => soa.ttl(),
+                Nsec3ParamTtlMode::SoaMinimum => {
+                    if let ZoneRecordData::Soa(soa_data) = soa.data() {
+                        soa_data.minimum()
+                    } else {
+                        // Errm, this is unexpected. TODO: Should we abort
+                        // with an error here about a malformed zonefile?
+                        soa.ttl()
+                    }
+                }
+            };
+
+            param.set_ttl(ttl);
+
+            // Add the generated NSEC3 records.
+            in_out.sorted_extend(
+                std::iter::once(Record::from_record(param))
+                    .chain(recs.into_iter().map(Record::from_record)),
+            );
+        }
+
+        HashingConfig::Nsec3(_nsec3_config, _extra) => {
+            todo!();
+        }
+
+        HashingConfig::TransitioningNsecToNsec3(
+            _nsec3_config,
+            _nsec_to_nsec3_transition_state,
+        ) => {
+            todo!();
+        }
+
+        HashingConfig::TransitioningNsec3ToNsec(
+            _nsec3_config,
+            _nsec3_to_nsec_transition_state,
+        ) => {
+            todo!();
+        }
     }
-}
 
-impl std::error::Error for SignError {}
+    if !signing_keys.is_empty() {
+        let families = RecordsIter::new(in_out.as_slice());
+
+        let rrsigs_and_dnskeys =
+            generate_rrsigs::<N, Octs, Key, KeyStrat, Sort>(
+                apex,
+                families,
+                signing_keys,
+                signing_config.add_used_dnskeys,
+            )?;
+
+        in_out.sorted_extend(rrsigs_and_dnskeys);
+    }
+
+    Ok(())
+}
