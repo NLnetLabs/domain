@@ -13,7 +13,9 @@ where
 {
     const NAME: &'static str;
 
-    fn select_signing_keys_for_rtype<DSK: DesignatedSigningKey<Octs, Inner>>(
+    fn select_signing_keys_for_rtype<
+        DSK: DesignatedSigningKey<Octs, Inner>,
+    >(
         candidate_keys: &[DSK],
         rtype: Option<Rtype>,
     ) -> HashSet<usize> {
