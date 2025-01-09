@@ -13,8 +13,8 @@ where
 {
     const NAME: &'static str;
 
-    fn select_signing_keys_for_rtype<K: DesignatedSigningKey<Octs, Inner>>(
-        candidate_keys: &[K],
+    fn select_signing_keys_for_rtype<DSK: DesignatedSigningKey<Octs, Inner>>(
+        candidate_keys: &[DSK],
         rtype: Option<Rtype>,
     ) -> HashSet<usize> {
         if matches!(rtype, Some(Rtype::DNSKEY)) {
@@ -24,9 +24,9 @@ where
         }
     }
 
-    fn filter_keys<K: DesignatedSigningKey<Octs, Inner>>(
-        candidate_keys: &[K],
-        filter: fn(&K) -> bool,
+    fn filter_keys<DSK: DesignatedSigningKey<Octs, Inner>>(
+        candidate_keys: &[DSK],
+        filter: fn(&DSK) -> bool,
     ) -> HashSet<usize> {
         candidate_keys
             .iter()
