@@ -19,6 +19,27 @@ pub struct Message {
     pub contents: [u8],
 }
 
+//--- Inspection
+
+impl Message {
+    /// Represent this as a mutable byte sequence.
+    ///
+    /// Given `&mut self`, it is already possible to individually modify the
+    /// message header and contents; since neither has invalid instances, it
+    /// is safe to represent the entire object as mutable bytes.
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        // SAFETY:
+        // - 'Self' has no padding bytes and no interior mutability.
+        // - Its size in memory is exactly 'size_of_val(self)'.
+        unsafe {
+            core::slice::from_raw_parts_mut(
+                self as *mut Self as *mut u8,
+                core::mem::size_of_val(self),
+            )
+        }
+    }
+}
+
 //--- Interaction
 
 impl Message {
@@ -28,6 +49,15 @@ impl Message {
     pub fn slice_to(&self, size: usize) -> &Self {
         let bytes = &self.as_bytes()[..12 + size];
         Self::parse_bytes_by_ref(bytes)
+            .expect("A 12-or-more byte string is a valid 'Message'")
+    }
+
+    /// Truncate the contents of this message to the given size, mutably.
+    ///
+    /// The returned value will have a `contents` field of the given size.
+    pub fn slice_to_mut(&mut self, size: usize) -> &mut Self {
+        let bytes = &mut self.as_bytes_mut()[..12 + size];
+        Self::parse_bytes_by_mut(bytes)
             .expect("A 12-or-more byte string is a valid 'Message'")
     }
 }
