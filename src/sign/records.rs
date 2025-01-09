@@ -496,10 +496,7 @@ where
     type Item = OwnerRrs<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if !record.owner().name_eq(first.owner()) {
@@ -534,10 +531,7 @@ where
     type Item = Rrset<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if !record.owner().name_eq(first.owner())
@@ -575,10 +569,7 @@ where
     type Item = Rrset<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if record.rtype() != first.rtype() {
