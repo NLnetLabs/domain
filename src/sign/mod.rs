@@ -392,6 +392,15 @@ where
 
 //------------ sign_zone() ---------------------------------------------------
 
+/// DNSSEC sign the given zone records.
+///
+/// Assumes that the given zone records are sorted according to
+/// [`CanonicalOrd`]. The behaviour is undefined otherwise.
+///
+/// # Panics
+///
+/// This function will panic in debug builds if the given zone is not sorted
+/// according to [`CanonicalOrd`].
 pub fn sign_zone<N, Octs, S, DSK, Inner, KeyStrat, Sort, HP, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
     apex: &N,
@@ -434,6 +443,8 @@ where
     let ZoneRecordData::Soa(ref soa_data) = soa.data() else {
         return Err(SigningError::NoSoaFound);
     };
+
+    debug_assert!(in_out.as_slice().is_sorted_by(CanonicalOrd::canonical_le));
 
     // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to say that
     // the "TTL of the NSEC(3) RR that is returned MUST be the lesser of
