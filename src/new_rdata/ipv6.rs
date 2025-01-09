@@ -11,8 +11,8 @@ use std::net::Ipv6Addr;
 use domain_macros::*;
 
 use crate::new_base::{
-    build::{self, BuildIntoMessage},
-    wire::{AsBytes, TruncationError},
+    build::{self, BuildIntoMessage, BuildResult},
+    wire::AsBytes,
 };
 
 //----------- Aaaa -----------------------------------------------------------
@@ -81,10 +81,7 @@ impl fmt::Display for Aaaa {
 //--- Building into DNS messages
 
 impl BuildIntoMessage for Aaaa {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.as_bytes().build_into_message(builder)
     }
 }

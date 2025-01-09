@@ -8,7 +8,7 @@ use domain_macros::*;
 
 use crate::{
     new_base::{
-        build::{self, BuildIntoMessage, TruncationError},
+        build::{self, BuildIntoMessage, BuildResult},
         wire::{ParseError, SplitBytes},
     },
     new_edns::EdnsOption,
@@ -48,10 +48,7 @@ impl fmt::Debug for Opt {
 //--- Building into DNS messages
 
 impl BuildIntoMessage for Opt {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.contents.build_into_message(builder)
     }
 }

@@ -12,6 +12,8 @@ use crate::new_base::{
     Header, Message,
 };
 
+use super::BuildCommitted;
+
 //----------- Builder --------------------------------------------------------
 
 /// A DNS message builder.
@@ -214,8 +216,13 @@ impl Builder<'_> {
     }
 
     /// Commit all appended content.
-    pub fn commit(&mut self) {
+    ///
+    /// For convenience, a unit type [`BuildCommitted`] is returned; it is
+    /// used as the return type of build functions to remind users to call
+    /// this method on success paths.
+    pub fn commit(&mut self) -> BuildCommitted {
         self.commit = self.context.size;
+        BuildCommitted
     }
 
     /// Mark bytes in the buffer as initialized.

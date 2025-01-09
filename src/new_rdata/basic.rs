@@ -13,12 +13,9 @@ use std::net::Ipv4Addr;
 use domain_macros::*;
 
 use crate::new_base::{
-    build::{self, BuildIntoMessage},
+    build::{self, BuildIntoMessage, BuildResult},
     parse::{ParseFromMessage, SplitFromMessage},
-    wire::{
-        AsBytes, ParseBytes, ParseError, SplitBytes, TruncationError, U16,
-        U32,
-    },
+    wire::{AsBytes, ParseBytes, ParseError, SplitBytes, U16, U32},
     CharStr, Message, Serial,
 };
 
@@ -88,10 +85,7 @@ impl fmt::Display for A {
 //--- Building into DNS messages
 
 impl BuildIntoMessage for A {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.as_bytes().build_into_message(builder)
     }
 }
@@ -132,10 +126,7 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ns<N> {
 //--- Building into DNS messages
 
 impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ns<N> {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.name.build_into_message(builder)
     }
 }
@@ -176,10 +167,7 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for CName<N> {
 //--- Building into DNS messages
 
 impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for CName<N> {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.name.build_into_message(builder)
     }
 }
@@ -254,7 +242,7 @@ impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    ) -> BuildResult {
         self.mname.build_into_message(builder.delegate())?;
         self.rname.build_into_message(builder.delegate())?;
         builder.append_bytes(self.serial.as_bytes())?;
@@ -262,8 +250,7 @@ impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
         builder.append_bytes(self.retry.as_bytes())?;
         builder.append_bytes(self.expire.as_bytes())?;
         builder.append_bytes(self.minimum.as_bytes())?;
-        builder.commit();
-        Ok(())
+        Ok(builder.commit())
     }
 }
 
@@ -314,10 +301,7 @@ impl fmt::Debug for Wks {
 //--- Building into DNS messages
 
 impl BuildIntoMessage for Wks {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.as_bytes().build_into_message(builder)
     }
 }
@@ -358,10 +342,7 @@ impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ptr<N> {
 //--- Building into DNS messages
 
 impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ptr<N> {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.name.build_into_message(builder)
     }
 }
@@ -399,11 +380,10 @@ impl BuildIntoMessage for HInfo<'_> {
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    ) -> BuildResult {
         self.cpu.build_into_message(builder.delegate())?;
         self.os.build_into_message(builder.delegate())?;
-        builder.commit();
-        Ok(())
+        Ok(builder.commit())
     }
 }
 
@@ -454,11 +434,10 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    ) -> BuildResult {
         builder.append_bytes(self.preference.as_bytes())?;
         self.exchange.build_into_message(builder.delegate())?;
-        builder.commit();
-        Ok(())
+        Ok(builder.commit())
     }
 }
 
@@ -508,10 +487,7 @@ impl<'a> ParseFromMessage<'a> for &'a Txt {
 //--- Building into DNS messages
 
 impl BuildIntoMessage for Txt {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.content.build_into_message(builder)
     }
 }

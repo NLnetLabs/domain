@@ -3,7 +3,7 @@
 use core::{borrow::Borrow, ops::Deref};
 
 use super::{
-    build::{self, BuildIntoMessage},
+    build::{self, BuildIntoMessage, BuildResult},
     name::RevNameBuf,
     parse::{ParseFromMessage, SplitFromMessage},
     wire::{
@@ -113,7 +113,7 @@ where
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    ) -> BuildResult {
         self.rname.build_into_message(builder.delegate())?;
         builder.append_bytes(self.rtype.as_bytes())?;
         builder.append_bytes(self.rclass.as_bytes())?;
@@ -129,8 +129,7 @@ where
         builder.appended_mut()[offset..offset + 2]
             .copy_from_slice(&size.to_be_bytes());
 
-        builder.commit();
-        Ok(())
+        Ok(builder.commit())
     }
 }
 
@@ -372,10 +371,7 @@ impl<'a> ParseRecordData<'a> for &'a UnparsedRecordData {
 //--- Building into DNS messages
 
 impl BuildIntoMessage for UnparsedRecordData {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.0.build_into_message(builder)
     }
 }

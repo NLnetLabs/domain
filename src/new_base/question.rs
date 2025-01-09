@@ -3,10 +3,10 @@
 use domain_macros::*;
 
 use super::{
-    build::{self, BuildIntoMessage},
+    build::{self, BuildIntoMessage, BuildResult},
     name::RevNameBuf,
     parse::{ParseFromMessage, SplitFromMessage},
-    wire::{AsBytes, ParseError, TruncationError, U16},
+    wire::{AsBytes, ParseError, U16},
     Message,
 };
 
@@ -82,11 +82,11 @@ where
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    ) -> BuildResult {
         self.qname.build_into_message(builder.delegate())?;
         builder.append_bytes(self.qtype.as_bytes())?;
         builder.append_bytes(self.qclass.as_bytes())?;
-        Ok(())
+        Ok(builder.commit())
     }
 }
 

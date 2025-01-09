@@ -3,7 +3,7 @@
 use core::fmt;
 
 use super::{
-    build::{self, BuildIntoMessage},
+    build::{self, BuildIntoMessage, BuildResult},
     parse::{ParseFromMessage, SplitFromMessage},
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
     Message,
@@ -50,11 +50,10 @@ impl BuildIntoMessage for CharStr {
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    ) -> BuildResult {
         builder.append_bytes(&[self.octets.len() as u8])?;
         builder.append_bytes(&self.octets)?;
-        builder.commit();
-        Ok(())
+        Ok(builder.commit())
     }
 }
 

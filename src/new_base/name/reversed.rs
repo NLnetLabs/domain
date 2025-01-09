@@ -9,7 +9,7 @@ use core::{
 };
 
 use crate::new_base::{
-    build::{self, BuildIntoMessage},
+    build::{self, BuildIntoMessage, BuildResult},
     parse::{ParseFromMessage, SplitFromMessage},
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
     Message,
@@ -99,10 +99,9 @@ impl BuildIntoMessage for RevName {
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    ) -> BuildResult {
         builder.append_name(self)?;
-        builder.commit();
-        Ok(())
+        Ok(builder.commit())
     }
 }
 
@@ -371,10 +370,7 @@ fn parse_segment<'a>(
 //--- Building into DNS messages
 
 impl BuildIntoMessage for RevNameBuf {
-    fn build_into_message(
-        &self,
-        builder: build::Builder<'_>,
-    ) -> Result<(), TruncationError> {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         (**self).build_into_message(builder)
     }
 }
