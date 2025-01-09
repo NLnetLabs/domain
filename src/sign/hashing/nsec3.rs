@@ -329,6 +329,7 @@ where
             &apex_owner,
             bitmap,
             ttl,
+            false,
         )?;
 
         // Store the record by order of its owner name.
@@ -355,6 +356,7 @@ where
             &apex_owner,
             bitmap,
             ttl,
+            true,
         )?;
 
         // Store the record by order of its owner name.
@@ -406,6 +408,12 @@ where
     Ok(Nsec3Records::new(nsec3s.into_inner(), nsec3param))
 }
 
+// unhashed_owner_name_is_ent is used to signal that the unhashed owner name
+// is an empty non-terminal, as ldns-signzone for example outputs a comment
+// for NSEC3 hashes that are for unhashed empty non-terminal owner names, and
+// it can be quite costly to determine later given only a collection of
+// records if the unhashed owner name is an ENT or not, so we pass this flag
+// to the hash provider and it can record it if wanted.
 #[allow(clippy::too_many_arguments)]
 fn mk_nsec3<N, Octs, HashProvider>(
     name: &N,
@@ -417,6 +425,7 @@ fn mk_nsec3<N, Octs, HashProvider>(
     apex_owner: &N,
     bitmap: RtypeBitmapBuilder<<Octs as FromBuilder>::Builder>,
     ttl: Ttl,
+    unhashed_owner_name_is_ent: bool,
 ) -> Result<Record<N, Nsec3<Octs>>, Nsec3HashError>
 where
     N: ToName + From<Name<Octs>>,
@@ -425,7 +434,7 @@ where
         EmptyBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate,
     HashProvider: Nsec3HashProvider<N, Octs>,
 {
-    let owner_name = hash_provider.get_or_create(apex_owner, name)?;
+    let owner_name = hash_provider.get_or_create(apex_owner, name, unhashed_owner_name_is_ent)?;
 
     // RFC 5155 7.1. step 2:
     //   "The Next Hashed Owner Name field is left blank for the moment."
@@ -517,6 +526,7 @@ pub trait Nsec3HashProvider<N, Octs> {
         &mut self,
         apex_owner: &N,
         unhashed_owner_name: &N,
+        unhashed_owner_name_is_ent: bool,
     ) -> Result<N, Nsec3HashError>;
 }
 
@@ -524,7 +534,6 @@ pub struct OnDemandNsec3HashProvider<SaltOcts> {
     alg: Nsec3HashAlg,
     iterations: u16,
     salt: Nsec3Salt<SaltOcts>,
-    // apex_owner: N,
 }
 
 impl<SaltOcts> OnDemandNsec3HashProvider<SaltOcts> {
@@ -532,13 +541,11 @@ impl<SaltOcts> OnDemandNsec3HashProvider<SaltOcts> {
         alg: Nsec3HashAlg,
         iterations: u16,
         salt: Nsec3Salt<SaltOcts>,
-        // apex_owner: N,
     ) -> Self {
         Self {
             alg,
             iterations,
             salt,
-            // apex_owner,
         }
     }
 
@@ -567,6 +574,7 @@ where
         &mut self,
         apex_owner: &N,
         unhashed_owner_name: &N,
+        _unhashed_owner_name_is_ent: bool,
     ) -> Result<N, Nsec3HashError> {
         mk_hashed_nsec3_owner_name(
             unhashed_owner_name,
