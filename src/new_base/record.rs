@@ -118,17 +118,8 @@ where
         builder.append_bytes(self.rtype.as_bytes())?;
         builder.append_bytes(self.rclass.as_bytes())?;
         builder.append_bytes(self.ttl.as_bytes())?;
-
-        // The offset of the record data size.
-        let offset = builder.appended().len();
-        builder.append_bytes(&0u16.to_be_bytes())?;
-        self.rdata.build_into_message(builder.delegate())?;
-        let size = builder.appended().len() - 2 - offset;
-        let size =
-            u16::try_from(size).expect("the record data never exceeds 64KiB");
-        builder.appended_mut()[offset..offset + 2]
-            .copy_from_slice(&size.to_be_bytes());
-
+        SizePrefixed::new(&self.rdata)
+            .build_into_message(builder.delegate())?;
         Ok(builder.commit())
     }
 }

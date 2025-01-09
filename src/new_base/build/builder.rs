@@ -133,7 +133,12 @@ impl<'b> Builder<'b> {
     }
 
     /// The appended but uncommitted contents of the message, mutably.
-    pub fn appended_mut(&mut self) -> &mut [u8] {
+    ///
+    /// # Safety
+    ///
+    /// The caller must not modify any compressed names among these bytes.
+    /// This can invalidate name compression state.
+    pub unsafe fn appended_mut(&mut self) -> &mut [u8] {
         // SAFETY: 'message.contents[commit..]' is mutably borrowed by 'self'.
         let range = self.commit..self.context.size;
         unsafe { &mut (*self.message.as_ptr()).contents[range] }
@@ -173,6 +178,15 @@ impl<'b> Builder<'b> {
         let message = &message.as_bytes()[..12 + self.context.size];
         Message::parse_bytes_by_ref(message)
             .expect("'message' represents a valid 'Message'")
+    }
+
+    /// A pointer to the message, including any uncommitted contents.
+    ///
+    /// The first `commit` bytes of the message contents (also provided by
+    /// [`Self::committed()`]) are immutably borrowed for the lifetime `'b`.
+    /// The remainder of the message is initialized and borrowed by `self`.
+    pub fn cur_message_ptr(&self) -> NonNull<Message> {
+        self.cur_message().into()
     }
 
     /// The builder context.

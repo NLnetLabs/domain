@@ -5,6 +5,12 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
+use crate::new_base::{
+    build::{self, BuildIntoMessage, BuildResult},
+    parse::{ParseFromMessage, SplitFromMessage},
+    Message,
+};
+
 use super::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError, SplitBytes,
     SplitBytesByRef, TruncationError, U16,
@@ -102,6 +108,37 @@ impl<T: ?Sized> AsMut<T> for SizePrefixed<T> {
     }
 }
 
+//--- Parsing from DNS messages
+
+impl<'b, T: ParseFromMessage<'b>> ParseFromMessage<'b> for SizePrefixed<T> {
+    fn parse_from_message(
+        message: &'b Message,
+        start: usize,
+    ) -> Result<Self, ParseError> {
+        let (&size, rest) = <&U16>::split_from_message(message, start)?;
+        if rest + size.get() as usize != message.contents.len() {
+            return Err(ParseError);
+        }
+        T::parse_from_message(message, rest).map(Self::new)
+    }
+}
+
+impl<'b, T: ParseFromMessage<'b>> SplitFromMessage<'b> for SizePrefixed<T> {
+    fn split_from_message(
+        message: &'b Message,
+        start: usize,
+    ) -> Result<(Self, usize), ParseError> {
+        let (&size, rest) = <&U16>::split_from_message(message, start)?;
+        let (start, rest) = (rest, rest + size.get() as usize);
+        if rest > message.contents.len() {
+            return Err(ParseError);
+        }
+        let message = message.slice_to(rest);
+        let data = T::parse_from_message(message, start)?;
+        Ok((Self::new(data), rest))
+    }
+}
+
 //--- Parsing from bytes
 
 impl<'b, T: ParseBytes<'b>> ParseBytes<'b> for SizePrefixed<T> {
@@ -110,8 +147,7 @@ impl<'b, T: ParseBytes<'b>> ParseBytes<'b> for SizePrefixed<T> {
         if rest.len() != size.get() as usize {
             return Err(ParseError);
         }
-        let data = T::parse_bytes(bytes)?;
-        Ok(Self { size, data })
+        T::parse_bytes(bytes).map(Self::new)
     }
 }
 
@@ -123,7 +159,7 @@ impl<'b, T: ParseBytes<'b>> SplitBytes<'b> for SizePrefixed<T> {
         }
         let (data, rest) = rest.split_at(size.get() as usize);
         let data = T::parse_bytes(data)?;
-        Ok((Self { size, data }, rest))
+        Ok((Self::new(data), rest))
     }
 }
 
@@ -206,6 +242,25 @@ unsafe impl<T: ?Sized + ParseBytesByRef> SplitBytesByRef for SizePrefixed<T> {
         // - 'Self' is 'repr(C)' and so has no alignment or padding.
         // - The layout of 'Self' is identical to '(U16, T)'.
         Ok((unsafe { &mut *(ptr as *const Self as *mut Self) }, rest))
+    }
+}
+
+//--- Building into DNS messages
+
+impl<T: ?Sized + BuildIntoMessage> BuildIntoMessage for SizePrefixed<T> {
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> BuildResult {
+        assert_eq!(builder.appended(), &[] as &[u8]);
+        builder.append_bytes(&0u16.to_be_bytes())?;
+        self.data.build_into_message(builder.delegate())?;
+        let size = builder.appended().len() - 2;
+        let size = u16::try_from(size).expect("the data never exceeds 64KiB");
+        // SAFETY: A 'U16' is being modified, not a domain name.
+        let size_buf = unsafe { &mut builder.appended_mut()[0..2] };
+        size_buf.copy_from_slice(&size.to_be_bytes());
+        Ok(builder.commit())
     }
 }
 
