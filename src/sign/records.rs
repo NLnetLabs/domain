@@ -34,8 +34,8 @@ pub trait Sorter {
     /// ascending order, by their numeric RR TYPE"_.
     fn sort_by<N, D, F>(records: &mut Vec<Record<N, D>>, compare: F)
     where
-        Record<N, D>: Send,
-        F: Fn(&Record<N, D>, &Record<N, D>) -> Ordering + Sync;
+        F: Fn(&Record<N, D>, &Record<N, D>) -> Ordering + Sync,
+        Record<N, D>: CanonicalOrd + Send;
 }
 
 //------------ DefaultSorter -------------------------------------------------
@@ -49,8 +49,8 @@ pub struct DefaultSorter;
 impl Sorter for DefaultSorter {
     fn sort_by<N, D, F>(records: &mut Vec<Record<N, D>>, compare: F)
     where
-        Record<N, D>: Send,
         F: Fn(&Record<N, D>, &Record<N, D>) -> Ordering + Sync,
+        Record<N, D>: CanonicalOrd + Send,
     {
         records.sort_by(compare);
     }

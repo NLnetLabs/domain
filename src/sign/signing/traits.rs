@@ -36,7 +36,10 @@ use crate::sign::SignRaw;
 
 //------------ SortedExtend --------------------------------------------------
 
-pub trait SortedExtend<N, Octs> {
+pub trait SortedExtend<N, Octs, Sort>
+where
+    Sort: Sorter,
+{
     fn sorted_extend<
         T: IntoIterator<Item = Record<N, ZoneRecordData<Octs, N>>>,
     >(
@@ -45,12 +48,12 @@ pub trait SortedExtend<N, Octs> {
     );
 }
 
-impl<N, Octs, S> SortedExtend<N, Octs>
-    for SortedRecords<N, ZoneRecordData<Octs, N>, S>
+impl<N, Octs, Sort> SortedExtend<N, Octs, Sort>
+    for SortedRecords<N, ZoneRecordData<Octs, N>, Sort>
 where
     N: Send + PartialEq + ToName,
     Octs: Send,
-    S: Sorter,
+    Sort: Sorter,
     ZoneRecordData<Octs, N>: CanonicalOrd + PartialEq,
 {
     fn sorted_extend<
@@ -59,13 +62,43 @@ where
         &mut self,
         iter: T,
     ) {
+        // SortedRecords::extend() takes care of sorting and de-duplication so
+        // we don't have to.
         self.extend(iter);
+    }
+}
+
+//---- impl for Vec
+
+impl<N, Octs, Sort> SortedExtend<N, Octs, Sort>
+    for Vec<Record<N, ZoneRecordData<Octs, N>>>
+where
+    N: Send + PartialEq + ToName,
+    Octs: Send,
+    Sort: Sorter,
+    ZoneRecordData<Octs, N>: CanonicalOrd + PartialEq,
+{
+    fn sorted_extend<
+        T: IntoIterator<Item = Record<N, ZoneRecordData<Octs, N>>>,
+    >(
+        &mut self,
+        iter: T,
+    ) {
+        // This call to extend may add duplicates.
+        self.extend(iter);
+
+        // Sort the records using the provided sort implementation.
+        Sort::sort_by(self, CanonicalOrd::canonical_cmp);
+
+        // And remove any duplicates that were created.
+        // Requires that the vector first be sorted.
+        self.dedup();
     }
 }
 
 //------------ SignableZoneInOut ---------------------------------------------
 
-enum SignableZoneInOut<'a, 'b, N, Octs, S, T>
+enum SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
 where
     N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
     Octs: Clone
@@ -76,14 +109,16 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    S: SignableZone<N, Octs>,
-    T: SortedExtend<N, Octs> + ?Sized,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
+    T: SortedExtend<N, Octs, Sort> + ?Sized,
 {
-    SignInPlace(&'a mut T, PhantomData<(N, Octs)>),
+    SignInPlace(&'a mut T, PhantomData<(N, Octs, Sort)>),
     SignInto(&'a S, &'b mut T),
 }
 
-impl<'a, 'b, N, Octs, S, T> SignableZoneInOut<'a, 'b, N, Octs, S, T>
+impl<'a, 'b, N, Octs, S, T, Sort>
+    SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
 where
     N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
     Octs: Clone
@@ -94,9 +129,10 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    S: SignableZone<N, Octs>,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
     T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
-        + SortedExtend<N, Octs>
+        + SortedExtend<N, Octs, Sort>
         + ?Sized,
 {
     fn new_in_place(signable_zone: &'a mut T) -> Self {
@@ -108,7 +144,7 @@ where
     }
 }
 
-impl<N, Octs, S, T> SignableZoneInOut<'_, '_, N, Octs, S, T>
+impl<N, Octs, S, T, Sort> SignableZoneInOut<'_, '_, N, Octs, S, T, Sort>
 where
     N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
     Octs: Clone
@@ -119,9 +155,10 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    S: SignableZone<N, Octs>,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
     T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
-        + SortedExtend<N, Octs>
+        + SortedExtend<N, Octs, Sort>
         + ?Sized,
 {
     fn as_slice(&self) -> &[Record<N, ZoneRecordData<Octs, N>>] {
@@ -152,7 +189,7 @@ where
 //------------ sign_zone() ---------------------------------------------------
 
 fn sign_zone<N, Octs, S, Key, KeyStrat, Sort, HP, T>(
-    mut in_out: SignableZoneInOut<N, Octs, S, T>,
+    mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
     apex: &FamilyName<N>,
     signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
     signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
@@ -172,9 +209,9 @@ where
         Truncate + EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
     KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
-    S: SignableZone<N, Octs>,
+    S: SignableZone<N, Octs, Sort>,
     Sort: Sorter,
-    T: SortedExtend<N, Octs> + ?Sized,
+    T: SortedExtend<N, Octs, Sort> + ?Sized,
     Octs: FromBuilder
         + Clone
         + From<&'static [u8]>
@@ -302,7 +339,7 @@ where
 
 //------------ SignableZone --------------------------------------------------
 
-pub trait SignableZone<N, Octs>:
+pub trait SignableZone<N, Octs, Sort>:
     Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
 where
     N: Clone + ToName + From<Name<Octs>> + PartialEq + Ord + Hash,
@@ -314,13 +351,14 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    Sort: Sorter,
 {
     fn apex(&self) -> Option<FamilyName<N>>;
 
     // TODO
     // fn iter_mut<T>(&mut self) -> T;
 
-    fn sign_zone<Key, KeyStrat, Sort, HP, T>(
+    fn sign_zone<Key, KeyStrat, HP, T>(
         &self,
         signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
         signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
@@ -333,9 +371,8 @@ where
         <Octs as FromBuilder>::Builder: Truncate,
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
         KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
-        Sort: Sorter,
         T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
-            + SortedExtend<N, Octs>
+            + SortedExtend<N, Octs, Sort>
             + ?Sized,
         Self: Sized,
     {
@@ -351,8 +388,8 @@ where
 
 //--- impl SignableZone for SortedRecords
 
-impl<N, Octs, S> SignableZone<N, Octs>
-    for SortedRecords<N, ZoneRecordData<Octs, N>, S>
+impl<N, Octs, Sort> SignableZone<N, Octs, Sort>
+    for SortedRecords<N, ZoneRecordData<Octs, N>, Sort>
 where
     N: Clone
         + ToName
@@ -370,7 +407,7 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    S: Sorter,
+    Sort: Sorter,
 {
     fn apex(&self) -> Option<FamilyName<N>> {
         self.find_soa().map(|soa| soa.family_name().cloned())
@@ -380,7 +417,7 @@ where
 //--- impl SignableZone for Vec
 
 // NOTE: Assumes that the Vec is already sorted according to CanonicalOrd.
-impl<N, Octs> SignableZone<N, Octs>
+impl<N, Octs, Sort> SignableZone<N, Octs, Sort>
     for Vec<Record<N, ZoneRecordData<Octs, N>>>
 where
     N: Clone
@@ -399,6 +436,7 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    Sort: Sorter,
 {
     fn apex(&self) -> Option<FamilyName<N>> {
         self.iter()
@@ -409,8 +447,8 @@ where
 
 //------------ SignableZoneInPlace -------------------------------------------
 
-pub trait SignableZoneInPlace<N, Octs>:
-    SignableZone<N, Octs> + SortedExtend<N, Octs>
+pub trait SignableZoneInPlace<N, Octs, S>:
+    SignableZone<N, Octs, S> + SortedExtend<N, Octs, S>
 where
     N: Clone + ToName + From<Name<Octs>> + PartialEq + Ord + Hash,
     Octs: Clone
@@ -421,11 +459,12 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    Self: SortedExtend<N, Octs> + Sized,
+    Self: SortedExtend<N, Octs, S> + Sized,
+    S: Sorter,
 {
-    fn sign_zone<Key, KeyStrat, Sort, HP>(
+    fn sign_zone<Key, KeyStrat, HP>(
         &mut self,
-        signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, Sort, HP>,
+        signing_config: &mut SigningConfig<N, Octs, Key, KeyStrat, S, HP>,
         signing_keys: &[&dyn DesignatedSigningKey<Octs, Key>],
     ) -> Result<(), SigningError>
     where
@@ -435,11 +474,10 @@ where
         <Octs as FromBuilder>::Builder: Truncate,
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
         KeyStrat: SigningKeyUsageStrategy<Octs, Key>,
-        Sort: Sorter,
     {
         let apex = self.apex().ok_or(SigningError::NoSoaFound)?;
         let in_out = SignableZoneInOut::new_in_place(self);
-        sign_zone::<N, Octs, Self, Key, KeyStrat, Sort, HP, Self>(
+        sign_zone::<N, Octs, Self, Key, KeyStrat, S, HP, Self>(
             in_out,
             &apex,
             signing_config,
@@ -450,8 +488,8 @@ where
 
 //--- impl SignableZoneInPlace for SortedRecords
 
-impl<N, Octs, S> SignableZoneInPlace<N, Octs>
-    for SortedRecords<N, ZoneRecordData<Octs, N>, S>
+impl<N, Octs, Sort> SignableZoneInPlace<N, Octs, Sort>
+    for SortedRecords<N, ZoneRecordData<Octs, N>, Sort>
 where
     N: Clone
         + ToName
@@ -469,8 +507,7 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-
-    S: Sorter,
+    Sort: Sorter,
 {
 }
 
