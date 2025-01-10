@@ -20,8 +20,8 @@ pub enum SigningError {
     /// [`SigningKeyUsageStrategy`] used.
     NoSuitableKeysFound,
 
-    // TODO
-    NoSoaFound,
+    // The zone either lacks a SOA record or has more than one SOA record.
+    SoaRecordCouldNotBeDetermined,
 
     // TODO
     Nsec3HashingError(Nsec3HashError),
@@ -43,8 +43,8 @@ impl Display for SigningError {
             SigningError::NoSuitableKeysFound => {
                 f.write_str("No suitable keys found")
             }
-            SigningError::NoSoaFound => {
-                f.write_str("nNo apex SOA record found")
+            SigningError::SoaRecordCouldNotBeDetermined => {
+                f.write_str("nNo apex SOA or too many apex SOA records found")
             }
             SigningError::Nsec3HashingError(err) => {
                 f.write_fmt(format_args!("NSEC3 hashing error: {err}"))

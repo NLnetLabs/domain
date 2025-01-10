@@ -14,9 +14,8 @@ use crate::sign::records::RecordsIter;
 
 // TODO: Add (mutable?) iterator based variant.
 pub fn generate_nsecs<N, Octs>(
-    expected_apex: &N,
     ttl: Ttl,
-    mut records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
+    records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     assume_dnskeys_will_be_added: bool,
 ) -> Vec<Record<N, Nsec<Octs, N>>>
 where
@@ -30,10 +29,6 @@ where
     // The owner name of a zone cut if we currently are at or below one.
     let mut cut: Option<N> = None;
 
-    // Since the records are ordered, the first owner is the apex -- we can
-    // skip everything before that.
-    records.skip_before(expected_apex);
-
     // Because of the next name thing, we need to keep the last NSEC around.
     let mut prev: Option<(N, RtypeBitmap<Octs>)> = None;
 
@@ -45,7 +40,7 @@ where
     for owner_rrs in records {
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
-        if !owner_rrs.is_in_zone(expected_apex) {
+        if !owner_rrs.is_in_zone(&apex_owner) {
             break;
         }
 
@@ -62,7 +57,7 @@ where
         // If this owner is the parent side of a zone cut, we keep the owner
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
-        cut = if owner_rrs.is_zone_cut(expected_apex) {
+        cut = if owner_rrs.is_zone_cut(&apex_owner) {
             Some(name.clone())
         } else {
             None

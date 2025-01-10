@@ -12,7 +12,7 @@ use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::OctetsFrom;
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Rtype, SecAlg};
+use crate::base::iana::SecAlg;
 use crate::base::name::ToName;
 use crate::base::record::Record;
 use crate::base::Name;
@@ -147,8 +147,6 @@ where
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Sort: Sorter,
 {
-    fn apex(&self) -> Option<N>;
-
     // TODO
     // fn iter_mut<T>(&mut self) -> T;
 
@@ -181,17 +179,13 @@ where
         let in_out = SignableZoneInOut::new_into(self, out);
         sign_zone::<N, Octs, Self, DSK, Inner, KeyStrat, Sort, HP, T>(
             in_out,
-            &self.apex().ok_or(SigningError::NoSoaFound)?,
             signing_config,
             signing_keys,
         )
     }
 }
 
-//--- impl SignableZone for SortedRecords
-
-impl<N, Octs, Sort> SignableZone<N, Octs, Sort>
-    for SortedRecords<N, ZoneRecordData<Octs, N>, Sort>
+impl<N, Octs, Sort, T> SignableZone<N, Octs, Sort> for T
 where
     N: Clone
         + ToName
@@ -210,47 +204,14 @@ where
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Sort: Sorter,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>,
 {
-    fn apex(&self) -> Option<N> {
-        self.find_soa().map(|soa| soa.owner().clone())
-    }
-}
-
-//--- impl SignableZone for Vec
-
-// NOTE: Assumes that the Vec is already sorted according to CanonicalOrd.
-impl<N, Octs, Sort> SignableZone<N, Octs, Sort>
-    for Vec<Record<N, ZoneRecordData<Octs, N>>>
-where
-    N: Clone
-        + ToName
-        + From<Name<Octs>>
-        + PartialEq
-        + Send
-        + CanonicalOrd
-        + Ord
-        + Hash,
-    Octs: Clone
-        + FromBuilder
-        + From<&'static [u8]>
-        + Send
-        + OctetsFrom<Vec<u8>>
-        + From<Box<[u8]>>
-        + Default,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    Sort: Sorter,
-{
-    fn apex(&self) -> Option<N> {
-        self.iter()
-            .find(|r| r.rtype() == Rtype::SOA)
-            .map(|r| r.owner().clone())
-    }
 }
 
 //------------ SignableZoneInPlace -------------------------------------------
 
-pub trait SignableZoneInPlace<N, Octs, S>:
-    SignableZone<N, Octs, S> + SortedExtend<N, Octs, S>
+pub trait SignableZoneInPlace<N, Octs, Sort>:
+    SignableZone<N, Octs, Sort> + SortedExtend<N, Octs, Sort>
 where
     N: Clone + ToName + From<Name<Octs>> + PartialEq + Ord + Hash,
     Octs: Clone
@@ -261,12 +222,19 @@ where
         + From<Box<[u8]>>
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    Self: SortedExtend<N, Octs, S> + Sized,
-    S: Sorter,
+    Self: SortedExtend<N, Octs, Sort> + Sized,
+    Sort: Sorter,
 {
     fn sign_zone<DSK, Inner, KeyStrat, HP>(
         &mut self,
-        signing_config: &mut SigningConfig<N, Octs, Inner, KeyStrat, S, HP>,
+        signing_config: &mut SigningConfig<
+            N,
+            Octs,
+            Inner,
+            KeyStrat,
+            Sort,
+            HP,
+        >,
         signing_keys: &[DSK],
     ) -> Result<(), SigningError>
     where
@@ -278,11 +246,9 @@ where
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
         KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     {
-        let apex = self.apex().ok_or(SigningError::NoSoaFound)?;
         let in_out = SignableZoneInOut::new_in_place(self);
-        sign_zone::<N, Octs, Self, DSK, Inner, KeyStrat, S, HP, Self>(
+        sign_zone::<N, Octs, Self, DSK, Inner, KeyStrat, Sort, HP, Self>(
             in_out,
-            &apex,
             signing_config,
             signing_keys,
         )
@@ -291,8 +257,7 @@ where
 
 //--- impl SignableZoneInPlace for SortedRecords
 
-impl<N, Octs, Sort> SignableZoneInPlace<N, Octs, Sort>
-    for SortedRecords<N, ZoneRecordData<Octs, N>, Sort>
+impl<N, Octs, Sort, T> SignableZoneInPlace<N, Octs, Sort> for T
 where
     N: Clone
         + ToName
@@ -311,6 +276,8 @@ where
         + Default,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Sort: Sorter,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>,
+    T: SortedExtend<N, Octs, Sort> + Sized,
 {
 }
 

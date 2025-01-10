@@ -64,20 +64,20 @@ impl Sorter for DefaultSorter {
 /// overridden by being generic over an alternate implementation of
 /// [`Sorter`].
 #[derive(Clone)]
-pub struct SortedRecords<N, D, S = DefaultSorter>
+pub struct SortedRecords<N, D, Sort = DefaultSorter>
 where
     Record<N, D>: Send,
-    S: Sorter,
+    Sort: Sorter,
 {
     records: Vec<Record<N, D>>,
 
-    _phantom: PhantomData<S>,
+    _phantom: PhantomData<Sort>,
 }
 
-impl<N, D, S> SortedRecords<N, D, S>
+impl<N, D, Sort> SortedRecords<N, D, Sort>
 where
     Record<N, D>: Send,
-    S: Sorter,
+    Sort: Sorter,
 {
     pub fn new() -> Self {
         SortedRecords {
@@ -242,11 +242,11 @@ where
     }
 }
 
-impl<N, D, S> Deref for SortedRecords<N, D, S>
+impl<N, D, Sort> Deref for SortedRecords<N, D, Sort>
 where
     N: Send,
     D: Send,
-    S: Sorter,
+    Sort: Sorter,
 {
     type Target = [Record<N, D>];
 
@@ -255,11 +255,11 @@ where
     }
 }
 
-impl<N, D, S> SortedRecords<N, D, S>
+impl<N, D, Sort> SortedRecords<N, D, Sort>
 where
     N: ToName + Send,
     D: RecordData + CanonicalOrd + Send,
-    S: Sorter,
+    Sort: Sorter,
     SortedRecords<N, D>: From<Vec<Record<N, D>>>,
 {
     pub fn write<W>(&self, target: &mut W) -> Result<(), fmt::Error>
@@ -318,14 +318,14 @@ impl<N: Send, D: Send + CanonicalOrd> Default
     }
 }
 
-impl<N, D, S: Sorter> From<Vec<Record<N, D>>> for SortedRecords<N, D, S>
+impl<N, D, Sort> From<Vec<Record<N, D>>> for SortedRecords<N, D, Sort>
 where
     N: ToName + PartialEq + Send,
     D: RecordData + CanonicalOrd + PartialEq + Send,
-    S: Sorter,
+    Sort: Sorter,
 {
     fn from(mut src: Vec<Record<N, D>>) -> Self {
-        S::sort_by(&mut src, CanonicalOrd::canonical_cmp);
+        Sort::sort_by(&mut src, CanonicalOrd::canonical_cmp);
         src.dedup();
         SortedRecords {
             records: src,
@@ -334,11 +334,13 @@ where
     }
 }
 
-impl<N: Send, D: Send, S: Sorter> FromIterator<Record<N, D>>
-    for SortedRecords<N, D, S>
+impl<N, D, Sort> FromIterator<Record<N, D>> for SortedRecords<N, D, Sort>
 where
     N: ToName,
     D: RecordData + CanonicalOrd,
+    N: Send,
+    D: Send,
+    Sort: Sorter,
 {
     fn from_iter<T: IntoIterator<Item = Record<N, D>>>(iter: T) -> Self {
         let mut res = Self::new();
@@ -349,17 +351,19 @@ where
     }
 }
 
-impl<N: Send, D: Send, S: Sorter> Extend<Record<N, D>>
-    for SortedRecords<N, D, S>
+impl<N, D, Sort> Extend<Record<N, D>> for SortedRecords<N, D, Sort>
 where
     N: ToName + PartialEq,
     D: RecordData + CanonicalOrd + PartialEq,
+    N: Send,
+    D: Send,
+    Sort: Sorter,
 {
     fn extend<T: IntoIterator<Item = Record<N, D>>>(&mut self, iter: T) {
         for item in iter {
             self.records.push(item);
         }
-        S::sort_by(&mut self.records, CanonicalOrd::canonical_cmp);
+        Sort::sort_by(&mut self.records, CanonicalOrd::canonical_cmp);
         self.records.dedup();
     }
 }
@@ -447,6 +451,14 @@ impl<'a, N, D> Rrset<'a, N, D> {
 
     pub fn iter(&self) -> slice::Iter<'a, Record<N, D>> {
         self.slice.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.slice.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slice.is_empty()
     }
 
     pub fn as_slice(&self) -> &'a [Record<N, D>] {
