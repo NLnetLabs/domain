@@ -141,8 +141,8 @@
 //! # let key = SigningKey::new(root.clone(), 257, key_pair);
 //! use domain::rdata::{rfc1035::Soa, ZoneRecordData};
 //! use domain::rdata::dnssec::Timestamp;
-//! use domain::sign::keys::keymeta::{DnssecSigningKey, DesignatedSigningKey};
-//! use domain::sign::records::{DefaultSorter, SortedRecords};
+//! use domain::sign::keys::keymeta::DnssecSigningKey;
+//! use domain::sign::records::SortedRecords;
 //! use domain::sign::signing::config::SigningConfig;
 //! use domain::sign::signing::traits::SignableZoneInPlace;
 //!
@@ -189,7 +189,7 @@
 //! # use domain::base::iana::Class;
 //! # use domain::sign::keys::keypair;
 //! # use domain::sign::keys::keypair::GenerateParams;
-//! # use domain::sign::keys::keymeta::{DesignatedSigningKey, DnssecSigningKey};
+//! # use domain::sign::keys::keymeta::DnssecSigningKey;
 //! # use domain::sign::records;
 //! # use domain::sign::keys::signingkey::SigningKey;
 //! # let (sec_bytes, pub_bytes) = keypair::generate(GenerateParams::Ed25519).unwrap();
@@ -197,7 +197,7 @@
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root, 257, key_pair);
 //! # let keys = [DnssecSigningKey::new_csk(key)];
-//! # let mut records = records::SortedRecords::<_, _, records::DefaultSorter>::new();
+//! # let mut records = records::SortedRecords::default();
 //! use domain::sign::signing::traits::Signable;
 //! use domain::sign::signing::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
 //! let apex = Name::<Vec<u8>>::root();
