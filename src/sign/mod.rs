@@ -170,7 +170,7 @@
 //!
 //! // Assign signature validity period and operator intent to the keys.
 //! let key = key.with_validity(Timestamp::now(), Timestamp::now());
-//! let keys = [DnssecSigningKey::new_csk(key)];
+//! let keys = [DnssecSigningKey::from(key)];
 //!
 //! // Create a signing configuration.
 //! let mut signing_config = SigningConfig::default();
@@ -196,7 +196,7 @@
 //! # let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root, 257, key_pair);
-//! # let keys = [DnssecSigningKey::new_csk(key)];
+//! # let keys = [DnssecSigningKey::from(key)];
 //! # let mut records = records::SortedRecords::default();
 //! use domain::sign::signing::traits::Signable;
 //! use domain::sign::signing::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
