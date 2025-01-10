@@ -147,7 +147,13 @@
 //! use domain::sign::signing::traits::SignableZoneInPlace;
 //!
 //! // Create a sorted collection of records.
-//! let mut records = SortedRecords::default();
+//! //
+//! // Note: You can also use a plain Vec here (or any other type that is
+//! // compatible with the SignableZone or SignableZoneInPlace trait bounds)
+//! // but then you are responsible for ensuring that records in the zone are
+//! // in DNSSEC compatible order, e.g. by calling
+//! // `sort_by(CanonicalOrd::canonical_cmp)` before calling `sign_zone()`.
+//! let mut records = SortedRecords::new();
 //!
 //! // Insert records into the collection. Just a dummy SOA for this example.
 //! let soa = Soa::new(
