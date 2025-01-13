@@ -332,14 +332,14 @@ fn parse_segment<'a>(
     buffer: &mut RevNameBuf,
 ) -> Result<(Option<u16>, &'a [u8]), ParseError> {
     loop {
-        match bytes {
-            &[0, ref rest @ ..] => {
+        match *bytes {
+            [0, ref rest @ ..] => {
                 // Found the root, stop.
                 buffer.prepend(&[0u8]);
                 return Ok((None, rest));
             }
 
-            &[l, ..] if l < 64 => {
+            [l, ..] if l < 64 => {
                 // This looks like a regular label.
 
                 if bytes.len() < 1 + l as usize {
@@ -356,7 +356,7 @@ fn parse_segment<'a>(
                 bytes = rest;
             }
 
-            &[hi, lo, ref rest @ ..] if hi >= 0xC0 => {
+            [hi, lo, ref rest @ ..] if hi >= 0xC0 => {
                 let pointer = u16::from_be_bytes([hi, lo]);
 
                 // NOTE: We don't verify the pointer here, that's left to

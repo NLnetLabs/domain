@@ -85,12 +85,12 @@ impl<'a> SplitFromMessage<'a> for &'a UnparsedName {
         let bytes = message.contents.get(start..).ok_or(ParseError)?;
         let mut offset = 0;
         let offset = loop {
-            match &bytes[offset..] {
+            match bytes[offset..] {
                 // This is the root label.
-                &[0, ..] => break offset + 1,
+                [0, ..] => break offset + 1,
 
                 // This looks like a regular label.
-                &[l, ref rest @ ..] if (1..64).contains(&l) => {
+                [l, ref rest @ ..] if (1..64).contains(&l) => {
                     let length = l as usize;
 
                     if rest.len() < length || offset + 2 + length > 255 {
@@ -102,7 +102,7 @@ impl<'a> SplitFromMessage<'a> for &'a UnparsedName {
                 }
 
                 // This is a compression pointer.
-                &[hi, lo, ..] if hi >= 0xC0 => {
+                [hi, lo, ..] if hi >= 0xC0 => {
                     let ptr = u16::from_be_bytes([hi, lo]);
                     if usize::from(ptr - 0xC000) >= start {
                         return Err(ParseError);
@@ -128,12 +128,12 @@ impl<'a> ParseFromMessage<'a> for &'a UnparsedName {
         let bytes = message.contents.get(start..).ok_or(ParseError)?;
         let mut offset = 0;
         loop {
-            match &bytes[offset..] {
+            match bytes[offset..] {
                 // This is the root label.
-                &[0] => break,
+                [0] => break,
 
                 // This looks like a regular label.
-                &[l, ref rest @ ..] if (1..64).contains(&l) => {
+                [l, ref rest @ ..] if (1..64).contains(&l) => {
                     let length = l as usize;
 
                     if rest.len() < length || offset + 2 + length > 255 {
@@ -145,7 +145,7 @@ impl<'a> ParseFromMessage<'a> for &'a UnparsedName {
                 }
 
                 // This is a compression pointer.
-                &[hi, lo] if hi >= 0xC0 => {
+                [hi, lo] if hi >= 0xC0 => {
                     let ptr = u16::from_be_bytes([hi, lo]);
                     if usize::from(ptr - 0xC000) >= start {
                         return Err(ParseError);
