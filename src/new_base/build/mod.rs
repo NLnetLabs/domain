@@ -6,6 +6,9 @@ pub use builder::{Builder, BuilderContext};
 mod message;
 pub use message::MessageBuilder;
 
+mod record;
+pub use record::RecordBuilder;
+
 use super::wire::TruncationError;
 
 //----------- Message-aware building traits ----------------------------------

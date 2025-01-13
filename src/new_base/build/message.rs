@@ -1,12 +1,13 @@
 //! Building whole DNS messages.
 
-//----------- MessageBuilder -------------------------------------------------
-
 use crate::new_base::{
-    wire::TruncationError, Header, Message, Question, Record,
+    wire::TruncationError, Header, Message, Question, RClass, RType, Record,
+    TTL,
 };
 
-use super::{BuildIntoMessage, Builder, BuilderContext};
+use super::{BuildIntoMessage, Builder, BuilderContext, RecordBuilder};
+
+//----------- MessageBuilder -------------------------------------------------
 
 /// A builder for a whole DNS message.
 ///
@@ -73,14 +74,6 @@ impl<'b> MessageBuilder<'b> {
         self.inner.header_mut()
     }
 
-    /// Uninitialized space in the message buffer.
-    ///
-    /// This can be filled manually, then marked as initialized using
-    /// [`Self::mark_appended()`].
-    pub fn uninitialized(&mut self) -> &mut [u8] {
-        self.inner.uninitialized()
-    }
-
     /// The message built thus far.
     pub fn message(&self) -> &Message {
         self.inner.cur_message()
@@ -107,7 +100,7 @@ impl<'b> MessageBuilder<'b> {
     ///
     /// This returns the message buffer and the context for this builder.  The
     /// two are linked, and the builder can be recomposed with
-    /// [`Self::raw_from_parts()`].
+    /// [`Self::from_raw_parts()`].
     pub fn into_raw_parts(self) -> (&'b mut Message, &'b mut BuilderContext) {
         let (mut message, context, _commit) = self.inner.into_raw_parts();
         // SAFETY: As per 'Builder::into_raw_parts()', the message is borrowed
@@ -121,20 +114,6 @@ impl<'b> MessageBuilder<'b> {
 //--- Interaction
 
 impl MessageBuilder<'_> {
-    /// Mark bytes in the buffer as initialized.
-    ///
-    /// The given number of bytes from the beginning of
-    /// [`Self::uninitialized()`] will be marked as initialized, and will be
-    /// treated as appended content in the buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the uninitialized buffer is smaller than the given number of
-    /// initialized bytes.
-    pub fn mark_appended(&mut self, amount: usize) {
-        self.inner.mark_appended(amount)
-    }
-
     /// Limit the total message size.
     ///
     /// The message will not be allowed to exceed the given size, in bytes.
@@ -167,16 +146,34 @@ impl MessageBuilder<'_> {
         N: BuildIntoMessage,
     {
         // Ensure there are no records present.
-        let header = self.header();
-        let records = header.counts.answers
-            + header.counts.authorities
-            + header.counts.additional;
-        assert_eq!(records, 0);
+        assert_eq!(self.header().counts.as_array()[1..], [0, 0, 0]);
 
         question.build_into_message(self.inner.delegate())?;
-
         self.header_mut().counts.questions += 1;
         Ok(())
+    }
+
+    /// Build an arbitrary record.
+    ///
+    /// The record will be added to the specified section (1, 2, or 3, i.e.
+    /// answers, authorities, and additional records respectively).  There
+    /// must not be any existing records in sections after this one.
+    pub fn build_record(
+        &mut self,
+        rname: impl BuildIntoMessage,
+        rtype: RType,
+        rclass: RClass,
+        ttl: TTL,
+        section: u8,
+    ) -> Result<RecordBuilder<'_>, TruncationError> {
+        RecordBuilder::new(
+            self.inner.delegate(),
+            rname,
+            rtype,
+            rclass,
+            ttl,
+            section,
+        )
     }
 
     /// Append an answer record.
@@ -193,14 +190,26 @@ impl MessageBuilder<'_> {
         D: BuildIntoMessage,
     {
         // Ensure there are no authority or additional records present.
-        let header = self.header();
-        let records = header.counts.authorities + header.counts.additional;
-        assert_eq!(records, 0);
+        assert_eq!(self.header().counts.as_array()[2..], [0, 0]);
 
         record.build_into_message(self.inner.delegate())?;
-
         self.header_mut().counts.answers += 1;
         Ok(())
+    }
+
+    /// Build an answer record.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the message contains any authority or additional records.
+    pub fn build_answer(
+        &mut self,
+        rname: impl BuildIntoMessage,
+        rtype: RType,
+        rclass: RClass,
+        ttl: TTL,
+    ) -> Result<RecordBuilder<'_>, TruncationError> {
+        self.build_record(rname, rtype, rclass, ttl, 1)
     }
 
     /// Append an authority record.
@@ -217,14 +226,26 @@ impl MessageBuilder<'_> {
         D: BuildIntoMessage,
     {
         // Ensure there are no additional records present.
-        let header = self.header();
-        let records = header.counts.additional;
-        assert_eq!(records, 0);
+        assert_eq!(self.header().counts.as_array()[3..], [0]);
 
         record.build_into_message(self.inner.delegate())?;
-
         self.header_mut().counts.authorities += 1;
         Ok(())
+    }
+
+    /// Build an authority record.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the message contains any additional records.
+    pub fn build_authority(
+        &mut self,
+        rname: impl BuildIntoMessage,
+        rtype: RType,
+        rclass: RClass,
+        ttl: TTL,
+    ) -> Result<RecordBuilder<'_>, TruncationError> {
+        self.build_record(rname, rtype, rclass, ttl, 2)
     }
 
     /// Append an additional record.
@@ -239,5 +260,16 @@ impl MessageBuilder<'_> {
         record.build_into_message(self.inner.delegate())?;
         self.header_mut().counts.additional += 1;
         Ok(())
+    }
+
+    /// Build an additional record.
+    pub fn build_additional(
+        &mut self,
+        rname: impl BuildIntoMessage,
+        rtype: RType,
+        rclass: RClass,
+        ttl: TTL,
+    ) -> Result<RecordBuilder<'_>, TruncationError> {
+        self.build_record(rname, rtype, rclass, ttl, 3)
     }
 }
