@@ -34,6 +34,7 @@ futures-util   = { version = "0.3", optional = true }
 hashbrown      = { version = "0.14.2", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
 heapless       = { version = "0.8", optional = true }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
+log            = { version = "0.4.22", optional = true }
 parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
 openssl        = { version = "0.10.57", optional = true } # 0.10.57 upgrades to 'bitflags' 2.x
@@ -47,7 +48,7 @@ smallvec       = { version = "1.3", optional = true }
 tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync", "rt-multi-thread" ] }
 tokio-rustls   = { version = "0.26", optional = true, default-features = false }
 tokio-stream   = { version = "0.1.1", optional = true }
-tracing        = { version = "0.1.40", optional = true }
+tracing        = { version = "0.1.40", optional = true, features = ["log"] }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
 
 [features]
@@ -59,6 +60,7 @@ heapless    = ["dep:heapless", "octseq/heapless"]
 serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["dep:hashbrown", "bytes?/std", "octseq/std", "time/std"]
+tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
 ring    = ["dep:ring"]
@@ -74,7 +76,7 @@ zonefile    = ["bytes", "serde", "std"]
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
-unstable-sign = ["std", "dep:secrecy", "unstable-validate"]
+unstable-sign = ["std", "dep:secrecy", "unstable-validate", "time/formatting"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
 unstable-validate = ["bytes", "std", "ring"]
 unstable-validator = ["unstable-validate", "zonefile", "unstable-client-transport"]
@@ -85,6 +87,7 @@ unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std
 arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
+itertools = "0.13.0"
 lazy_static        = { version = "1.4.0" }
 rstest             = "0.19.0"
 rustls-pemfile     = { version = "2.1.2" }
@@ -151,6 +154,10 @@ required-features = ["zonefile", "net", "unstable-client-transport", "unstable-z
 [[example]]
 name = "query-routing"
 required-features = ["net", "unstable-client-transport", "unstable-server-transport", "tracing-subscriber"]
+
+[[example]]
+name = "keyset"
+required-features = ["serde", "unstable-sign"]
 
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible

@@ -18,7 +18,7 @@ use super::{parsed, ReadableZone, ZoneStore};
 /// # Abstract backing store
 ///
 /// The actual backing store implementation used by a [`Zone`] is determined
-/// by the [`ZoeStore`] impl it wraps. In this way one can treat in-memory
+/// by the [`ZoneStore`] impl it wraps. In this way one can treat in-memory
 /// zone implementations and other backing store types (for example a database
 /// backed zone) in the same way, and even to store zones with different
 /// backing stores together in the same [`ZoneTree`].
