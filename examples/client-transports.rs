@@ -5,9 +5,11 @@ use domain::net::client::request::{
     RequestMessage, RequestMessageMulti, SendRequest,
 };
 use domain::net::client::{
-    cache, dgram, dgram_stream, load_balancer, multi_stream, redundant,
+    dgram, dgram_stream, load_balancer, multi_stream, redundant,
     stream,
 };
+#[cfg(feature = "unstable-client-cache")]
+use domain::net::client::cache;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 #[cfg(feature = "unstable-validator")]
@@ -92,27 +94,8 @@ async fn main() {
     // when it is no longer needed.
     drop(request);
 
-    // Create a cached transport.
-    let mut cache_config = cache::Config::new();
-    cache_config.set_max_cache_entries(100); // Just an example.
-    let cache =
-        cache::Connection::with_config(udptcp_conn.clone(), cache_config);
-
-    // Send a request message.
-    let mut request = cache.send_request(req.clone());
-
-    // Get the reply
-    println!("Wating for cache reply");
-    let reply = request.get_response().await;
-    println!("Cache reply: {reply:?}");
-
-    // Send the request message again.
-    let mut request = cache.send_request(req.clone());
-
-    // Get the reply
-    println!("Wating for cached reply");
-    let reply = request.get_response().await;
-    println!("Cached reply: {reply:?}");
+    #[cfg(feature = "unstable-client-cache")]
+    do_client_cache(udptcp_conn.clone(), req.clone()).await;
 
     #[cfg(feature = "unstable-validator")]
     do_validator(udptcp_conn.clone(), req.clone()).await;
@@ -313,6 +296,46 @@ async fn main() {
         drop(tcp);
     }
 }
+
+#[cfg(feature = "unstable-client-cache")]
+async fn do_client_cache<Octs, SR>(conn: SR, req: RequestMessage<Octs>)
+where
+    Octs: AsRef<[u8]>
+        + Clone
+        + std::fmt::Debug
+        + domain::dep::octseq::Octets
+        + domain::dep::octseq::OctetsFrom<Vec<u8>>
+        + Send
+        + Sync
+        + 'static,
+    <Octs as domain::dep::octseq::OctetsFrom<Vec<u8>>>::Error:
+        std::fmt::Debug,
+    SR: Clone + SendRequest<RequestMessage<Octs>> + Send + Sync + 'static,
+{
+    // Create a cached transport.
+    let mut cache_config = cache::Config::new();
+    cache_config.set_max_cache_entries(100); // Just an example.
+    let cache =
+        cache::Connection::with_config(conn, cache_config);
+
+    // Send a request message.
+    let mut request = cache.send_request(req.clone());
+
+    // Get the reply
+    println!("Wating for cache reply");
+    let reply = request.get_response().await;
+    println!("Cache reply: {reply:?}");
+
+    // Send the request message again.
+    let mut request = cache.send_request(req.clone());
+
+    // Get the reply
+    println!("Wating for cached reply");
+    let reply = request.get_response().await;
+    println!("Cached reply: {reply:?}");
+
+}
+
 
 #[cfg(feature = "unstable-validator")]
 async fn do_validator<Octs, SR>(conn: SR, req: RequestMessage<Octs>)
