@@ -85,6 +85,7 @@ impl<'b> RecordBuilder<'b> {
         builder.append_bytes(rtype.as_bytes())?;
         builder.append_bytes(rclass.as_bytes())?;
         builder.append_bytes(ttl.as_bytes())?;
+        builder.append_bytes(&0u16.to_be_bytes())?;
         let start = builder.appended().len();
 
         // Set up the builder.
@@ -135,6 +136,15 @@ impl RecordBuilder<'_> {
         // Increment the appropriate section count.
         self.inner.header_mut().counts.as_array_mut()
             [self.section as usize] += 1;
+
+        // Set the record data length.
+        let size = self.inner.appended().len() - self.start;
+        let size = u16::try_from(size)
+            .expect("Record data must be smaller than 64KiB");
+        // SAFETY: The record data size is not part of a compressed name.
+        let appended = unsafe { self.inner.appended_mut() };
+        appended[self.start - 2..self.start]
+            .copy_from_slice(&size.to_be_bytes());
 
         self.inner.commit()
     }
