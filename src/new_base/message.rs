@@ -295,6 +295,22 @@ pub struct SectionCounts {
     pub additional: U16,
 }
 
+//--- Interaction
+
+impl SectionCounts {
+    /// Represent these counts as an array.
+    pub fn as_array(&self) -> &[U16; 4] {
+        // SAFETY: 'SectionCounts' has the same layout as '[U16; 4]'.
+        unsafe { core::mem::transmute(self) }
+    }
+
+    /// Represent these counts as a mutable array.
+    pub fn as_array_mut(&mut self) -> &mut [U16; 4] {
+        // SAFETY: 'SectionCounts' has the same layout as '[U16; 4]'.
+        unsafe { core::mem::transmute(self) }
+    }
+}
+
 //--- Formatting
 
 impl fmt::Display for SectionCounts {
