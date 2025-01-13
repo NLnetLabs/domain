@@ -210,9 +210,29 @@ impl<Conn> Connection<Conn> {
         // The total number of transports.
         let num_transports = transports.len();
 
+        // Requests are sent to each transport as follows:
+        //
+        //      timeout 0 -> timeout 1 -> timeout 2
+        //      |            |            |
+        //      +-----------------------------------------> request 0
+        //  transport 0      |            |
+        //                   +----------------------------> request 1
+        //               transport 1      |
+        //                                +---------------> request 2
+        //                            transport 2
+        //
+        // The transports are produced by the stream below.  Before every
+        // transport is produced, the timeout of the previous transport is
+        // waited out.  Then, a request is made to the transport.  Requests
+        // are executed concurrently via 'buffer_unordered'.  The results of
+        // the requests are returned in the order they finish.  The first
+        // request to complete, whose result is not deferred, is returned.
+        // All incomplete requests will be canceled.
+
         let result = stream::iter(transports)
             // For each transport, request from it, then wait out its timeout.
             .scan(Duration::ZERO, |timeout, transport| {
+                // 'timeout' is the timeout of the previous transport, if any.
                 let request = request.clone();
                 let timeout = mem::replace(timeout, transport.timeout);
                 tokio::time::sleep(timeout)
