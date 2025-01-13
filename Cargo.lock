@@ -245,6 +245,7 @@ dependencies = [
  "arc-swap",
  "bytes",
  "chrono",
+ "domain-macros",
  "futures-util",
  "hashbrown 0.14.5",
  "heapless",
@@ -280,6 +281,15 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "webpki-roots",
+]
+
+[[package]]
+name = "domain-macros"
+version = "0.10.3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1201,9 +1211,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "2.0.79"
+version = "2.0.87"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89132cd0bf050864e1d38dc3bbc07a0eb8e7530af26344d3d2bbbef83499f590"
+checksum = "25aa4ce346d03a6dcd68dd8b4010bcb74e54e62c90c573f394c46eae99aba32d"
 dependencies = [
  "proc-macro2",
  "quote",

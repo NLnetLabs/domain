@@ -1,3 +1,7 @@
+[workspace]
+resolver = "2"
+members = [".", "./macros"]
+
 [package]
 name = "domain"
 version = "0.10.3"
@@ -16,11 +20,9 @@ readme = "README.md"
 keywords = ["DNS", "domain"]
 license = "BSD-3-Clause"
 
-[lib]
-name = "domain"
-path = "src/lib.rs"
-
 [dependencies]
+domain-macros  = { path = "./macros", version = "0.10.3" }
+
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }

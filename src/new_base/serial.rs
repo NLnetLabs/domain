@@ -1,0 +1,104 @@
+//! Serial number arithmetic.
+//!
+//! See [RFC 1982](https://datatracker.ietf.org/doc/html/rfc1982).
+
+use core::{
+    cmp::Ordering,
+    fmt,
+    ops::{Add, AddAssign},
+};
+
+use domain_macros::*;
+
+use super::wire::U32;
+
+//----------- Serial ---------------------------------------------------------
+
+/// A serial number.
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    AsBytes,
+    BuildBytes,
+    ParseBytes,
+    ParseBytesByRef,
+    SplitBytes,
+    SplitBytesByRef,
+)]
+#[repr(transparent)]
+pub struct Serial(U32);
+
+//--- Construction
+
+impl Serial {
+    /// Measure the current time (in seconds) in serial number space.
+    #[cfg(feature = "std")]
+    pub fn unix_time() -> Self {
+        use std::time::SystemTime;
+
+        let time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("The current time is after the Unix Epoch");
+        Self::from(time.as_secs() as u32)
+    }
+}
+
+//--- Addition
+
+impl Add<i32> for Serial {
+    type Output = Self;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        self.0.get().wrapping_add_signed(rhs).into()
+    }
+}
+
+impl AddAssign<i32> for Serial {
+    fn add_assign(&mut self, rhs: i32) {
+        self.0 = self.0.get().wrapping_add_signed(rhs).into();
+    }
+}
+
+//--- Ordering
+
+impl PartialOrd for Serial {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let (lhs, rhs) = (self.0.get(), other.0.get());
+
+        if lhs == rhs {
+            Some(Ordering::Equal)
+        } else if lhs.abs_diff(rhs) == 1 << 31 {
+            None
+        } else if (lhs < rhs) ^ (lhs.abs_diff(rhs) > (1 << 31)) {
+            Some(Ordering::Less)
+        } else {
+            Some(Ordering::Greater)
+        }
+    }
+}
+
+//--- Conversion to and from native integer types
+
+impl From<u32> for Serial {
+    fn from(value: u32) -> Self {
+        Self(U32::new(value))
+    }
+}
+
+impl From<Serial> for u32 {
+    fn from(value: Serial) -> Self {
+        value.0.get()
+    }
+}
+
+//--- Formatting
+
+impl fmt::Display for Serial {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.get().fmt(f)
+    }
+}
