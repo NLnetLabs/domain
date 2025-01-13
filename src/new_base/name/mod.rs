@@ -19,3 +19,6 @@ pub use label::{Label, LabelIter};
 
 mod reversed;
 pub use reversed::{RevName, RevNameBuf};
+
+mod unparsed;
+pub use unparsed::UnparsedName;

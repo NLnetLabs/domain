@@ -1,4 +1,4 @@
-//! Reversed DNS names.
+//! Reversed domain names.
 
 use core::{
     borrow::Borrow,
@@ -312,6 +312,7 @@ impl<'a> ParseFromMessage<'a> for RevNameBuf {
             }
 
             // Keep going, from the referenced position.
+            let start = start.checked_sub(12).ok_or(ParseError)?;
             let bytes = contents.get(start..).ok_or(ParseError)?;
             (pointer, _) = parse_segment(bytes, &mut buffer)?;
             old_start = start;
@@ -331,38 +332,39 @@ fn parse_segment<'a>(
     buffer: &mut RevNameBuf,
 ) -> Result<(Option<u16>, &'a [u8]), ParseError> {
     loop {
-        let (&length, rest) = bytes.split_first().ok_or(ParseError)?;
-        if length == 0 {
-            // Found the root, stop.
-            buffer.prepend(&[0u8]);
-            return Ok((None, rest));
-        } else if length < 64 {
-            // This looks like a regular label.
-
-            if rest.len() < length as usize {
-                // The input doesn't contain the whole label.
-                return Err(ParseError);
-            } else if buffer.offset < 2 + length {
-                // The output name would exceed 254 bytes (this isn't
-                // the root label, so it can't fill the 255th byte).
-                return Err(ParseError);
+        match bytes {
+            &[0, ref rest @ ..] => {
+                // Found the root, stop.
+                buffer.prepend(&[0u8]);
+                return Ok((None, rest));
             }
 
-            let (label, rest) = bytes.split_at(1 + length as usize);
-            buffer.prepend(label);
-            bytes = rest;
-        } else if length >= 0xC0 {
-            // This looks like a compression pointer.
+            &[l, ..] if l < 64 => {
+                // This looks like a regular label.
 
-            let (&extra, rest) = rest.split_first().ok_or(ParseError)?;
-            let pointer = u16::from_be_bytes([length, extra]);
+                if bytes.len() < 1 + l as usize {
+                    // The input doesn't contain the whole label.
+                    return Err(ParseError);
+                } else if buffer.offset < 2 + l {
+                    // The output name would exceed 254 bytes (this isn't
+                    // the root label, so it can't fill the 255th byte).
+                    return Err(ParseError);
+                }
 
-            // NOTE: We don't verify the pointer here, that's left to
-            // the caller (since they have to actually use it).
-            return Ok((Some(pointer & 0x3FFF), rest));
-        } else {
-            // This is an invalid or deprecated label type.
-            return Err(ParseError);
+                let (label, rest) = bytes.split_at(1 + l as usize);
+                buffer.prepend(label);
+                bytes = rest;
+            }
+
+            &[hi, lo, ref rest @ ..] if hi >= 0xC0 => {
+                let pointer = u16::from_be_bytes([hi, lo]);
+
+                // NOTE: We don't verify the pointer here, that's left to
+                // the caller (since they have to actually use it).
+                return Ok((Some(pointer & 0x3FFF), rest));
+            }
+
+            _ => return Err(ParseError),
         }
     }
 }
