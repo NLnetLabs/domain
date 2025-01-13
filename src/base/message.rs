@@ -517,10 +517,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     //  iterator would break off in this case and we break out with a None
     //  right away.
     pub fn canonical_name(&self) -> Option<ParsedName<Octs::Range<'_>>> {
-        let question = match self.first_question() {
-            None => return None,
-            Some(question) => question,
-        };
+        let question = self.first_question()?;
         let mut name = question.into_qname();
         let answer = match self.answer() {
             Ok(answer) => answer.limit_to::<Cname<_>>(),
