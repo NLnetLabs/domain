@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [1.82.0, stable, beta, nightly]
+        rust: [1.80.1, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
         # We use 'vcpkg' to install OpenSSL on Windows.
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust: [1.82.0, stable, beta, nightly]
+        rust: [1.80.1, stable, beta, nightly]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
