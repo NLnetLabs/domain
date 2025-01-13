@@ -30,9 +30,10 @@ and additional building blocks and features are being added.
 
 We are trying to maintain a decent balance between being able to use older
 compiler versions and using new features that improve safety and usability
-of the crate.
+of the crate.  We target 4 versions behind the latest stable Rust, which is
+about half a year (24 weeks) past.
 
-### Minimum version: 1.68.2
+### Minimum version: 1.80.1
 
 The `rust-version` given in `Cargo.toml` is the oldest version that can
 be used to compile the crate with the minimal versions of all dependencies
@@ -41,7 +42,7 @@ selected.
 You can run `cargo +nightly update -Z minimal-versions` to ask Cargo to
 select these minimal versions for all dependencies.
 
-### Current version: 1.76.0
+### Current version: 1.80.1
 
 This is the minimum Rust version required to build with latest version of
 all dependencies at time of release. `Cargo.lock` contains these versions
