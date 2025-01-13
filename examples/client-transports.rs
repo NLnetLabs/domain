@@ -1,15 +1,14 @@
 //! Using the `domain::net::client` module for sending a query.
 use domain::base::{MessageBuilder, Name, Rtype};
+#[cfg(feature = "unstable-client-cache")]
+use domain::net::client::cache;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::request::{
     RequestMessage, RequestMessageMulti, SendRequest,
 };
 use domain::net::client::{
-    dgram, dgram_stream, load_balancer, multi_stream, redundant,
-    stream,
+    dgram, dgram_stream, load_balancer, multi_stream, redundant, stream,
 };
-#[cfg(feature = "unstable-client-cache")]
-use domain::net::client::cache;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 #[cfg(feature = "unstable-validator")]
@@ -315,8 +314,7 @@ where
     // Create a cached transport.
     let mut cache_config = cache::Config::new();
     cache_config.set_max_cache_entries(100); // Just an example.
-    let cache =
-        cache::Connection::with_config(conn, cache_config);
+    let cache = cache::Connection::with_config(conn, cache_config);
 
     // Send a request message.
     let mut request = cache.send_request(req.clone());
@@ -333,9 +331,7 @@ where
     println!("Wating for cached reply");
     let reply = request.get_response().await;
     println!("Cached reply: {reply:?}");
-
 }
-
 
 #[cfg(feature = "unstable-validator")]
 async fn do_validator<Octs, SR>(conn: SR, req: RequestMessage<Octs>)

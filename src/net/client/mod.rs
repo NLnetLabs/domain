@@ -205,8 +205,14 @@
 //! * The [multi_stream] transport does not support timeouts or other limits on
 //!   the number of attempts to open a connection. The caller has to
 //!   implement a timeout mechanism.
-#![cfg_attr(feature = "unstable-client-cache", doc = "* The [cache] transport does not support:")]
-#![cfg_attr(not(feature = "unstable-client-cache"), doc = "* The cache transport does not support:")]
+#![cfg_attr(
+    feature = "unstable-client-cache",
+    doc = "* The [cache] transport does not support:"
+)]
+#![cfg_attr(
+    not(feature = "unstable-client-cache"),
+    doc = "* The cache transport does not support:"
+)]
 //!   * Prefetching. In this context, prefetching means updating a cache entry
 //!     before it expires.
 //!   * [RFC 8767](https://tools.ietf.org/html/rfc8767)
