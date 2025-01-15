@@ -409,6 +409,15 @@ where
         }
     }
 
+    /// Read-only slice based access to the record collection being written
+    /// to.
+    fn as_out_slice(&self) -> &[Record<N, ZoneRecordData<Octs, N>>] {
+        match self {
+            SignableZoneInOut::SignInPlace(input_output, _) => input_output,
+            SignableZoneInOut::SignInto(_, output) => output,
+        }
+    }
+
     /// Add records in sort order to the output.
     ///
     /// For an immutable zone this will cause records to be added to the
@@ -568,6 +577,22 @@ where
     }
 
     if !signing_keys.is_empty() {
+        // Sign the NSEC(3)s.
+        let owner_rrs = RecordsIter::new(in_out.as_out_slice());
+
+        let nsec_rrsigs =
+            generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
+                &apex_owner,
+                owner_rrs,
+                signing_keys,
+                signing_config.add_used_dnskeys,
+            )?;
+
+        // Sorting may not be strictly needed, but we don't have the option to
+        // extend without sort at the moment.
+        in_out.sorted_extend(nsec_rrsigs);
+
+        // Sign the original unsigned records.
         let owner_rrs = RecordsIter::new(in_out.as_slice());
 
         let rrsigs_and_dnskeys =
@@ -578,6 +603,8 @@ where
                 signing_config.add_used_dnskeys,
             )?;
 
+        // Sorting may not be strictly needed, but we don't have the option to
+        // extend without sort at the moment.
         in_out.sorted_extend(rrsigs_and_dnskeys);
     }
 
