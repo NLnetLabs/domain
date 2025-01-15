@@ -11,6 +11,7 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "ring")))]
 
 use core::fmt;
+
 use std::{boxed::Box, sync::Arc, vec::Vec};
 
 use ring::signature::{
@@ -18,12 +19,11 @@ use ring::signature::{
 };
 use secrecy::ExposeSecret;
 
-use crate::{
-    base::iana::SecAlg,
-    validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature},
-};
-
-use super::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
+use crate::base::iana::SecAlg;
+use crate::sign::error::SignError;
+use crate::sign::keys::keypair::GenerateParams;
+use crate::sign::{SecretKeyBytes, SignRaw};
+use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
 //----------- KeyPair --------------------------------------------------------
 
@@ -367,11 +367,12 @@ mod tests {
 
     use crate::{
         base::iana::SecAlg,
-        sign::{GenerateParams, SecretKeyBytes, SignRaw},
+        sign::{SecretKeyBytes, SignRaw},
         validate::Key,
     };
 
     use super::KeyPair;
+    use crate::sign::keys::keypair::GenerateParams;
 
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 60616),
