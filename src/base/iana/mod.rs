@@ -35,6 +35,7 @@ pub use self::rcode::{OptRcode, Rcode, TsigRcode};
 pub use self::rtype::Rtype;
 pub use self::secalg::SecAlg;
 pub use self::svcb::SvcParamKey;
+pub use self::zonemd::{ZonemdAlg, ZonemdScheme};
 
 #[macro_use]
 mod macros;
@@ -49,3 +50,4 @@ pub mod rcode;
 pub mod rtype;
 pub mod secalg;
 pub mod svcb;
+pub mod zonemd;
