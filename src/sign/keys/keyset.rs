@@ -1,7 +1,7 @@
 //! Maintain the state of a collection keys used to sign a zone.
 //!
-//! A key set is a collection of keys used to sign a sigle zone.
-//! This module support the management of key sets including key rollover.
+//! A key set is a collection of keys used to sign a sigle zone. This module
+//! supports the management of key sets including key rollover.
 //!
 //! # Example
 //!

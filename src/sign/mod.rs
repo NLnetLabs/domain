@@ -2,295 +2,98 @@
 //!
 //! **This module is experimental and likely to change significantly.**
 //!
-//! This module provides support for DNSSEC signing of zones.
+//! This module provides support for DNSSEC ([RFC 9364]) signing of zones and
+//! managing of the keys used for signing, with support for `NSEC3` ([RFC
+//! 5155]), [RFC 9077] compliant `NSEC(3)` TTLs, and [RFC 9276] compliant
+//! `NSEC3` parameter settings.
 //!
-//! DNSSEC signed zones consist of configuration data such as DNSKEY and
-//! NSEC3PARAM records, NSEC(3) chains used to provably deny the existence of
-//! records, and RRSIG signatures that authenticate the authoritative content
-//! of the zone.
+//! # Background
 //!
-//! # Overview
+//! DNSSEC signed zones are normal DNS zones (i.e. records at the apex such as
+//! the `SOA` and `NS` records, records in the zone such as `A` records, and
+//! delegations to child zones). What makes them different to non-DNSSEC
+//! signed zones is that they also contain additional configuration data such
+//! as `DNSKEY` and `NSEC3PARAM` records, a chain of `NSEC(3)` records used to
+//! provably deny the existence of records, and `RRSIG` signatures that
+//! authenticate the authoritative content of the zone. See "Signed Zone" in
+//! [RFC 9499 section 10] for more information.
 //!
-//! This module provides support for working with DNSSEC signing keys and
-//! using them to DNSSEC sign sorted [`Record`] collections via the traits
-//! [`SignableZone`], [`SignableZoneInPlace`] and [`Signable`].
+//! Signatures are generated using private keys produced by cryptographic
+//! algorithms in pairs, a public key and a private key.
 //!
-//! <div class="warning">
+//! In a DNSSEC signed zone each generated signature covers a single resource
+//! record set (a group of records having the same owner name, class and type)
+//! and is stored in an `RRSIG` record under the same owner name in the zone.
+//! These `RRSIG` records can then be validated later by a resolver using the
+//! public key.
 //!
-//! This module does **NOT** yet support signing of records stored in a
-//! [`Zone`].
+//! Private keys must be stored in a safe location by zone signers while
+//! public keys can be stored in `DNSKEY` records in public DNS zones.
+//! Validating resolvers query the `DNSKEY`s in order to validate `RRSIG`s in
+//! the signed zone and thus authenticate the data which the `RRSIG`s cover.
+//! `DNSKEY` records can be trusted because a chain of trust is established
+//! from a trust anchor to the signed zone with each parent zone in the chain
+//! authenticating the public key used to sign a child zone. A `DS` record in
+//! the parent zone that refers to a `DNSKEY` record in the child zone
+//! establishes this link.
 //!
-//! </div>
+//! For increased security keys are rotated (aka "rolled") over time. This key
+//! rolling has to be carefully orchestrated so that at all times the signed
+//! zone which the key belongs to remains valid from the perspective of
+//! resolvers.
 //!
-//! Signatures can be generated using a [`SigningKey`], which combines
-//! cryptographic key material with additional information that defines how
-//! the key should be used. [`SigningKey`] relies on a cryptographic backend
-//! to provide the underlying signing operation (e.g. `KeyPair`).
+//! # Usage
 //!
-//! While all records in a zone can be signed with a single key, it is useful
-//! to use one key, a Key Signing Key (KSK), _"to sign the apex DNSKEY RRset
-//! in a zone"_ and another key, a Zone Signing Key (ZSK), _"to sign all the
-//! RRsets in a zone that require signatures, other than the apex DNSKEY
-//! RRset"_ (see [RFC 6781 section 3.1]).
+//! - To generate and/or import signing keys see the [`crypto`] module.
+//! - To sign a collection of [`Record`]s that represent a zone see the
+//!   [`SignableZone`] trait.
+//! - To manage the life cycle of signing keys see the [`keyset`] module.
 //!
-//! Cryptographically there is no difference between these key types, they are
-//! assigned by the operator to signal their intended usage. This module
-//! provides the [`DnssecSigningKey`] wrapper type around a [`SigningKey`] to
-//! allow the intended usage of the key to be signalled by the operator, and
-//! [`SigningKeyUsageStrategy`] to allow different key usage strategies to be
-//! defined and selected to influence how the different types of key affect
-//! signing.
+//! # Advanced usage
 //!
-//! # Importing keys
+//! - For more control over the signing process see the [`SigningConfig`] type
+//!   and the [`SigningKeyUsageStrategy`] and [`DnssecSigningKey`] traits.
+//! - For additional ways to sign zones see the [`SignableZoneInPlace`] trait
+//!   and the [`sign_zone()`] function.
+//! - To invoke specific stages of the signing process manually see the
+//!   [`Signable`] trait and the [`generate_nsecs()`], [`generate_nsec3s()`],
+//!   [`generate_rrsigs()`] and [`sign_rrset()`] functions.
+//! - To generate signatures for arbitrary data see the [`SignRaw`] trait.
 //!
-//! Keys can be imported from files stored on disk in the conventional BIND
-//! format.
+//! # Known limitations
 //!
-//! ```
-//! # use domain::base::iana::SecAlg;
-//! # use domain::validate;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::{SecretKeyBytes, SigningKey};
-//! // Load an Ed25519 key named 'Ktest.+015+56037'.
-//! let base = "test-data/dnssec-keys/Ktest.+015+56037";
-//! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
-//! let sec_bytes = SecretKeyBytes::parse_from_bind(&sec_text).unwrap();
-//! let pub_text = std::fs::read_to_string(format!("{base}.key")).unwrap();
-//! let pub_key = validate::Key::<Vec<u8>>::parse_from_bind(&pub_text).unwrap();
-//!
-//! // Parse the key into Ring or OpenSSL.
-//! let key_pair = KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
-//!
-//! // Associate the key with important metadata.
-//! let key = SigningKey::new(pub_key.owner().clone(), pub_key.flags(), key_pair);
-//!
-//! // Check that the owner, algorithm, and key tag matched expectations.
-//! assert_eq!(key.owner().to_string(), "test");
-//! assert_eq!(key.algorithm(), SecAlg::ED25519);
-//! assert_eq!(key.public_key().key_tag(), 56037);
-//! ```
-//!
-//! # Generating keys
-//!
-//! Keys can also be generated.
-//!
-//! ```
-//! # use domain::base::Name;
-//! # use domain::sign::crypto::common;
-//! # use domain::sign::crypto::common::GenerateParams;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::SigningKey;
-//! // Generate a new Ed25519 key.
-//! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
-//!
-//! // Parse the key into Ring or OpenSSL.
-//! let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//!
-//! // Associate the key with important metadata.
-//! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
-//! let flags = 257; // key signing key
-//! let key = SigningKey::new(owner, flags, key_pair);
-//!
-//! // Access the public key (with metadata).
-//! let pub_key = key.public_key();
-//! println!("{:?}", pub_key);
-//! ```
-//!
-//! # Low level signing
-//!
-//! Given some data and a key, the data can be signed with the key.
-//!
-//! ```
-//! # use domain::base::Name;
-//! # use domain::sign::crypto::common;
-//! # use domain::sign::crypto::common::GenerateParams;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::SigningKey;
-//! # use domain::sign::traits::SignRaw;
-//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//! # let key = SigningKey::new(Name::<Vec<u8>>::root(), 257, key_pair);
-//! // Sign arbitrary byte sequences with the key.
-//! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
-//! println!("{:?}", sig);
-//! ```
-//!
-//! # High level signing
-//!
-//! Given a type for which [`SignableZone`] or [`SignableZoneInPlace`] is
-//! implemented, invoke [`sign_zone()`] on the type to generate, or in the
-//! case of [`SignableZoneInPlace`] to add, all records needed to sign the
-//! zone, i.e. `DNSKEY`, `NSEC` or `NSEC3PARAM` and `NSEC3`, and `RRSIG`.
-//!
-//! <div class="warning">
-//!
-//! This module does **NOT** yet support re-signing of a zone, i.e. ensuring
-//! that any changes to the authoritative records in the zone are reflected by
-//! updating the NSEC(3) chain and generating additional signatures or
-//! regenerating existing ones that have expired.
-//!
-//! </div>
-//!
-//! ```
-//! # use domain::base::{Name, Record, Serial, Ttl};
-//! # use domain::base::iana::Class;
-//! # use domain::sign::crypto::common;
-//! # use domain::sign::crypto::common::GenerateParams;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::SigningKey;
-//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//! # let root = Name::<Vec<u8>>::root();
-//! # let key = SigningKey::new(root.clone(), 257, key_pair);
-//! use domain::rdata::{rfc1035::Soa, ZoneRecordData};
-//! use domain::rdata::dnssec::Timestamp;
-//! use domain::sign::keys::DnssecSigningKey;
-//! use domain::sign::records::SortedRecords;
-//! use domain::sign::SigningConfig;
-//!
-//! // Create a sorted collection of records.
-//! //
-//! // Note: You can also use a plain Vec here (or any other type that is
-//! // compatible with the SignableZone or SignableZoneInPlace trait bounds)
-//! // but then you are responsible for ensuring that records in the zone are
-//! // in DNSSEC compatible order, e.g. by calling
-//! // `sort_by(CanonicalOrd::canonical_cmp)` before calling `sign_zone()`.
-//! let mut records = SortedRecords::default();
-//!
-//! // Insert records into the collection. Just a dummy SOA for this example.
-//! let soa = ZoneRecordData::Soa(Soa::new(
-//!     root.clone(),
-//!     root.clone(),
-//!     Serial::now(),
-//!     Ttl::ZERO,
-//!     Ttl::ZERO,
-//!     Ttl::ZERO,
-//!     Ttl::ZERO));
-//! records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa));
-//!
-//! // Generate or import signing keys (see above).
-//!
-//! // Assign signature validity period and operator intent to the keys.
-//! let key = key.with_validity(Timestamp::now(), Timestamp::now());
-//! let keys = [DnssecSigningKey::from(key)];
-//!
-//! // Create a signing configuration.
-//! let mut signing_config = SigningConfig::default();
-//!
-//! // Then generate the records which when added to the zone make it signed.
-//! let mut signer_generated_records = SortedRecords::default();
-//! {
-//!     use domain::sign::traits::SignableZone;
-//!     records.sign_zone(
-//!         &mut signing_config,
-//!         &keys,
-//!         &mut signer_generated_records).unwrap();
-//! }
-//!
-//! // Or if desired and the underlying collection supports it, sign the zone
-//! // in-place.
-//! {
-//!     use domain::sign::traits::SignableZoneInPlace;
-//!     records.sign_zone(&mut signing_config, &keys).unwrap();
-//! }
-//! ```
-//!
-//! If needed, individual RRsets can also be signed but note that this will
-//! **only** generate `RRSIG` records, as `NSEC(3)` generation is currently
-//! only supported for the zone as a whole and `DNSKEY` records are only
-//! generated for the apex of a zone.
-//!
-//! ```
-//! # use domain::base::Name;
-//! # use domain::base::iana::Class;
-//! # use domain::sign::crypto::common;
-//! # use domain::sign::crypto::common::GenerateParams;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::{DnssecSigningKey, SigningKey};
-//! # use domain::sign::records::{Rrset, SortedRecords};
-//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//! # let root = Name::<Vec<u8>>::root();
-//! # let key = SigningKey::new(root, 257, key_pair);
-//! # let keys = [DnssecSigningKey::from(key)];
-//! # let mut records = SortedRecords::default();
-//! use domain::sign::traits::Signable;
-//! use domain::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
-//! let apex = Name::<Vec<u8>>::root();
-//! let rrset = Rrset::new(&records);
-//! let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
-//! ```
-//!
-//! # Cryptography
-//!
-//! This crate supports OpenSSL and Ring for performing cryptography.  These
-//! cryptographic backends are gated on the `openssl` and `ring` features,
-//! respectively.  They offer mostly equivalent functionality, but OpenSSL
-//! supports a larger set of signing algorithms (and, for RSA keys, supports
-//! weaker key sizes).  A [`common`] backend is provided for users that wish
-//! to use either or both backends at runtime.
-//!
-//! Each backend module ([`openssl`], [`ring`], and [`common`]) exposes a
-//! `KeyPair` type, representing a cryptographic key that can be used for
-//! signing, and a `generate()` function for creating new keys.
-//!
-//! Users can choose to bring their own cryptography by providing their own
-//! `KeyPair` type that implements [`SignRaw`].
-//!
-//! <div class="warning">
-//!
-//! This module does **NOT** yet support `async` signing (useful for
-//! interacting with cryptographic hardware like HSMs).
-//!
-//! </div>
-//!
-//! While each cryptographic backend can support a limited number of signature
-//! algorithms, even the types independent of a cryptographic backend (e.g.
-//! [`SecretKeyBytes`] and [`GenerateParams`]) support a limited number of
-//! algorithms.  Even with custom cryptographic backends, this module can only
-//! support these algorithms.
-//!
-//! # Importing and Exporting
-//!
-//! The [`SecretKeyBytes`] type is a generic representation of a secret key as
-//! a byte slice.  While it does not offer any cryptographic functionality, it
-//! is useful to transfer secret keys stored in memory, independent of any
-//! cryptographic backend.
-//!
-//! The `KeyPair` types of the cryptographic backends in this module each
-//! support a `from_bytes()` function that parses the generic representation
-//! into a functional cryptographic key.  Importantly, these functions require
-//! both the public and private keys to be provided -- the pair are verified
-//! for consistency.  In some cases, it may also be possible to serialize an
-//! existing cryptographic key back to the generic bytes representation.
-//!
-//! [`SecretKeyBytes`] also supports importing and exporting keys from and to
-//! the conventional private-key format popularized by BIND.  This format is
-//! used by a variety of tools for storing DNSSEC keys on disk.  See the
-//! type-level documentation for a specification of the format.
-//!
-//! # Key Sets and Key Lifetime
-//!
-//! The [`keyset`] module provides a way to keep track of the collection of
-//! keys that are used to sign a particular zone. In addition, the lifetime of
-//! keys can be maintained using key rolls that phase out old keys and
-//! introduce new keys.
+//! This module does not yet support :
+//! - `async` signing (useful for interacting with cryptographic hardware like
+//!   Hardware Security Modules (HSMs)).
+//! - Re-signing an already signed zone, only unsigned zones can be signed.
+//! - Signing of unsorted zones, record collections must be sorted according
+//!   to [`CanonicalOrd`].
+//! - Signing of [`Zone`] types or via an [`core::iter::Iterator`] over
+//!   [`Record`]s, only signing of slices is supported.
+//! - Signing with both `NSEC` and `NSEC3` or multiple `NSEC3` configurations
+//!   at once.
 //!
 //! [`common`]: crate::sign::crypto::common
 //! [`keyset`]: crate::sign::keys::keyset
 //! [`openssl`]: crate::sign::crypto::openssl
 //! [`ring`]: crate::sign::crypto::ring
+//! [`sign_rrset()`]: crate::sign::signatures::sign_rrsets
 //! [`DnssecSigningKey`]: crate::sign::keys::DnssecSigningKey
 //! [`Record`]: crate::base::record::Record
+//! [RFC 5155]: https://rfc-editor.org/rfc/rfc5155
 //! [RFC 6781 section 3.1]: https://rfc-editor.org/rfc/rfc6781#section-3.1
+//! [RFC 9077]: https://rfc-editor.org/rfc/rfc9077
+//! [RFC 9276]: https://rfc-editor.org/rfc/rfc9276
+//! [RFC 9364]: https://rfc-editor.org/rfc/rfc9364
+//! [RFC 9499 section 10]:
+//!     https://www.rfc-editor.org/rfc/rfc9499.html#section-10
 //! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
 //! [`KeyPair`]: crate::sign::crypto::common::KeyPair
 //! [`SigningKeyUsageStrategy`]:
 //!     crate::sign::signing::strategy::SigningKeyUsageStrategy
-//! [`Signable`]: crate::sign::signing::traits::Signable
-//! [`SignableZone`]: crate::sign::signing::traits::SignableZone
-//! [`SignableZoneInPlace`]: crate::sign::signing::traits::SignableZoneInPlace
+//! [`Signable`]: crate::sign::traits::Signable
+//! [`SignableZone`]: crate::sign::traits::SignableZone
+//! [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
 //! [`SigningKey`]: crate::sign::keys::SigningKey
 //! [`SortedRecords`]: crate::sign::SortedRecords
 //! [`Zone`]: crate::zonetree::Zone
