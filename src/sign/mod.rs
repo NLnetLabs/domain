@@ -298,9 +298,9 @@
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
+pub mod authnext;
 pub mod crypto;
 pub mod error;
-pub mod authnext;
 pub mod keys;
 pub mod records;
 pub mod signing;
@@ -324,13 +324,13 @@ use crate::base::{CanonicalOrd, ToName};
 use crate::base::{Name, Record, Rtype};
 use crate::rdata::ZoneRecordData;
 
-use error::SigningError;
 use authnext::config::HashingConfig;
 use authnext::nsec::generate_nsecs;
 use authnext::nsec3::{
     generate_nsec3s, Nsec3Config, Nsec3HashProvider, Nsec3ParamTtlMode,
     Nsec3Records,
 };
+use error::SigningError;
 use keys::keymeta::DesignatedSigningKey;
 use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
