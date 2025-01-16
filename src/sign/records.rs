@@ -1,4 +1,4 @@
-//! Actual signing.
+//! Types for iterating over and storing zone records in canonical sort order.
 use core::cmp::Ordering;
 use core::convert::From;
 use core::iter::Extend;

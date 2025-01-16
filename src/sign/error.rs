@@ -1,4 +1,4 @@
-//! Types of signing related error.
+//! Signing related errors.
 use core::fmt::{self, Debug, Display};
 
 #[cfg(feature = "openssl")]
