@@ -20,8 +20,8 @@ use ring::signature::{
 use secrecy::ExposeSecret;
 
 use crate::base::iana::SecAlg;
-use crate::sign::error::SignError;
 use crate::sign::crypto::common::GenerateParams;
+use crate::sign::error::SignError;
 use crate::sign::{SecretKeyBytes, SignRaw};
 use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
@@ -366,9 +366,9 @@ mod tests {
     use std::{sync::Arc, vec::Vec};
 
     use crate::base::iana::SecAlg;
+    use crate::sign::crypto::common::GenerateParams;
     use crate::sign::{SecretKeyBytes, SignRaw};
     use crate::validate::Key;
-    use crate::sign::crypto::common::GenerateParams;
 
     use super::KeyPair;
 
