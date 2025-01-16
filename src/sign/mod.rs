@@ -523,10 +523,10 @@ where
 /// NSEC3 configurations.
 ///
 /// This function does **NOT** yet support signing of record collections
-/// stored in the [`Zone`] type as it currently only supports signing of
-/// record slices whereas the records in a [`Zone`] currently only supports a
-/// visitor style read interface via [`ReadableZone`] whereby a callback
-/// function is invoked for each node that is "walked".
+/// stored in the [`Zone`] type as it currently only support signing of record
+/// slices whereas the records in a [`Zone`] currently only supports a visitor
+/// style read interface via [`ReadableZone`] whereby a callback function is
+/// invoked for each node that is "walked".
 ///
 /// </div>
 ///
