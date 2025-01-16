@@ -493,7 +493,7 @@ where
 /// Prefer signing via the [`SignableZone`] or [`SignableZoneInPlace`] traits
 /// as they handle the construction of the [`SignableZoneInOut`] type and
 /// calling of this function for you.
-/// 
+///
 /// The record collection to be signed is required to implement the
 /// [`SignableZone`] trait. The collection to extend with generated records is
 /// required to implement the [`SortedExtend`] trait, implementations of which
