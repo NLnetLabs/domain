@@ -1,3 +1,4 @@
+//! Types for tuning configurable aspects of DNSSEC signing.
 use core::marker::PhantomData;
 
 use octseq::{EmptyBuilder, FromBuilder};
