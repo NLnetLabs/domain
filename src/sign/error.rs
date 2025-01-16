@@ -1,6 +1,7 @@
-//! Actual signing.
+//! Types of signing related error.
 use core::fmt::{self, Debug, Display};
 
+use crate::sign::crypto::{openssl, ring};
 use crate::validate::Nsec3HashError;
 
 //------------ SigningError --------------------------------------------------
@@ -133,3 +134,108 @@ impl fmt::Display for SignError {
 }
 
 impl std::error::Error for SignError {}
+
+//----------- FromBytesError -----------------------------------------------
+
+/// An error in importing a key pair from bytes.
+#[derive(Clone, Debug)]
+pub enum FromBytesError {
+    /// The requested algorithm was not supported.
+    UnsupportedAlgorithm,
+
+    /// The key's parameters were invalid.
+    InvalidKey,
+
+    /// The implementation does not allow such weak keys.
+    WeakKey,
+
+    /// An implementation failure occurred.
+    ///
+    /// This includes memory allocation failures.
+    Implementation,
+}
+
+//--- Conversions
+
+#[cfg(feature = "ring")]
+impl From<ring::FromBytesError> for FromBytesError {
+    fn from(value: ring::FromBytesError) -> Self {
+        match value {
+            ring::FromBytesError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            ring::FromBytesError::InvalidKey => Self::InvalidKey,
+            ring::FromBytesError::WeakKey => Self::WeakKey,
+        }
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<openssl::FromBytesError> for FromBytesError {
+    fn from(value: openssl::FromBytesError) -> Self {
+        match value {
+            openssl::FromBytesError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            openssl::FromBytesError::InvalidKey => Self::InvalidKey,
+            openssl::FromBytesError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+//--- Formatting
+
+impl fmt::Display for FromBytesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "algorithm not supported",
+            Self::InvalidKey => "malformed or insecure private key",
+            Self::WeakKey => "key too weak to be supported",
+            Self::Implementation => "an internal error occurred",
+        })
+    }
+}
+
+//--- Error
+
+impl std::error::Error for FromBytesError {}
+
+//----------- GenerateError --------------------------------------------------
+
+/// An error in generating a key pair.
+#[derive(Clone, Debug)]
+pub enum GenerateError {
+    /// The requested algorithm was not supported.
+    UnsupportedAlgorithm,
+
+    /// An implementation failure occurred.
+    ///
+    /// This includes memory allocation failures.
+    Implementation,
+}
+
+//--- Conversion
+
+#[cfg(feature = "ring")]
+impl From<ring::GenerateError> for GenerateError {
+    fn from(value: ring::GenerateError) -> Self {
+        match value {
+            ring::GenerateError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            ring::GenerateError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<openssl::GenerateError> for GenerateError {
+    fn from(value: openssl::GenerateError) -> Self {
+        match value {
+            openssl::GenerateError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            openssl::GenerateError::Implementation => Self::Implementation,
+        }
+    }
+}

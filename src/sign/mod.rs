@@ -273,12 +273,14 @@
 //! type-level documentation for a specification of the format.
 //!
 //! # Key Sets and Key Lifetime
+//!
 //! The [`keyset`] module provides a way to keep track of the collection of
 //! keys that are used to sign a particular zone. In addition, the lifetime of
 //! keys can be maintained using key rolls that phase out old keys and
 //! introduce new keys.
 //!
 //! [`common`]: crate::sign::crypto::common
+//! [`keyset`]: crate::sign::keys::keyset
 //! [`openssl`]: crate::sign::crypto::openssl
 //! [`ring`]: crate::sign::crypto::ring
 //! [`DnssecSigningKey`]: crate::sign::keys::keymeta::DnssecSigningKey
