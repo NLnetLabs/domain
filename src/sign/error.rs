@@ -1,7 +1,12 @@
 //! Types of signing related error.
 use core::fmt::{self, Debug, Display};
 
-use crate::sign::crypto::{openssl, ring};
+#[cfg(feature = "openssl")]
+use crate::sign::crypto::openssl;
+
+#[cfg(feature = "ring")]
+use crate::sign::crypto::ring;
+
 use crate::validate::Nsec3HashError;
 
 //------------ SigningError --------------------------------------------------
