@@ -1,14 +1,5 @@
 //! Parsing DNS messages from the wire format.
 
-mod message;
-pub use message::{MessagePart, ParseMessage, VisitMessagePart};
-
-mod question;
-pub use question::{ParseQuestion, ParseQuestions, VisitQuestion};
-
-mod record;
-pub use record::{ParseRecord, ParseRecords, VisitRecord};
-
 pub use super::wire::ParseError;
 
 use super::{
