@@ -24,8 +24,8 @@ use crate::sign::error::SigningError;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::keys::signingkey::SigningKey;
 use crate::sign::records::{RecordsIter, Rrset, SortedRecords, Sorter};
-use crate::sign::signing::strategy::SigningKeyUsageStrategy;
-use crate::sign::signing::traits::{SignRaw, SortedExtend};
+use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
+use crate::sign::traits::{SignRaw, SortedExtend};
 
 /// Generate RRSIG RRs for a collection of unsigned zone records.
 ///

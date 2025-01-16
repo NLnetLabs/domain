@@ -24,9 +24,9 @@ use crate::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::sign::sign_zone;
-use crate::sign::signing::config::SigningConfig;
-use crate::sign::signing::rrsigs::generate_rrsigs;
-use crate::sign::signing::strategy::SigningKeyUsageStrategy;
+use crate::sign::signatures::rrsigs::generate_rrsigs;
+use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
+use crate::sign::SigningConfig;
 use crate::sign::{PublicKeyBytes, SignableZoneInOut, Signature};
 
 //----------- SignRaw --------------------------------------------------------

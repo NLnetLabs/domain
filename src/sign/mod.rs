@@ -107,7 +107,7 @@
 //! # use domain::sign::crypto::common::GenerateParams;
 //! # use domain::sign::crypto::common::KeyPair;
 //! # use domain::sign::keys::SigningKey;
-//! # use domain::sign::signing::traits::SignRaw;
+//! # use domain::sign::traits::SignRaw;
 //! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let key = SigningKey::new(Name::<Vec<u8>>::root(), 257, key_pair);
@@ -147,7 +147,7 @@
 //! use domain::rdata::dnssec::Timestamp;
 //! use domain::sign::keys::DnssecSigningKey;
 //! use domain::sign::records::SortedRecords;
-//! use domain::sign::signing::SigningConfig;
+//! use domain::sign::SigningConfig;
 //!
 //! // Create a sorted collection of records.
 //! //
@@ -181,7 +181,7 @@
 //! // Then generate the records which when added to the zone make it signed.
 //! let mut signer_generated_records = SortedRecords::default();
 //! {
-//!     use domain::sign::signing::traits::SignableZone;
+//!     use domain::sign::traits::SignableZone;
 //!     records.sign_zone(
 //!         &mut signing_config,
 //!         &keys,
@@ -191,7 +191,7 @@
 //! // Or if desired and the underlying collection supports it, sign the zone
 //! // in-place.
 //! {
-//!     use domain::sign::signing::traits::SignableZoneInPlace;
+//!     use domain::sign::traits::SignableZoneInPlace;
 //!     records.sign_zone(&mut signing_config, &keys).unwrap();
 //! }
 //! ```
@@ -215,8 +215,8 @@
 //! # let key = SigningKey::new(root, 257, key_pair);
 //! # let keys = [DnssecSigningKey::from(key)];
 //! # let mut records = SortedRecords::default();
-//! use domain::sign::signing::traits::Signable;
-//! use domain::sign::signing::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
+//! use domain::sign::traits::Signable;
+//! use domain::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
 //! let apex = Name::<Vec<u8>>::root();
 //! let rrset = Rrset::new(&records);
 //! let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
@@ -298,16 +298,19 @@
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
+pub mod config;
 pub mod crypto;
 pub mod denial;
 pub mod error;
 pub mod keys;
 pub mod records;
-pub mod signing;
+pub mod signatures;
+pub mod traits;
 pub mod zone;
 
 pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
+pub use self::config::SigningConfig;
 pub use self::keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
 use core::cmp::min;
@@ -336,10 +339,9 @@ use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
 use records::{RecordsIter, Sorter};
-use signing::config::SigningConfig;
-use signing::rrsigs::generate_rrsigs;
-use signing::strategy::SigningKeyUsageStrategy;
-use signing::traits::{SignRaw, SignableZone, SortedExtend};
+use signatures::rrsigs::generate_rrsigs;
+use signatures::strategy::SigningKeyUsageStrategy;
+use traits::{SignRaw, SignableZone, SortedExtend};
 
 //------------ SignableZoneInOut ---------------------------------------------
 

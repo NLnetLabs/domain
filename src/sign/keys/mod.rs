@@ -1,3 +1,4 @@
+//! Types for working with DNSSEC signing keys.
 pub mod bytes;
 pub mod keymeta;
 pub mod keyset;

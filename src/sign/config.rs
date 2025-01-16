@@ -2,16 +2,15 @@ use core::marker::PhantomData;
 
 use octseq::{EmptyBuilder, FromBuilder};
 
+use super::signatures::strategy::DefaultSigningKeyUsageStrategy;
 use crate::base::{Name, ToName};
 use crate::sign::denial::config::HashingConfig;
 use crate::sign::denial::nsec3::{
     Nsec3HashProvider, OnDemandNsec3HashProvider,
 };
 use crate::sign::records::{DefaultSorter, Sorter};
-use crate::sign::signing::strategy::SigningKeyUsageStrategy;
+use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
 use crate::sign::SignRaw;
-
-use super::strategy::DefaultSigningKeyUsageStrategy;
 
 //------------ SigningConfig -------------------------------------------------
 
