@@ -308,7 +308,7 @@ pub mod zone;
 
 pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
-pub use keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
+pub use self::keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
 use core::cmp::min;
 use core::fmt::Display;
