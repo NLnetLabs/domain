@@ -24,15 +24,14 @@
 //!
 //! Signatures can be generated using a [`SigningKey`], which combines
 //! cryptographic key material with additional information that defines how
-//! the key should be used.  [`SigningKey`] relies on a cryptographic backend
-//! to provide the underlying signing operation (e.g.
-//! [`keys::keypair::KeyPair`]).
+//! the key should be used. [`SigningKey`] relies on a cryptographic backend
+//! to provide the underlying signing operation (e.g. `KeyPair`).
 //!
 //! While all records in a zone can be signed with a single key, it is useful
-//! to use one key, a Key Signing Key (KSK), "to sign the apex DNSKEY RRset in
-//! a zone" and another key, a Zone Signing Key (ZSK), "to sign all the RRsets
-//! in a zone that require signatures, other than the apex DNSKEY RRset" (see
-//! [RFC 6781 section 3.1]).
+//! to use one key, a Key Signing Key (KSK), _"to sign the apex DNSKEY RRset
+//! in a zone"_ and another key, a Zone Signing Key (ZSK), _"to sign all the
+//! RRsets in a zone that require signatures, other than the apex DNSKEY
+//! RRset"_ (see [RFC 6781 section 3.1]).
 //!
 //! Cryptographically there is no difference between these key types, they are
 //! assigned by the operator to signal their intended usage. This module
@@ -117,14 +116,14 @@
 //! # High level signing
 //!
 //! Given a type for which [`SignableZone`] or [`SignableZoneInPlace`] is
-//! implemented, invoke `sign_zone()` on the type to generate, or in the case
-//! of [`SignableZoneInPlace`] to add, all records needed to sign the zone,
-//! i.e. `DNSKEY`, `NSEC` or `NSEC3PARAM` and `NSEC3`, and `RRSIG`.
+//! implemented, invoke [`sign_zone()`] on the type to generate, or in the
+//! case of [`SignableZoneInPlace`] to add, all records needed to sign the
+//! zone, i.e. `DNSKEY`, `NSEC` or `NSEC3PARAM` and `NSEC3`, and `RRSIG`.
 //!
 //! <div class="warning">
 //!
-//! Currently there is no support for re-signing a zone, i.e. ensuring that
-//! any changes to the authoritative records in the zone are reflected by
+//! This module does **NOT** yet support re-signing of a zone, i.e. ensuring
+//! that any changes to the authoritative records in the zone are reflected by
 //! updating the NSEC(3) chain and generating additional signatures or
 //! regenerating existing ones that have expired.
 //!
@@ -153,7 +152,7 @@
 //! // but then you are responsible for ensuring that records in the zone are
 //! // in DNSSEC compatible order, e.g. by calling
 //! // `sort_by(CanonicalOrd::canonical_cmp)` before calling `sign_zone()`.
-//! let mut records = SortedRecords::new();
+//! let mut records = SortedRecords::default();
 //!
 //! // Insert records into the collection. Just a dummy SOA for this example.
 //! let soa = ZoneRecordData::Soa(Soa::new(
@@ -175,7 +174,15 @@
 //! // Create a signing configuration.
 //! let mut signing_config = SigningConfig::default();
 //!
-//! // Then sign the zone in place.
+//! // Then generate the records which when added to the zone make it signed.
+//! let mut signer_generated_records = SortedRecords::default();
+//! records.sign_zone(
+//!     &mut signing_config,
+//!     &keys,
+//!     &mut signer_generated_records).unwrap();
+//! 
+//! // Or if desired and the underlying collection supports it, sign the zone
+//! // in-place.
 //! records.sign_zone(&mut signing_config, &keys).unwrap();
 //! ```
 //!
@@ -205,17 +212,6 @@
 //! let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
 //! ```
 //!
-//! [`DnssecSigningKey`]: crate::sign::keys::keymeta::DnssecSigningKey
-//! [`Record`]: crate::base::record::Record
-//! [RFC 6871 section 3.1]: https://rfc-editor.org/rfc/rfc6781#section-3.1
-//! [`SigningKeyUsageStrategy`]:
-//!     crate::sign::signing::strategy::SigningKeyUsageStrategy
-//! [`Signable`]: crate::sign::signing::traits::Signable
-//! [`SignableZone`]: crate::sign::signing::traits::SignableZone
-//! [`SignableZoneInPlace`]: crate::sign::signing::traits::SignableZoneInPlace
-//! [`SortedRecords`]: crate::sign::SortedRecords
-//! [`Zone`]: crate::zonetree::Zone
-//!
 //! # Cryptography
 //!
 //! This crate supports OpenSSL and Ring for performing cryptography.  These
@@ -225,14 +221,19 @@
 //! weaker key sizes).  A [`common`] backend is provided for users that wish
 //! to use either or both backends at runtime.
 //!
-//! Each backend module (`openssl`, `ring`, and `common`) exposes a `KeyPair`
-//! type, representing a cryptographic key that can be used for signing, and a
-//! `generate()` function for creating new keys.
+//! Each backend module ([`openssl`], [`ring`], and [`common`]) exposes a
+//! `KeyPair` type, representing a cryptographic key that can be used for
+//! signing, and a `generate()` function for creating new keys.
 //!
 //! Users can choose to bring their own cryptography by providing their own
-//! `KeyPair` type that implements [`SignRaw`].  Note that `async` signing
-//! (useful for interacting with cryptographic hardware like HSMs) is not
-//! currently supported.
+//! `KeyPair` type that implements [`SignRaw`].
+//! 
+//! <div class="warning">
+//! 
+//! This module does **NOT** yet support `async` signing (useful for
+//! interacting with cryptographic hardware like HSMs).
+//! 
+//! </div>
 //!
 //! While each cryptographic backend can support a limited number of signature
 //! algorithms, even the types independent of a cryptographic backend (e.g.
@@ -264,6 +265,23 @@
 //! keys that are used to sign a particular zone. In addition, the lifetime of
 //! keys can be maintained using key rolls that phase out old keys and
 //! introduce new keys.
+//!
+//! [`common`]: crate::sign::crypto::common
+//! [`openssl`]: crate::sign::crypto::openssl
+//! [`ring`]: crate::sign::crypto::ring
+//! [`DnssecSigningKey`]: crate::sign::keys::keymeta::DnssecSigningKey
+//! [`Record`]: crate::base::record::Record
+//! [RFC 6781 section 3.1]: https://rfc-editor.org/rfc/rfc6781#section-3.1
+//! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
+//! [`KeyPair`]: crate::sign::crypto::common::KeyPair
+//! [`SigningKeyUsageStrategy`]:
+//!     crate::sign::signing::strategy::SigningKeyUsageStrategy
+//! [`Signable`]: crate::sign::signing::traits::Signable
+//! [`SignableZone`]: crate::sign::signing::traits::SignableZone
+//! [`SignableZoneInPlace`]: crate::sign::signing::traits::SignableZoneInPlace
+//! [`SigningKey`]: crate::sign::keys::signingkey::SigningKey
+//! [`SortedRecords`]: crate::sign::SortedRecords
+//! [`Zone`]: crate::zonetree::Zone
 
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]

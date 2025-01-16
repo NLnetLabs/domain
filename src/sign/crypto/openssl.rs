@@ -25,7 +25,7 @@ use secrecy::ExposeSecret;
 
 use crate::base::iana::SecAlg;
 use crate::sign::error::SignError;
-use crate::sign::keys::keypair::GenerateParams;
+use crate::sign::crypto::common::GenerateParams;
 use crate::sign::{RsaSecretKeyBytes, SecretKeyBytes, SignRaw};
 use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
@@ -448,14 +448,12 @@ impl std::error::Error for GenerateError {}
 mod tests {
     use std::{string::ToString, vec::Vec};
 
-    use crate::{
-        base::iana::SecAlg,
-        sign::{SecretKeyBytes, SignRaw},
-        validate::Key,
-    };
+    use crate::base::iana::SecAlg;
+    use crate::sign::{SecretKeyBytes, SignRaw};
+    use crate::validate::Key;
+    use crate::sign::crypto::common::GenerateParams;
 
     use super::KeyPair;
-    use crate::sign::keys::keypair::GenerateParams;
 
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 60616),
