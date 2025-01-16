@@ -48,7 +48,9 @@
 //!
 //! ```
 //! # use domain::base::iana::SecAlg;
-//! # use domain::{sign::*, validate};
+//! # use domain::validate;
+//! # use domain::sign::crypto::common::KeyPair;
+//! # use domain::sign::keys::bytes::SecretKeyBytes;
 //! # use domain::sign::keys::signingkey::SigningKey;
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
@@ -58,7 +60,7 @@
 //! let pub_key = validate::Key::<Vec<u8>>::parse_from_bind(&pub_text).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
-//! let key_pair = keys::keypair::KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
+//! let key_pair = KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
 //!
 //! // Associate the key with important metadata.
 //! let key = SigningKey::new(pub_key.owner().clone(), pub_key.flags(), key_pair);
@@ -75,15 +77,16 @@
 //!
 //! ```
 //! # use domain::base::Name;
-//! # use domain::sign::keys::keypair;
-//! # use domain::sign::keys::keypair::GenerateParams;
+//! # use domain::sign::crypto::common;
+//! # use domain::sign::crypto::common::GenerateParams;
+//! # use domain::sign::crypto::common::KeyPair;
 //! # use domain::sign::keys::signingkey::SigningKey;
 //! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_bytes) = keypair::generate(params).unwrap();
+//! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
-//! let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //!
 //! // Associate the key with important metadata.
 //! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
@@ -101,12 +104,13 @@
 //!
 //! ```
 //! # use domain::base::Name;
-//! # use domain::sign::keys::keypair;
-//! # use domain::sign::keys::keypair::GenerateParams;
+//! # use domain::sign::crypto::common;
+//! # use domain::sign::crypto::common::GenerateParams;
+//! # use domain::sign::crypto::common::KeyPair;
 //! # use domain::sign::keys::signingkey::SigningKey;
 //! # use domain::sign::signing::traits::SignRaw;
-//! # let (sec_bytes, pub_bytes) = keypair::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let key = SigningKey::new(Name::<Vec<u8>>::root(), 257, key_pair);
 //! // Sign arbitrary byte sequences with the key.
 //! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
@@ -130,12 +134,14 @@
 //! </div>
 //!
 //! ```
-//! # use domain::base::{*, iana::Class};
-//! # use domain::sign::keys::keypair;
-//! # use domain::sign::keys::keypair::GenerateParams;
+//! # use domain::base::{Name, Record, Serial, Ttl};
+//! # use domain::base::iana::Class;
+//! # use domain::sign::crypto::common;
+//! # use domain::sign::crypto::common::GenerateParams;
+//! # use domain::sign::crypto::common::KeyPair;
 //! # use domain::sign::keys::signingkey::SigningKey;
-//! # let (sec_bytes, pub_bytes) = keypair::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root.clone(), 257, key_pair);
 //! use domain::rdata::{rfc1035::Soa, ZoneRecordData};
@@ -143,7 +149,6 @@
 //! use domain::sign::keys::keymeta::DnssecSigningKey;
 //! use domain::sign::records::SortedRecords;
 //! use domain::sign::signing::config::SigningConfig;
-//! use domain::sign::signing::traits::SignableZoneInPlace;
 //!
 //! // Create a sorted collection of records.
 //! //
@@ -176,14 +181,20 @@
 //!
 //! // Then generate the records which when added to the zone make it signed.
 //! let mut signer_generated_records = SortedRecords::default();
-//! records.sign_zone(
-//!     &mut signing_config,
-//!     &keys,
-//!     &mut signer_generated_records).unwrap();
-//! 
+//! {
+//!     use domain::sign::signing::traits::SignableZone;
+//!     records.sign_zone(
+//!         &mut signing_config,
+//!         &keys,
+//!         &mut signer_generated_records).unwrap();
+//! }
+//!
 //! // Or if desired and the underlying collection supports it, sign the zone
 //! // in-place.
-//! records.sign_zone(&mut signing_config, &keys).unwrap();
+//! {
+//!     use domain::sign::signing::traits::SignableZoneInPlace;
+//!     records.sign_zone(&mut signing_config, &keys).unwrap();
+//! }
 //! ```
 //!
 //! If needed, individual RRsets can also be signed but note that this will
@@ -194,13 +205,14 @@
 //! ```
 //! # use domain::base::Name;
 //! # use domain::base::iana::Class;
-//! # use domain::sign::keys::keypair;
-//! # use domain::sign::keys::keypair::GenerateParams;
+//! # use domain::sign::crypto::common;
+//! # use domain::sign::crypto::common::GenerateParams;
+//! # use domain::sign::crypto::common::KeyPair;
 //! # use domain::sign::keys::keymeta::DnssecSigningKey;
 //! # use domain::sign::records;
 //! # use domain::sign::keys::signingkey::SigningKey;
-//! # let (sec_bytes, pub_bytes) = keypair::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = keypair::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root, 257, key_pair);
 //! # let keys = [DnssecSigningKey::from(key)];
@@ -227,12 +239,12 @@
 //!
 //! Users can choose to bring their own cryptography by providing their own
 //! `KeyPair` type that implements [`SignRaw`].
-//! 
+//!
 //! <div class="warning">
-//! 
+//!
 //! This module does **NOT** yet support `async` signing (useful for
 //! interacting with cryptographic hardware like HSMs).
-//! 
+//!
 //! </div>
 //!
 //! While each cryptographic backend can support a limited number of signature
