@@ -1,4 +1,4 @@
-//! Authenticated non-existence mechanisms.
+//! Authenticated denial of existence mechanisms.
 //!
 //! In order for a DNSSEC server to deny the existence of a RRSET of the
 //! requested type or name the server must have an RRSIG signature that it can
