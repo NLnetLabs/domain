@@ -6,8 +6,8 @@
 //!
 //! DNSSEC signed zones consist of configuration data such as DNSKEY and
 //! NSEC3PARAM records, NSEC(3) chains used to provably deny the existence of
-//! records, and signatures that authenticate the authoritative content of the
-//! zone.
+//! records, and RRSIG signatures that authenticate the authoritative content
+//! of the zone.
 //!
 //! # Overview
 //!
