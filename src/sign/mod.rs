@@ -496,7 +496,7 @@ where
 ///
 /// <div class="warning">
 ///
-/// The record collection to be signed must meet the following requiements.
+/// The record collection to be signed must meet the following requirements.
 ///
 /// Failure to meet these requirements will likely lead to incorrect signing
 /// output.
