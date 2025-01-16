@@ -50,8 +50,7 @@
 //! # use domain::base::iana::SecAlg;
 //! # use domain::validate;
 //! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::bytes::SecretKeyBytes;
-//! # use domain::sign::keys::signingkey::SigningKey;
+//! # use domain::sign::keys::{SecretKeyBytes, SigningKey};
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
 //! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
@@ -80,7 +79,7 @@
 //! # use domain::sign::crypto::common;
 //! # use domain::sign::crypto::common::GenerateParams;
 //! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::signingkey::SigningKey;
+//! # use domain::sign::keys::SigningKey;
 //! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
 //! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
@@ -107,7 +106,7 @@
 //! # use domain::sign::crypto::common;
 //! # use domain::sign::crypto::common::GenerateParams;
 //! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::signingkey::SigningKey;
+//! # use domain::sign::keys::SigningKey;
 //! # use domain::sign::signing::traits::SignRaw;
 //! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
@@ -139,16 +138,16 @@
 //! # use domain::sign::crypto::common;
 //! # use domain::sign::crypto::common::GenerateParams;
 //! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::signingkey::SigningKey;
+//! # use domain::sign::keys::SigningKey;
 //! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root.clone(), 257, key_pair);
 //! use domain::rdata::{rfc1035::Soa, ZoneRecordData};
 //! use domain::rdata::dnssec::Timestamp;
-//! use domain::sign::keys::keymeta::DnssecSigningKey;
+//! use domain::sign::keys::DnssecSigningKey;
 //! use domain::sign::records::SortedRecords;
-//! use domain::sign::signing::config::SigningConfig;
+//! use domain::sign::signing::SigningConfig;
 //!
 //! // Create a sorted collection of records.
 //! //
@@ -208,19 +207,18 @@
 //! # use domain::sign::crypto::common;
 //! # use domain::sign::crypto::common::GenerateParams;
 //! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::keymeta::DnssecSigningKey;
-//! # use domain::sign::records;
-//! # use domain::sign::keys::signingkey::SigningKey;
+//! # use domain::sign::keys::{DnssecSigningKey, SigningKey};
+//! # use domain::sign::records::{Rrset, SortedRecords};
 //! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let root = Name::<Vec<u8>>::root();
 //! # let key = SigningKey::new(root, 257, key_pair);
 //! # let keys = [DnssecSigningKey::from(key)];
-//! # let mut records = records::SortedRecords::default();
+//! # let mut records = SortedRecords::default();
 //! use domain::sign::signing::traits::Signable;
 //! use domain::sign::signing::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
 //! let apex = Name::<Vec<u8>>::root();
-//! let rrset = records::Rrset::new(&records);
+//! let rrset = Rrset::new(&records);
 //! let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
 //! ```
 //!
@@ -283,7 +281,7 @@
 //! [`keyset`]: crate::sign::keys::keyset
 //! [`openssl`]: crate::sign::crypto::openssl
 //! [`ring`]: crate::sign::crypto::ring
-//! [`DnssecSigningKey`]: crate::sign::keys::keymeta::DnssecSigningKey
+//! [`DnssecSigningKey`]: crate::sign::keys::DnssecSigningKey
 //! [`Record`]: crate::base::record::Record
 //! [RFC 6781 section 3.1]: https://rfc-editor.org/rfc/rfc6781#section-3.1
 //! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
@@ -293,7 +291,7 @@
 //! [`Signable`]: crate::sign::signing::traits::Signable
 //! [`SignableZone`]: crate::sign::signing::traits::SignableZone
 //! [`SignableZoneInPlace`]: crate::sign::signing::traits::SignableZoneInPlace
-//! [`SigningKey`]: crate::sign::keys::signingkey::SigningKey
+//! [`SigningKey`]: crate::sign::keys::SigningKey
 //! [`SortedRecords`]: crate::sign::SortedRecords
 //! [`Zone`]: crate::zonetree::Zone
 
