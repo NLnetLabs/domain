@@ -522,15 +522,23 @@ where
 /// configurations at once, e.g. to migrate from NSEC <-> NSEC3 or between
 /// NSEC3 configurations.
 ///
+/// This function does **NOT** yet support signing of record collections
+/// stored in the [`Zone`] type as it currently only supports signing of
+/// record slices whereas the records in a [`Zone`] currently only supports a
+/// visitor style read interface via [`ReadableZone`] whereby a callback
+/// function is invoked for each node that is "walked".
+///
 /// </div>
 ///
 /// Various aspects of the signing process are configurable, see
 /// [`SigningConfig`] for more information.
 ///
+/// [`ReadableZone`]: crate::zonetree::ReadableZone
 /// [RFC 4035 section 2 Zone Signing]:
 ///     https://www.rfc-editor.org/rfc/rfc4035.html#section-2
 /// [RFC 5155]: https://www.rfc-editor.org/info/rfc5155
 /// [`SortedRecords`]: crate::sign::records::SortedRecords
+/// [`Zone`]: crate::zonetree::Zone
 pub fn sign_zone<N, Octs, S, DSK, Inner, KeyStrat, Sort, HP, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
     signing_config: &mut SigningConfig<N, Octs, Inner, KeyStrat, Sort, HP>,
