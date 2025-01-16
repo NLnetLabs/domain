@@ -1,3 +1,4 @@
+//! Signing related traits.
 use core::convert::From;
 use core::fmt::{Debug, Display};
 use core::iter::Extend;

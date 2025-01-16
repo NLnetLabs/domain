@@ -306,7 +306,6 @@ pub mod keys;
 pub mod records;
 pub mod signatures;
 pub mod traits;
-pub mod zone;
 
 pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
