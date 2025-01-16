@@ -298,7 +298,7 @@
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
-pub mod authnext;
+pub mod authnonext;
 pub mod crypto;
 pub mod error;
 pub mod keys;
@@ -324,9 +324,9 @@ use crate::base::{CanonicalOrd, ToName};
 use crate::base::{Name, Record, Rtype};
 use crate::rdata::ZoneRecordData;
 
-use authnext::config::HashingConfig;
-use authnext::nsec::generate_nsecs;
-use authnext::nsec3::{
+use authnonext::config::HashingConfig;
+use authnonext::nsec::generate_nsecs;
+use authnonext::nsec3::{
     generate_nsec3s, Nsec3Config, Nsec3HashProvider, Nsec3ParamTtlMode,
     Nsec3Records,
 };

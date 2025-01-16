@@ -17,7 +17,7 @@ use crate::base::name::ToName;
 use crate::base::record::Record;
 use crate::base::Name;
 use crate::rdata::ZoneRecordData;
-use crate::sign::authnext::nsec3::Nsec3HashProvider;
+use crate::sign::authnonext::nsec3::Nsec3HashProvider;
 use crate::sign::error::{SignError, SigningError};
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::records::{
@@ -75,6 +75,8 @@ pub trait SortedExtend<N, Octs, Sort>
 where
     Sort: Sorter,
 {
+
+
     fn sorted_extend<
         T: IntoIterator<Item = Record<N, ZoneRecordData<Octs, N>>>,
     >(
