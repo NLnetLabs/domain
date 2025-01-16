@@ -3,8 +3,8 @@ use core::marker::PhantomData;
 use octseq::{EmptyBuilder, FromBuilder};
 
 use crate::base::{Name, ToName};
-use crate::sign::hashing::config::HashingConfig;
-use crate::sign::hashing::nsec3::{
+use crate::sign::authnext::config::HashingConfig;
+use crate::sign::authnext::nsec3::{
     Nsec3HashProvider, OnDemandNsec3HashProvider,
 };
 use crate::sign::records::{DefaultSorter, Sorter};

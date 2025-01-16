@@ -300,7 +300,7 @@
 
 pub mod crypto;
 pub mod error;
-pub mod hashing;
+pub mod authnext;
 pub mod keys;
 pub mod records;
 pub mod signing;
@@ -325,9 +325,9 @@ use crate::base::{Name, Record, Rtype};
 use crate::rdata::ZoneRecordData;
 
 use error::SigningError;
-use hashing::config::HashingConfig;
-use hashing::nsec::generate_nsecs;
-use hashing::nsec3::{
+use authnext::config::HashingConfig;
+use authnext::nsec::generate_nsecs;
+use authnext::nsec3::{
     generate_nsec3s, Nsec3Config, Nsec3HashProvider, Nsec3ParamTtlMode,
     Nsec3Records,
 };
