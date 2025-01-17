@@ -9,17 +9,17 @@
 //!
 //! # Background
 //!
-//! DNSSEC signed zones are normal DNS zones (i.e. records at the apex such as
-//! the `SOA` and `NS` records, records in the zone such as `A` records, and
-//! delegations to child zones). What makes them different to non-DNSSEC
-//! signed zones is that they also contain additional configuration data such
-//! as `DNSKEY` and `NSEC3PARAM` records, a chain of `NSEC(3)` records used to
-//! provably deny the existence of records, and `RRSIG` signatures that
-//! authenticate the authoritative content of the zone. See "Signed Zone" in
-//! [RFC 9499 section 10] for more information.
+//! DNSSEC signed zones are normal DNS zones (i.e. with records at the apex
+//! such as the `SOA` and `NS` records, records in the zone such as `A`
+//! records, and delegations to child zones). What makes them different to
+//! non-DNSSEC signed zones is that they also contain additional configuration
+//! data such as `DNSKEY` and `NSEC3PARAM` records, a chain of `NSEC(3)`
+//! records used to provably deny the existence of records, and `RRSIG`
+//! signatures that authenticate the authoritative content of the zone. See
+//! "Signed Zone" in [RFC 9499 section 10] for more information.
 //!
-//! Signatures are generated using private keys produced by cryptographic
-//! algorithms in pairs, a public key and a private key.
+//! Signatures are generated using a private key and can be validated using
+//! the corresponding public key.
 //!
 //! In a DNSSEC signed zone each generated signature covers a single resource
 //! record set (a group of records having the same owner name, class and type)
@@ -46,15 +46,15 @@
 //!
 //! - To generate and/or import signing keys see the [`crypto`] module.
 //! - To sign a collection of [`Record`]s that represent a zone see the
-//!   [`SignableZone`] trait.
+//!   [`SignableZoneInPlace`] trait.
 //! - To manage the life cycle of signing keys see the [`keyset`] module.
 //!
 //! # Advanced usage
 //!
 //! - For more control over the signing process see the [`SigningConfig`] type
 //!   and the [`SigningKeyUsageStrategy`] and [`DnssecSigningKey`] traits.
-//! - For additional ways to sign zones see the [`SignableZoneInPlace`] trait
-//!   and the [`sign_zone()`] function.
+//! - For additional ways to sign zones see the [`SignableZone`] trait and the
+//!   [`sign_zone()`] function.
 //! - To invoke specific stages of the signing process manually see the
 //!   [`Signable`] trait and the [`generate_nsecs()`], [`generate_nsec3s()`],
 //!   [`generate_rrsigs()`] and [`sign_rrset()`] functions.
@@ -77,7 +77,7 @@
 //! [`keyset`]: crate::sign::keys::keyset
 //! [`openssl`]: crate::sign::crypto::openssl
 //! [`ring`]: crate::sign::crypto::ring
-//! [`sign_rrset()`]: crate::sign::signatures::sign_rrsets
+//! [`sign_rrset()`]: crate::sign::signatures::rrsigs::sign_rrset
 //! [`DnssecSigningKey`]: crate::sign::keys::DnssecSigningKey
 //! [`Record`]: crate::base::record::Record
 //! [RFC 5155]: https://rfc-editor.org/rfc/rfc5155

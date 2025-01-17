@@ -1,110 +1,7 @@
 //! Signing related traits.
 //!
-//! # High level signing
-//!
-//! Given a type for which [`SignableZone`] or [`SignableZoneInPlace`] is
-//! implemented, invoke [`sign_zone()`] on the type to generate, or in the
-//! case of [`SignableZoneInPlace`] to add, all records needed to sign the
-//! zone, i.e. `DNSKEY`, `NSEC` or `NSEC3PARAM` and `NSEC3`, and `RRSIG`.
-//!
-//! <div class="warning">
-//!
-//! This module does **NOT** yet support re-signing of a zone, i.e. ensuring
-//! that any changes to the authoritative records in the zone are reflected by
-//! updating the NSEC(3) chain and generating additional signatures or
-//! regenerating existing ones that have expired.
-//!
-//! </div>
-//!
-//! ```
-//! # use domain::base::{Name, Record, Serial, Ttl};
-//! # use domain::base::iana::Class;
-//! # use domain::sign::crypto::common;
-//! # use domain::sign::crypto::common::GenerateParams;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::SigningKey;
-//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//! # let root = Name::<Vec<u8>>::root();
-//! # let key = SigningKey::new(root.clone(), 257, key_pair);
-//! use domain::rdata::{rfc1035::Soa, ZoneRecordData};
-//! use domain::rdata::dnssec::Timestamp;
-//! use domain::sign::keys::DnssecSigningKey;
-//! use domain::sign::records::SortedRecords;
-//! use domain::sign::SigningConfig;
-//!
-//! // Create a sorted collection of records.
-//! //
-//! // Note: You can also use a plain Vec here (or any other type that is
-//! // compatible with the SignableZone or SignableZoneInPlace trait bounds)
-//! // but then you are responsible for ensuring that records in the zone are
-//! // in DNSSEC compatible order, e.g. by calling
-//! // `sort_by(CanonicalOrd::canonical_cmp)` before calling `sign_zone()`.
-//! let mut records = SortedRecords::default();
-//!
-//! // Insert records into the collection. Just a dummy SOA for this example.
-//! let soa = ZoneRecordData::Soa(Soa::new(
-//!     root.clone(),
-//!     root.clone(),
-//!     Serial::now(),
-//!     Ttl::ZERO,
-//!     Ttl::ZERO,
-//!     Ttl::ZERO,
-//!     Ttl::ZERO));
-//! records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa));
-//!
-//! // Generate or import signing keys (see above).
-//!
-//! // Assign signature validity period and operator intent to the keys.
-//! let key = key.with_validity(Timestamp::now(), Timestamp::now());
-//! let keys = [DnssecSigningKey::from(key)];
-//!
-//! // Create a signing configuration.
-//! let mut signing_config = SigningConfig::default();
-//!
-//! // Then generate the records which when added to the zone make it signed.
-//! let mut signer_generated_records = SortedRecords::default();
-//! {
-//!     use domain::sign::traits::SignableZone;
-//!     records.sign_zone(
-//!         &mut signing_config,
-//!         &keys,
-//!         &mut signer_generated_records).unwrap();
-//! }
-//!
-//! // Or if desired and the underlying collection supports it, sign the zone
-//! // in-place.
-//! {
-//!     use domain::sign::traits::SignableZoneInPlace;
-//!     records.sign_zone(&mut signing_config, &keys).unwrap();
-//! }
-//! ```
-//!
-//! If needed, individual RRsets can also be signed but note that this will
-//! **only** generate `RRSIG` records, as `NSEC(3)` generation is currently
-//! only supported for the zone as a whole and `DNSKEY` records are only
-//! generated for the apex of a zone.
-//!
-//! ```
-//! # use domain::base::Name;
-//! # use domain::base::iana::Class;
-//! # use domain::sign::crypto::common;
-//! # use domain::sign::crypto::common::GenerateParams;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::{DnssecSigningKey, SigningKey};
-//! # use domain::sign::records::{Rrset, SortedRecords};
-//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
-//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//! # let root = Name::<Vec<u8>>::root();
-//! # let key = SigningKey::new(root, 257, key_pair);
-//! # let keys = [DnssecSigningKey::from(key)];
-//! # let mut records = SortedRecords::default();
-//! use domain::sign::traits::Signable;
-//! use domain::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
-//! let apex = Name::<Vec<u8>>::root();
-//! let rrset = Rrset::new(&records);
-//! let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
-//! ```
+//! This module provides traits which can be used to simplify invocation of
+//! [`crate::sign::sign_zone()`] for [`Record`] collection types.
 use core::convert::From;
 use core::fmt::{Debug, Display};
 use core::iter::Extend;
@@ -243,9 +140,68 @@ where
 /// DNSSEC sign an unsigned zone using the given configuration and keys.
 ///
 /// Types that implement this trait can be signed using the trait provided
-/// [`sign_zone()`] function with records generated by signing being appended
-/// to the given `out` record collection.
+/// [`sign_zone()`] function which will insert the generated records in order
+/// (assuming that it correctly implements [`SortedExtend`]) into the given
+/// `out` record collection.
 ///
+/// # Example
+/// 
+/// ```
+/// # use domain::base::{Name, Record, Serial, Ttl};
+/// # use domain::base::iana::Class;
+/// # use domain::sign::crypto::common;
+/// # use domain::sign::crypto::common::GenerateParams;
+/// # use domain::sign::crypto::common::KeyPair;
+/// # use domain::sign::keys::SigningKey;
+/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+/// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+/// # let root = Name::<Vec<u8>>::root();
+/// # let key = SigningKey::new(root.clone(), 257, key_pair);
+/// use domain::rdata::{rfc1035::Soa, ZoneRecordData};
+/// use domain::rdata::dnssec::Timestamp;
+/// use domain::sign::keys::DnssecSigningKey;
+/// use domain::sign::records::SortedRecords;
+/// use domain::sign::traits::SignableZone;
+/// use domain::sign::SigningConfig;
+///
+/// // Create a sorted collection of records.
+/// //
+/// // Note: You can also use a plain Vec here (or any other type that is
+/// // compatible with the SignableZone or SignableZoneInPlace trait bounds)
+/// // but then you are responsible for ensuring that records in the zone are
+/// // in DNSSEC compatible order, e.g. by calling
+/// // `sort_by(CanonicalOrd::canonical_cmp)` before calling `sign_zone()`.
+/// let mut records = SortedRecords::default();
+///
+/// // Insert records into the collection. Just a dummy SOA for this example.
+/// let soa = ZoneRecordData::Soa(Soa::new(
+///     root.clone(),
+///     root.clone(),
+///     Serial::now(),
+///     Ttl::ZERO,
+///     Ttl::ZERO,
+///     Ttl::ZERO,
+///     Ttl::ZERO));
+/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa));
+///
+/// // Generate or import signing keys (see above).
+///
+/// // Assign signature validity period and operator intent to the keys.
+/// let key = key.with_validity(Timestamp::now(), Timestamp::now());
+/// let keys = [DnssecSigningKey::from(key)];
+///
+/// // Create a signing configuration.
+/// let mut signing_config = SigningConfig::default();
+///
+/// // Then generate the records which when added to the zone make it signed.
+/// let mut signer_generated_records = SortedRecords::default();
+///
+/// records.sign_zone(
+///     &mut signing_config,
+///     &keys,
+///     &mut signer_generated_records).unwrap();
+/// ```
+/// 
 /// [`sign_zone()`]: SignableZone::sign_zone
 pub trait SignableZone<N, Octs, Sort>:
     Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
@@ -337,9 +293,63 @@ where
 /// keys.
 ///
 /// Types that implement this trait can be signed using the trait provided
-/// [`sign_zone()`] function with records generated by signing being appended
-/// to the record collection being signed.
+/// [`sign_zone()`] function which will insert the generated records in order
+/// (assuming that it correctly implements [`SortedExtend`]) into the
+/// collection being signed.
 ///
+/// # Example
+/// 
+/// ```
+/// # use domain::base::{Name, Record, Serial, Ttl};
+/// # use domain::base::iana::Class;
+/// # use domain::sign::crypto::common;
+/// # use domain::sign::crypto::common::GenerateParams;
+/// # use domain::sign::crypto::common::KeyPair;
+/// # use domain::sign::keys::SigningKey;
+/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+/// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+/// # let root = Name::<Vec<u8>>::root();
+/// # let key = SigningKey::new(root.clone(), 257, key_pair);
+/// use domain::rdata::{rfc1035::Soa, ZoneRecordData};
+/// use domain::rdata::dnssec::Timestamp;
+/// use domain::sign::keys::DnssecSigningKey;
+/// use domain::sign::records::SortedRecords;
+/// use domain::sign::traits::SignableZoneInPlace;
+/// use domain::sign::SigningConfig;
+///
+/// // Create a sorted collection of records.
+/// //
+/// // Note: You can also use a plain Vec here (or any other type that is
+/// // compatible with the SignableZone or SignableZoneInPlace trait bounds)
+/// // but then you are responsible for ensuring that records in the zone are
+/// // in DNSSEC compatible order, e.g. by calling
+/// // `sort_by(CanonicalOrd::canonical_cmp)` before calling `sign_zone()`.
+/// let mut records = SortedRecords::default();
+///
+/// // Insert records into the collection. Just a dummy SOA for this example.
+/// let soa = ZoneRecordData::Soa(Soa::new(
+///     root.clone(),
+///     root.clone(),
+///     Serial::now(),
+///     Ttl::ZERO,
+///     Ttl::ZERO,
+///     Ttl::ZERO,
+///     Ttl::ZERO));
+/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa));
+///
+/// // Generate or import signing keys (see above).
+///
+/// // Assign signature validity period and operator intent to the keys.
+/// let key = key.with_validity(Timestamp::now(), Timestamp::now());
+/// let keys = [DnssecSigningKey::from(key)];
+///
+/// // Create a signing configuration.
+/// let mut signing_config = SigningConfig::default();
+///
+/// // Then sign the zone in-place.
+/// records.sign_zone(&mut signing_config, &keys).unwrap();
+/// ```
+/// 
 /// [`sign_zone()`]: SignableZoneInPlace::sign_zone
 pub trait SignableZoneInPlace<N, Octs, Sort>:
     SignableZone<N, Octs, Sort> + SortedExtend<N, Octs, Sort>
@@ -426,6 +436,39 @@ where
 
 //------------ Signable ------------------------------------------------------
 
+/// A trait for generating DNSSEC signatures for one or more [`Record`]s.
+/// 
+/// Unlike [`SignableZone`] this trait is intended to be implemented by types
+/// that represent one or more [`Record`]s that together do **NOT** constitute
+/// a full DNS zone, specifically collections that lack the zone apex records.
+/// 
+/// Functions offered by this trait will **only** generate `RRSIG` records.
+/// Other DNSSEC record types such as `NSEC(3)` and `DNSKEY` can only be
+/// generated in the context of a full zone and so will **NOT** be generated
+/// by the functions offered by this trait.
+///
+/// # Example
+/// 
+/// ```
+/// # use domain::base::Name;
+/// # use domain::base::iana::Class;
+/// # use domain::sign::crypto::common;
+/// # use domain::sign::crypto::common::GenerateParams;
+/// # use domain::sign::crypto::common::KeyPair;
+/// # use domain::sign::keys::{DnssecSigningKey, SigningKey};
+/// # use domain::sign::records::{Rrset, SortedRecords};
+/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+/// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+/// # let root = Name::<Vec<u8>>::root();
+/// # let key = SigningKey::new(root, 257, key_pair);
+/// # let keys = [DnssecSigningKey::from(key)];
+/// # let mut records = SortedRecords::default();
+/// use domain::sign::traits::Signable;
+/// use domain::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
+/// let apex = Name::<Vec<u8>>::root();
+/// let rrset = Rrset::new(&records);
+/// let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
+/// ```
 pub trait Signable<N, Octs, DSK, Inner, Sort = DefaultSorter>
 where
     N: ToName
@@ -447,6 +490,9 @@ where
 {
     fn owner_rrs(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>>;
 
+    /// Generate `RRSIG` records for this type.
+    /// 
+    /// This function is a thin wrapper around [`generate_rrsigs()`].
     #[allow(clippy::type_complexity)]
     fn sign<KeyStrat>(
         &self,
