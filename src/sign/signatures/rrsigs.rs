@@ -723,13 +723,28 @@ mod tests {
         // But as the RFC refers to "dates more than 68 years" a value of 69
         // years is fine to test with.
         let sixty_eight_years_in_secs = 68 * 365 * 24 * 60 * 60;
-        let one_year_in_secs = 1 * 365 * 24 * 60 * 60;
-        let (inception, expiration) =
-            calc_timestamps(sixty_eight_years_in_secs, one_year_in_secs);
-        let key = key.with_validity(inception, expiration);
+        let one_year_in_secs = 365 * 24 * 60 * 60;
 
-        let key = key
-            .with_validity(Timestamp::from(0), Timestamp::from(expiration));
+        // We can't use calc_timestamps() here because the underlying call to
+        // Serial::add() panics if the value to add is > 2^31 - 1.
+        //
+        //   calc_timestamps(0, sixty_eight_years_in_secs + one_year_in_secs);
+        //
+        // But Timestamp doesn't care, we can construct those just fine.
+        // However when sign_rrset() compares the Timestamp inception and
+        // expiration values it will fail because the PartialOrd impl is
+        // implemented in terms of Serial which detects the wrap around.
+        //
+        // I think this is all good because RFC 4034 doesn't prevent creation
+        // and storage of an arbitrary 32-bit unsigned number of seconds as
+        // the inception or expiration value, it only mandates that "all
+        // comparisons involving these fields MUST use "Serial number
+        // arithmetic", as defined in [RFC1982]"
+        let (inception, expiration) = (
+            Timestamp::from(0),
+            Timestamp::from(sixty_eight_years_in_secs + one_year_in_secs),
+        );
+        let key = key.with_validity(inception, expiration);
         let res = sign_rrset(&key, &rrset, &apex_owner);
         assert_eq!(res, Err(SigningError::InvalidSignatureValidityPeriod));
     }
