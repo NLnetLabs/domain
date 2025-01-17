@@ -40,6 +40,8 @@ pub enum SigningError {
     ///   "An RRSIG RR itself MUST NOT be signed"
     RrsigRrsMustNotBeSigned,
 
+    // TODO
+    InvalidSignatureValidityPeriod,
 
     // TODO
     SigningError(SignError),
@@ -68,6 +70,8 @@ impl Display for SigningError {
                 "RFC 4035 violation: RRSIG RRs MUST NOT be signed",
             ),
             SigningError::InvalidSignatureValidityPeriod => {
+                f.write_str("RFC 4034 violation: RRSIG validity period is invalid")
+            }
             SigningError::SigningError(err) => {
                 f.write_fmt(format_args!("Signing error: {err}"))
             }

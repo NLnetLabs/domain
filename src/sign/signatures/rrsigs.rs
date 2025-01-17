@@ -404,6 +404,11 @@ where
         .signature_validity_period()
         .ok_or(SigningError::NoSignatureValidityPeriodProvided)?
         .into_inner();
+
+    if expiration < inception {
+        return Err(SigningError::InvalidSignatureValidityPeriod);
+    }
+
     // RFC 4034
     // 3.  The RRSIG Resource Record
     //   "The TTL value of an RRSIG RR MUST match the TTL value of the RRset
