@@ -61,7 +61,7 @@ impl Display for SigningError {
                 f.write_str("No suitable keys found")
             }
             SigningError::SoaRecordCouldNotBeDetermined => {
-                f.write_str("nNo apex SOA or too many apex SOA records found")
+                f.write_str("No apex SOA or too many apex SOA records found")
             }
             SigningError::Nsec3HashingError(err) => {
                 f.write_fmt(format_args!("NSEC3 hashing error: {err}"))
