@@ -357,11 +357,10 @@ where
 
 /// Generate `RRSIG` records for a given RRset.
 ///
-/// This function generating one or more `RRSIG` records for the given RRset
-/// based on the given signing keys, according to the rules defined in [RFC
-/// 4034 section 3] _"The RRSIG Resource Record"_, [RFC 4035 section 2.2]
-/// _"Including RRSIG RRs in a Zone"_ and [RFC 6840 section 5.11] _"Mandatory
-/// Algorithm Rules"_.
+/// This function generates an `RRSIG` record for the given RRset based on the
+/// given signing key, according to the rules defined in [RFC 4034 section 3]
+/// _"The RRSIG Resource Record"_, [RFC 4035 section 2.2] _"Including RRSIG
+/// RRs in a Zone"_ and [RFC 6840 section 5.11] _"Mandatory Algorithm Rules"_.
 ///
 /// No checks are done on the given signing key, any key with any algorithm,
 /// apex owner and flags may be used to sign the given RRset.
