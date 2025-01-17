@@ -452,6 +452,16 @@ where
     };
 
     let rrsig = rrsig.into_rrsig(signature).expect("long signature");
+
+    // RFC 4034
+    // 3.1.3.  The Labels Field
+    //   ...
+    //   "The value of the Labels field MUST be less than or equal to the
+    //    number of labels in the RRSIG owner name."
+    debug_assert!(
+        (rrsig.labels() as usize) < rrset.owner().iter_labels().count()
+    );
+
     Ok(Record::new(
         rrset.owner().clone(),
         rrset.class(),
