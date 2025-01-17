@@ -430,6 +430,9 @@ where
         // DNS name compression on the Signer's Name field when transmitting a
         // RRSIG RR.".
         //
+        // TODO: However, is this inefficient? The RFC requires it to be
+        // SENT uncompressed, but doesn't ban storing it in compressed from?
+        //
         // We don't need to make sure here that the signer name is in
         // canonical form as required by RFC 4034 as the call to
         // `compose_canonical()` below will take care of that.
