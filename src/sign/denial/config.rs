@@ -63,25 +63,30 @@ pub enum Nsec3ToNsecTransitionState {
     Transitioned,
 }
 
-//------------ HashingConfig -------------------------------------------------
+//------------ DenialConfig --------------------------------------------------
 
-/// Hashing configuration for a DNSSEC signed zone.
+/// Authenticated denial of existence configuration for a DNSSEC signed zone.
 ///
-/// A DNSSEC signed zone must be hashed, either by NSEC or NSEC3.
+/// A DNSSEC signed zone must have either `NSEC` or `NSEC3` records to enable
+/// the server to authenticate responses for names or record types that are
+/// not present in the zone.
+///
+/// This type can be used to choose which denial mechanism should be used when
+/// DNSSEC signing a zone.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum HashingConfig<N, O, HP = OnDemandNsec3HashProvider<O>>
+pub enum DenialConfig<N, O, HP = OnDemandNsec3HashProvider<O>>
 where
     HP: Nsec3HashProvider<N, O>,
     O: AsRef<[u8]> + From<&'static [u8]>,
 {
-    /// The zone is already hashed.
-    Prehashed,
+    /// The zone already has the necessary NSEC(3) records.
+    AlreadyPresent,
 
-    /// The zone is NSEC hashed.
+    /// The zone already has NSEC records.
     #[default]
     Nsec,
 
-    /// The zone is NSEC3 hashed, possibly more than once.
+    /// The zone already has NSEC3 records, possibly more than one set.
     ///
     /// https://datatracker.ietf.org/doc/html/rfc5155#section-7.3
     /// 7.3.  Secondary Servers
@@ -102,13 +107,13 @@ where
     ///    uses NSEC records instead of NSEC3."
     Nsec3(Nsec3Config<N, O, HP>, Vec<Nsec3Config<N, O, HP>>),
 
-    /// The zone is transitioning from NSEC to NSEC3 hashing.
+    /// The zone is transitioning from NSEC to NSEC3.
     TransitioningNsecToNsec3(
         Nsec3Config<N, O, HP>,
         NsecToNsec3TransitionState,
     ),
 
-    /// The zone is transitioning from NSEC3 to NSEC hashing.
+    /// The zone is transitioning from NSEC3 to NSEC.
     TransitioningNsec3ToNsec(
         Nsec3Config<N, O, HP>,
         Nsec3ToNsecTransitionState,

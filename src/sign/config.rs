@@ -5,7 +5,7 @@ use octseq::{EmptyBuilder, FromBuilder};
 
 use super::signatures::strategy::DefaultSigningKeyUsageStrategy;
 use crate::base::{Name, ToName};
-use crate::sign::denial::config::HashingConfig;
+use crate::sign::denial::config::DenialConfig;
 use crate::sign::denial::nsec3::{
     Nsec3HashProvider, OnDemandNsec3HashProvider,
 };
@@ -30,8 +30,8 @@ pub struct SigningConfig<
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     Sort: Sorter,
 {
-    /// Hashing configuration.
-    pub hashing: HashingConfig<N, Octs, HP>,
+    /// Authenticated denial of existing mechanism configuration.
+    pub denial: DenialConfig<N, Octs, HP>,
 
     /// Should keys used to sign the zone be added as DNSKEY RRs?
     pub add_used_dnskeys: bool,
@@ -49,11 +49,11 @@ where
     Sort: Sorter,
 {
     pub fn new(
-        hashing: HashingConfig<N, Octs, HP>,
+        denial: DenialConfig<N, Octs, HP>,
         add_used_dnskeys: bool,
     ) -> Self {
         Self {
-            hashing,
+            denial,
             add_used_dnskeys,
             _phantom: PhantomData,
         }
@@ -77,7 +77,7 @@ where
 {
     fn default() -> Self {
         Self {
-            hashing: Default::default(),
+            denial: Default::default(),
             add_used_dnskeys: true,
             _phantom: Default::default(),
         }

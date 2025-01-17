@@ -129,7 +129,7 @@ use crate::base::{CanonicalOrd, ToName};
 use crate::base::{Name, Record, Rtype};
 use crate::rdata::ZoneRecordData;
 
-use denial::config::HashingConfig;
+use denial::config::DenialConfig;
 use denial::nsec::generate_nsecs;
 use denial::nsec3::{
     generate_nsec3s, Nsec3Config, Nsec3HashProvider, Nsec3ParamTtlMode,
@@ -401,12 +401,12 @@ where
 
     let owner_rrs = RecordsIter::new(in_out.as_slice());
 
-    match &mut signing_config.hashing {
-        HashingConfig::Prehashed => {
+    match &mut signing_config.denial {
+        DenialConfig::AlreadyPresent => {
             // Nothing to do.
         }
 
-        HashingConfig::Nsec => {
+        DenialConfig::Nsec => {
             let nsecs = generate_nsecs(
                 ttl,
                 owner_rrs,
@@ -416,7 +416,7 @@ where
             in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
         }
 
-        HashingConfig::Nsec3(
+        DenialConfig::Nsec3(
             Nsec3Config {
                 params,
                 opt_out,
@@ -455,18 +455,18 @@ where
             );
         }
 
-        HashingConfig::Nsec3(_nsec3_config, _extra) => {
+        DenialConfig::Nsec3(_nsec3_config, _extra) => {
             todo!();
         }
 
-        HashingConfig::TransitioningNsecToNsec3(
+        DenialConfig::TransitioningNsecToNsec3(
             _nsec3_config,
             _nsec_to_nsec3_transition_state,
         ) => {
             todo!();
         }
 
-        HashingConfig::TransitioningNsec3ToNsec(
+        DenialConfig::TransitioningNsec3ToNsec(
             _nsec3_config,
             _nsec3_to_nsec_transition_state,
         ) => {
