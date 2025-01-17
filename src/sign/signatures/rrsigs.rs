@@ -1,4 +1,4 @@
-//! Actual signing.
+//! DNSSEC RRSIG generation.
 use core::convert::From;
 use core::fmt::Display;
 use core::marker::Send;
