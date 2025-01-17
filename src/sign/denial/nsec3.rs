@@ -74,7 +74,7 @@ where
     // The owner name of a zone cut if we currently are at or below one.
     let mut cut: Option<N> = None;
 
-    // We also need the apex for the last NSEC.
+    // We also need the apex for the last NSEC3.
     let first_rr = records.first();
     let apex_owner = first_rr.owner().clone();
     let apex_label_count = apex_owner.iter_labels().count();
