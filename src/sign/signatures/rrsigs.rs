@@ -469,3 +469,285 @@ where
         ZoneRecordData::Rrsig(rrsig),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base::iana::SecAlg;
+    use crate::base::{Serial, Ttl};
+    use crate::rdata::dnssec::Timestamp;
+    use crate::rdata::{Rrsig, A};
+    use crate::sign::error::SignError;
+    use crate::sign::{PublicKeyBytes, Signature};
+    use bytes::Bytes;
+    use core::str::FromStr;
+    use core::u32;
+
+    struct TestKey;
+
+    impl SignRaw for TestKey {
+        fn algorithm(&self) -> SecAlg {
+            SecAlg::PRIVATEDNS
+        }
+
+        fn raw_public_key(&self) -> PublicKeyBytes {
+            PublicKeyBytes::Ed25519([0_u8; 32].into())
+        }
+
+        fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {
+            Ok(Signature::Ed25519([0u8; 64].into()))
+        }
+    }
+
+    #[test]
+    fn rrset_sign_adheres_to_rules_in_rfc_4034_and_rfc_4035() {
+        let apex_owner = Name::root();
+        let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
+        let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
+
+        // RFC 4034
+        // 3.1.3.  The Labels Field
+        //   ...
+        //   "For example, "www.example.com." has a Labels field value of 3"
+        // We can use any class as RRSIGs are class independent.
+        let records = [mk_record(
+            "www.example.com.",
+            Class::CH,
+            12345,
+            ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
+        )];
+        let rrset = Rrset::new(&records);
+
+        let rrsig_rr = sign_rrset(&key, &rrset, &apex_owner).unwrap();
+
+        let ZoneRecordData::Rrsig(rrsig) = rrsig_rr.data() else {
+            unreachable!();
+        };
+
+        // RFC 4035
+        // 2.2.  Including RRSIG RRs in a Zone
+        //   "For each authoritative RRset in a signed zone, there MUST be at
+        //    least one RRSIG record that meets the following requirements:
+        //
+        //    o  The RRSIG owner name is equal to the RRset owner name.
+        assert_eq!(rrsig_rr.owner(), rrset.owner());
+        //
+        //    o  The RRSIG class is equal to the RRset class.
+        assert_eq!(rrsig_rr.class(), rrset.class());
+        //
+        //    o  The RRSIG Type Covered field is equal to the RRset type.
+        //
+        assert_eq!(rrsig.type_covered(), rrset.rtype());
+        //    o  The RRSIG Original TTL field is equal to the TTL of the
+        //       RRset.
+        //
+        assert_eq!(rrsig.original_ttl(), rrset.ttl());
+        //    o  The RRSIG RR's TTL is equal to the TTL of the RRset.
+        //
+        assert_eq!(rrsig_rr.ttl(), rrset.ttl());
+        //    o  The RRSIG Labels field is equal to the number of labels in
+        //       the RRset owner name, not counting the null root label and
+        //       not counting the leftmost label if it is a wildcard.
+        assert_eq!(rrsig.labels(), 3);
+        //    o  The RRSIG Signer's Name field is equal to the name of the
+        //       zone containing the RRset.
+        //
+        assert_eq!(rrsig.signer_name(), &apex_owner);
+        //    o  The RRSIG Algorithm, Signer's Name, and Key Tag fields
+        //       identify a zone key DNSKEY record at the zone apex."
+        // ^^^ This is outside the control of the rrset_sign() function.
+
+        // RFC 4034
+        // 3.1.3.  The Labels Field
+        //   ...
+        //   "The value of the Labels field MUST be less than or equal to the
+        //    number of labels in the RRSIG owner name."
+        assert!((rrsig.labels() as usize) < rrset.owner().label_count());
+    }
+
+    #[test]
+    fn rrtest_sign_wildcard() {
+        let apex_owner = Name::root();
+        let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
+        let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
+
+        // RFC 4034
+        // 3.1.3.  The Labels Field
+        //   ...
+        //   ""*.example.com." has a Labels field value of 2"
+        // We can use any class as RRSIGs are class independent.
+        let records = [mk_record(
+            "*.example.com.",
+            Class::CH,
+            12345,
+            ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
+        )];
+        let rrset = Rrset::new(&records);
+
+        let rrsig_rr = sign_rrset(&key, &rrset, &apex_owner).unwrap();
+
+        let ZoneRecordData::Rrsig(rrsig) = rrsig_rr.data() else {
+            unreachable!();
+        };
+
+        assert_eq!(rrsig.labels(), 2);
+    }
+
+    #[test]
+    fn sign_rrset_must_not_sign_rrsigs() {
+        // RFC 4035
+        // 2.2.  Including RRSIG RRs in a Zone
+        //   ...
+        //   "An RRSIG RR itself MUST NOT be signed"
+
+        let apex_owner = Name::root();
+        let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
+        let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
+
+        let dummy_rrsig = Rrsig::new(
+            Rtype::A,
+            SecAlg::PRIVATEDNS,
+            0,
+            Ttl::default(),
+            0.into(),
+            0.into(),
+            0,
+            Name::root(),
+            Bytes::new(),
+        )
+        .unwrap();
+
+        let records = [mk_record(
+            "any.",
+            Class::CH,
+            12345,
+            ZoneRecordData::Rrsig(dummy_rrsig),
+        )];
+        let rrset = Rrset::new(&records);
+
+        let res = sign_rrset(&key, &rrset, &apex_owner);
+        assert_eq!(res, Err(SigningError::RrsigRrsMustNotBeSigned));
+    }
+
+    #[test]
+    fn sign_rrsets_check_validity_period_handling() {
+        // RFC 4034
+        // 3.1.5.  Signature Expiration and Inception Fields
+        //   ...
+        //   "The Signature Expiration and Inception field values specify a
+        //    date and time in the form of a 32-bit unsigned number of seconds
+        //    elapsed since 1 January 1970 00:00:00 UTC, ignoring leap
+        //    seconds, in network byte order.  The longest interval that can
+        //    be expressed by this format without wrapping is approximately
+        //    136 years.  An RRSIG RR can have an Expiration field value that
+        //    is numerically smaller than the Inception field value if the
+        //    expiration field value is near the 32-bit wrap-around point or
+        //    if the signature is long lived.  Because of this, all
+        //    comparisons involving these fields MUST use "Serial number
+        //    arithmetic", as defined in [RFC1982].  As a direct consequence,
+        //    the values contained in these fields cannot refer to dates more
+        //    than 68 years in either the past or the future."
+
+        let apex_owner = Name::root();
+        let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
+
+        let records = [mk_record(
+            "any.",
+            Class::CH,
+            12345,
+            ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
+        )];
+        let rrset = Rrset::new(&records);
+
+        fn calc_timestamps(
+            start: u32,
+            duration: u32,
+        ) -> (Timestamp, Timestamp) {
+            let start_serial = Serial::from(start);
+            let end = Serial::from(start_serial).add(duration).into_int();
+            (Timestamp::from(start), Timestamp::from(end))
+        }
+
+        // Good: Expiration > Inception.
+        let (inception, expiration) = calc_timestamps(5, 5);
+        let key = key.with_validity(inception, expiration);
+        sign_rrset(&key, &rrset, &apex_owner).unwrap();
+
+        // Good: Expiration == Inception.
+        let (inception, expiration) = calc_timestamps(10, 0);
+        let key = key.with_validity(inception, expiration);
+        sign_rrset(&key, &rrset, &apex_owner).unwrap();
+
+        // Bad: Expiration < Inception.
+        let (expiration, inception) = calc_timestamps(5, 10);
+        let key = key.with_validity(inception, expiration);
+        let res = sign_rrset(&key, &rrset, &apex_owner);
+        assert_eq!(res, Err(SigningError::InvalidSignatureValidityPeriod));
+
+        // Good: Expiration > Inception with Expiration near wrap around
+        // point.
+        let (inception, expiration) = calc_timestamps(u32::MAX - 10, 10);
+        let key = key.with_validity(inception, expiration);
+        sign_rrset(&key, &rrset, &apex_owner).unwrap();
+
+        // Good: Expiration > Inception with Inception near wrap around point.
+        let (inception, expiration) = calc_timestamps(0, 10);
+        let key = key.with_validity(inception, expiration);
+        sign_rrset(&key, &rrset, &apex_owner).unwrap();
+
+        // Good: Expiration > Inception with Exception crossing the wrap
+        // around point.
+        let (inception, expiration) = calc_timestamps(u32::MAX - 10, 20);
+        let key = key.with_validity(inception, expiration);
+        sign_rrset(&key, &rrset, &apex_owner).unwrap();
+
+        // Good: Expiration - Inception == 68 years.
+        let sixty_eight_years_in_secs = 68 * 365 * 24 * 60 * 60;
+        let (inception, expiration) =
+            calc_timestamps(0, sixty_eight_years_in_secs);
+        let key = key.with_validity(inception, expiration);
+        sign_rrset(&key, &rrset, &apex_owner).unwrap();
+
+        // Bad: Expiration - Inception > 68 years.
+        //
+        // I add a rather large amount (A year) because it's unclear where the
+        // boundary is from the approximate text in the quoted RFC. I think
+        // it's at 2^31 - 1 so from that you can see how much we need to add
+        // to cross the boundary:
+        //
+        // ```
+        //   68 years = 68 * 365 * 24 * 60 * 60 = 2144448000
+        //   2^31 - 1 =                           2147483647
+        //   69 years = 69 * 365 * 24 * 60 * 60 = 2175984000
+        // ```
+        //
+        // But as the RFC refers to "dates more than 68 years" a value of 69
+        // years is fine to test with.
+        let sixty_eight_years_in_secs = 68 * 365 * 24 * 60 * 60;
+        let one_year_in_secs = 1 * 365 * 24 * 60 * 60;
+        let (inception, expiration) =
+            calc_timestamps(sixty_eight_years_in_secs, one_year_in_secs);
+        let key = key.with_validity(inception, expiration);
+
+        let key = key
+            .with_validity(Timestamp::from(0), Timestamp::from(expiration));
+        let res = sign_rrset(&key, &rrset, &apex_owner);
+        assert_eq!(res, Err(SigningError::InvalidSignatureValidityPeriod));
+    }
+
+    //------------ Helper fns ------------------------------------------------
+
+    fn mk_record(
+        owner: &str,
+        class: Class,
+        ttl_secs: u32,
+        data: ZoneRecordData<Bytes, Name<Bytes>>,
+    ) -> Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>> {
+        Record::new(
+            Name::from_str(owner).unwrap(),
+            class,
+            Ttl::from_secs(ttl_secs),
+            data,
+        )
+    }
+}
