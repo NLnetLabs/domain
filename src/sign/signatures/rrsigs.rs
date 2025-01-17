@@ -137,7 +137,7 @@ where
     }
 
     let mut res: Vec<Record<N, ZoneRecordData<Octs, N>>> = Vec::new();
-    let mut buf = Vec::new();
+    let mut reusable_scratch = Vec::new();
     let mut cut: Option<N> = None;
     let mut records = records.peekable();
 
@@ -245,11 +245,12 @@ where
             };
 
             for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
-                // A copy of the owner name. We’ll need it later.
-                let name = apex_owner_rrs.owner().clone();
-
-                let rrsig_rr =
-                    sign_rrset(key, &rrset, &name, expected_apex, &mut buf)?;
+                let rrsig_rr = sign_rrset_in(
+                    key,
+                    &rrset,
+                    expected_apex,
+                    &mut reusable_scratch,
+                )?;
                 res.push(rrsig_rr);
                 trace!(
                     "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
@@ -307,8 +308,12 @@ where
             for key in
                 non_dnskey_signing_key_idxs.iter().map(|&idx| &keys[idx])
             {
-                let rrsig_rr =
-                    sign_rrset(key, &rrset, &name, expected_apex, &mut buf)?;
+                let rrsig_rr = sign_rrset_in(
+                    key,
+                    &rrset,
+                    expected_apex,
+                    &mut reusable_scratch,
+                )?;
                 res.push(rrsig_rr);
                 debug!(
                     "Signed {} RRSET at {} with keytag {}",
@@ -325,12 +330,57 @@ where
     Ok(res)
 }
 
+/// Generate `RRSIG` records for a given RRset.
+///
+/// See [`sign_rrset_in()`].
+///
+/// If signing multiple RRsets, calling [`sign_rrset_in()`] directly will be
+/// more efficient as you can allocate the scratch buffer once and re-use it
+/// across multiple calls.
 pub fn sign_rrset<N, D, Octs, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset: &Rrset<'_, N, D>,
-    rrset_owner: &N,
     apex_owner: &N,
-    buf: &mut Vec<u8>,
+) -> Result<Record<N, ZoneRecordData<Octs, N>>, SigningError>
+where
+    N: ToName + Clone + Send,
+    D: RecordData
+        + ComposeRecordData
+        + From<Dnskey<Octs>>
+        + CanonicalOrd
+        + Send,
+    Inner: SignRaw,
+    Octs: AsRef<[u8]> + OctetsFrom<Vec<u8>>,
+{
+    sign_rrset_in(key, rrset, apex_owner, &mut vec![])
+}
+
+/// Generate `RRSIG` records for a given RRset.
+///
+/// This function generating one or more `RRSIG` records for the given RRset
+/// based on the given signing keys, according to the rules defined in [RFC
+/// 4034 section 3] _"The RRSIG Resource Record"_, [RFC 4035 section 2.2]
+/// _"Including RRSIG RRs in a Zone"_ and [RFC 6840 section 5.11] _"Mandatory
+/// Algorithm Rules"_.
+///
+/// No checks are done on the given signing key, any key with any algorithm,
+/// apex owner and flags may be used to sign the given RRset.
+///
+/// When signing multiple RRsets by calling this function multiple times, the
+/// `scratch` buffer parameter can be allocated once and re-used for each call
+/// to avoid needing to allocate the buffer for each call.
+///
+/// [RFC 4034 section 3]:
+///     https://www.rfc-editor.org/rfc/rfc4034.html#section-3
+/// [RFC 4035 section 2.2]:
+///     https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2
+/// [RFC 6840 section 5.11]:
+///     https://www.rfc-editor.org/rfc/rfc6840.html#section-5.11
+pub fn sign_rrset_in<N, D, Octs, Inner>(
+    key: &SigningKey<Octs, Inner>,
+    rrset: &Rrset<'_, N, D>,
+    apex_owner: &N,
+    scratch: &mut Vec<u8>,
 ) -> Result<Record<N, ZoneRecordData<Octs, N>>, SigningError>
 where
     N: ToName + Clone + Send,
@@ -356,7 +406,7 @@ where
     let rrsig = ProtoRrsig::new(
         rrset.rtype(),
         key.algorithm(),
-        rrset_owner.rrsig_label_count(),
+        rrset.owner().rrsig_label_count(),
         rrset.ttl(),
         expiration,
         inception,
@@ -372,19 +422,22 @@ where
         // `compose_canonical()` below will take care of that.
         apex_owner.clone(),
     );
-    buf.clear();
-    rrsig.compose_canonical(buf).unwrap();
+
+    scratch.clear();
+
+    rrsig.compose_canonical(scratch).unwrap();
     for record in rrset.iter() {
-        record.compose_canonical(buf).unwrap();
+        record.compose_canonical(scratch).unwrap();
     }
-    let signature = key.raw_secret_key().sign_raw(&*buf)?;
+    let signature = key.raw_secret_key().sign_raw(&*scratch)?;
     let signature = signature.as_ref().to_vec();
     let Ok(signature) = signature.try_octets_into() else {
         return Err(SigningError::OutOfMemory);
     };
+
     let rrsig = rrsig.into_rrsig(signature).expect("long signature");
     Ok(Record::new(
-        rrset_owner.clone(),
+        rrset.owner().clone(),
         rrset.class(),
         rrset.ttl(),
         ZoneRecordData::Rrsig(rrsig),
