@@ -10,7 +10,7 @@ use std::vec::Vec;
 
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::{OctetsFrom, OctetsInto};
-use tracing::{debug, enabled, Level};
+use tracing::{debug, enabled, trace, Level};
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Rtype};
@@ -251,7 +251,7 @@ where
                 let rrsig_rr =
                     sign_rrset(key, &rrset, &name, expected_apex, &mut buf)?;
                 res.push(rrsig_rr);
-                debug!(
+                trace!(
                     "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
                     rrset.iter().len(),
                     rrset.rtype(),
