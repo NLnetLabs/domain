@@ -32,6 +32,15 @@ pub enum SigningError {
     // TODO
     Nsec3HashingError(Nsec3HashError),
 
+    /// TODO
+    ///
+    /// https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2
+    /// 2.2.  Including RRSIG RRs in a Zone
+    ///   ...
+    ///   "An RRSIG RR itself MUST NOT be signed"
+    RrsigRrsMustNotBeSigned,
+
+
     // TODO
     SigningError(SignError),
 }
@@ -55,6 +64,10 @@ impl Display for SigningError {
             SigningError::Nsec3HashingError(err) => {
                 f.write_fmt(format_args!("NSEC3 hashing error: {err}"))
             }
+            SigningError::RrsigRrsMustNotBeSigned => f.write_str(
+                "RFC 4035 violation: RRSIG RRs MUST NOT be signed",
+            ),
+            SigningError::InvalidSignatureValidityPeriod => {
             SigningError::SigningError(err) => {
                 f.write_fmt(format_args!("Signing error: {err}"))
             }

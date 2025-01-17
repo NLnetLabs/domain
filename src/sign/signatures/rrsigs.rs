@@ -392,6 +392,14 @@ where
     Inner: SignRaw,
     Octs: AsRef<[u8]> + OctetsFrom<Vec<u8>>,
 {
+    // RFC 4035
+    // 2.2.  Including RRSIG RRs in a Zone
+    //   ...
+    //   "An RRSIG RR itself MUST NOT be signed"
+    if rrset.rtype() == Rtype::RRSIG {
+        return Err(SigningError::RrsigRrsMustNotBeSigned);
+    }
+
     let (inception, expiration) = key
         .signature_validity_period()
         .ok_or(SigningError::NoSignatureValidityPeriodProvided)?
