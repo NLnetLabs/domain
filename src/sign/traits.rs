@@ -145,7 +145,7 @@ where
 /// `out` record collection.
 ///
 /// # Example
-/// 
+///
 /// ```
 /// # use domain::base::{Name, Record, Serial, Ttl};
 /// # use domain::base::iana::Class;
@@ -201,7 +201,7 @@ where
 ///     &keys,
 ///     &mut signer_generated_records).unwrap();
 /// ```
-/// 
+///
 /// [`sign_zone()`]: SignableZone::sign_zone
 pub trait SignableZone<N, Octs, Sort>:
     Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
@@ -298,7 +298,7 @@ where
 /// collection being signed.
 ///
 /// # Example
-/// 
+///
 /// ```
 /// # use domain::base::{Name, Record, Serial, Ttl};
 /// # use domain::base::iana::Class;
@@ -349,7 +349,7 @@ where
 /// // Then sign the zone in-place.
 /// records.sign_zone(&mut signing_config, &keys).unwrap();
 /// ```
-/// 
+///
 /// [`sign_zone()`]: SignableZoneInPlace::sign_zone
 pub trait SignableZoneInPlace<N, Octs, Sort>:
     SignableZone<N, Octs, Sort> + SortedExtend<N, Octs, Sort>
@@ -437,18 +437,18 @@ where
 //------------ Signable ------------------------------------------------------
 
 /// A trait for generating DNSSEC signatures for one or more [`Record`]s.
-/// 
+///
 /// Unlike [`SignableZone`] this trait is intended to be implemented by types
 /// that represent one or more [`Record`]s that together do **NOT** constitute
 /// a full DNS zone, specifically collections that lack the zone apex records.
-/// 
+///
 /// Functions offered by this trait will **only** generate `RRSIG` records.
 /// Other DNSSEC record types such as `NSEC(3)` and `DNSKEY` can only be
 /// generated in the context of a full zone and so will **NOT** be generated
 /// by the functions offered by this trait.
 ///
 /// # Example
-/// 
+///
 /// ```
 /// # use domain::base::Name;
 /// # use domain::base::iana::Class;
@@ -491,7 +491,7 @@ where
     fn owner_rrs(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>>;
 
     /// Generate `RRSIG` records for this type.
-    /// 
+    ///
     /// This function is a thin wrapper around [`generate_rrsigs()`].
     #[allow(clippy::type_complexity)]
     fn sign<KeyStrat>(
