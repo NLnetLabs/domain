@@ -7,11 +7,12 @@ use crate::sign::crypto::openssl;
 #[cfg(feature = "ring")]
 use crate::sign::crypto::ring;
 
+use crate::rdata::dnssec::Timestamp;
 use crate::validate::Nsec3HashError;
 
 //------------ SigningError --------------------------------------------------
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug)]
 pub enum SigningError {
     /// One or more keys does not have a signature validity period defined.
     NoSignatureValidityPeriodProvided,
@@ -41,7 +42,7 @@ pub enum SigningError {
     RrsigRrsMustNotBeSigned,
 
     // TODO
-    InvalidSignatureValidityPeriod,
+    InvalidSignatureValidityPeriod(Timestamp, Timestamp),
 
     // TODO
     SigningError(SignError),
@@ -69,8 +70,8 @@ impl Display for SigningError {
             SigningError::RrsigRrsMustNotBeSigned => f.write_str(
                 "RFC 4035 violation: RRSIG RRs MUST NOT be signed",
             ),
-            SigningError::InvalidSignatureValidityPeriod => f.write_str(
-                "RFC 4034 violation: RRSIG validity period is invalid",
+            SigningError::InvalidSignatureValidityPeriod(inception, expiration) => f.write_fmt(
+                format_args!("RFC 4034 violation: RRSIG validity period ({inception} <= {expiration}) is invalid"),
             ),
             SigningError::SigningError(err) => {
                 f.write_fmt(format_args!("Signing error: {err}"))

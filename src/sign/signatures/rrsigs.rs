@@ -405,7 +405,9 @@ where
         .into_inner();
 
     if expiration < inception {
-        return Err(SigningError::InvalidSignatureValidityPeriod);
+        return Err(SigningError::InvalidSignatureValidityPeriod(
+            inception, expiration,
+        ));
     }
 
     // RFC 4034
@@ -624,7 +626,7 @@ mod tests {
         let rrset = Rrset::new(&records);
 
         let res = sign_rrset(&key, &rrset, &apex_owner);
-        assert_eq!(res, Err(SigningError::RrsigRrsMustNotBeSigned));
+        assert!(matches!(res, Err(SigningError::RrsigRrsMustNotBeSigned)));
     }
 
     #[test]
@@ -680,7 +682,10 @@ mod tests {
         let (expiration, inception) = calc_timestamps(5, 10);
         let key = key.with_validity(inception, expiration);
         let res = sign_rrset(&key, &rrset, &apex_owner);
-        assert_eq!(res, Err(SigningError::InvalidSignatureValidityPeriod));
+        assert!(matches!(
+            res,
+            Err(SigningError::InvalidSignatureValidityPeriod(_, _))
+        ));
 
         // Good: Expiration > Inception with Expiration near wrap around
         // point.
@@ -745,7 +750,10 @@ mod tests {
         );
         let key = key.with_validity(inception, expiration);
         let res = sign_rrset(&key, &rrset, &apex_owner);
-        assert_eq!(res, Err(SigningError::InvalidSignatureValidityPeriod));
+        assert!(matches!(
+            res,
+            Err(SigningError::InvalidSignatureValidityPeriod(_, _))
+        ));
     }
 
     //------------ Helper fns ------------------------------------------------
