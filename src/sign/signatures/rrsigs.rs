@@ -481,7 +481,6 @@ mod tests {
     use crate::sign::{PublicKeyBytes, Signature};
     use bytes::Bytes;
     use core::str::FromStr;
-    use core::u32;
 
     struct TestKey;
 
@@ -664,7 +663,7 @@ mod tests {
             duration: u32,
         ) -> (Timestamp, Timestamp) {
             let start_serial = Serial::from(start);
-            let end = Serial::from(start_serial).add(duration).into_int();
+            let end = start_serial.add(duration).into_int();
             (Timestamp::from(start), Timestamp::from(end))
         }
 
