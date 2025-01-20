@@ -24,10 +24,10 @@ use crate::sign::records::RecordsIter;
 /// with a complete zone, i.e. including an apex SOA record. If the apex SOA
 /// is not found or multiple SOA records are found at the apex error
 /// SigningError::SoaRecordCouldNotBeDetermined will be returned.
-/// 
+///
 /// Processing of records will stop at the end of the collection or at the
 /// first record that lies outside the zone.
-/// 
+///
 /// If the `assume_dnskeys_will_be_added` parameter is true the generated NSEC
 /// at the apex RRset will include the `DNSKEY` record type in the NSEC type
 /// bitmap.

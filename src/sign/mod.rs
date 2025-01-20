@@ -407,10 +407,8 @@ where
         }
 
         DenialConfig::Nsec => {
-            let nsecs = generate_nsecs(
-                owner_rrs,
-                signing_config.add_used_dnskeys,
-            )?;
+            let nsecs =
+                generate_nsecs(owner_rrs, signing_config.add_used_dnskeys)?;
 
             in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
         }
