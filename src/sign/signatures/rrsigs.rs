@@ -500,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn rrset_sign_adheres_to_rules_in_rfc_4034_and_rfc_4035() {
+    fn sign_rrset_adheres_to_rules_in_rfc_4034_and_rfc_4035() {
         let apex_owner = Name::root();
         let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
         let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
@@ -566,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn rrtest_sign_wildcard() {
+    fn sign_rrset_with_wildcard() {
         let apex_owner = Name::root();
         let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
         let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
@@ -630,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn sign_rrsets_check_validity_period_handling() {
+    fn sign_rrset_check_validity_period_handling() {
         // RFC 4034
         // 3.1.5.  Signature Expiration and Inception Fields
         //   ...
