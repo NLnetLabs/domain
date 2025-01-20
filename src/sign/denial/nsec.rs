@@ -36,6 +36,7 @@ use crate::sign::records::RecordsIter;
 /// [RFC 4035 section 2.3]: https://www.rfc-editor.org/rfc/rfc4035#section-2.3
 /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077
 // TODO: Add (mutable?) iterator based variant.
+#[allow(clippy::type_complexity)]
 pub fn generate_nsecs<N, Octs>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     assume_dnskeys_will_be_added: bool,
@@ -564,6 +565,7 @@ mod tests {
         Record::new(name, Class::IN, Ttl::ZERO, ns)
     }
 
+    #[allow(clippy::type_complexity)]
     fn contains_owner(
         nsecs: &[Record<Name<Bytes>, Nsec<Bytes, Name<Bytes>>>],
         name: &str,
