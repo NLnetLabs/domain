@@ -53,7 +53,8 @@ macro_rules! define_int {
             }
 
             /// Overwrite this value with an integer.
-            pub const fn set(&mut self, value: $base) {
+            // TODO: Make 'const' at MSRV 1.83.0.
+            pub fn set(&mut self, value: $base) {
                 *self = Self::new(value)
             }
         }
