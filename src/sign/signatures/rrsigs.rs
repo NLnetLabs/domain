@@ -623,6 +623,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use core::ops::RangeInclusive;
     use core::str::FromStr;
 
     use bytes::Bytes;
@@ -631,7 +632,7 @@ mod tests {
     use crate::base::{Serial, Ttl};
     use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
     use crate::rdata::{Nsec, Rrsig, A};
-    use crate::sign::crypto::common::{self, GenerateParams, KeyPair};
+    use crate::sign::crypto::common::KeyPair;
     use crate::sign::error::SignError;
     use crate::sign::keys::DnssecSigningKey;
     use crate::sign::{PublicKeyBytes, Signature};
@@ -639,23 +640,6 @@ mod tests {
     use crate::zonetree::StoredName;
 
     use super::*;
-    use core::ops::RangeInclusive;
-
-    struct TestKey;
-
-    impl SignRaw for TestKey {
-        fn algorithm(&self) -> SecAlg {
-            SecAlg::PRIVATEDNS
-        }
-
-        fn raw_public_key(&self) -> PublicKeyBytes {
-            PublicKeyBytes::Ed25519([0_u8; 32].into())
-        }
-
-        fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {
-            Ok(Signature::Ed25519([0u8; 64].into()))
-        }
-    }
 
     #[test]
     fn sign_rrset_adheres_to_rules_in_rfc_4034_and_rfc_4035() {
@@ -961,7 +945,8 @@ mod tests {
                 "A NSEC RRSIG",
             ))];
 
-        let keys: [TestCSK; 1] = [TestCSK::default()];
+        let keys: [DesignatedTestKey; 1] =
+            [DesignatedTestKey::new(257, false, true)];
 
         let rrsigs = generate_rrsigs(
             RecordsIter::new(&records),
@@ -1027,40 +1012,57 @@ mod tests {
         Record::new(owner, class, ttl, Nsec::new(next_name, types))
     }
 
-    struct TestCSK {
-        key: SigningKey<Bytes, KeyPair>,
-    }
+    struct TestKey;
 
-    impl Default for TestCSK {
-        fn default() -> Self {
-            let (sec_bytes, pub_bytes) =
-                common::generate(GenerateParams::RsaSha256 { bits: 1024 })
-                    .unwrap();
-            let key_pair =
-                KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-            let root = Name::<Bytes>::root();
-            let key = SigningKey::new(root.clone(), 257, key_pair);
-            let key =
-                key.with_validity(Timestamp::from(0), Timestamp::from(100));
-            Self { key }
+    impl SignRaw for TestKey {
+        fn algorithm(&self) -> SecAlg {
+            SecAlg::ED25519
+        }
+
+        fn raw_public_key(&self) -> PublicKeyBytes {
+            PublicKeyBytes::Ed25519([0_u8; 32].into())
+        }
+
+        fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {
+            Ok(Signature::Ed25519([0u8; 64].into()))
         }
     }
 
-    impl std::ops::Deref for TestCSK {
-        type Target = SigningKey<Bytes, KeyPair>;
+    struct DesignatedTestKey {
+        key: SigningKey<Bytes, TestKey>,
+        signs_keys: bool,
+        signs_zone_data: bool,
+    }
+
+    impl DesignatedTestKey {
+        fn new(flags: u16, signs_keys: bool, signs_zone_data: bool) -> Self {
+            let root = Name::<Bytes>::root();
+            let key = SigningKey::new(root.clone(), flags, TestKey);
+            let key =
+                key.with_validity(Timestamp::from(0), Timestamp::from(100));
+            Self {
+                key,
+                signs_keys,
+                signs_zone_data,
+            }
+        }
+    }
+
+    impl std::ops::Deref for DesignatedTestKey {
+        type Target = SigningKey<Bytes, TestKey>;
 
         fn deref(&self) -> &Self::Target {
             &self.key
         }
     }
 
-    impl DesignatedSigningKey<Bytes, KeyPair> for TestCSK {
+    impl DesignatedSigningKey<Bytes, TestKey> for DesignatedTestKey {
         fn signs_keys(&self) -> bool {
-            true
+            self.signs_keys
         }
 
         fn signs_zone_data(&self) -> bool {
-            true
+            self.signs_zone_data
         }
     }
 }
