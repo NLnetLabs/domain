@@ -60,6 +60,24 @@ impl Message {
         Self::parse_bytes_by_mut(bytes)
             .expect("A 12-or-more byte string is a valid 'Message'")
     }
+
+    /// Truncate the contents of this message to the given size, by pointer.
+    ///
+    /// The returned value will have a `contents` field of the given size.
+    ///
+    /// # Safety
+    ///
+    /// This method uses `pointer::offset()`: `self` must be "derived from a
+    /// pointer to some allocated object".  There must be at least 12 bytes
+    /// between `self` and the end of that allocated object.  A reference to
+    /// `Message` will always result in a pointer satisfying this.
+    pub unsafe fn ptr_slice_to(this: *mut Message, size: usize) -> *mut Self {
+        let bytes = unsafe { core::ptr::addr_of_mut!((*this).contents) };
+        let len = unsafe { &*(bytes as *mut [()]) }.len();
+        debug_assert!(size <= len);
+        core::ptr::slice_from_raw_parts_mut(this.cast::<u8>(), size)
+            as *mut Self
+    }
 }
 
 //----------- Header ---------------------------------------------------------
