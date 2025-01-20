@@ -4,6 +4,9 @@
 //! are specializations of [`ParseBytes`] and [`SplitBytes`] to DNS messages.
 //! When parsing data within a DNS message, these traits allow access to all
 //! preceding bytes in the message so that compressed names can be resolved.
+//!
+//! [`ParseBytes`]: super::wire::ParseBytes
+//! [`SplitBytes`]: super::wire::SplitBytes
 
 pub use super::wire::ParseError;
 
