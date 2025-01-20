@@ -1,3 +1,4 @@
+use core::cmp::min;
 use core::fmt::Debug;
 
 use std::vec::Vec;
@@ -7,17 +8,16 @@ use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use crate::base::iana::Rtype;
 use crate::base::name::ToName;
 use crate::base::record::Record;
-use crate::base::Ttl;
 use crate::rdata::dnssec::RtypeBitmap;
 use crate::rdata::{Nsec, ZoneRecordData};
+use crate::sign::error::SigningError;
 use crate::sign::records::RecordsIter;
 
 // TODO: Add (mutable?) iterator based variant.
 pub fn generate_nsecs<N, Octs>(
-    ttl: Ttl,
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     assume_dnskeys_will_be_added: bool,
-) -> Vec<Record<N, Nsec<Octs, N>>>
+) -> Result<Vec<Record<N, Nsec<Octs, N>>>, SigningError>
 where
     N: ToName + Clone + PartialEq,
     Octs: FromBuilder,
@@ -36,6 +36,7 @@ where
     let first_rr = records.first();
     let apex_owner = first_rr.owner().clone();
     let zone_class = first_rr.class();
+    let mut ttl = None;
 
     for owner_rrs in records {
         // If the owner is out of zone, we have moved out of our zone and are
@@ -64,25 +65,30 @@ where
         };
 
         if let Some((prev_name, bitmap)) = prev.take() {
+            // SAFETY: ttl will be set below before prev is set to Some.
             res.push(Record::new(
                 prev_name.clone(),
                 zone_class,
-                ttl,
+                ttl.unwrap(),
                 Nsec::new(name.clone(), bitmap),
             ));
         }
 
         let mut bitmap = RtypeBitmap::<Octs>::builder();
+
         // RFC 4035 section 2.3:
         //   "The type bitmap of every NSEC resource record in a signed zone
         //    MUST indicate the presence of both the NSEC record itself and
         //    its corresponding RRSIG record."
         bitmap.add(Rtype::RRSIG).unwrap();
+
         if assume_dnskeys_will_be_added && owner_rrs.owner() == &apex_owner {
             // Assume there's gonna be a DNSKEY.
             bitmap.add(Rtype::DNSKEY).unwrap();
         }
+
         bitmap.add(Rtype::NSEC).unwrap();
+
         for rrset in owner_rrs.rrsets() {
             // RFC 4034 section 4.1.2: (and also RFC 4035 section 2.3)
             //   "The bitmap for the NSEC RR at a delegation point requires
@@ -103,6 +109,29 @@ where
                 // AllRecordData type.
                 bitmap.add(rrset.rtype()).unwrap()
             }
+
+            if rrset.rtype() == Rtype::SOA {
+                if rrset.len() > 1 {
+                    return Err(SigningError::SoaRecordCouldNotBeDetermined);
+                }
+
+                let soa_rr = rrset.first();
+
+                // Check that the RDATA for the SOA record can be parsed.
+                let ZoneRecordData::Soa(ref soa_data) = soa_rr.data() else {
+                    return Err(SigningError::SoaRecordCouldNotBeDetermined);
+                };
+
+                // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to
+                // say that the "TTL of the NSEC(3) RR that is returned MUST
+                // be the lesser of the MINIMUM field of the SOA record and
+                // the TTL of the SOA itself".
+                ttl = Some(min(soa_data.minimum(), soa_rr.ttl()));
+            }
+        }
+
+        if ttl.is_none() {
+            return Err(SigningError::SoaRecordCouldNotBeDetermined);
         }
 
         prev = Some((name, bitmap.finalize()));
@@ -112,10 +141,11 @@ where
         res.push(Record::new(
             prev_name.clone(),
             zone_class,
-            ttl,
+            ttl.unwrap(),
             Nsec::new(apex_owner.clone(), bitmap),
         ));
     }
 
-    res
+    Ok(res)
+}
 }
