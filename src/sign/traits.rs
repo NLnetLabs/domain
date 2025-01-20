@@ -29,6 +29,7 @@ use crate::sign::records::{
 };
 use crate::sign::sign_zone;
 use crate::sign::signatures::rrsigs::generate_rrsigs;
+use crate::sign::signatures::rrsigs::GenerateRrsigConfig;
 use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
 use crate::sign::SigningConfig;
 use crate::sign::{PublicKeyBytes, SignableZoneInOut, Signature};
@@ -182,7 +183,7 @@ where
 ///     Ttl::ZERO,
 ///     Ttl::ZERO,
 ///     Ttl::ZERO));
-/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa));
+/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa)).unwrap();
 ///
 /// // Generate or import signing keys (see above).
 ///
@@ -335,7 +336,7 @@ where
 ///     Ttl::ZERO,
 ///     Ttl::ZERO,
 ///     Ttl::ZERO));
-/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa));
+/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa)).unwrap();
 ///
 /// // Generate or import signing keys (see above).
 ///
@@ -504,10 +505,9 @@ where
         KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     {
         generate_rrsigs::<_, _, DSK, _, KeyStrat, Sort>(
-            expected_apex,
             self.owner_rrs(),
             keys,
-            false,
+            &GenerateRrsigConfig::new().with_zone_apex(expected_apex),
         )
     }
 }

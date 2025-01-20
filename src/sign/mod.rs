@@ -141,7 +141,7 @@ use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
 use records::{RecordsIter, Sorter};
-use signatures::rrsigs::generate_rrsigs;
+use signatures::rrsigs::{generate_rrsigs, GenerateRrsigConfig};
 use signatures::strategy::SigningKeyUsageStrategy;
 use traits::{SignRaw, SignableZone, SortedExtend};
 
@@ -472,15 +472,18 @@ where
     }
 
     if !signing_keys.is_empty() {
+        let mut rrsig_config = GenerateRrsigConfig::new();
+        rrsig_config.add_used_dnskeys = signing_config.add_used_dnskeys;
+        rrsig_config.zone_apex = Some(&apex_owner);
+
         // Sign the NSEC(3)s.
         let owner_rrs = RecordsIter::new(in_out.as_out_slice());
 
         let nsec_rrsigs =
             generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
-                &apex_owner,
                 owner_rrs,
                 signing_keys,
-                signing_config.add_used_dnskeys,
+                &rrsig_config,
             )?;
 
         // Sorting may not be strictly needed, but we don't have the option to
@@ -492,10 +495,9 @@ where
 
         let rrsigs_and_dnskeys =
             generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
-                &apex_owner,
                 owner_rrs,
                 signing_keys,
-                signing_config.add_used_dnskeys,
+                &rrsig_config,
             )?;
 
         // Sorting may not be strictly needed, but we don't have the option to

@@ -1,19 +1,20 @@
 //! DNSSEC RRSIG generation.
-use core::convert::From;
+use core::convert::{AsRef, From};
 use core::fmt::Display;
-use core::marker::Send;
+use core::marker::{PhantomData, Send};
 
 use std::boxed::Box;
 use std::collections::HashSet;
 use std::string::ToString;
 use std::vec::Vec;
 
-use octseq::builder::{EmptyBuilder, FromBuilder};
+use octseq::builder::FromBuilder;
 use octseq::{OctetsFrom, OctetsInto};
-use tracing::{debug, enabled, trace, Level};
+use tracing::{debug, trace};
 
+use super::strategy::DefaultSigningKeyUsageStrategy;
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Class, Rtype};
+use crate::base::iana::Rtype;
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
@@ -23,23 +24,73 @@ use crate::rdata::{Dnskey, ZoneRecordData};
 use crate::sign::error::SigningError;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::keys::signingkey::SigningKey;
-use crate::sign::records::{RecordsIter, Rrset, SortedRecords, Sorter};
+use crate::sign::records::{
+    DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
+};
 use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
 use crate::sign::traits::{SignRaw, SortedExtend};
+use log::Level;
 
-/// Generate RRSIG RRs for a collection of unsigned zone records.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
+    pub add_used_dnskeys: bool,
+
+    pub zone_apex: Option<&'a N>,
+
+    _phantom: PhantomData<(KeyStrat, Sort)>,
+}
+
+impl<'a, N, KeyStrat, Sort> GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
+    pub fn new() -> Self {
+        Self {
+            add_used_dnskeys: false,
+            zone_apex: None,
+            _phantom: Default::default(),
+        }
+    }
+
+    pub fn with_add_used_dns_keys(mut self) -> Self {
+        self.add_used_dnskeys = true;
+        self
+    }
+
+    pub fn with_zone_apex(mut self, zone_apex: &'a N) -> Self {
+        self.zone_apex = Some(zone_apex);
+        self
+    }
+}
+
+impl<N> Default
+    for GenerateRrsigConfig<
+        '_,
+        N,
+        DefaultSigningKeyUsageStrategy,
+        DefaultSorter,
+    >
+{
+    fn default() -> Self {
+        Self {
+            add_used_dnskeys: true,
+            zone_apex: None,
+            _phantom: Default::default(),
+        }
+    }
+}
+
+/// Generate RRSIG RRs for a collection of zone records.
 ///
 /// Returns the collection of RRSIG and (optionally) DNSKEY RRs that must be
 /// added to the given records as part of DNSSEC zone signing.
 ///
 /// The given records MUST be sorted according to [`CanonicalOrd`].
+///
+/// Any existing RRSIG records will be ignored.
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
 pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
-    expected_apex: &N,
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[DSK],
-    add_used_dnskeys: bool,
+    config: &GenerateRrsigConfig<'_, N, KeyStrat, Sort>,
 ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
 where
     DSK: DesignatedSigningKey<Octs, Inner>,
@@ -60,19 +111,56 @@ where
         + FromBuilder
         + From<&'static [u8]>,
     Sort: Sorter,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
 {
     debug!(
-        "Signer settings: add_used_dnskeys={add_used_dnskeys}, strategy: {}",
+        "Signer settings: add_used_dnskeys={}, strategy: {}",
+        config.add_used_dnskeys,
         KeyStrat::NAME
     );
+
+    // Peek at the records because we need to process the first owner records
+    // differently if they represent the apex of a zone (i.e. contain the SOA
+    // record), otherwise we process the first owner records in the same loop
+    // as the rest of the records beneath the apex.
+    let mut records = records.peekable();
+
+    let first_rrs = records.peek();
+
+    let Some(first_rrs) = first_rrs else {
+        // No records were provided. As we are able to generate RRSIGs for
+        // partial zones this is a special case of a partial zone, an empty
+        // input, for which there is nothing to do.
+        return Ok(vec![]);
+    };
+
+    let first_owner = first_rrs.owner().clone();
+
+    // If no apex was supplied, assume that because the input should be
+    // canonically ordered that the first record is part of the apex RRSET.
+    // Otherwise, check if the first record matches the given apex, if not
+    // that means that the input starts beneath the apex.
+    let (zone_apex, at_apex) = match config.zone_apex {
+        Some(zone_apex) => (zone_apex, first_rrs.owner() == zone_apex),
+        None => (&first_owner, true),
+    };
+
+    // https://www.rfc-editor.org/rfc/rfc1034#section-6.1
+    // 6.1. C.ISI.EDU name server
+    //   ...
+    //   "Since the class of all RRs in a zone must be the same..."
+    //
+    // We can therefore assume that the class to use for new DNSKEY records
+    // when we add them will be the same as the class of the first resource
+    // record in the zone.
+    let zone_class = first_rrs.class();
+
+    // Determine which keys to use for what. Work with indices because
+    // SigningKey doesn't impl PartialEq so we cannot use a HashSet to make a
+    // unique set of them.
 
     if keys.is_empty() {
         return Err(SigningError::NoKeysProvided);
     }
-
-    // Work with indices because SigningKey doesn't impl PartialEq so we
-    // cannot use a HashSet to make a unique set of them.
 
     let dnskey_signing_key_idxs =
         KeyStrat::select_signing_keys_for_rtype(keys, Some(Rtype::DNSKEY));
@@ -89,184 +177,41 @@ where
         return Err(SigningError::NoSuitableKeysFound);
     }
 
-    // TODO: use log::log_enabled instead.
-    // See: https://github.com/NLnetLabs/domain/pull/465
-    if enabled!(Level::DEBUG) {
-        fn debug_key<Octs: AsRef<[u8]>, Inner: SignRaw>(
-            prefix: &str,
-            key: &SigningKey<Octs, Inner>,
-        ) {
-            debug!(
-                "{prefix} with algorithm {}, owner={}, flags={} (SEP={}, ZSK={}) and key tag={}",
-                key.algorithm()
-                    .to_mnemonic_str()
-                    .map(|alg| format!("{alg} ({})", key.algorithm()))
-                    .unwrap_or_else(|| key.algorithm().to_string()),
-                key.owner(),
-                key.flags(),
-                key.is_secure_entry_point(),
-                key.is_zone_signing_key(),
-                key.public_key().key_tag(),
-            )
-        }
-
-        let num_keys = keys_in_use_idxs.len();
-        debug!(
-            "Signing with {} {}:",
-            num_keys,
-            if num_keys == 1 { "key" } else { "keys" }
+    if log::log_enabled!(Level::Debug) {
+        log_keys_in_use(
+            keys,
+            &dnskey_signing_key_idxs,
+            &non_dnskey_signing_key_idxs,
+            &keys_in_use_idxs,
         );
-
-        for idx in &keys_in_use_idxs {
-            let key = &keys[**idx];
-            let is_dnskey_signing_key = dnskey_signing_key_idxs.contains(idx);
-            let is_non_dnskey_signing_key =
-                non_dnskey_signing_key_idxs.contains(idx);
-            let usage = if is_dnskey_signing_key && is_non_dnskey_signing_key
-            {
-                "CSK"
-            } else if is_dnskey_signing_key {
-                "KSK"
-            } else if is_non_dnskey_signing_key {
-                "ZSK"
-            } else {
-                "Unused"
-            };
-            debug_key(&format!("Key[{idx}]: {usage}"), key);
-        }
     }
 
     let mut res: Vec<Record<N, ZoneRecordData<Octs, N>>> = Vec::new();
     let mut reusable_scratch = Vec::new();
     let mut cut: Option<N> = None;
-    let mut records = records.peekable();
 
-    // Are we signing the entire tree from the apex down or just some child
-    // records? Use the first found SOA RR as the apex. If no SOA RR can be
-    // found assume that we are only signing records below the apex.
-    let (soa_ttl, zone_class) = if let Some(rr) =
-        records.peek().and_then(|first_owner_rrs| {
-            first_owner_rrs.records().find(|rr| {
-                rr.owner() == expected_apex && rr.rtype() == Rtype::SOA
-            })
-        }) {
-        (Some(rr.ttl()), rr.class())
-    } else {
-        (None, Class::IN)
-    };
-
-    if let Some(soa_ttl) = soa_ttl {
-        // Sign the apex
-        // SAFETY: We just checked above if the apex records existed.
-        let apex_owner_rrs = records.next().unwrap();
-
-        let apex_rrsets = apex_owner_rrs
-            .rrsets()
-            .filter(|rrset| rrset.rtype() != Rtype::RRSIG);
-
-        // Generate or extend the DNSKEY RRSET with the keys that we will sign
-        // apex DNSKEY RRs and zone RRs with.
-        let apex_dnskey_rrset = apex_owner_rrs
-            .rrsets()
-            .find(|rrset| rrset.rtype() == Rtype::DNSKEY);
-
-        let mut augmented_apex_dnskey_rrs =
-            SortedRecords::<_, _, Sort>::new();
-
-        // Determine the TTL of any existing DNSKEY RRSET and use that as the
-        // TTL for DNSKEY RRs that we add. If none, then fall back to the SOA
-        // TTL.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc2181#section-5.2 5.2. TTLs
-        // of RRs in an RRSet "Consequently the use of differing TTLs in an
-        //   RRSet is hereby deprecated, the TTLs of all RRs in an RRSet must
-        //    be the same."
-        //
-        // Note that while RFC 1033 says: RESOURCE RECORDS "If you leave the
-        //   TTL field blank it will default to the minimum time specified in
-        //     the SOA record (described later)."
-        //
-        // That RFC pre-dates RFC 1034, and neither dnssec-signzone nor
-        // ldns-signzone use the SOA MINIMUM as a default TTL, rather they use
-        // the TTL of the SOA RR as the default and so we will do the same.
-        let dnskey_rrset_ttl = if let Some(rrset) = apex_dnskey_rrset {
-            let ttl = rrset.ttl();
-            augmented_apex_dnskey_rrs.sorted_extend(rrset.iter().cloned());
-            ttl
-        } else {
-            soa_ttl
-        };
-
-        for public_key in
-            keys_in_use_idxs.iter().map(|&&idx| keys[idx].public_key())
-        {
-            let dnskey = public_key.to_dnskey();
-
-            let signing_key_dnskey_rr = Record::new(
-                expected_apex.clone(),
-                zone_class,
-                dnskey_rrset_ttl,
-                Dnskey::convert(dnskey.clone()).into(),
-            );
-
-            // Add the DNSKEY RR to the set of DNSKEY RRs to create RRSIGs
-            // for.
-            let is_new_dnskey = augmented_apex_dnskey_rrs
-                .insert(signing_key_dnskey_rr)
-                .is_ok();
-
-            if add_used_dnskeys && is_new_dnskey {
-                // Add the DNSKEY RR to the set of new RRs to output for the
-                // zone.
-                res.push(Record::new(
-                    expected_apex.clone(),
-                    zone_class,
-                    dnskey_rrset_ttl,
-                    Dnskey::convert(dnskey).into(),
-                ));
-            }
-        }
-
-        let augmented_apex_dnskey_rrset =
-            Rrset::new(&augmented_apex_dnskey_rrs);
-
-        // Sign the apex RRSETs in canonical order.
-        for rrset in apex_rrsets
-            .filter(|rrset| rrset.rtype() != Rtype::DNSKEY)
-            .chain(std::iter::once(augmented_apex_dnskey_rrset))
-        {
-            // For the DNSKEY RRSET, use signing keys chosen for that purpose
-            // and sign the augmented set of DNSKEY RRs that we have generated
-            // rather than the original set in the zonefile.
-            let signing_key_idxs = if rrset.rtype() == Rtype::DNSKEY {
-                &dnskey_signing_key_idxs
-            } else {
-                &non_dnskey_signing_key_idxs
-            };
-
-            for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
-                let rrsig_rr = sign_rrset_in(
-                    key,
-                    &rrset,
-                    expected_apex,
-                    &mut reusable_scratch,
-                )?;
-                res.push(rrsig_rr);
-                trace!(
-                    "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
-                    rrset.iter().len(),
-                    rrset.rtype(),
-                    key.public_key().key_tag()
-                );
-            }
-        }
+    if at_apex {
+        // Sign the apex, if it contains a SOA record, otherwise it's just the
+        // first in a collection of sorted records but not the apex of a zone.
+        generate_apex_rrsigs(
+            keys,
+            config,
+            &mut records,
+            zone_apex,
+            zone_class,
+            &dnskey_signing_key_idxs,
+            &non_dnskey_signing_key_idxs,
+            keys_in_use_idxs,
+            &mut res,
+            &mut reusable_scratch,
+        )?;
     }
 
-    // For all RRSETs below the apex
+    // For all records
     for owner_rrs in records {
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
-        if !owner_rrs.is_in_zone(expected_apex) {
+        if !owner_rrs.is_in_zone(zone_apex) {
             break;
         }
 
@@ -283,7 +228,7 @@ where
         // If this owner is the parent side of a zone cut, we keep the owner
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
-        cut = if owner_rrs.is_zone_cut(expected_apex) {
+        cut = if owner_rrs.is_zone_cut(zone_apex) {
             Some(name.clone())
         } else {
             None
@@ -311,7 +256,7 @@ where
                 let rrsig_rr = sign_rrset_in(
                     key,
                     &rrset,
-                    expected_apex,
+                    zone_apex,
                     &mut reusable_scratch,
                 )?;
                 res.push(rrsig_rr);
@@ -325,9 +270,214 @@ where
         }
     }
 
-    debug!("Returning {} records from signing", res.len());
+    debug!("Returning {} records from signature generation", res.len());
 
     Ok(res)
+}
+
+fn log_keys_in_use<Octs, DSK, Inner>(
+    keys: &[DSK],
+    dnskey_signing_key_idxs: &HashSet<usize>,
+    non_dnskey_signing_key_idxs: &HashSet<usize>,
+    keys_in_use_idxs: &HashSet<&usize>,
+) where
+    DSK: DesignatedSigningKey<Octs, Inner>,
+    Inner: SignRaw,
+    Octs: AsRef<[u8]>,
+{
+    fn debug_key<Octs: AsRef<[u8]>, Inner: SignRaw>(
+        prefix: &str,
+        key: &SigningKey<Octs, Inner>,
+    ) {
+        debug!(
+            "{prefix} with algorithm {}, owner={}, flags={} (SEP={}, ZSK={}) and key tag={}",
+            key.algorithm()
+                .to_mnemonic_str()
+                .map(|alg| format!("{alg} ({})", key.algorithm()))
+                .unwrap_or_else(|| key.algorithm().to_string()),
+            key.owner(),
+            key.flags(),
+            key.is_secure_entry_point(),
+            key.is_zone_signing_key(),
+            key.public_key().key_tag(),
+        )
+    }
+
+    let num_keys = keys_in_use_idxs.len();
+    debug!(
+        "Signing with {} {}:",
+        num_keys,
+        if num_keys == 1 { "key" } else { "keys" }
+    );
+
+    for idx in keys_in_use_idxs {
+        let key = &keys[**idx];
+        let is_dnskey_signing_key = dnskey_signing_key_idxs.contains(idx);
+        let is_non_dnskey_signing_key =
+            non_dnskey_signing_key_idxs.contains(idx);
+        let usage = if is_dnskey_signing_key && is_non_dnskey_signing_key {
+            "CSK"
+        } else if is_dnskey_signing_key {
+            "KSK"
+        } else if is_non_dnskey_signing_key {
+            "ZSK"
+        } else {
+            "Unused"
+        };
+        debug_key(&format!("Key[{idx}]: {usage}"), key);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
+    keys: &[DSK],
+    config: &GenerateRrsigConfig<'_, N, KeyStrat, Sort>,
+    records: &mut core::iter::Peekable<
+        RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
+    >,
+    zone_apex: &N,
+    zone_class: crate::base::iana::Class,
+    dnskey_signing_key_idxs: &HashSet<usize>,
+    non_dnskey_signing_key_idxs: &HashSet<usize>,
+    keys_in_use_idxs: HashSet<&usize>,
+    res: &mut Vec<Record<N, ZoneRecordData<Octs, N>>>,
+    reusable_scratch: &mut Vec<u8>,
+) -> Result<(), SigningError>
+where
+    DSK: DesignatedSigningKey<Octs, Inner>,
+    Inner: SignRaw,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    N: ToName
+        + PartialEq
+        + Clone
+        + Display
+        + Send
+        + CanonicalOrd
+        + From<Name<Octs>>,
+    Octs: AsRef<[u8]>
+        + From<Box<[u8]>>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + Clone
+        + FromBuilder
+        + From<&'static [u8]>,
+    Sort: Sorter,
+{
+    let Some(apex_owner_rrs) = records.peek() else {
+        // Nothing to do.
+        return Ok(());
+    };
+
+    let apex_rrsets = apex_owner_rrs
+        .rrsets()
+        .filter(|rrset| rrset.rtype() != Rtype::RRSIG);
+
+    let soa_rrs = apex_owner_rrs
+        .rrsets()
+        .find(|rrset| rrset.rtype() == Rtype::SOA);
+
+    let Some(soa_rrs) = soa_rrs else {
+        // Nothing to do, no SOA RR found.
+        return Ok(());
+    };
+
+    if soa_rrs.len() > 1 {
+        // Too many SOA RRs found.
+        return Err(SigningError::SoaRecordCouldNotBeDetermined);
+    }
+
+    let soa_rr = soa_rrs.first();
+
+    // Generate or extend the DNSKEY RRSET with the keys that we will sign
+    // apex DNSKEY RRs and zone RRs with.
+    let apex_dnskey_rrset = apex_owner_rrs
+        .rrsets()
+        .find(|rrset| rrset.rtype() == Rtype::DNSKEY);
+
+    let mut augmented_apex_dnskey_rrs = SortedRecords::<_, _, Sort>::new();
+
+    // Determine the TTL of any existing DNSKEY RRSET and use that as the TTL
+    // for DNSKEY RRs that we add. If none, then fall back to the SOA TTL.
+    //
+    // https://datatracker.ietf.org/doc/html/rfc2181#section-5.2
+    // 5.2. TTLs of RRs in an RRSet
+    //   "Consequently the use of differing TTLs in an RRSet is hereby
+    //    deprecated, the TTLs of all RRs in an RRSet must be the same."
+    //
+    // Note that while RFC 1033 says:
+    // RESOURCE RECORDS
+    //   "If you leave the TTL field blank it will default to the minimum time
+    //    specified in the SOA record (described later)."
+    //
+    // That RFC pre-dates RFC 1034, and neither dnssec-signzone nor
+    // ldns-signzone use the SOA MINIMUM as a default TTL, rather they use the
+    // TTL of the SOA RR as the default and so we will do the same.
+    let dnskey_rrset_ttl = if let Some(rrset) = apex_dnskey_rrset {
+        let ttl = rrset.ttl();
+        augmented_apex_dnskey_rrs.sorted_extend(rrset.iter().cloned());
+        ttl
+    } else {
+        soa_rr.ttl()
+    };
+
+    for public_key in
+        keys_in_use_idxs.iter().map(|&&idx| keys[idx].public_key())
+    {
+        let dnskey = public_key.to_dnskey();
+
+        let signing_key_dnskey_rr = Record::new(
+            zone_apex.clone(),
+            zone_class,
+            dnskey_rrset_ttl,
+            Dnskey::convert(dnskey.clone()).into(),
+        );
+
+        // Add the DNSKEY RR to the set of DNSKEY RRs to create RRSIGs for.
+        let is_new_dnskey = augmented_apex_dnskey_rrs
+            .insert(signing_key_dnskey_rr)
+            .is_ok();
+
+        if config.add_used_dnskeys && is_new_dnskey {
+            // Add the DNSKEY RR to the set of new RRs to output for the zone.
+            res.push(Record::new(
+                zone_apex.clone(),
+                zone_class,
+                dnskey_rrset_ttl,
+                Dnskey::convert(dnskey).into(),
+            ));
+        }
+    }
+
+    let augmented_apex_dnskey_rrset = Rrset::new(&augmented_apex_dnskey_rrs);
+
+    // Sign the apex RRSETs in canonical order.
+    for rrset in apex_rrsets
+        .filter(|rrset| rrset.rtype() != Rtype::DNSKEY)
+        .chain(std::iter::once(augmented_apex_dnskey_rrset))
+    {
+        // For the DNSKEY RRSET, use signing keys chosen for that purpose and
+        // sign the augmented set of DNSKEY RRs that we have generated rather
+        // than the original set in the zonefile.
+        let signing_key_idxs = if rrset.rtype() == Rtype::DNSKEY {
+            dnskey_signing_key_idxs
+        } else {
+            non_dnskey_signing_key_idxs
+        };
+
+        for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
+            let rrsig_rr =
+                sign_rrset_in(key, &rrset, zone_apex, reusable_scratch)?;
+            res.push(rrsig_rr);
+            trace!(
+                "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
+                rrset.iter().len(),
+                rrset.rtype(),
+                key.public_key().key_tag()
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// Generate `RRSIG` records for a given RRset.
@@ -473,15 +623,23 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::base::iana::SecAlg;
-    use crate::base::{Serial, Ttl};
-    use crate::rdata::dnssec::Timestamp;
-    use crate::rdata::{Rrsig, A};
-    use crate::sign::error::SignError;
-    use crate::sign::{PublicKeyBytes, Signature};
-    use bytes::Bytes;
     use core::str::FromStr;
+
+    use bytes::Bytes;
+
+    use crate::base::iana::{Class, SecAlg};
+    use crate::base::{Serial, Ttl};
+    use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
+    use crate::rdata::{Nsec, Rrsig, A};
+    use crate::sign::crypto::common::{self, GenerateParams, KeyPair};
+    use crate::sign::error::SignError;
+    use crate::sign::keys::DnssecSigningKey;
+    use crate::sign::{PublicKeyBytes, Signature};
+    use crate::zonetree::types::StoredRecordData;
+    use crate::zonetree::StoredName;
+
+    use super::*;
+    use core::ops::RangeInclusive;
 
     struct TestKey;
 
@@ -756,6 +914,85 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn generate_rrsigs_with_empty_zone_succeeds() {
+        let records: [Record<StoredName, StoredRecordData>; 0] = [];
+        let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
+
+        generate_rrsigs(
+            RecordsIter::new(&records),
+            &no_keys,
+            &GenerateRrsigConfig::default(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn generate_rrsigs_without_keys_fails_for_non_empty_zone() {
+        let records: [Record<StoredName, StoredRecordData>; 1] = [mk_record(
+            "example.",
+            Class::IN,
+            0,
+            ZoneRecordData::A(A::from_str("127.0.0.1").unwrap()),
+        )];
+        let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
+
+        let res = generate_rrsigs(
+            RecordsIter::new(&records),
+            &no_keys,
+            &GenerateRrsigConfig::default(),
+        );
+
+        assert!(matches!(res, Err(SigningError::NoKeysProvided)));
+    }
+
+    #[test]
+    fn generate_rrsigs_only_for_nsecs() {
+        let zone_apex = "example.";
+
+        // This is an example of generating RRSIGs for something other than a
+        // full zone.
+        let records: [Record<StoredName, StoredRecordData>; 1] =
+            [Record::from_record(mk_nsec(
+                zone_apex,
+                Class::IN,
+                3600,
+                "next.example.",
+                "A NSEC RRSIG",
+            ))];
+
+        let keys: [TestCSK; 1] = [TestCSK::default()];
+
+        let rrsigs = generate_rrsigs(
+            RecordsIter::new(&records),
+            &keys,
+            &GenerateRrsigConfig::default(),
+        )
+        .unwrap();
+
+        assert_eq!(rrsigs.len(), 1);
+        assert_eq!(
+            rrsigs[0].owner(),
+            &Name::<Bytes>::from_str("example.").unwrap()
+        );
+        assert_eq!(rrsigs[0].class(), Class::IN);
+        let ZoneRecordData::Rrsig(rrsig) = rrsigs[0].data() else {
+            panic!("RDATA is not RRSIG");
+        };
+        assert_eq!(rrsig.type_covered(), Rtype::NSEC);
+        assert_eq!(rrsig.algorithm(), keys[0].algorithm());
+        assert_eq!(rrsig.original_ttl(), Ttl::from_secs(3600));
+        assert_eq!(
+            rrsig.signer_name(),
+            &Name::<Bytes>::from_str(zone_apex).unwrap()
+        );
+        assert_eq!(rrsig.key_tag(), keys[0].public_key().key_tag());
+        assert_eq!(
+            RangeInclusive::new(rrsig.inception(), rrsig.expiration()),
+            keys[0].signature_validity_period().unwrap()
+        );
+    }
+
     //------------ Helper fns ------------------------------------------------
 
     fn mk_record(
@@ -770,5 +1007,60 @@ mod tests {
             Ttl::from_secs(ttl_secs),
             data,
         )
+    }
+
+    fn mk_nsec(
+        owner: &str,
+        class: Class,
+        ttl_secs: u32,
+        next_name: &str,
+        types: &str,
+    ) -> Record<StoredName, Nsec<Bytes, StoredName>> {
+        let owner = Name::from_str(owner).unwrap();
+        let ttl = Ttl::from_secs(ttl_secs);
+        let next_name = Name::from_str(next_name).unwrap();
+        let mut builder = RtypeBitmap::<Bytes>::builder();
+        for rtype in types.split_whitespace() {
+            builder.add(Rtype::from_str(rtype).unwrap()).unwrap();
+        }
+        let types = builder.finalize();
+        Record::new(owner, class, ttl, Nsec::new(next_name, types))
+    }
+
+    struct TestCSK {
+        key: SigningKey<Bytes, KeyPair>,
+    }
+
+    impl Default for TestCSK {
+        fn default() -> Self {
+            let (sec_bytes, pub_bytes) =
+                common::generate(GenerateParams::RsaSha256 { bits: 1024 })
+                    .unwrap();
+            let key_pair =
+                KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+            let root = Name::<Bytes>::root();
+            let key = SigningKey::new(root.clone(), 257, key_pair);
+            let key =
+                key.with_validity(Timestamp::from(0), Timestamp::from(100));
+            Self { key }
+        }
+    }
+
+    impl std::ops::Deref for TestCSK {
+        type Target = SigningKey<Bytes, KeyPair>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.key
+        }
+    }
+
+    impl DesignatedSigningKey<Bytes, KeyPair> for TestCSK {
+        fn signs_keys(&self) -> bool {
+            true
+        }
+
+        fn signs_zone_data(&self) -> bool {
+            true
+        }
     }
 }
