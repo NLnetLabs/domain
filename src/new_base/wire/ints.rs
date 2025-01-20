@@ -51,6 +51,11 @@ macro_rules! define_int {
             pub const fn get(self) -> $base {
                 <$base>::from_be_bytes(self.0)
             }
+
+            /// Overwrite this value with an integer.
+            pub const fn set(&mut self, value: $base) {
+                *self = Self::new(value)
+            }
         }
 
         impl From<$base> for $name {
