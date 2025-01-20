@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [1.80.1, stable, beta, nightly]
+        rust: [1.79.0, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
         # We use 'vcpkg' to install OpenSSL on Windows.
@@ -57,7 +57,7 @@ jobs:
     - name: Install Rust
       uses: hecrj/setup-rust-action@v2
       with:
-        rust-version: "1.80.1"
+        rust-version: "1.79.0"
     - name: Install OpenSSL
       run: sudo apt-get install -y libssl-dev
     - name: Install nightly Rust
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust: [1.80.1, stable, beta, nightly]
+        rust: [1.79.0, stable, beta, nightly]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
