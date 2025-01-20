@@ -296,12 +296,12 @@ where
                 //    for assignment only to QTYPEs and Meta-TYPEs MUST be set
                 //    to 0, since they do not appear in zone data".
                 //
-                // TODO: Should this check be moved into RtypeBitmapBuilder
-                // itself?
-                if !rrset.rtype().is_pseudo() {
-                    trace!("Adding {} to the bitmap", rrset.rtype());
-                    bitmap.add(rrset.rtype()).unwrap();
-                }
+                // We don't need to do a check here as the ZoneRecordData type
+                // that we require already excludes "pseudo" record types,
+                // those are only included as member variants of the
+                // AllRecordData type.
+                trace!("Adding {} to the bitmap", rrset.rtype());
+                bitmap.add(rrset.rtype()).unwrap();
             }
         }
 

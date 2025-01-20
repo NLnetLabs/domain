@@ -97,11 +97,11 @@ where
                 //   "Bits representing pseudo-types MUST be clear, as they do
                 //    not appear in zone data."
                 //
-                // TODO: Should this check be moved into RtypeBitmapBuilder
-                // itself?
-                if !rrset.rtype().is_pseudo() {
-                    bitmap.add(rrset.rtype()).unwrap()
-                }
+                // We don't need to do a check here as the ZoneRecordData type
+                // that we require already excludes "pseudo" record types,
+                // those are only included as member variants of the
+                // AllRecordData type.
+                bitmap.add(rrset.rtype()).unwrap()
             }
         }
 
