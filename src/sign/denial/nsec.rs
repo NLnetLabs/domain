@@ -23,7 +23,7 @@ use crate::sign::records::RecordsIter;
 /// Assumes that the given records are in [`CanonicalOrd`] order and start
 /// with a complete zone, i.e. including an apex SOA record. If the apex SOA
 /// is not found or multiple SOA records are found at the apex error
-/// SigningError::SoaRecordCouldNotBeDetermined will be returned.
+/// [`SigningError::SoaRecordCouldNotBeDetermined`] will be returned.
 ///
 /// Processing of records will stop at the end of the collection or at the
 /// first record that lies outside the zone.
@@ -35,6 +35,7 @@ use crate::sign::records::RecordsIter;
 /// [RFC 4034 section 4]: https://www.rfc-editor.org/rfc/rfc4034#section-4
 /// [RFC 4035 section 2.3]: https://www.rfc-editor.org/rfc/rfc4035#section-2.3
 /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077
+/// [`CanonicalOrd`]: crate::base::cmp::CanonicalOrd
 // TODO: Add (mutable?) iterator based variant.
 #[allow(clippy::type_complexity)]
 pub fn generate_nsecs<N, Octs>(
