@@ -1077,7 +1077,7 @@ mod tests {
 
         // Generate DNSKEYs and RRSIGs.
         let generated_records =
-            generate_rrsigs(RecordsIter::new(&records), &keys, config)?;
+            generate_rrsigs(RecordsIter::new(&records), keys, config)?;
 
         let dnskeys = keys
             .iter()
