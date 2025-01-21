@@ -363,10 +363,12 @@ where
         + From<&'static [u8]>,
     Sort: Sorter,
 {
-    let Some(apex_owner_rrs) = records.peek() else {
+    if records.peek().is_none() {
         // Nothing to do.
         return Ok(());
     };
+
+    let apex_owner_rrs = records.next().unwrap();
 
     let apex_rrsets = apex_owner_rrs
         .rrsets()
