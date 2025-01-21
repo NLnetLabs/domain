@@ -999,7 +999,74 @@ mod tests {
     }
 
     #[test]
-    fn generate_rrsigs_for_complete_zone() {
+    fn generate_rrsigs_for_complete_zone_with_ksk_and_zsk() {
+        let keys = [
+            mk_dnssec_signing_key(IntendedKeyPurpose::KSK),
+            mk_dnssec_signing_key(IntendedKeyPurpose::ZSK),
+        ];
+        let cfg = GenerateRrsigConfig::default();
+        generate_rrsigs_for_complete_zone(&keys, 0, 1, &cfg).unwrap();
+    }
+
+    #[test]
+    fn generate_rrsigs_for_complete_zone_with_csk() {
+        let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
+        let cfg = GenerateRrsigConfig::default();
+        generate_rrsigs_for_complete_zone(&keys, 0, 0, &cfg).unwrap();
+    }
+
+    #[test]
+    fn generate_rrsigs_for_complete_zone_with_only_zsk_should_fail_by_default(
+    ) {
+        let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::ZSK)];
+        let cfg = GenerateRrsigConfig::default();
+
+        // This should fail as the DefaultSigningKeyUsageStrategy requires
+        // both ZSK and KSK, or a CSK.
+        let res = generate_rrsigs_for_complete_zone(&keys, 0, 0, &cfg);
+        assert!(matches!(res, Err(SigningError::NoSuitableKeysFound)));
+    }
+
+    #[test]
+    fn generate_rrsigs_for_complete_zone_with_only_zsk_and_fallback_strategy()
+    {
+        let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::ZSK)];
+
+        // Implement a strategy that falls back to the ZSK for signing zone
+        // keys if no KSK is available. (ala ldns-sign -A)
+        struct FallbackStrat;
+        impl SigningKeyUsageStrategy<Bytes, TestKey> for FallbackStrat {
+            const NAME: &'static str =
+                "Fallback to ZSK usage strategy for testing";
+
+            fn select_signing_keys_for_rtype<
+                DSK: DesignatedSigningKey<Bytes, TestKey>,
+            >(
+                candidate_keys: &[DSK],
+                rtype: Option<Rtype>,
+            ) -> smallvec::SmallVec<[usize; 4]> {
+                if core::matches!(rtype, Some(Rtype::DNSKEY)) {
+                    Self::filter_keys(candidate_keys, |_| true)
+                } else {
+                    Self::filter_keys(candidate_keys, |k| k.signs_zone_data())
+                }
+            }
+        }
+
+        let fallback_cfg = GenerateRrsigConfig::<_, FallbackStrat, _>::new();
+        generate_rrsigs_for_complete_zone(&keys, 0, 0, &fallback_cfg)
+            .unwrap();
+    }
+
+    fn generate_rrsigs_for_complete_zone<KeyStrat>(
+        keys: &[DnssecSigningKey<Bytes, TestKey>],
+        ksk_idx: usize,
+        zsk_idx: usize,
+        config: &GenerateRrsigConfig<StoredName, KeyStrat, DefaultSorter>,
+    ) -> Result<(), SigningError>
+    where
+        KeyStrat: SigningKeyUsageStrategy<Bytes, TestKey>,
+    {
         // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
         let zonefile = include_bytes!(
             "../../../test-data/zonefiles/rfc4035-appendix-A.zone"
@@ -1008,28 +1075,21 @@ mod tests {
         // Load the zone to generate RRSIGs for.
         let records = bytes_to_records(&zonefile[..]);
 
-        // Prepare a zone signing key and a key signing key.
-        let keys = [
-            mk_dnssec_signing_key(IntendedKeyPurpose::KSK),
-            mk_dnssec_signing_key(IntendedKeyPurpose::ZSK),
-        ];
+        // Generate DNSKEYs and RRSIGs.
+        let generated_records =
+            generate_rrsigs(RecordsIter::new(&records), &keys, config)?;
 
-        // Generate DNSKEYs and RRSIGs. Use the default signing config and
-        // thus also the DefaultSigningKeyUsageStrategy which will honour the
-        // purpose of the key when selecting a key to use for signing DNSKEY
-        // RRs or other zone RRs.
-        let generated_records = generate_rrsigs(
-            RecordsIter::new(&records),
-            &keys,
-            &GenerateRrsigConfig::default(),
-        )
-        .unwrap();
+        let dnskeys = keys
+            .iter()
+            .map(|k| k.public_key().to_dnskey().convert())
+            .collect::<Vec<_>>();
 
-        let ksk = keys[0].public_key().to_dnskey().convert();
-        let zsk = keys[1].public_key().to_dnskey().convert();
+        let ksk = &dnskeys[ksk_idx];
+        let zsk = &dnskeys[zsk_idx];
 
         // Check the generated records.
-        //
+        let mut iter = generated_records.iter();
+
         // The records should be in a fixed canonical order because the input
         // records must be in canonical order, with the exception of the added
         // DNSKEY RRs which will be ordered in the order in the supplied
@@ -1047,23 +1107,25 @@ mod tests {
 
         // DNSKEY records should have been generated for the apex for both of
         // the keys that we used to sign the zone.
-        assert_eq!(generated_records[0], mk_dnskey_rr("example.", &ksk));
-        assert_eq!(generated_records[1], mk_dnskey_rr("example.", &zsk));
+        assert_eq!(*iter.next().unwrap(), mk_dnskey_rr("example.", ksk));
+        if ksk_idx != zsk_idx {
+            assert_eq!(*iter.next().unwrap(), mk_dnskey_rr("example.", zsk));
+        }
 
         // RRSIG records should have been generated for the zone apex records,
         // one RRSIG per ZSK used (we used one ZSK so only one RRSIG per
         // record).
         assert_eq!(
-            generated_records[2],
-            mk_rrsig_rr("example.", Rtype::NS, 1, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("example.", Rtype::NS, 1, "example.", zsk)
         );
         assert_eq!(
-            generated_records[3],
-            mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", zsk)
         );
         assert_eq!(
-            generated_records[4],
-            mk_rrsig_rr("example.", Rtype::MX, 1, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("example.", Rtype::MX, 1, "example.", zsk)
         );
         // https://datatracker.ietf.org/doc/html/rfc4035#section-2.2 2.2.
         // Including RRSIG RRs in a Zone. .. "There MUST be an RRSIG for each
@@ -1090,8 +1152,8 @@ mod tests {
         // keys based on their `IntendedKeyPurpose` which we assigned above
         // when creating the keys.
         assert_eq!(
-            generated_records[5],
-            mk_rrsig_rr("example.", Rtype::DNSKEY, 1, "example.", &ksk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("example.", Rtype::DNSKEY, 1, "example.", ksk)
         );
 
         // -- a.example.
@@ -1107,8 +1169,8 @@ mod tests {
         //    zone's name servers) MUST NOT be signed."
 
         assert_eq!(
-            generated_records[6],
-            mk_rrsig_rr("a.example.", Rtype::DS, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("a.example.", Rtype::DS, 2, "example.", zsk)
         );
 
         // -- ns1.a.example.
@@ -1138,16 +1200,16 @@ mod tests {
         // -- ai.example.
 
         assert_eq!(
-            generated_records[7],
-            mk_rrsig_rr("ai.example.", Rtype::A, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("ai.example.", Rtype::A, 2, "example.", zsk)
         );
         assert_eq!(
-            generated_records[8],
-            mk_rrsig_rr("ai.example.", Rtype::HINFO, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("ai.example.", Rtype::HINFO, 2, "example.", zsk)
         );
         assert_eq!(
-            generated_records[9],
-            mk_rrsig_rr("ai.example.", Rtype::AAAA, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("ai.example.", Rtype::AAAA, 2, "example.", zsk)
         );
 
         // -- b.example.
@@ -1169,56 +1231,58 @@ mod tests {
         // -- ns1.example.
 
         assert_eq!(
-            generated_records[10],
-            mk_rrsig_rr("ns1.example.", Rtype::A, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("ns1.example.", Rtype::A, 2, "example.", zsk)
         );
 
         // -- ns2.example.
 
         assert_eq!(
-            generated_records[11],
-            mk_rrsig_rr("ns2.example.", Rtype::A, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("ns2.example.", Rtype::A, 2, "example.", zsk)
         );
 
         // -- *.w.example.
 
         assert_eq!(
-            generated_records[12],
-            mk_rrsig_rr("*.w.example.", Rtype::MX, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("*.w.example.", Rtype::MX, 2, "example.", zsk)
         );
 
         // -- x.w.example.
 
         assert_eq!(
-            generated_records[13],
-            mk_rrsig_rr("x.w.example.", Rtype::MX, 3, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("x.w.example.", Rtype::MX, 3, "example.", zsk)
         );
 
         // -- x.y.w.example.
 
         assert_eq!(
-            generated_records[14],
-            mk_rrsig_rr("x.y.w.example.", Rtype::MX, 4, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("x.y.w.example.", Rtype::MX, 4, "example.", zsk)
         );
 
         // -- xx.example.
 
         assert_eq!(
-            generated_records[15],
-            mk_rrsig_rr("xx.example.", Rtype::A, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("xx.example.", Rtype::A, 2, "example.", zsk)
         );
         assert_eq!(
-            generated_records[16],
-            mk_rrsig_rr("xx.example.", Rtype::HINFO, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("xx.example.", Rtype::HINFO, 2, "example.", zsk)
         );
         assert_eq!(
-            generated_records[17],
-            mk_rrsig_rr("xx.example.", Rtype::AAAA, 2, "example.", &zsk)
+            *iter.next().unwrap(),
+            mk_rrsig_rr("xx.example.", Rtype::AAAA, 2, "example.", zsk)
         );
 
         // No other records should have been generated.
 
-        assert_eq!(generated_records.len(), 18);
+        assert!(iter.next().is_none());
+
+        Ok(())
     }
 
     //------------ Helper fns ------------------------------------------------
