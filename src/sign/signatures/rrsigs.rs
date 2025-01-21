@@ -51,7 +51,7 @@ impl<'a, N, KeyStrat, Sort> GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
     }
 
     pub fn without_adding_used_dns_keys(mut self) -> Self {
-        self.add_used_dnskeys = true;
+        self.add_used_dnskeys = false;
         self
     }
 
