@@ -163,11 +163,17 @@ where
 
     let mut dnskey_signing_key_idxs =
         KeyStrat::select_signing_keys_for_rtype(keys, Some(Rtype::DNSKEY));
+    if dnskey_signing_key_idxs.is_empty() {
+        return Err(SigningError::NoSuitableKeysFound);
+    }
     dnskey_signing_key_idxs.sort();
     dnskey_signing_key_idxs.dedup();
 
     let mut non_dnskey_signing_key_idxs =
         KeyStrat::select_signing_keys_for_rtype(keys, None);
+    if non_dnskey_signing_key_idxs.is_empty() {
+        return Err(SigningError::NoSuitableKeysFound);
+    }
     non_dnskey_signing_key_idxs.sort();
     non_dnskey_signing_key_idxs.dedup();
 
@@ -177,10 +183,6 @@ where
         .collect();
     keys_in_use_idxs.sort();
     keys_in_use_idxs.dedup();
-
-    if keys_in_use_idxs.is_empty() {
-        return Err(SigningError::NoSuitableKeysFound);
-    }
 
     if log::log_enabled!(Level::Debug) {
         log_keys_in_use(
