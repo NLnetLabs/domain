@@ -40,6 +40,8 @@ pub struct GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
 }
 
 impl<'a, N, KeyStrat, Sort> GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
+    /// Like [`Self::default()`] but gives control over the SigningKeyStrategy
+    /// and Sorter used.
     pub fn new() -> Self {
         Self {
             add_used_dnskeys: false,

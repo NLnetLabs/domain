@@ -6,6 +6,10 @@ use crate::sign::SignRaw;
 
 //------------ SigningKeyUsageStrategy ---------------------------------------
 
+// Ala ldns-signzone the default strategy signs with a minimal number of keys
+// to keep the response size for the DNSKEY query small, only keys designated
+// as being used to sign apex DNSKEY RRs (usually keys with the Secure Entry
+// Point (SEP) flag set) will be used to sign DNSKEY RRs.
 pub trait SigningKeyUsageStrategy<Octs, Inner>
 where
     Octs: AsRef<[u8]>,
