@@ -4,7 +4,6 @@ use core::fmt::Display;
 use core::marker::{PhantomData, Send};
 
 use std::boxed::Box;
-use std::collections::HashSet;
 use std::string::ToString;
 use std::vec::Vec;
 
@@ -162,16 +161,22 @@ where
         return Err(SigningError::NoKeysProvided);
     }
 
-    let dnskey_signing_key_idxs =
+    let mut dnskey_signing_key_idxs =
         KeyStrat::select_signing_keys_for_rtype(keys, Some(Rtype::DNSKEY));
+    dnskey_signing_key_idxs.sort();
+    dnskey_signing_key_idxs.dedup();
 
-    let non_dnskey_signing_key_idxs =
+    let mut non_dnskey_signing_key_idxs =
         KeyStrat::select_signing_keys_for_rtype(keys, None);
+    non_dnskey_signing_key_idxs.sort();
+    non_dnskey_signing_key_idxs.dedup();
 
-    let keys_in_use_idxs: HashSet<_> = non_dnskey_signing_key_idxs
+    let mut keys_in_use_idxs: Vec<_> = non_dnskey_signing_key_idxs
         .iter()
         .chain(dnskey_signing_key_idxs.iter())
         .collect();
+    keys_in_use_idxs.sort();
+    keys_in_use_idxs.dedup();
 
     if keys_in_use_idxs.is_empty() {
         return Err(SigningError::NoSuitableKeysFound);
@@ -201,7 +206,7 @@ where
             zone_class,
             &dnskey_signing_key_idxs,
             &non_dnskey_signing_key_idxs,
-            keys_in_use_idxs,
+            &keys_in_use_idxs,
             &mut res,
             &mut reusable_scratch,
         )?;
@@ -277,9 +282,9 @@ where
 
 fn log_keys_in_use<Octs, DSK, Inner>(
     keys: &[DSK],
-    dnskey_signing_key_idxs: &HashSet<usize>,
-    non_dnskey_signing_key_idxs: &HashSet<usize>,
-    keys_in_use_idxs: &HashSet<&usize>,
+    dnskey_signing_key_idxs: &[usize],
+    non_dnskey_signing_key_idxs: &[usize],
+    keys_in_use_idxs: &[&usize],
 ) where
     DSK: DesignatedSigningKey<Octs, Inner>,
     Inner: SignRaw,
@@ -337,9 +342,9 @@ fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     >,
     zone_apex: &N,
     zone_class: crate::base::iana::Class,
-    dnskey_signing_key_idxs: &HashSet<usize>,
-    non_dnskey_signing_key_idxs: &HashSet<usize>,
-    keys_in_use_idxs: HashSet<&usize>,
+    dnskey_signing_key_idxs: &[usize],
+    non_dnskey_signing_key_idxs: &[usize],
+    keys_in_use_idxs: &[&usize],
     res: &mut Vec<Record<N, ZoneRecordData<Octs, N>>>,
     reusable_scratch: &mut Vec<u8>,
 ) -> Result<(), SigningError>
@@ -630,19 +635,25 @@ mod tests {
     use core::str::FromStr;
 
     use bytes::Bytes;
+    use pretty_assertions::assert_eq;
 
     use crate::base::iana::{Class, SecAlg};
     use crate::base::{Serial, Ttl};
-    use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
-    use crate::rdata::{Nsec, Rrsig, A};
+    use crate::rdata::dnssec::Timestamp;
+    use crate::rdata::{Rrsig, A};
     use crate::sign::crypto::common::KeyPair;
     use crate::sign::error::SignError;
     use crate::sign::keys::DnssecSigningKey;
-    use crate::sign::{PublicKeyBytes, Signature};
+    use crate::sign::test_util::*;
+    use crate::sign::{test_util, PublicKeyBytes, Signature};
     use crate::zonetree::types::StoredRecordData;
-    use crate::zonetree::StoredName;
+    use crate::zonetree::{StoredName, StoredRecord};
 
     use super::*;
+    use crate::sign::keys::keymeta::IntendedKeyPurpose;
+
+    const TEST_INCEPTION: u32 = 0;
+    const TEST_EXPIRATION: u32 = 100;
 
     #[test]
     fn sign_rrset_adheres_to_rules_in_rfc_4034_and_rfc_4035() {
@@ -657,8 +668,6 @@ mod tests {
         // We can use any class as RRSIGs are class independent.
         let records = [mk_record(
             "www.example.com.",
-            Class::CH,
-            12345,
             ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
         )];
         let rrset = Rrset::new(&records);
@@ -720,11 +729,8 @@ mod tests {
         // 3.1.3.  The Labels Field
         //   ...
         //   ""*.example.com." has a Labels field value of 2"
-        // We can use any class as RRSIGs are class independent.
         let records = [mk_record(
             "*.example.com.",
-            Class::CH,
-            12345,
             ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
         )];
         let rrset = Rrset::new(&records);
@@ -762,12 +768,7 @@ mod tests {
         )
         .unwrap();
 
-        let records = [mk_record(
-            "any.",
-            Class::CH,
-            12345,
-            ZoneRecordData::Rrsig(dummy_rrsig),
-        )];
+        let records = [mk_record("any.", ZoneRecordData::Rrsig(dummy_rrsig))];
         let rrset = Rrset::new(&records);
 
         let res = sign_rrset(&key, &rrset, &apex_owner);
@@ -798,8 +799,6 @@ mod tests {
 
         let records = [mk_record(
             "any.",
-            Class::CH,
-            12345,
             ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
         )];
         let rrset = Rrset::new(&records);
@@ -902,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_rrsigs_with_empty_zone_succeeds() {
+    fn generate_rrsigs_without_keys_should_succeed_for_empty_zone() {
         let records: [Record<StoredName, StoredRecordData>; 0] = [];
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
@@ -915,11 +914,9 @@ mod tests {
     }
 
     #[test]
-    fn generate_rrsigs_without_keys_fails_for_non_empty_zone() {
+    fn generate_rrsigs_without_keys_should_fail_for_non_empty_zone() {
         let records: [Record<StoredName, StoredRecordData>; 1] = [mk_record(
             "example.",
-            Class::IN,
-            0,
             ZoneRecordData::A(A::from_str("127.0.0.1").unwrap()),
         )];
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
@@ -934,46 +931,48 @@ mod tests {
     }
 
     #[test]
-    fn generate_rrsigs_only_for_nsecs() {
+    fn generate_rrsigs_for_partial_zone() {
         let zone_apex = "example.";
 
         // This is an example of generating RRSIGs for something other than a
-        // full zone.
+        // full zone, in this case just for NSECs, as is done by sign_zone().
         let records: [Record<StoredName, StoredRecordData>; 1] =
-            [Record::from_record(mk_nsec(
+            [Record::from_record(mk_nsec_rr(
                 zone_apex,
-                Class::IN,
-                3600,
                 "next.example.",
                 "A NSEC RRSIG",
             ))];
 
-        let keys: [DesignatedTestKey; 1] =
-            [DesignatedTestKey::new(257, false, true)];
+        // Prepare a zone signing key and a key signing key.
+        let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
 
+        // Generate RRSIGs. Use the default signing config and thus also the
+        // DefaultSigningKeyUsageStrategy which will honour the purpose of the
+        // key when selecting a key to use for signing DNSKEY RRs or other
+        // zone RRs. We supply the zone apex because we are not supplying an
+        // entire zone complete with SOA.
         let rrsigs = generate_rrsigs(
             RecordsIter::new(&records),
             &keys,
-            &GenerateRrsigConfig::default(),
+            &GenerateRrsigConfig::default()
+                .with_zone_apex(&mk_name(zone_apex)),
         )
         .unwrap();
 
+        // Check the generated RRSIG record
         assert_eq!(rrsigs.len(), 1);
-        assert_eq!(
-            rrsigs[0].owner(),
-            &Name::<Bytes>::from_str("example.").unwrap()
-        );
+        assert_eq!(rrsigs[0].owner(), &mk_name("example."));
         assert_eq!(rrsigs[0].class(), Class::IN);
+        assert_eq!(rrsigs[0].rtype(), Rtype::RRSIG);
+
+        // Check the contained RRSIG RDATA
         let ZoneRecordData::Rrsig(rrsig) = rrsigs[0].data() else {
             panic!("RDATA is not RRSIG");
         };
         assert_eq!(rrsig.type_covered(), Rtype::NSEC);
         assert_eq!(rrsig.algorithm(), keys[0].algorithm());
-        assert_eq!(rrsig.original_ttl(), Ttl::from_secs(3600));
-        assert_eq!(
-            rrsig.signer_name(),
-            &Name::<Bytes>::from_str(zone_apex).unwrap()
-        );
+        assert_eq!(rrsig.original_ttl(), TEST_TTL);
+        assert_eq!(rrsig.signer_name(), &mk_name(zone_apex));
         assert_eq!(rrsig.key_tag(), keys[0].public_key().key_tag());
         assert_eq!(
             RangeInclusive::new(rrsig.inception(), rrsig.expiration()),
@@ -981,39 +980,287 @@ mod tests {
         );
     }
 
+    #[test]
+    fn generate_rrsigs_for_complete_zone() {
+        // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
+        let zonefile = include_bytes!(
+            "../../../test-data/zonefiles/rfc4035-appendix-A.zone"
+        );
+
+        // Load the zone to generate RRSIGs for.
+        let records = bytes_to_records(&zonefile[..]);
+
+        // Prepare a zone signing key and a key signing key.
+        let keys = [
+            mk_dnssec_signing_key(IntendedKeyPurpose::KSK),
+            mk_dnssec_signing_key(IntendedKeyPurpose::ZSK),
+        ];
+
+        // Generate DNSKEYs and RRSIGs. Use the default signing config and
+        // thus also the DefaultSigningKeyUsageStrategy which will honour the
+        // purpose of the key when selecting a key to use for signing DNSKEY
+        // RRs or other zone RRs.
+        let generated_records = generate_rrsigs(
+            RecordsIter::new(&records),
+            &keys,
+            &GenerateRrsigConfig::default(),
+        )
+        .unwrap();
+
+        let ksk = keys[0].public_key().to_dnskey().convert();
+        let zsk = keys[1].public_key().to_dnskey().convert();
+
+        // Check the generated records.
+        //
+        // The records should be in a fixed canonical order because the input
+        // records must be in canonical order, with the exception of the added
+        // DNSKEY RRs which will be ordered in the order in the supplied
+        // collection of keys to sign with.
+        //
+        // We check each record explicitly by index because assert_eq() on an
+        // array of objects that includes Rrsig produces hard to read output
+        // due to the large RRSIG signature bytes being printed one byte per
+        // line.
+
+        // NOTE: As we only invoked generate_rrsigs() and not generate_nsecs()
+        // there will not be any RRSIGs covering NSEC records.
+
+        // -- example.
+
+        // DNSKEY records should have been generated for the apex for both of
+        // the keys that we used to sign the zone.
+        assert_eq!(generated_records[0], mk_dnskey_rr("example.", &ksk));
+        assert_eq!(generated_records[1], mk_dnskey_rr("example.", &zsk));
+
+        // RRSIG records should have been generated for the zone apex records,
+        // one RRSIG per ZSK used (we used one ZSK so only one RRSIG per
+        // record).
+        assert_eq!(
+            generated_records[2],
+            mk_rrsig_rr("example.", Rtype::NS, 1, "example.", &zsk)
+        );
+        assert_eq!(
+            generated_records[3],
+            mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &zsk)
+        );
+        assert_eq!(
+            generated_records[4],
+            mk_rrsig_rr("example.", Rtype::MX, 1, "example.", &zsk)
+        );
+        // https://datatracker.ietf.org/doc/html/rfc4035#section-2.2 2.2.
+        // Including RRSIG RRs in a Zone. .. "There MUST be an RRSIG for each
+        //   RRset using at least one DNSKEY of each algorithm in the zone
+        //   apex DNSKEY RRset.  The apex DNSKEY RRset itself MUST be signed
+        //    by each algorithm appearing in the DS RRset located at the
+        //    delegating parent (if any)."
+        //
+        // In the real world a DNSSEC signed zone is only valid when part of a
+        // hierarchy such that the signatures can be trusted because there
+        // exists a valid chain of trust up to a root, and each parent zone
+        // specifies via one or more DS records which DNSKEY RRs the child
+        // zone should be signed with.
+        //
+        // In our contrived test example we don't have a hierarchy or a parent
+        // zone so there are no DS RRs to consider. The keys that the zone
+        // should be signed with are determined by the keys passed to
+        // generate_rrsigs(). In our case that means that the DNSKEY RR RRSIG
+        // should have been generated using the KSK because the
+        // DefaultSigningKeyUsageStrategy selects keys to sign DNSKEY RRs
+        // based on whether they return true or not from
+        // `DesignatedSigningKey::signs_keys()` and we are using the
+        // `DnssecSigningKey` impl of `DesignatedSigningKey` which selects
+        // keys based on their `IntendedKeyPurpose` which we assigned above
+        // when creating the keys.
+        assert_eq!(
+            generated_records[5],
+            mk_rrsig_rr("example.", Rtype::DNSKEY, 1, "example.", &ksk)
+        );
+
+        // -- a.example.
+
+        // NOTE: Per RFC 4035 there is NOT an RRSIG for a.example NS because:
+        //
+        // https://datatracker.ietf.org/doc/html/rfc4035#section-2.2
+        // 2.2.  Including RRSIG RRs in a Zone
+        //   ...
+        //   "The NS RRset that appears at the zone apex name MUST be signed,
+        //    but the NS RRsets that appear at delegation points (that is, the
+        //    NS RRsets in the parent zone that delegate the name to the child
+        //    zone's name servers) MUST NOT be signed."
+
+        assert_eq!(
+            generated_records[6],
+            mk_rrsig_rr("a.example.", Rtype::DS, 2, "example.", &zsk)
+        );
+
+        // -- ns1.a.example.
+        //    ns2.a.example.
+
+        // NOTE: Per RFC 4035 there is NOT an RRSIG for ns1.a.example A
+        // or ns2.a.example because:
+        //
+        // https://datatracker.ietf.org/doc/html/rfc4035#section-2.2 2.2.
+        // Including RRSIG RRs in a Zone "For each authoritative RRset in a
+        //   signed zone, there MUST be at least one RRSIG record..." ... AND
+        //   ... "Glue address RRsets associated with delegations MUST NOT be
+        //   signed."
+        //
+        // ns1.a.example is part of the a.example zone which was delegated
+        // above and so we are not authoritative for it.
+        //
+        // Further, ns1.a.example A is a glue record because a.example NS
+        // refers to it by name but in order for a recursive resolver to
+        // follow the delegation to the child zones' nameservers it has to
+        // know their IP address, and in this case the nameserver name falls
+        // inside the child zone so strictly speaking only the child zone is
+        // authoritative for it, yet the resolver can't ask the child zone
+        // nameserver unless it knows its IP address, hence the need for glue
+        // in the parent zone.
+
+        // -- ai.example.
+
+        assert_eq!(
+            generated_records[7],
+            mk_rrsig_rr("ai.example.", Rtype::A, 2, "example.", &zsk)
+        );
+        assert_eq!(
+            generated_records[8],
+            mk_rrsig_rr("ai.example.", Rtype::HINFO, 2, "example.", &zsk)
+        );
+        assert_eq!(
+            generated_records[9],
+            mk_rrsig_rr("ai.example.", Rtype::AAAA, 2, "example.", &zsk)
+        );
+
+        // -- b.example.
+
+        // NOTE: There is no RRSIG for b.example NS for the same reason that
+        // there is no RRSIG for a.example.
+        //
+        // Also, there is no RRSIG for b.example A because b.example is
+        // delegated and thus we are not authoritative for records in that
+        // zone.
+
+        // -- ns1.b.example.
+        //    ns2.b.example.
+
+        // NOTE: There is no RRSIG for ns1.b.example or ns2.b.example for
+        // the same reason that there are no RRSIGs ofr ns1.a.example or
+        // ns2.a.example, as described above.
+
+        // -- ns1.example.
+
+        assert_eq!(
+            generated_records[10],
+            mk_rrsig_rr("ns1.example.", Rtype::A, 2, "example.", &zsk)
+        );
+
+        // -- ns2.example.
+
+        assert_eq!(
+            generated_records[11],
+            mk_rrsig_rr("ns2.example.", Rtype::A, 2, "example.", &zsk)
+        );
+
+        // -- *.w.example.
+
+        assert_eq!(
+            generated_records[12],
+            mk_rrsig_rr("*.w.example.", Rtype::MX, 2, "example.", &zsk)
+        );
+
+        // -- x.w.example.
+
+        assert_eq!(
+            generated_records[13],
+            mk_rrsig_rr("x.w.example.", Rtype::MX, 3, "example.", &zsk)
+        );
+
+        // -- x.y.w.example.
+
+        assert_eq!(
+            generated_records[14],
+            mk_rrsig_rr("x.y.w.example.", Rtype::MX, 4, "example.", &zsk)
+        );
+
+        // -- xx.example.
+
+        assert_eq!(
+            generated_records[15],
+            mk_rrsig_rr("xx.example.", Rtype::A, 2, "example.", &zsk)
+        );
+        assert_eq!(
+            generated_records[16],
+            mk_rrsig_rr("xx.example.", Rtype::HINFO, 2, "example.", &zsk)
+        );
+        assert_eq!(
+            generated_records[17],
+            mk_rrsig_rr("xx.example.", Rtype::AAAA, 2, "example.", &zsk)
+        );
+
+        // No other records should have been generated.
+
+        assert_eq!(generated_records.len(), 18);
+    }
+
     //------------ Helper fns ------------------------------------------------
 
-    fn mk_record(
-        owner: &str,
-        class: Class,
-        ttl_secs: u32,
-        data: ZoneRecordData<Bytes, Name<Bytes>>,
-    ) -> Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>> {
-        Record::new(
-            Name::from_str(owner).unwrap(),
-            class,
-            Ttl::from_secs(ttl_secs),
-            data,
+    fn mk_dnssec_signing_key(
+        purpose: IntendedKeyPurpose,
+    ) -> DnssecSigningKey<Bytes, TestKey> {
+        // Note: The flags value has no impact on the role the key will play
+        // in signing, that is instead determined by its designated purpose
+        // AND the SigningKeyUsageStrategy in use.
+        let flags = match purpose {
+            IntendedKeyPurpose::KSK => 257,
+            IntendedKeyPurpose::ZSK => 256,
+            IntendedKeyPurpose::CSK => 257,
+            IntendedKeyPurpose::Inactive => 0,
+        };
+
+        let key = SigningKey::new(StoredName::root_bytes(), flags, TestKey);
+
+        let key = key.with_validity(
+            Timestamp::from(TEST_INCEPTION),
+            Timestamp::from(TEST_EXPIRATION),
+        );
+
+        DnssecSigningKey::new(key, purpose)
+    }
+
+    fn mk_dnskey_rr(name: &str, dnskey: &Dnskey<Bytes>) -> StoredRecord {
+        test_util::mk_dnskey_rr(
+            name,
+            dnskey.flags(),
+            dnskey.algorithm(),
+            dnskey.public_key(),
         )
     }
 
-    fn mk_nsec(
-        owner: &str,
-        class: Class,
-        ttl_secs: u32,
-        next_name: &str,
-        types: &str,
-    ) -> Record<StoredName, Nsec<Bytes, StoredName>> {
-        let owner = Name::from_str(owner).unwrap();
-        let ttl = Ttl::from_secs(ttl_secs);
-        let next_name = Name::from_str(next_name).unwrap();
-        let mut builder = RtypeBitmap::<Bytes>::builder();
-        for rtype in types.split_whitespace() {
-            builder.add(Rtype::from_str(rtype).unwrap()).unwrap();
-        }
-        let types = builder.finalize();
-        Record::new(owner, class, ttl, Nsec::new(next_name, types))
+    fn mk_rrsig_rr(
+        name: &str,
+        covered_rtype: Rtype,
+        labels: u8,
+        signer_name: &str,
+        dnskey: &Dnskey<Bytes>,
+    ) -> StoredRecord {
+        test_util::mk_rrsig_rr(
+            name,
+            covered_rtype,
+            &dnskey.algorithm(),
+            labels,
+            TEST_EXPIRATION,
+            TEST_INCEPTION,
+            dnskey.key_tag(),
+            signer_name,
+            TEST_SIGNATURE,
+        )
     }
+
+    //------------ TestKey ---------------------------------------------------
+
+    const TEST_SIGNATURE_RAW: [u8; 64] = [0u8; 64];
+    const TEST_SIGNATURE: Bytes = Bytes::from_static(&TEST_SIGNATURE_RAW);
 
     struct TestKey;
 
@@ -1027,45 +1274,7 @@ mod tests {
         }
 
         fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {
-            Ok(Signature::Ed25519([0u8; 64].into()))
-        }
-    }
-
-    struct DesignatedTestKey {
-        key: SigningKey<Bytes, TestKey>,
-        signs_keys: bool,
-        signs_zone_data: bool,
-    }
-
-    impl DesignatedTestKey {
-        fn new(flags: u16, signs_keys: bool, signs_zone_data: bool) -> Self {
-            let root = Name::<Bytes>::root();
-            let key = SigningKey::new(root.clone(), flags, TestKey);
-            let key =
-                key.with_validity(Timestamp::from(0), Timestamp::from(100));
-            Self {
-                key,
-                signs_keys,
-                signs_zone_data,
-            }
-        }
-    }
-
-    impl std::ops::Deref for DesignatedTestKey {
-        type Target = SigningKey<Bytes, TestKey>;
-
-        fn deref(&self) -> &Self::Target {
-            &self.key
-        }
-    }
-
-    impl DesignatedSigningKey<Bytes, TestKey> for DesignatedTestKey {
-        fn signs_keys(&self) -> bool {
-            self.signs_keys
-        }
-
-        fn signs_zone_data(&self) -> bool {
-            self.signs_zone_data
+            Ok(Signature::Ed25519(TEST_SIGNATURE_RAW.into()))
         }
     }
 }

@@ -175,28 +175,18 @@ where
 
 #[cfg(test)]
 mod tests {
-    use core::str::FromStr;
-
-    use std::io::Read;
-
-    use bytes::Bytes;
     use pretty_assertions::assert_eq;
 
-    use crate::base::Serial;
-    use crate::base::{iana::Class, name::FlattenInto, Name, Ttl};
-    use crate::rdata::{Ns, Soa, A};
+    use crate::base::Ttl;
     use crate::sign::records::SortedRecords;
-    use crate::zonefile::inplace::{Entry, Zonefile};
-    use crate::zonetree::{types::StoredRecordData, StoredName};
-
-    use octseq::FreezeBuilder;
+    use crate::sign::test_util::*;
 
     use super::*;
 
     #[test]
     fn soa_is_required() {
         let mut records = SortedRecords::default();
-        records.insert(mk_a("some_a.a.")).unwrap();
+        records.insert(mk_a_rr("some_a.a.")).unwrap();
         let res = generate_nsecs(records.owner_rrs(), false);
         assert!(matches!(
             res,
@@ -207,8 +197,8 @@ mod tests {
     #[test]
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
         let mut records = SortedRecords::default();
-        records.insert(mk_soa("a.", "b.", "c.")).unwrap();
-        records.insert(mk_soa("a.", "d.", "e.")).unwrap();
+        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
+        records.insert(mk_soa_rr("a.", "d.", "e.")).unwrap();
         let res = generate_nsecs(records.owner_rrs(), false);
         assert!(matches!(
             res,
@@ -220,10 +210,10 @@ mod tests {
     fn records_outside_zone_are_ignored() {
         let mut records = SortedRecords::default();
 
-        records.insert(mk_soa("b.", "d.", "e.")).unwrap();
-        records.insert(mk_a("some_a.b.")).unwrap();
-        records.insert(mk_soa("a.", "b.", "c.")).unwrap();
-        records.insert(mk_a("some_a.a.")).unwrap();
+        records.insert(mk_soa_rr("b.", "d.", "e.")).unwrap();
+        records.insert(mk_a_rr("some_a.b.")).unwrap();
+        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
+        records.insert(mk_a_rr("some_a.a.")).unwrap();
 
         // First generate NSECs for the total record collection. As the
         // collection is sorted in canonical order the a zone preceeds the b
@@ -235,8 +225,8 @@ mod tests {
         assert_eq!(
             nsecs,
             [
-                mk_nsec("a.", Class::IN, 0, "some_a.a.", "SOA RRSIG NSEC"),
-                mk_nsec("some_a.a.", Class::IN, 0, "a.", "A RRSIG NSEC"),
+                mk_nsec_rr("a.", "some_a.a.", "SOA RRSIG NSEC"),
+                mk_nsec_rr("some_a.a.", "a.", "A RRSIG NSEC"),
             ]
         );
 
@@ -249,8 +239,8 @@ mod tests {
         assert_eq!(
             nsecs,
             [
-                mk_nsec("b.", Class::IN, 0, "some_a.b.", "SOA RRSIG NSEC"),
-                mk_nsec("some_a.b.", Class::IN, 0, "b.", "A RRSIG NSEC"),
+                mk_nsec_rr("b.", "some_a.b.", "SOA RRSIG NSEC"),
+                mk_nsec_rr("some_a.b.", "b.", "A RRSIG NSEC"),
             ]
         );
     }
@@ -259,11 +249,11 @@ mod tests {
     fn occluded_records_are_ignored() {
         let mut records = SortedRecords::default();
 
-        records.insert(mk_soa("a.", "b.", "c.")).unwrap();
+        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
         records
-            .insert(mk_ns("some_ns.a.", "some_a.other.b."))
+            .insert(mk_ns_rr("some_ns.a.", "some_a.other.b."))
             .unwrap();
-        records.insert(mk_a("some_a.some_ns.a.")).unwrap();
+        records.insert(mk_a_rr("some_a.some_ns.a.")).unwrap();
 
         let nsecs = generate_nsecs(records.owner_rrs(), false).unwrap();
 
@@ -271,20 +261,8 @@ mod tests {
         assert_eq!(
             nsecs,
             [
-                mk_nsec(
-                    "a.",
-                    Class::IN,
-                    12345,
-                    "some_ns.a.",
-                    "SOA RRSIG NSEC"
-                ),
-                mk_nsec(
-                    "some_ns.a.",
-                    Class::IN,
-                    12345,
-                    "a.",
-                    "NS RRSIG NSEC"
-                ),
+                mk_nsec_rr("a.", "some_ns.a.", "SOA RRSIG NSEC"),
+                mk_nsec_rr("some_ns.a.", "a.", "NS RRSIG NSEC"),
             ]
         );
 
@@ -296,22 +274,16 @@ mod tests {
     fn expect_dnskeys_at_the_apex() {
         let mut records = SortedRecords::default();
 
-        records.insert(mk_soa("a.", "b.", "c.")).unwrap();
-        records.insert(mk_a("some_a.a.")).unwrap();
+        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
+        records.insert(mk_a_rr("some_a.a.")).unwrap();
 
         let nsecs = generate_nsecs(records.owner_rrs(), true).unwrap();
 
         assert_eq!(
             nsecs,
             [
-                mk_nsec(
-                    "a.",
-                    Class::IN,
-                    0,
-                    "some_a.a.",
-                    "SOA DNSKEY RRSIG NSEC"
-                ),
-                mk_nsec("some_a.a.", Class::IN, 0, "a.", "A RRSIG NSEC"),
+                mk_nsec_rr("a.", "some_a.a.", "SOA DNSKEY RRSIG NSEC"),
+                mk_nsec_rr("some_a.a.", "a.", "A RRSIG NSEC"),
             ]
         );
     }
@@ -331,41 +303,19 @@ mod tests {
         assert_eq!(
             nsecs,
             [
-                mk_nsec(
+                mk_nsec_rr(
                     "example.",
-                    Class::IN,
-                    12345,
                     "a.example",
                     "NS SOA MX RRSIG NSEC DNSKEY"
                 ),
-                mk_nsec(
-                    "a.example.",
-                    Class::IN,
-                    12345,
-                    "ai.example",
-                    "NS DS RRSIG NSEC"
-                ),
-                mk_nsec(
+                mk_nsec_rr("a.example.", "ai.example", "NS DS RRSIG NSEC"),
+                mk_nsec_rr(
                     "ai.example.",
-                    Class::IN,
-                    12345,
                     "b.example",
                     "A HINFO AAAA RRSIG NSEC"
                 ),
-                mk_nsec(
-                    "b.example.",
-                    Class::IN,
-                    12345,
-                    "ns1.example",
-                    "NS RRSIG NSEC"
-                ),
-                mk_nsec(
-                    "ns1.example.",
-                    Class::IN,
-                    12345,
-                    "ns2.example",
-                    "A RRSIG NSEC"
-                ),
+                mk_nsec_rr("b.example.", "ns1.example", "NS RRSIG NSEC"),
+                mk_nsec_rr("ns1.example.", "ns2.example", "A RRSIG NSEC"),
                 // The next record also validates that we comply with
                 // https://datatracker.ietf.org/doc/html/rfc4034#section-6.2
                 // 4.1.3. "Inclusion of Wildcard Names in NSEC RDATA" when
@@ -377,38 +327,12 @@ mod tests {
                 //   Next Domain Name field without any wildcard expansion.
                 //   [RFC4035] describes the impact of wildcards on
                 //   authenticated denial of existence."
-                mk_nsec(
-                    "ns2.example.",
-                    Class::IN,
-                    12345,
-                    "*.w.example",
-                    "A RRSIG NSEC"
-                ),
-                mk_nsec(
-                    "*.w.example.",
-                    Class::IN,
-                    12345,
-                    "x.w.example",
-                    "MX RRSIG NSEC"
-                ),
-                mk_nsec(
-                    "x.w.example.",
-                    Class::IN,
-                    12345,
-                    "x.y.w.example",
-                    "MX RRSIG NSEC"
-                ),
-                mk_nsec(
-                    "x.y.w.example.",
-                    Class::IN,
-                    12345,
-                    "xx.example",
-                    "MX RRSIG NSEC"
-                ),
-                mk_nsec(
+                mk_nsec_rr("ns2.example.", "*.w.example", "A RRSIG NSEC"),
+                mk_nsec_rr("*.w.example.", "x.w.example", "MX RRSIG NSEC"),
+                mk_nsec_rr("x.w.example.", "x.y.w.example", "MX RRSIG NSEC"),
+                mk_nsec_rr("x.y.w.example.", "xx.example", "MX RRSIG NSEC"),
+                mk_nsec_rr(
                     "xx.example.",
-                    Class::IN,
-                    12345,
                     "example",
                     "A HINFO AAAA RRSIG NSEC"
                 )
@@ -477,101 +401,10 @@ mod tests {
         // The "rfc4035-appendix-A.zone" file that we load has been modified
         // compared to the original to include a glue A record at b.example.
         // We can verify that an NSEC RR was NOT created for that name.
-        let name = mk_name::<Bytes>("b.example.");
+        let name = mk_name("b.example.");
         let nsec = nsecs.iter().find(|rr| rr.owner() == &name).unwrap();
         assert!(nsec.data().types().contains(Rtype::NSEC));
         assert!(nsec.data().types().contains(Rtype::RRSIG));
         assert!(!nsec.data().types().contains(Rtype::A));
-    }
-
-    //------------ Helper fns ------------------------------------------------
-
-    fn bytes_to_records(
-        mut zonefile: impl Read,
-    ) -> SortedRecords<StoredName, StoredRecordData> {
-        let reader = Zonefile::load(&mut zonefile).unwrap();
-        let mut records = SortedRecords::default();
-        for entry in reader {
-            let entry = entry.unwrap();
-            if let Entry::Record(record) = entry {
-                records.insert(record.flatten_into()).unwrap()
-            }
-        }
-        records
-    }
-
-    fn mk_nsec(
-        owner: &str,
-        class: Class,
-        ttl_secs: u32,
-        next_name: &str,
-        types: &str,
-    ) -> Record<StoredName, Nsec<Bytes, StoredName>> {
-        let owner = Name::from_str(owner).unwrap();
-        let ttl = Ttl::from_secs(ttl_secs);
-        let next_name = Name::from_str(next_name).unwrap();
-        let mut builder = RtypeBitmap::<Bytes>::builder();
-        for rtype in types.split_whitespace() {
-            builder.add(Rtype::from_str(rtype).unwrap()).unwrap();
-        }
-        let types = builder.finalize();
-        Record::new(owner, class, ttl, Nsec::new(next_name, types))
-    }
-
-    fn mk_name<Octs>(name: &str) -> Name<Octs>
-    where
-        Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder
-            + FreezeBuilder<Octets = Octs>
-            + AsRef<[u8]>
-            + AsMut<[u8]>,
-    {
-        Name::<Octs>::from_str(name).unwrap()
-    }
-
-    fn mk_soa(
-        name: &str,
-        mname: &str,
-        rname: &str,
-    ) -> Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>> {
-        let zone_apex_name = mk_name::<Bytes>(name);
-        let soa = ZoneRecordData::<Bytes, _>::Soa(Soa::new(
-            mk_name::<Bytes>(mname),
-            mk_name::<Bytes>(rname),
-            Serial::now(),
-            Ttl::ZERO,
-            Ttl::ZERO,
-            Ttl::ZERO,
-            Ttl::ZERO,
-        ));
-        Record::new(zone_apex_name, Class::IN, Ttl::ZERO, soa)
-    }
-
-    fn mk_a(
-        name: &str,
-    ) -> Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>> {
-        let a_name = mk_name::<Bytes>(name);
-        let a =
-            ZoneRecordData::<Bytes, _>::A(A::from_str("1.2.3.4").unwrap());
-        Record::new(a_name, Class::IN, Ttl::ZERO, a)
-    }
-
-    fn mk_ns(
-        name: &str,
-        nsdname: &str,
-    ) -> Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>> {
-        let name = mk_name::<Bytes>(name);
-        let nsdname = mk_name::<Bytes>(nsdname);
-        let ns = ZoneRecordData::<Bytes, _>::Ns(Ns::new(nsdname));
-        Record::new(name, Class::IN, Ttl::ZERO, ns)
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn contains_owner(
-        nsecs: &[Record<Name<Bytes>, Nsec<Bytes, Name<Bytes>>>],
-        name: &str,
-    ) -> bool {
-        let name = mk_name::<Bytes>(name);
-        nsecs.iter().any(|rr| rr.owner() == &name)
     }
 }

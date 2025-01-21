@@ -110,6 +110,9 @@ pub mod records;
 pub mod signatures;
 pub mod traits;
 
+#[cfg(test)]
+pub mod test_util;
+
 pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
 pub use self::config::SigningConfig;
