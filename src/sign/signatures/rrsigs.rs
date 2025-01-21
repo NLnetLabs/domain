@@ -363,12 +363,10 @@ where
         + From<&'static [u8]>,
     Sort: Sorter,
 {
-    if records.peek().is_none() {
+    let Some(apex_owner_rrs) = records.peek() else {
         // Nothing to do.
         return Ok(());
     };
-
-    let apex_owner_rrs = records.next().unwrap();
 
     let apex_rrsets = apex_owner_rrs
         .rrsets()
@@ -478,6 +476,9 @@ where
             );
         }
     }
+
+    // Move the iterator past the processed apex owner RRs.
+    let _ = records.next();
 
     Ok(())
 }
