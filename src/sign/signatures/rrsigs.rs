@@ -7,6 +7,7 @@ use std::boxed::Box;
 use std::string::ToString;
 use std::vec::Vec;
 
+use log::Level;
 use octseq::builder::FromBuilder;
 use octseq::{OctetsFrom, OctetsInto};
 use tracing::{debug, trace};
@@ -27,8 +28,7 @@ use crate::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
-use crate::sign::traits::{SignRaw, SortedExtend};
-use log::Level;
+use crate::sign::traits::SignRaw;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
@@ -395,15 +395,13 @@ where
         return Err(SigningError::SoaRecordCouldNotBeDetermined);
     }
 
+    // Get the SOA RR.
     let soa_rr = soa_rrs.first();
 
-    // Generate or extend the DNSKEY RRSET with the keys that we will sign
-    // apex DNSKEY RRs and zone RRs with.
+    // Find any existing DNSKEY RRs.
     let apex_dnskey_rrset = apex_owner_rrs
         .rrsets()
         .find(|rrset| rrset.rtype() == Rtype::DNSKEY);
-
-    let mut augmented_apex_dnskey_rrs = SortedRecords::<_, _, Sort>::new();
 
     // Determine the TTL of any existing DNSKEY RRSET and use that as the TTL
     // for DNSKEY RRs that we add. If none, then fall back to the SOA TTL.
@@ -421,13 +419,29 @@ where
     // That RFC pre-dates RFC 1034, and neither dnssec-signzone nor
     // ldns-signzone use the SOA MINIMUM as a default TTL, rather they use the
     // TTL of the SOA RR as the default and so we will do the same.
-    let dnskey_rrset_ttl = if let Some(rrset) = apex_dnskey_rrset {
-        let ttl = rrset.ttl();
-        augmented_apex_dnskey_rrs.sorted_extend(rrset.iter().cloned());
-        ttl
+    let dnskey_rrset_ttl = if let Some(rrset) = &apex_dnskey_rrset {
+        rrset.ttl()
     } else {
         soa_rr.ttl()
     };
+
+    // Generate or extend the DNSKEY RRSET with the keys that we will sign
+    // apex DNSKEY RRs and zone RRs with.
+    let mut augmented_apex_dnskey_rrs = if let Some(rrset) = apex_dnskey_rrset
+    {
+        SortedRecords::<_, _, Sort>::from_iter(rrset.iter().cloned())
+    } else {
+        SortedRecords::<_, _, Sort>::new()
+    };
+
+    // https://datatracker.ietf.org/doc/html/rfc4035#section-2.1 2.1.
+    // Including DNSKEY RRs in a Zone. .. "For each private key used to create
+    //   RRSIG RRs in a zone, the zone SHOULD include a zone DNSKEY RR
+    //   containing the corresponding public key"
+    //
+    // We iterate over the DNSKEY RRs at the apex in the zone converting them
+    // into the correct output octets form, and if any keys we are going to
+    // sign the zone with do not exist we add them.
 
     for public_key in
         keys_in_use_idxs.iter().map(|&&idx| keys[idx].public_key())
