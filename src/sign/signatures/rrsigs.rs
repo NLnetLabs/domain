@@ -44,13 +44,13 @@ impl<'a, N, KeyStrat, Sort> GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
     /// and Sorter used.
     pub fn new() -> Self {
         Self {
-            add_used_dnskeys: false,
+            add_used_dnskeys: true,
             zone_apex: None,
             _phantom: Default::default(),
         }
     }
 
-    pub fn with_add_used_dns_keys(mut self) -> Self {
+    pub fn without_adding_used_dns_keys(mut self) -> Self {
         self.add_used_dnskeys = true;
         self
     }
