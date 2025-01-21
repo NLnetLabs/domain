@@ -341,12 +341,11 @@ where
     N: Send,
     D: Send,
     Sort: Sorter,
+    Self: Extend<Record<N, D>>,
 {
     fn from_iter<T: IntoIterator<Item = Record<N, D>>>(iter: T) -> Self {
         let mut res = Self::new();
-        for item in iter {
-            let _ = res.insert(item);
-        }
+        res.extend(iter);
         res
     }
 }
