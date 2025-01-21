@@ -349,7 +349,7 @@ fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     dnskey_signing_key_idxs: &[usize],
     non_dnskey_signing_key_idxs: &[usize],
     keys_in_use_idxs: &[&usize],
-    res: &mut Vec<Record<N, ZoneRecordData<Octs, N>>>,
+    generated_rrs: &mut Vec<Record<N, ZoneRecordData<Octs, N>>>,
     reusable_scratch: &mut Vec<u8>,
 ) -> Result<(), SigningError>
 where
@@ -448,7 +448,7 @@ where
 
         if config.add_used_dnskeys && is_new_dnskey {
             // Add the DNSKEY RR to the set of new RRs to output for the zone.
-            res.push(Record::new(
+            generated_rrs.push(Record::new(
                 zone_apex.clone(),
                 zone_class,
                 dnskey_rrset_ttl,
@@ -476,7 +476,7 @@ where
         for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
             let rrsig_rr =
                 sign_rrset_in(key, &rrset, zone_apex, reusable_scratch)?;
-            res.push(rrsig_rr);
+            generated_rrs.push(rrsig_rr);
             trace!(
                 "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
                 rrset.iter().len(),
