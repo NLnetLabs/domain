@@ -39,6 +39,7 @@ where
 }
 
 //------------ DefaultSigningKeyUsageStrategy --------------------------------
+
 pub struct DefaultSigningKeyUsageStrategy;
 
 impl<Octs, Inner> SigningKeyUsageStrategy<Octs, Inner>
