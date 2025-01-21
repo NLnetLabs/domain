@@ -189,7 +189,7 @@ where
 ///
 /// // Assign signature validity period and operator intent to the keys.
 /// let key = key.with_validity(Timestamp::now(), Timestamp::now());
-/// let keys = [DnssecSigningKey::from(key)];
+/// let keys = [DnssecSigningKey::new_csk(key)];
 ///
 /// // Create a signing configuration.
 /// let mut signing_config = SigningConfig::default();
@@ -342,7 +342,7 @@ where
 ///
 /// // Assign signature validity period and operator intent to the keys.
 /// let key = key.with_validity(Timestamp::now(), Timestamp::now());
-/// let keys = [DnssecSigningKey::from(key)];
+/// let keys = [DnssecSigningKey::new_csk(key)];
 ///
 /// // Create a signing configuration.
 /// let mut signing_config = SigningConfig::default();
