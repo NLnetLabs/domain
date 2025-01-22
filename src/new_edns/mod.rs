@@ -21,7 +21,7 @@ use crate::{
 //----------- EDNS option modules --------------------------------------------
 
 mod cookie;
-pub use cookie::{Cookie, CookieRequest};
+pub use cookie::{ClientCookie, Cookie};
 
 mod ext_err;
 pub use ext_err::{ExtError, ExtErrorCode};
@@ -212,10 +212,10 @@ impl fmt::Debug for EdnsFlags {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum EdnsOption<'b> {
-    /// A request for a DNS cookie.
-    CookieRequest(&'b CookieRequest),
+    /// A client's request for a DNS cookie.
+    ClientCookie(&'b ClientCookie),
 
-    /// A DNS cookie.
+    /// A server-provided DNS cookie.
     Cookie(&'b Cookie),
 
     /// An extended DNS error.
@@ -231,7 +231,7 @@ impl EdnsOption<'_> {
     /// The code for this option.
     pub fn code(&self) -> OptionCode {
         match self {
-            Self::CookieRequest(_) => OptionCode::COOKIE,
+            Self::ClientCookie(_) => OptionCode::COOKIE,
             Self::Cookie(_) => OptionCode::COOKIE,
             Self::ExtError(_) => OptionCode::EXT_ERROR,
             Self::Unknown(code, _) => *code,
@@ -248,8 +248,8 @@ impl<'b> ParseBytes<'b> for EdnsOption<'b> {
 
         match code {
             OptionCode::COOKIE => match data.len() {
-                8 => CookieRequest::parse_bytes_by_ref(data)
-                    .map(Self::CookieRequest),
+                8 => ClientCookie::parse_bytes_by_ref(data)
+                    .map(Self::ClientCookie),
                 16..=40 => Cookie::parse_bytes_by_ref(data).map(Self::Cookie),
                 _ => Err(ParseError),
             },
@@ -273,8 +273,8 @@ impl<'b> SplitBytes<'b> for EdnsOption<'b> {
 
         let this = match code {
             OptionCode::COOKIE => match data.len() {
-                8 => <&CookieRequest>::parse_bytes(data)
-                    .map(Self::CookieRequest)?,
+                8 => <&ClientCookie>::parse_bytes(data)
+                    .map(Self::ClientCookie)?,
                 16..=40 => <&Cookie>::parse_bytes(data).map(Self::Cookie)?,
                 _ => return Err(ParseError),
             },
@@ -301,7 +301,7 @@ impl BuildBytes for EdnsOption<'_> {
         bytes = self.code().build_bytes(bytes)?;
 
         let data = match self {
-            Self::CookieRequest(this) => this.as_bytes(),
+            Self::ClientCookie(this) => this.as_bytes(),
             Self::Cookie(this) => this.as_bytes(),
             Self::ExtError(this) => this.as_bytes(),
             Self::Unknown(_, this) => this.as_bytes(),

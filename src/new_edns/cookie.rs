@@ -20,7 +20,7 @@ use crate::new_base::Serial;
 #[cfg(all(feature = "std", feature = "siphasher"))]
 use crate::new_base::wire::{AsBytes, TruncationError};
 
-//----------- CookieRequest --------------------------------------------------
+//----------- ClientCookie ---------------------------------------------------
 
 /// A request for a DNS cookie.
 #[derive(
@@ -37,15 +37,15 @@ use crate::new_base::wire::{AsBytes, TruncationError};
     SplitBytesByRef,
 )]
 #[repr(transparent)]
-pub struct CookieRequest {
+pub struct ClientCookie {
     /// The octets of the request.
     pub octets: [u8; 8],
 }
 
 //--- Construction
 
-impl CookieRequest {
-    /// Construct a random [`CookieRequest`].
+impl ClientCookie {
+    /// Construct a random [`ClientCookie`].
     #[cfg(feature = "rand")]
     pub fn random() -> Self {
         rand::random::<[u8; 8]>().into()
@@ -54,7 +54,7 @@ impl CookieRequest {
 
 //--- Interaction
 
-impl CookieRequest {
+impl ClientCookie {
     /// Build a [`Cookie`] in response to this request.
     ///
     /// A 24-byte version-1 interoperable cookie will be generated and written
@@ -101,27 +101,27 @@ impl CookieRequest {
 
 //--- Conversion to and from octets
 
-impl From<[u8; 8]> for CookieRequest {
+impl From<[u8; 8]> for ClientCookie {
     fn from(value: [u8; 8]) -> Self {
         Self { octets: value }
     }
 }
 
-impl From<CookieRequest> for [u8; 8] {
-    fn from(value: CookieRequest) -> Self {
+impl From<ClientCookie> for [u8; 8] {
+    fn from(value: ClientCookie) -> Self {
         value.octets
     }
 }
 
 //--- Formatting
 
-impl fmt::Debug for CookieRequest {
+impl fmt::Debug for ClientCookie {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CookieRequest({})", self)
+        write!(f, "ClientCookie({})", self)
     }
 }
 
-impl fmt::Display for CookieRequest {
+impl fmt::Display for ClientCookie {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016X}", u64::from_be_bytes(self.octets))
     }
@@ -135,14 +135,14 @@ impl fmt::Display for CookieRequest {
 )]
 #[repr(C)]
 pub struct Cookie {
-    /// The request for this cookie.
-    request: CookieRequest,
+    /// The client's request for this cookie.
+    request: ClientCookie,
 
     /// The version number of this cookie.
     version: u8,
 
     /// Reserved bytes in the cookie format.
-    reversed: [u8; 3],
+    reserved: [u8; 3],
 
     /// When this cookie was made.
     timestamp: Serial,
@@ -155,7 +155,7 @@ pub struct Cookie {
 
 impl Cookie {
     /// The underlying cookie request.
-    pub fn request(&self) -> &CookieRequest {
+    pub fn request(&self) -> &ClientCookie {
         &self.request
     }
 
