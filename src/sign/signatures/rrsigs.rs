@@ -29,6 +29,7 @@ use crate::sign::records::{
 };
 use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
 use crate::sign::traits::SignRaw;
+use smallvec::SmallVec;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
@@ -188,10 +189,12 @@ where
     non_dnskey_signing_key_idxs.sort();
     non_dnskey_signing_key_idxs.dedup();
 
-    let mut keys_in_use_idxs: Vec<_> = non_dnskey_signing_key_idxs
-        .iter()
-        .chain(dnskey_signing_key_idxs.iter())
-        .collect();
+    let mut keys_in_use_idxs: SmallVec<[usize; 4]> =
+        non_dnskey_signing_key_idxs
+            .iter()
+            .chain(dnskey_signing_key_idxs.iter())
+            .copied()
+            .collect();
     keys_in_use_idxs.sort();
     keys_in_use_idxs.dedup();
 
@@ -297,7 +300,7 @@ fn log_keys_in_use<Octs, DSK, Inner>(
     keys: &[DSK],
     dnskey_signing_key_idxs: &[usize],
     non_dnskey_signing_key_idxs: &[usize],
-    keys_in_use_idxs: &[&usize],
+    keys_in_use_idxs: &[usize],
 ) where
     DSK: DesignatedSigningKey<Octs, Inner>,
     Inner: SignRaw,
@@ -329,7 +332,7 @@ fn log_keys_in_use<Octs, DSK, Inner>(
     );
 
     for idx in keys_in_use_idxs {
-        let key = &keys[**idx];
+        let key = &keys[*idx];
         let is_dnskey_signing_key = dnskey_signing_key_idxs.contains(idx);
         let is_non_dnskey_signing_key =
             non_dnskey_signing_key_idxs.contains(idx);
@@ -357,7 +360,7 @@ fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     zone_class: crate::base::iana::Class,
     dnskey_signing_key_idxs: &[usize],
     non_dnskey_signing_key_idxs: &[usize],
-    keys_in_use_idxs: &[&usize],
+    keys_in_use_idxs: &[usize],
     generated_rrs: &mut Vec<Record<N, ZoneRecordData<Octs, N>>>,
     reusable_scratch: &mut Vec<u8>,
 ) -> Result<(), SigningError>
@@ -453,7 +456,7 @@ where
     // sign the zone with do not exist we add them.
 
     for public_key in
-        keys_in_use_idxs.iter().map(|&&idx| keys[idx].public_key())
+        keys_in_use_idxs.iter().map(|&idx| keys[idx].public_key())
     {
         let dnskey = public_key.to_dnskey();
 
@@ -674,6 +677,7 @@ mod tests {
     use crate::zonetree::{StoredName, StoredRecord};
 
     use super::*;
+    use rand::Rng;
 
     const TEST_INCEPTION: u32 = 0;
     const TEST_EXPIRATION: u32 = 100;
@@ -681,7 +685,7 @@ mod tests {
     #[test]
     fn sign_rrset_adheres_to_rules_in_rfc_4034_and_rfc_4035() {
         let apex_owner = Name::root();
-        let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
+        let key = SigningKey::new(apex_owner.clone(), 0, TestKey::default());
         let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
 
         // RFC 4034
@@ -742,7 +746,7 @@ mod tests {
     #[test]
     fn sign_rrset_with_wildcard() {
         let apex_owner = Name::root();
-        let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
+        let key = SigningKey::new(apex_owner.clone(), 0, TestKey::default());
         let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
 
         // RFC 4034
@@ -769,7 +773,7 @@ mod tests {
         //   "An RRSIG RR itself MUST NOT be signed"
 
         let apex_owner = Name::root();
-        let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
+        let key = SigningKey::new(apex_owner.clone(), 0, TestKey::default());
         let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
         let dnskey = key.public_key().to_dnskey().convert();
 
@@ -800,7 +804,7 @@ mod tests {
         //    than 68 years in either the past or the future."
 
         let apex_owner = Name::root();
-        let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
+        let key = SigningKey::new(apex_owner.clone(), 0, TestKey::default());
 
         let records = [mk_a_rr("any.")];
         let rrset = Rrset::new(&records);
@@ -917,10 +921,7 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_without_keys_should_fail_for_non_empty_zone() {
-        let records = [
-            mk_soa_rr("example.", "mname.", "rname."),
-            mk_a_rr("example."),
-        ];
+        let records = [mk_a_rr("example.")];
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
         let res = generate_rrsigs(
@@ -935,10 +936,7 @@ mod tests {
     #[test]
     fn generate_rrsigs_without_suitable_keys_should_fail_for_non_empty_zone()
     {
-        let records = [
-            mk_soa_rr("example.", "mname.", "rname."),
-            mk_a_rr("example."),
-        ];
+        let records = [mk_a_rr("example.")];
 
         let res = generate_rrsigs(
             RecordsIter::new(&records),
@@ -1402,6 +1400,81 @@ mod tests {
     }
 
     #[test]
+    fn generate_rrsigs_for_complete_zone_with_multiple_ksks_and_zsks() {
+        let apex = "example.";
+        let records = [
+            mk_soa_rr(apex, "some.mname.", "some.rname."),
+            mk_ns_rr(apex, "ns.example."),
+            mk_a_rr("ns.example."),
+        ];
+
+        let keys = [
+            mk_dnssec_signing_key(IntendedKeyPurpose::KSK),
+            mk_dnssec_signing_key(IntendedKeyPurpose::KSK),
+            mk_dnssec_signing_key(IntendedKeyPurpose::ZSK),
+            mk_dnssec_signing_key(IntendedKeyPurpose::ZSK),
+        ];
+
+        let ksk1 = keys[0].public_key().to_dnskey().convert();
+        let ksk2 = keys[1].public_key().to_dnskey().convert();
+        let zsk1 = keys[2].public_key().to_dnskey().convert();
+        let zsk2 = keys[3].public_key().to_dnskey().convert();
+
+        let generated_records = generate_rrsigs(
+            RecordsIter::new(&records),
+            &keys,
+            &GenerateRrsigConfig::default(),
+        )
+        .unwrap();
+
+        // Check the generated records.
+        assert_eq!(generated_records.len(), 12);
+
+        // Filter out the records one by one until there should be none left.
+
+        let it = generated_records
+            .iter()
+            .filter(|&rr| rr != &mk_dnskey_rr(apex, &ksk1))
+            .filter(|&rr| rr != &mk_dnskey_rr(apex, &ksk2))
+            .filter(|&rr| rr != &mk_dnskey_rr(apex, &zsk1))
+            .filter(|&rr| rr != &mk_dnskey_rr(apex, &zsk2))
+            .filter(|&rr| {
+                rr != &mk_rrsig_rr(apex, Rtype::SOA, 1, apex, &zsk1)
+            })
+            .filter(|&rr| {
+                rr != &mk_rrsig_rr(apex, Rtype::SOA, 1, apex, &zsk2)
+            })
+            .filter(|&rr| {
+                rr != &mk_rrsig_rr(apex, Rtype::DNSKEY, 1, apex, &ksk1)
+            })
+            .filter(|&rr| {
+                rr != &mk_rrsig_rr(apex, Rtype::DNSKEY, 1, apex, &ksk2)
+            })
+            .filter(|&rr| rr != &mk_rrsig_rr(apex, Rtype::NS, 1, apex, &zsk1))
+            .filter(|&rr| rr != &mk_rrsig_rr(apex, Rtype::NS, 1, apex, &zsk2))
+            .filter(|&rr| {
+                rr != &mk_rrsig_rr("ns.example.", Rtype::A, 2, apex, &zsk1)
+            })
+            .filter(|&rr| {
+                rr != &mk_rrsig_rr("ns.example.", Rtype::A, 2, apex, &zsk2)
+            });
+
+        let mut it = it.inspect(|rr| {
+            eprint!(
+                "Warning: Unexpected record remaining after filtering: {} {}",
+                rr.owner(),
+                rr.rtype()
+            );
+            if let ZoneRecordData::Rrsig(rrsig) = rr.data() {
+                eprint!(" => {:?}", rrsig);
+            }
+            eprintln!();
+        });
+
+        assert!(it.next().is_none());
+    }
+
+    #[test]
     fn generate_rrsigs_for_already_signed_zone() {
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
 
@@ -1511,7 +1584,11 @@ mod tests {
             IntendedKeyPurpose::Inactive => 0,
         };
 
-        let key = SigningKey::new(StoredName::root_bytes(), flags, TestKey);
+        let key = SigningKey::new(
+            StoredName::root_bytes(),
+            flags,
+            TestKey::default(),
+        );
 
         let key = key.with_validity(
             Timestamp::from(TEST_INCEPTION),
@@ -1555,7 +1632,7 @@ mod tests {
     const TEST_SIGNATURE_RAW: [u8; 64] = [0u8; 64];
     const TEST_SIGNATURE: Bytes = Bytes::from_static(&TEST_SIGNATURE_RAW);
 
-    struct TestKey;
+    struct TestKey([u8; 32]);
 
     impl SignRaw for TestKey {
         fn algorithm(&self) -> SecAlg {
@@ -1563,11 +1640,17 @@ mod tests {
         }
 
         fn raw_public_key(&self) -> PublicKeyBytes {
-            PublicKeyBytes::Ed25519([0_u8; 32].into())
+            PublicKeyBytes::Ed25519(self.0.into())
         }
 
         fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {
             Ok(Signature::Ed25519(TEST_SIGNATURE_RAW.into()))
+        }
+    }
+
+    impl Default for TestKey {
+        fn default() -> Self {
+            Self(rand::thread_rng().gen())
         }
     }
 }
