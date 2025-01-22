@@ -1016,6 +1016,14 @@ mod tests {
     }
 
     #[test]
+    fn generate_rrsigs_for_complete_zone_with_csk_without_adding_dnskeys() {
+        let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
+        let cfg =
+            GenerateRrsigConfig::default().without_adding_used_dns_keys();
+        generate_rrsigs_for_complete_zone(&keys, 0, 0, &cfg).unwrap();
+    }
+
+    #[test]
     fn generate_rrsigs_for_complete_zone_with_only_zsk_should_fail_by_default(
     ) {
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::ZSK)];
@@ -1105,11 +1113,16 @@ mod tests {
 
         // -- example.
 
-        // DNSKEY records should have been generated for the apex for both of
-        // the keys that we used to sign the zone.
-        assert_eq!(*iter.next().unwrap(), mk_dnskey_rr("example.", ksk));
-        if ksk_idx != zsk_idx {
-            assert_eq!(*iter.next().unwrap(), mk_dnskey_rr("example.", zsk));
+        if cfg.add_used_dnskeys {
+            // DNSKEY records should have been generated for the apex for both
+            // of the keys that we used to sign the zone.
+            assert_eq!(*iter.next().unwrap(), mk_dnskey_rr("example.", ksk));
+            if ksk_idx != zsk_idx {
+                assert_eq!(
+                    *iter.next().unwrap(),
+                    mk_dnskey_rr("example.", zsk)
+                );
+            }
         }
 
         // RRSIG records should have been generated for the zone apex records,
