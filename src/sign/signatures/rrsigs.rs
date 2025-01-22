@@ -650,15 +650,13 @@ where
 #[cfg(test)]
 mod tests {
     use core::ops::RangeInclusive;
-    use core::str::FromStr;
 
     use bytes::Bytes;
     use pretty_assertions::assert_eq;
 
     use crate::base::iana::{Class, SecAlg};
-    use crate::base::{Serial, Ttl};
+    use crate::base::Serial;
     use crate::rdata::dnssec::Timestamp;
-    use crate::rdata::{Rrsig, A};
     use crate::sign::crypto::common::KeyPair;
     use crate::sign::error::SignError;
     use crate::sign::keys::keymeta::IntendedKeyPurpose;
@@ -684,10 +682,7 @@ mod tests {
         //   ...
         //   "For example, "www.example.com." has a Labels field value of 3"
         // We can use any class as RRSIGs are class independent.
-        let records = [mk_record(
-            "www.example.com.",
-            ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
-        )];
+        let records = [mk_a_rr("www.example.com.")];
         let rrset = Rrset::new(&records);
 
         let rrsig_rr = sign_rrset(&key, &rrset, &apex_owner).unwrap();
@@ -747,10 +742,7 @@ mod tests {
         // 3.1.3.  The Labels Field
         //   ...
         //   ""*.example.com." has a Labels field value of 2"
-        let records = [mk_record(
-            "*.example.com.",
-            ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
-        )];
+        let records = [mk_a_rr("*.example.com.")];
         let rrset = Rrset::new(&records);
 
         let rrsig_rr = sign_rrset(&key, &rrset, &apex_owner).unwrap();
@@ -772,21 +764,9 @@ mod tests {
         let apex_owner = Name::root();
         let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
         let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
+        let dnskey = key.public_key().to_dnskey().convert();
 
-        let dummy_rrsig = Rrsig::new(
-            Rtype::A,
-            SecAlg::PRIVATEDNS,
-            0,
-            Ttl::default(),
-            0.into(),
-            0.into(),
-            0,
-            Name::root(),
-            Bytes::new(),
-        )
-        .unwrap();
-
-        let records = [mk_record("any.", ZoneRecordData::Rrsig(dummy_rrsig))];
+        let records = [mk_rrsig_rr("any.", Rtype::A, 1, ".", &dnskey)];
         let rrset = Rrset::new(&records);
 
         let res = sign_rrset(&key, &rrset, &apex_owner);
@@ -815,10 +795,7 @@ mod tests {
         let apex_owner = Name::root();
         let key = SigningKey::new(apex_owner.clone(), 0, TestKey);
 
-        let records = [mk_record(
-            "any.",
-            ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()),
-        )];
+        let records = [mk_a_rr("any.")];
         let rrset = Rrset::new(&records);
 
         fn calc_timestamps(
@@ -933,10 +910,7 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_without_keys_should_fail_for_non_empty_zone() {
-        let records: [Record<StoredName, StoredRecordData>; 1] = [mk_record(
-            "example.",
-            ZoneRecordData::A(A::from_str("127.0.0.1").unwrap()),
-        )];
+        let records = [mk_a_rr("example.")];
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
         let res = generate_rrsigs(
@@ -954,12 +928,11 @@ mod tests {
 
         // This is an example of generating RRSIGs for something other than a
         // full zone, in this case just for NSECs, as is done by sign_zone().
-        let records: [Record<StoredName, StoredRecordData>; 1] =
-            [Record::from_record(mk_nsec_rr(
-                zone_apex,
-                "next.example.",
-                "A NSEC RRSIG",
-            ))];
+        let records = [Record::from_record(mk_nsec_rr(
+            zone_apex,
+            "next.example.",
+            "A NSEC RRSIG",
+        ))];
 
         // Prepare a zone signing key and a key signing key.
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
