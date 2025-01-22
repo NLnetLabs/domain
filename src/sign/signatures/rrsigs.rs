@@ -658,12 +658,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use core::ops::RangeInclusive;
-
     use bytes::Bytes;
     use pretty_assertions::assert_eq;
 
-    use crate::base::iana::{Class, SecAlg};
+    use crate::base::iana::SecAlg;
     use crate::base::Serial;
     use crate::rdata::dnssec::Timestamp;
     use crate::sign::crypto::common::KeyPair;
@@ -919,7 +917,10 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_without_keys_should_fail_for_non_empty_zone() {
-        let records = [mk_a_rr("example.")];
+        let records = [
+            mk_soa_rr("example.", "mname.", "rname."),
+            mk_a_rr("example."),
+        ];
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
         let res = generate_rrsigs(
@@ -932,26 +933,61 @@ mod tests {
     }
 
     #[test]
-    fn generate_rrsigs_for_partial_zone() {
-        let zone_apex = "example.";
+    fn generate_rrsigs_without_suitable_keys_should_fail_for_non_empty_zone()
+    {
+        let records = [
+            mk_soa_rr("example.", "mname.", "rname."),
+            mk_a_rr("example."),
+        ];
 
+        let res = generate_rrsigs(
+            RecordsIter::new(&records),
+            &[mk_dnssec_signing_key(IntendedKeyPurpose::KSK)],
+            &GenerateRrsigConfig::default(),
+        );
+        assert!(matches!(res, Err(SigningError::NoSuitableKeysFound)));
+
+        let res = generate_rrsigs(
+            RecordsIter::new(&records),
+            &[mk_dnssec_signing_key(IntendedKeyPurpose::ZSK)],
+            &GenerateRrsigConfig::default(),
+        );
+        assert!(matches!(res, Err(SigningError::NoSuitableKeysFound)));
+
+        let res = generate_rrsigs(
+            RecordsIter::new(&records),
+            &[mk_dnssec_signing_key(IntendedKeyPurpose::Inactive)],
+            &GenerateRrsigConfig::default(),
+        );
+        assert!(matches!(res, Err(SigningError::NoSuitableKeysFound)));
+    }
+
+    #[test]
+    fn generate_rrsigs_for_partial_zone_at_apex() {
+        generate_rrsigs_for_partial_zone("example.", "example.");
+    }
+
+    #[test]
+    fn generate_rrsigs_for_partial_zone_beneath_apex() {
+        generate_rrsigs_for_partial_zone("example.", "in.example.");
+    }
+
+    fn generate_rrsigs_for_partial_zone(zone_apex: &str, record_owner: &str) {
         // This is an example of generating RRSIGs for something other than a
-        // full zone, in this case just for NSECs, as is done by sign_zone().
-        let records = [Record::from_record(mk_nsec_rr(
-            zone_apex,
-            "next.example.",
-            "A NSEC RRSIG",
-        ))];
+        // full zone, in this case just for an A record. This test
+        // deliberately does not include a SOA record as the zone is partial.
+        let records = [mk_a_rr(record_owner)];
 
         // Prepare a zone signing key and a key signing key.
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
+        let dnskey = keys[0].public_key().to_dnskey().convert();
 
         // Generate RRSIGs. Use the default signing config and thus also the
         // DefaultSigningKeyUsageStrategy which will honour the purpose of the
         // key when selecting a key to use for signing DNSKEY RRs or other
         // zone RRs. We supply the zone apex because we are not supplying an
         // entire zone complete with SOA.
-        let rrsigs = generate_rrsigs(
+        let generated_records = generate_rrsigs(
             RecordsIter::new(&records),
             &keys,
             &GenerateRrsigConfig::default()
@@ -959,25 +995,107 @@ mod tests {
         )
         .unwrap();
 
-        // Check the generated RRSIG record
-        assert_eq!(rrsigs.len(), 1);
-        assert_eq!(rrsigs[0].owner(), &mk_name("example."));
-        assert_eq!(rrsigs[0].class(), Class::IN);
-        assert_eq!(rrsigs[0].rtype(), Rtype::RRSIG);
-
-        // Check the contained RRSIG RDATA
-        let ZoneRecordData::Rrsig(rrsig) = rrsigs[0].data() else {
-            panic!("RDATA is not RRSIG");
-        };
-        assert_eq!(rrsig.type_covered(), Rtype::NSEC);
-        assert_eq!(rrsig.algorithm(), keys[0].algorithm());
-        assert_eq!(rrsig.original_ttl(), TEST_TTL);
-        assert_eq!(rrsig.signer_name(), &mk_name(zone_apex));
-        assert_eq!(rrsig.key_tag(), keys[0].public_key().key_tag());
+        // Check the generated RRSIG records
+        let expected_labels = mk_name(record_owner).rrsig_label_count();
+        assert_eq!(generated_records.len(), 1);
         assert_eq!(
-            RangeInclusive::new(rrsig.inception(), rrsig.expiration()),
-            keys[0].signature_validity_period().unwrap()
+            generated_records[0],
+            mk_rrsig_rr(
+                record_owner,
+                Rtype::A,
+                expected_labels,
+                zone_apex,
+                &dnskey
+            )
         );
+    }
+
+    #[test]
+    fn generate_rrsigs_ignores_records_outside_the_zone() {
+        let records = [
+            mk_soa_rr("example.", "mname.", "rname."),
+            mk_a_rr("in_zone.example."),
+            mk_a_rr("out_of_zone."),
+        ];
+
+        // Prepare a zone signing key and a key signing key.
+        let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
+        let dnskey = keys[0].public_key().to_dnskey().convert();
+
+        let generated_records = generate_rrsigs(
+            RecordsIter::new(&records),
+            &keys,
+            &GenerateRrsigConfig::default(),
+        )
+        .unwrap();
+
+        // Check the generated records
+        assert_eq!(
+            generated_records,
+            [
+                mk_dnskey_rr("example.", &dnskey),
+                mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &dnskey),
+                mk_rrsig_rr(
+                    "example.",
+                    Rtype::DNSKEY,
+                    1,
+                    "example.",
+                    &dnskey
+                ),
+                mk_rrsig_rr(
+                    "in_zone.example.",
+                    Rtype::A,
+                    2,
+                    "example.",
+                    &dnskey
+                ),
+            ]
+        );
+
+        // Repeat but this time passing only the out-of-zone record in and
+        // show that it DOES get signed if not passed together with the first
+        // zone.
+        let generated_records = generate_rrsigs(
+            RecordsIter::new(&records[2..]),
+            &keys,
+            &GenerateRrsigConfig::default(),
+        )
+        .unwrap();
+
+        // Check the generated RRSIG records
+        assert_eq!(
+            generated_records,
+            [mk_rrsig_rr(
+                "out_of_zone.",
+                Rtype::A,
+                1,
+                "out_of_zone.",
+                &dnskey
+            )]
+        );
+    }
+
+    #[test]
+    fn generate_rrsigs_fails_with_multiple_soas_at_apex() {
+        let records = [
+            mk_soa_rr("example.", "mname.", "rname."),
+            mk_soa_rr("example.", "other.mname.", "other.rname."),
+            mk_a_rr("in_zone.example."),
+        ];
+
+        // Prepare a zone signing key and a key signing key.
+        let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
+
+        let res = generate_rrsigs(
+            RecordsIter::new(&records),
+            &keys,
+            &GenerateRrsigConfig::default(),
+        );
+
+        assert!(matches!(
+            res,
+            Err(SigningError::SoaRecordCouldNotBeDetermined)
+        ));
     }
 
     #[test]

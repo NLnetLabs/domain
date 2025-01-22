@@ -8,8 +8,6 @@ example.        3600    IN      SOA     ns1.example. bugs.x.w.example. 108153937
 example.        3600    IN      NS      ns2.example.
 example.        3600    IN      NS      ns1.example.
 example.        3600    IN      MX      1 xx.example.
-example.        3600    IN      DNSKEY  257 3 8 AwEAAaYL5iwWI6UgSQVcDZmH7DrhQU/P6cOfi4wXYDzHypsfZ1D8znPwoAqhj54kTBVqgZDHw8QEnMcS3TWxvHBvncRTIXhCLx0BNK5/6mcTSK2IDbxl0j4vkcQrOxc77tyExuFfuXouuKVtE7rggOJiX6ga5LJW2if6Jxe/Rh8+aJv7 ;{id = 31967 (ksk), size = 1024b}
-example.        3600    IN      DNSKEY  256 3 8 AwEAAbsD4Tcz8hl2Rldov4CrfYpK3ORIh/giSGDlZaDTZR4gpGxGvMBwu2jzQ3m0iX3PvqPoaybC4tznjlJi8g/qsCRHhOkqWmjtmOYOJXEuUTb+4tPBkiboJM5QchxTfKxkYbJ2AD+VAUX1S6h/0DI0ZCGx1H90QTBE2ymRgHBwUfBt ;{id = 38353 (zsk), size = 1024b}
 a.example.      3600    IN      NS      ns2.a.example.
 a.example.      3600    IN      NS      ns1.a.example.
 a.example.      3600    IN      DS      57855 5 1 b6dcd485719adca18e5f3d48a2331627fdd3636b

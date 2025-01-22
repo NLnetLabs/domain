@@ -303,11 +303,7 @@ mod tests {
         assert_eq!(
             nsecs,
             [
-                mk_nsec_rr(
-                    "example.",
-                    "a.example",
-                    "NS SOA MX RRSIG NSEC DNSKEY"
-                ),
+                mk_nsec_rr("example.", "a.example", "NS SOA MX RRSIG NSEC"),
                 mk_nsec_rr("a.example.", "ai.example", "NS DS RRSIG NSEC"),
                 mk_nsec_rr(
                     "ai.example.",
