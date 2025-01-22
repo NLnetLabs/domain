@@ -81,11 +81,20 @@ impl<N> Default
 /// Generate RRSIG RRs for a collection of zone records.
 ///
 /// Returns the collection of RRSIG and (optionally) DNSKEY RRs that must be
-/// added to the given records as part of DNSSEC zone signing.
+/// added to the input records as part of DNSSEC zone signing.
 ///
-/// The given records MUST be sorted according to [`CanonicalOrd`].
+/// The input records MUST be sorted according to [`CanonicalOrd`].
 ///
-/// Any existing RRSIG records will be ignored.
+/// Any RRSIG records in the input will be ignored. New, and replacement (if
+/// already present), RRSIGs will be generated and included in the output.
+///
+/// If [`GenerateRrsigConfig::add_used_dnskeys`] is true, for the subset of
+/// the input keys that are used to sign records, if they lack a corresponding
+/// DNSKEY RR in the input records the missing DNSKEY RR will be generated and
+/// included in the output.
+///
+/// Note that the order of the output records should not be relied upon and is
+/// subject to change.
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
 pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
