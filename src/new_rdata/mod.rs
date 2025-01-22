@@ -4,9 +4,9 @@ use domain_macros::*;
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
-    parse::{ParseFromMessage, SplitFromMessage},
+    parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
-    Message, ParseRecordData, RType,
+    ParseRecordData, RType,
 };
 
 //----------- Concrete record data types -------------------------------------
@@ -67,42 +67,48 @@ pub enum RecordData<'a, N> {
 
 impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>
 where
-    N: SplitBytes<'a> + SplitFromMessage<'a>,
+    N: SplitBytes<'a> + SplitMessageBytes<'a>,
 {
     fn parse_record_data(
-        message: &'a Message,
+        contents: &'a [u8],
         start: usize,
         rtype: RType,
     ) -> Result<Self, ParseError> {
         match rtype {
-            RType::A => <&A>::parse_from_message(message, start).map(Self::A),
-            RType::NS => Ns::parse_from_message(message, start).map(Self::Ns),
+            RType::A => {
+                <&A>::parse_message_bytes(contents, start).map(Self::A)
+            }
+            RType::NS => {
+                Ns::parse_message_bytes(contents, start).map(Self::Ns)
+            }
             RType::CNAME => {
-                CName::parse_from_message(message, start).map(Self::CName)
+                CName::parse_message_bytes(contents, start).map(Self::CName)
             }
             RType::SOA => {
-                Soa::parse_from_message(message, start).map(Self::Soa)
+                Soa::parse_message_bytes(contents, start).map(Self::Soa)
             }
             RType::WKS => {
-                <&Wks>::parse_from_message(message, start).map(Self::Wks)
+                <&Wks>::parse_message_bytes(contents, start).map(Self::Wks)
             }
             RType::PTR => {
-                Ptr::parse_from_message(message, start).map(Self::Ptr)
+                Ptr::parse_message_bytes(contents, start).map(Self::Ptr)
             }
             RType::HINFO => {
-                HInfo::parse_from_message(message, start).map(Self::HInfo)
+                HInfo::parse_message_bytes(contents, start).map(Self::HInfo)
             }
-            RType::MX => Mx::parse_from_message(message, start).map(Self::Mx),
+            RType::MX => {
+                Mx::parse_message_bytes(contents, start).map(Self::Mx)
+            }
             RType::TXT => {
-                <&Txt>::parse_from_message(message, start).map(Self::Txt)
+                <&Txt>::parse_message_bytes(contents, start).map(Self::Txt)
             }
             RType::AAAA => {
-                <&Aaaa>::parse_from_message(message, start).map(Self::Aaaa)
+                <&Aaaa>::parse_message_bytes(contents, start).map(Self::Aaaa)
             }
             RType::OPT => {
-                <&Opt>::parse_from_message(message, start).map(Self::Opt)
+                <&Opt>::parse_message_bytes(contents, start).map(Self::Opt)
             }
-            _ => <&UnknownRecordData>::parse_from_message(message, start)
+            _ => <&UnknownRecordData>::parse_message_bytes(contents, start)
                 .map(|data| Self::Unknown(rtype, data)),
         }
     }

@@ -5,9 +5,8 @@ use domain_macros::*;
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
     name::RevNameBuf,
-    parse::{ParseFromMessage, SplitFromMessage},
+    parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{AsBytes, ParseError, U16},
-    Message,
 };
 
 //----------- Question -------------------------------------------------------
@@ -43,32 +42,32 @@ impl<N> Question<N> {
 
 //--- Parsing from DNS messages
 
-impl<'a, N> SplitFromMessage<'a> for Question<N>
+impl<'a, N> SplitMessageBytes<'a> for Question<N>
 where
-    N: SplitFromMessage<'a>,
+    N: SplitMessageBytes<'a>,
 {
-    fn split_from_message(
-        message: &'a Message,
+    fn split_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        let (qname, rest) = N::split_from_message(message, start)?;
-        let (&qtype, rest) = <&QType>::split_from_message(message, rest)?;
-        let (&qclass, rest) = <&QClass>::split_from_message(message, rest)?;
+        let (qname, rest) = N::split_message_bytes(contents, start)?;
+        let (&qtype, rest) = <&QType>::split_message_bytes(contents, rest)?;
+        let (&qclass, rest) = <&QClass>::split_message_bytes(contents, rest)?;
         Ok((Self::new(qname, qtype, qclass), rest))
     }
 }
 
-impl<'a, N> ParseFromMessage<'a> for Question<N>
+impl<'a, N> ParseMessageBytes<'a> for Question<N>
 where
-    N: SplitFromMessage<'a>,
+    N: SplitMessageBytes<'a>,
 {
-    fn parse_from_message(
-        message: &'a Message,
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (qname, rest) = N::split_from_message(message, start)?;
-        let (&qtype, rest) = <&QType>::split_from_message(message, rest)?;
-        let &qclass = <&QClass>::parse_from_message(message, rest)?;
+        let (qname, rest) = N::split_message_bytes(contents, start)?;
+        let (&qtype, rest) = <&QType>::split_message_bytes(contents, rest)?;
+        let &qclass = <&QClass>::parse_message_bytes(contents, rest)?;
         Ok(Self::new(qname, qtype, qclass))
     }
 }

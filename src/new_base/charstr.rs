@@ -4,9 +4,8 @@ use core::fmt;
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
-    parse::{ParseFromMessage, SplitFromMessage},
+    parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
-    Message,
 };
 
 //----------- CharStr --------------------------------------------------------
@@ -20,27 +19,22 @@ pub struct CharStr {
 
 //--- Parsing from DNS messages
 
-impl<'a> SplitFromMessage<'a> for &'a CharStr {
-    fn split_from_message(
-        message: &'a Message,
+impl<'a> SplitMessageBytes<'a> for &'a CharStr {
+    fn split_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        let bytes = message.contents.get(start..).ok_or(ParseError)?;
-        let (this, rest) = Self::split_bytes(bytes)?;
-        Ok((this, bytes.len() - rest.len()))
+        Self::split_bytes(&contents[start..])
+            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
     }
 }
 
-impl<'a> ParseFromMessage<'a> for &'a CharStr {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a> ParseMessageBytes<'a> for &'a CharStr {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        message
-            .contents
-            .get(start..)
-            .ok_or(ParseError)
-            .and_then(Self::parse_bytes)
+        Self::parse_bytes(&contents[start..])
     }
 }
 

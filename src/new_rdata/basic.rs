@@ -14,9 +14,9 @@ use domain_macros::*;
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
-    parse::{ParseFromMessage, SplitFromMessage},
+    parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{AsBytes, ParseBytes, ParseError, SplitBytes, U16, U32},
-    CharStr, Message, Serial,
+    CharStr, Serial,
 };
 
 //----------- A --------------------------------------------------------------
@@ -114,12 +114,12 @@ pub struct Ns<N: ?Sized> {
 
 //--- Parsing from DNS messages
 
-impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ns<N> {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Ns<N> {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        N::parse_from_message(message, start).map(|name| Self { name })
+        N::parse_message_bytes(contents, start).map(|name| Self { name })
     }
 }
 
@@ -155,12 +155,12 @@ pub struct CName<N: ?Sized> {
 
 //--- Parsing from DNS messages
 
-impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for CName<N> {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for CName<N> {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        N::parse_from_message(message, start).map(|name| Self { name })
+        N::parse_message_bytes(contents, start).map(|name| Self { name })
     }
 }
 
@@ -211,18 +211,18 @@ pub struct Soa<N> {
 
 //--- Parsing from DNS messages
 
-impl<'a, N: SplitFromMessage<'a>> ParseFromMessage<'a> for Soa<N> {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a, N: SplitMessageBytes<'a>> ParseMessageBytes<'a> for Soa<N> {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (mname, rest) = N::split_from_message(message, start)?;
-        let (rname, rest) = N::split_from_message(message, rest)?;
-        let (&serial, rest) = <&Serial>::split_from_message(message, rest)?;
-        let (&refresh, rest) = <&U32>::split_from_message(message, rest)?;
-        let (&retry, rest) = <&U32>::split_from_message(message, rest)?;
-        let (&expire, rest) = <&U32>::split_from_message(message, rest)?;
-        let &minimum = <&U32>::parse_from_message(message, rest)?;
+        let (mname, rest) = N::split_message_bytes(contents, start)?;
+        let (rname, rest) = N::split_message_bytes(contents, rest)?;
+        let (&serial, rest) = <&Serial>::split_message_bytes(contents, rest)?;
+        let (&refresh, rest) = <&U32>::split_message_bytes(contents, rest)?;
+        let (&retry, rest) = <&U32>::split_message_bytes(contents, rest)?;
+        let (&expire, rest) = <&U32>::split_message_bytes(contents, rest)?;
+        let &minimum = <&U32>::parse_message_bytes(contents, rest)?;
 
         Ok(Self {
             mname,
@@ -330,12 +330,12 @@ pub struct Ptr<N: ?Sized> {
 
 //--- Parsing from DNS messages
 
-impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Ptr<N> {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Ptr<N> {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        N::parse_from_message(message, start).map(|name| Self { name })
+        N::parse_message_bytes(contents, start).map(|name| Self { name })
     }
 }
 
@@ -361,16 +361,12 @@ pub struct HInfo<'a> {
 
 //--- Parsing from DNS messages
 
-impl<'a> ParseFromMessage<'a> for HInfo<'a> {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a> ParseMessageBytes<'a> for HInfo<'a> {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        message
-            .contents
-            .get(start..)
-            .ok_or(ParseError)
-            .and_then(Self::parse_bytes)
+        Self::parse_bytes(&contents[start..])
     }
 }
 
@@ -414,13 +410,14 @@ pub struct Mx<N: ?Sized> {
 
 //--- Parsing from DNS messages
 
-impl<'a, N: ParseFromMessage<'a>> ParseFromMessage<'a> for Mx<N> {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Mx<N> {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (&preference, rest) = <&U16>::split_from_message(message, start)?;
-        let exchange = N::parse_from_message(message, rest)?;
+        let (&preference, rest) =
+            <&U16>::split_message_bytes(contents, start)?;
+        let exchange = N::parse_message_bytes(contents, rest)?;
         Ok(Self {
             preference,
             exchange,
@@ -471,16 +468,12 @@ impl Txt {
 
 //--- Parsing from DNS messages
 
-impl<'a> ParseFromMessage<'a> for &'a Txt {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a> ParseMessageBytes<'a> for &'a Txt {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        message
-            .contents
-            .get(start..)
-            .ok_or(ParseError)
-            .and_then(Self::parse_bytes)
+        Self::parse_bytes(&contents[start..])
     }
 }
 

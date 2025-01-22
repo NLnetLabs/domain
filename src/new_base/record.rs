@@ -5,12 +5,11 @@ use core::{borrow::Borrow, ops::Deref};
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
     name::RevNameBuf,
-    parse::{ParseFromMessage, SplitFromMessage},
+    parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{
         AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
         SizePrefixed, SplitBytes, SplitBytesByRef, TruncationError, U16, U32,
     },
-    Message,
 };
 
 //----------- Record ---------------------------------------------------------
@@ -60,44 +59,44 @@ impl<N, D> Record<N, D> {
 
 //--- Parsing from DNS messages
 
-impl<'a, N, D> SplitFromMessage<'a> for Record<N, D>
+impl<'a, N, D> SplitMessageBytes<'a> for Record<N, D>
 where
-    N: SplitFromMessage<'a>,
+    N: SplitMessageBytes<'a>,
     D: ParseRecordData<'a>,
 {
-    fn split_from_message(
-        message: &'a Message,
+    fn split_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        let (rname, rest) = N::split_from_message(message, start)?;
-        let (&rtype, rest) = <&RType>::split_from_message(message, rest)?;
-        let (&rclass, rest) = <&RClass>::split_from_message(message, rest)?;
-        let (&ttl, rest) = <&TTL>::split_from_message(message, rest)?;
+        let (rname, rest) = N::split_message_bytes(contents, start)?;
+        let (&rtype, rest) = <&RType>::split_message_bytes(contents, rest)?;
+        let (&rclass, rest) = <&RClass>::split_message_bytes(contents, rest)?;
+        let (&ttl, rest) = <&TTL>::split_message_bytes(contents, rest)?;
         let rdata_start = rest;
         let (_, rest) =
-            <&SizePrefixed<[u8]>>::split_from_message(message, rest)?;
-        let message = message.slice_to(rest);
-        let rdata = D::parse_record_data(message, rdata_start, rtype)?;
+            <&SizePrefixed<[u8]>>::split_message_bytes(contents, rest)?;
+        let rdata =
+            D::parse_record_data(&contents[..rest], rdata_start, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
     }
 }
 
-impl<'a, N, D> ParseFromMessage<'a> for Record<N, D>
+impl<'a, N, D> ParseMessageBytes<'a> for Record<N, D>
 where
-    N: SplitFromMessage<'a>,
+    N: SplitMessageBytes<'a>,
     D: ParseRecordData<'a>,
 {
-    fn parse_from_message(
-        message: &'a Message,
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (rname, rest) = N::split_from_message(message, start)?;
-        let (&rtype, rest) = <&RType>::split_from_message(message, rest)?;
-        let (&rclass, rest) = <&RClass>::split_from_message(message, rest)?;
-        let (&ttl, rest) = <&TTL>::split_from_message(message, rest)?;
-        let _ = <&SizePrefixed<[u8]>>::parse_from_message(message, rest)?;
-        let rdata = D::parse_record_data(message, rest, rtype)?;
+        let (rname, rest) = N::split_message_bytes(contents, start)?;
+        let (&rtype, rest) = <&RType>::split_message_bytes(contents, rest)?;
+        let (&rclass, rest) = <&RClass>::split_message_bytes(contents, rest)?;
+        let (&ttl, rest) = <&TTL>::split_message_bytes(contents, rest)?;
+        let _ = <&SizePrefixed<[u8]>>::parse_message_bytes(contents, rest)?;
+        let rdata = D::parse_record_data(contents, rest, rtype)?;
 
         Ok(Self::new(rname, rtype, rclass, ttl, rdata))
     }
@@ -305,12 +304,11 @@ pub struct TTL {
 pub trait ParseRecordData<'a>: Sized {
     /// Parse DNS record data of the given type from a DNS message.
     fn parse_record_data(
-        message: &'a Message,
+        contents: &'a [u8],
         start: usize,
         rtype: RType,
     ) -> Result<Self, ParseError> {
-        let bytes = message.contents.get(start..).ok_or(ParseError)?;
-        Self::parse_record_data_bytes(bytes, rtype)
+        Self::parse_record_data_bytes(&contents[start..], rtype)
     }
 
     /// Parse DNS record data of the given type from a byte string.

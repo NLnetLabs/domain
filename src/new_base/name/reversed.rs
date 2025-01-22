@@ -10,9 +10,8 @@ use core::{
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
-    parse::{ParseFromMessage, SplitFromMessage},
+    parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
-    Message,
 };
 
 use super::LabelIter;
@@ -239,9 +238,9 @@ impl RevNameBuf {
 
 //--- Parsing from DNS messages
 
-impl<'a> SplitFromMessage<'a> for RevNameBuf {
-    fn split_from_message(
-        message: &'a Message,
+impl<'a> SplitMessageBytes<'a> for RevNameBuf {
+    fn split_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         // NOTE: The input may be controlled by an attacker.  Compression
@@ -251,7 +250,6 @@ impl<'a> SplitFromMessage<'a> for RevNameBuf {
         // disallow a name to point to data _after_ it.  Standard name
         // compressors will never generate such pointers.
 
-        let contents = &message.contents;
         let mut buffer = Self::empty();
 
         // Perform the first iteration early, to catch the end of the name.
@@ -282,16 +280,15 @@ impl<'a> SplitFromMessage<'a> for RevNameBuf {
     }
 }
 
-impl<'a> ParseFromMessage<'a> for RevNameBuf {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a> ParseMessageBytes<'a> for RevNameBuf {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
         // See 'split_from_message()' for details.  The only differences are
         // in the range of the first iteration, and the check that the first
         // iteration exactly covers the input range.
 
-        let contents = &message.contents;
         let mut buffer = Self::empty();
 
         // Perform the first iteration early, to catch the end of the name.

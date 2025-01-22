@@ -8,12 +8,11 @@ use domain_macros::*;
 
 use crate::{
     new_base::{
-        parse::{ParseFromMessage, SplitFromMessage},
+        parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
             SizePrefixed, SplitBytes, TruncationError, U16,
         },
-        Message,
     },
     new_rdata::Opt,
 };
@@ -49,27 +48,22 @@ pub struct EdnsRecord<'a> {
 
 //--- Parsing from DNS messages
 
-impl<'a> SplitFromMessage<'a> for EdnsRecord<'a> {
-    fn split_from_message(
-        message: &'a Message,
+impl<'a> SplitMessageBytes<'a> for EdnsRecord<'a> {
+    fn split_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        let bytes = message.contents.get(start..).ok_or(ParseError)?;
-        let (this, rest) = Self::split_bytes(bytes)?;
-        Ok((this, message.contents.len() - rest.len()))
+        Self::split_bytes(&contents[start..])
+            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
     }
 }
 
-impl<'a> ParseFromMessage<'a> for EdnsRecord<'a> {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a> ParseMessageBytes<'a> for EdnsRecord<'a> {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        message
-            .contents
-            .get(start..)
-            .ok_or(ParseError)
-            .and_then(Self::parse_bytes)
+        Self::parse_bytes(&contents[start..])
     }
 }
 

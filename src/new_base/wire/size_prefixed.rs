@@ -7,8 +7,7 @@ use core::{
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
-    parse::{ParseFromMessage, SplitFromMessage},
-    Message,
+    parse::{ParseMessageBytes, SplitMessageBytes},
 };
 
 use super::{
@@ -110,31 +109,28 @@ impl<T: ?Sized> AsMut<T> for SizePrefixed<T> {
 
 //--- Parsing from DNS messages
 
-impl<'b, T: ParseFromMessage<'b>> ParseFromMessage<'b> for SizePrefixed<T> {
-    fn parse_from_message(
-        message: &'b Message,
+impl<'b, T: ParseMessageBytes<'b>> ParseMessageBytes<'b> for SizePrefixed<T> {
+    fn parse_message_bytes(
+        contents: &'b [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (&size, rest) = <&U16>::split_from_message(message, start)?;
-        if rest + size.get() as usize != message.contents.len() {
+        let (&size, rest) = <&U16>::split_message_bytes(contents, start)?;
+        if rest + size.get() as usize != contents.len() {
             return Err(ParseError);
         }
-        T::parse_from_message(message, rest).map(Self::new)
+        T::parse_message_bytes(contents, rest).map(Self::new)
     }
 }
 
-impl<'b, T: ParseFromMessage<'b>> SplitFromMessage<'b> for SizePrefixed<T> {
-    fn split_from_message(
-        message: &'b Message,
+impl<'b, T: ParseMessageBytes<'b>> SplitMessageBytes<'b> for SizePrefixed<T> {
+    fn split_message_bytes(
+        contents: &'b [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        let (&size, rest) = <&U16>::split_from_message(message, start)?;
+        let (&size, rest) = <&U16>::split_message_bytes(contents, start)?;
         let (start, rest) = (rest, rest + size.get() as usize);
-        if rest > message.contents.len() {
-            return Err(ParseError);
-        }
-        let message = message.slice_to(rest);
-        let data = T::parse_from_message(message, start)?;
+        let contents = contents.get(..rest).ok_or(ParseError)?;
+        let data = T::parse_message_bytes(contents, start)?;
         Ok((Self::new(data), rest))
     }
 }

@@ -3,9 +3,8 @@
 use domain_macros::*;
 
 use crate::new_base::{
-    parse::{ParseFromMessage, SplitFromMessage},
+    parse::{ParseMessageBytes, SplitMessageBytes},
     wire::ParseError,
-    Message,
 };
 
 //----------- UnparsedName ---------------------------------------------------
@@ -77,12 +76,12 @@ impl UnparsedName {
 
 //--- Parsing from DNS messages
 
-impl<'a> SplitFromMessage<'a> for &'a UnparsedName {
-    fn split_from_message(
-        message: &'a Message,
+impl<'a> SplitMessageBytes<'a> for &'a UnparsedName {
+    fn split_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        let bytes = message.contents.get(start..).ok_or(ParseError)?;
+        let bytes = &contents[start..];
         let mut offset = 0;
         let offset = loop {
             match bytes[offset..] {
@@ -120,12 +119,12 @@ impl<'a> SplitFromMessage<'a> for &'a UnparsedName {
     }
 }
 
-impl<'a> ParseFromMessage<'a> for &'a UnparsedName {
-    fn parse_from_message(
-        message: &'a Message,
+impl<'a> ParseMessageBytes<'a> for &'a UnparsedName {
+    fn parse_message_bytes(
+        contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let bytes = message.contents.get(start..).ok_or(ParseError)?;
+        let bytes = &contents[start..];
         let mut offset = 0;
         loop {
             match bytes[offset..] {
