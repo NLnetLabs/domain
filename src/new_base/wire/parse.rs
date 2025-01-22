@@ -89,8 +89,7 @@ impl<'a> SplitBytes<'a> for u8 {
 /// Deriving [`SplitBytes`] automatically.
 ///
 /// [`SplitBytes`] can be derived on `struct`s (not `enum`s or `union`s).  All
-/// fields except the last must implement [`SplitBytes`], while the last field
-/// only needs to implement [`SplitBytes`].
+/// fields must implement [`SplitBytes`].
 ///
 /// Here's a simple example:
 ///
