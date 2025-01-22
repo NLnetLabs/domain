@@ -217,7 +217,7 @@ impl SecretKeyBytes {
                 k == "Private-key-format"
                     && v.strip_prefix("v1.")
                         .and_then(|minor| minor.parse::<u8>().ok())
-                        .map_or(false, |minor| minor >= 2)
+                        .is_some_and(|minor| minor >= 2)
             })
             .ok_or(BindFormatError::UnsupportedFormat)?;
 
