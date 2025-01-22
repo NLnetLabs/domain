@@ -1070,7 +1070,7 @@ mod tests {
         keys: &[DnssecSigningKey<Bytes, TestKey>],
         ksk_idx: usize,
         zsk_idx: usize,
-        config: &GenerateRrsigConfig<StoredName, KeyStrat, DefaultSorter>,
+        cfg: &GenerateRrsigConfig<StoredName, KeyStrat, DefaultSorter>,
     ) -> Result<(), SigningError>
     where
         KeyStrat: SigningKeyUsageStrategy<Bytes, TestKey>,
@@ -1085,7 +1085,7 @@ mod tests {
 
         // Generate DNSKEYs and RRSIGs.
         let generated_records =
-            generate_rrsigs(RecordsIter::new(&records), keys, config)?;
+            generate_rrsigs(RecordsIter::new(&records), keys, cfg)?;
 
         let dnskeys = keys
             .iter()
