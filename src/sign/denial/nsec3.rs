@@ -35,6 +35,7 @@ use crate::validate::{nsec3_hash, Nsec3HashError};
 /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077.html
 /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
 // TODO: Add mutable iterator based variant.
+#[must_use]
 pub fn generate_nsec3s<N, Octs, HashProvider, Sort>(
     ttl: Ttl,
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,

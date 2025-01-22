@@ -88,6 +88,7 @@ impl<N> Default
 /// Any existing RRSIG records will be ignored.
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
+#[must_use]
 pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[DSK],
@@ -513,6 +514,7 @@ where
 /// If signing multiple RRsets, calling [`sign_rrset_in()`] directly will be
 /// more efficient as you can allocate the scratch buffer once and re-use it
 /// across multiple calls.
+#[must_use]
 pub fn sign_rrset<N, D, Octs, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset: &Rrset<'_, N, D>,
@@ -551,6 +553,7 @@ where
 ///     https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2
 /// [RFC 6840 section 5.11]:
 ///     https://www.rfc-editor.org/rfc/rfc6840.html#section-5.11
+#[must_use]
 pub fn sign_rrset_in<N, D, Octs, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset: &Rrset<'_, N, D>,

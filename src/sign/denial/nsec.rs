@@ -38,6 +38,7 @@ use crate::sign::records::RecordsIter;
 /// [`CanonicalOrd`]: crate::base::cmp::CanonicalOrd
 // TODO: Add (mutable?) iterator based variant.
 #[allow(clippy::type_complexity)]
+#[must_use]
 pub fn generate_nsecs<N, Octs>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     assume_dnskeys_will_be_added: bool,
