@@ -661,6 +661,7 @@ mod tests {
     use crate::rdata::{Rrsig, A};
     use crate::sign::crypto::common::KeyPair;
     use crate::sign::error::SignError;
+    use crate::sign::keys::keymeta::IntendedKeyPurpose;
     use crate::sign::keys::DnssecSigningKey;
     use crate::sign::test_util::*;
     use crate::sign::{test_util, PublicKeyBytes, Signature};
@@ -668,7 +669,6 @@ mod tests {
     use crate::zonetree::{StoredName, StoredRecord};
 
     use super::*;
-    use crate::sign::keys::keymeta::IntendedKeyPurpose;
 
     const TEST_INCEPTION: u32 = 0;
     const TEST_EXPIRATION: u32 = 100;
