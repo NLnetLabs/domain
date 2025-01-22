@@ -1083,7 +1083,10 @@ mod tests {
         // The records should be in a fixed canonical order because the input
         // records must be in canonical order, with the exception of the added
         // DNSKEY RRs which will be ordered in the order in the supplied
-        // collection of keys to sign with.
+        // collection of keys to sign with. While we tell users of
+        // generate_rrsigs() not to rely on the order of the output, we assume
+        // that we know what that order is for this test, but would have to
+        // update this test if that order later changes.
         //
         // We check each record explicitly by index because assert_eq() on an
         // array of objects that includes Rrsig produces hard to read output
@@ -1278,6 +1281,101 @@ mod tests {
         assert!(iter.next().is_none());
 
         Ok(())
+    }
+
+    #[test]
+    fn generate_rrsigs_for_already_signed_zone() {
+        let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
+
+        let dnskey = keys[0].public_key().to_dnskey().convert();
+
+        let records = [
+            // -- example.
+            mk_soa_rr("example.", "some.mname.", "some.rname."),
+            mk_ns_rr("example.", "ns.example."),
+            mk_dnskey_rr("example.", &dnskey),
+            Record::from_record(mk_nsec_rr(
+                "example",
+                "ns.example.",
+                "SOA NS DNSKEY NSEC RRSIG",
+            )),
+            mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &dnskey),
+            mk_rrsig_rr("example.", Rtype::NS, 1, "example.", &dnskey),
+            mk_rrsig_rr("example.", Rtype::DNSKEY, 1, "example.", &dnskey),
+            mk_rrsig_rr("example.", Rtype::NSEC, 1, "example.", &dnskey),
+            // -- ns.example.
+            mk_a_rr("ns.example."),
+            Record::from_record(mk_nsec_rr(
+                "ns.example",
+                "example.",
+                "A NSEC RRSIG",
+            )),
+            mk_rrsig_rr("ns.example.", Rtype::A, 1, "example.", &dnskey),
+            mk_rrsig_rr("ns.example.", Rtype::NSEC, 1, "example.", &dnskey),
+        ];
+
+        let generated_records = generate_rrsigs(
+            RecordsIter::new(&records),
+            &keys,
+            &GenerateRrsigConfig::default(),
+        )
+        .unwrap();
+
+        // Check the generated records.
+        let mut iter = generated_records.iter();
+
+        // The records should be in a fixed canonical order because the input
+        // records must be in canonical order, with the exception of the added
+        // DNSKEY RRs which will be ordered in the order in the supplied
+        // collection of keys to sign with. While we tell users of
+        // generate_rrsigs() not to rely on the order of the output, we assume
+        // that we know what that order is for this test, but would have to
+        // update this test if that order later changes.
+        //
+        // We check each record explicitly by index because assert_eq() on an
+        // array of objects that includes Rrsig produces hard to read output
+        // due to the large RRSIG signature bytes being printed one byte per
+        // line. It also wouldn't support dynamically checking for certain
+        // records based on the signing configuration used.
+
+        // -- example.
+
+        // The DNSKEY was already present in the zone so we do NOT expect a
+        // DNSKEY to be included in the output.
+
+        // RRSIG records should have been generated for the zone apex records,
+        // one RRSIG per ZSK used, even if RRSIG RRs already exist.
+        assert_eq!(
+            *iter.next().unwrap(),
+            mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &dnskey)
+        );
+        assert_eq!(
+            *iter.next().unwrap(),
+            mk_rrsig_rr("example.", Rtype::NS, 1, "example.", &dnskey)
+        );
+        assert_eq!(
+            *iter.next().unwrap(),
+            mk_rrsig_rr("example.", Rtype::NSEC, 1, "example.", &dnskey)
+        );
+        assert_eq!(
+            *iter.next().unwrap(),
+            mk_rrsig_rr("example.", Rtype::DNSKEY, 1, "example.", &dnskey)
+        );
+
+        // -- ns.example.
+
+        assert_eq!(
+            *iter.next().unwrap(),
+            mk_rrsig_rr("ns.example.", Rtype::A, 2, "example.", &dnskey)
+        );
+        assert_eq!(
+            *iter.next().unwrap(),
+            mk_rrsig_rr("ns.example.", Rtype::NSEC, 2, "example.", &dnskey)
+        );
+
+        // No other records should have been generated.
+
+        assert!(iter.next().is_none());
     }
 
     //------------ Helper fns ------------------------------------------------
