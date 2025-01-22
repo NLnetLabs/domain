@@ -495,7 +495,6 @@ where
     ///
     /// This function is a thin wrapper around [`generate_rrsigs()`].
     #[allow(clippy::type_complexity)]
-    #[must_use]
     fn sign<KeyStrat>(
         &self,
         expected_apex: &N,
