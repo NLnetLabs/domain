@@ -1082,7 +1082,8 @@ mod tests {
         // We check each record explicitly by index because assert_eq() on an
         // array of objects that includes Rrsig produces hard to read output
         // due to the large RRSIG signature bytes being printed one byte per
-        // line.
+        // line. It also wouldn't support dynamically checking for certain
+        // records based on the signing configuration used.
 
         // NOTE: As we only invoked generate_rrsigs() and not generate_nsecs()
         // there will not be any RRSIGs covering NSEC records.
@@ -1102,8 +1103,7 @@ mod tests {
         }
 
         // RRSIG records should have been generated for the zone apex records,
-        // one RRSIG per ZSK used (we used one ZSK so only one RRSIG per
-        // record).
+        // one RRSIG per ZSK used.
         assert_eq!(
             *iter.next().unwrap(),
             mk_rrsig_rr("example.", Rtype::NS, 1, "example.", zsk)
