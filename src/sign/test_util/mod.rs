@@ -1,18 +1,26 @@
 use core::str::FromStr;
 
+use std::fmt::Debug;
 use std::io::Read;
+use std::string::ToString;
+use std::vec::Vec;
 
 use bytes::Bytes;
 
 use crate::base::iana::{Class, SecAlg};
 use crate::base::name::FlattenInto;
-use crate::base::{Record, Rtype, Serial, Ttl};
+use crate::base::{Name, Record, Rtype, Serial, ToName, Ttl};
 use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
-use crate::rdata::{Dnskey, Ns, Nsec, Rrsig, Soa, A};
+use crate::rdata::nsec3::OwnerHash;
+use crate::rdata::{Dnskey, Ns, Nsec, Nsec3, Rrsig, Soa, A};
+use crate::sign::denial::nsec3::mk_hashed_nsec3_owner_name;
+use crate::utils::base32;
+use crate::validate::nsec3_hash;
 use crate::zonefile::inplace::{Entry, Zonefile};
 use crate::zonetree::types::StoredRecordData;
 use crate::zonetree::StoredName;
 
+use super::denial::nsec3::{GenerateNsec3Config, Nsec3HashProvider};
 use super::records::SortedRecords;
 
 pub(crate) const TEST_TTL: Ttl = Ttl::from_secs(3600);
@@ -93,6 +101,61 @@ where
     mk_record(owner, Nsec::new(next_name, types).into())
 }
 
+pub(crate) fn mk_nsec3_rr<R, N, HP, Sort>(
+    apex_owner: &str,
+    owner: &str,
+    next_owner: &str,
+    types: &str,
+    cfg: &GenerateNsec3Config<N, Bytes, HP, Sort>,
+) -> Record<StoredName, R>
+where
+    HP: Nsec3HashProvider<N, Bytes>,
+    N: FromStr + ToName + From<Name<Bytes>>,
+    <N as FromStr>::Err: Debug,
+    R: From<Nsec3<Bytes>>,
+{
+    let hashed_owner_name = mk_hashed_nsec3_owner_name(
+        &N::from_str(owner).unwrap(),
+        cfg.params.hash_algorithm(),
+        cfg.params.iterations(),
+        cfg.params.salt(),
+        &N::from_str(apex_owner).unwrap(),
+    )
+    .unwrap()
+    .to_name::<Bytes>()
+    .to_string();
+
+    let next_owner_hash_octets: Vec<u8> = nsec3_hash(
+        N::from_str(next_owner).unwrap(),
+        cfg.params.hash_algorithm(),
+        cfg.params.iterations(),
+        cfg.params.salt(),
+    )
+    .unwrap()
+    .into_octets();
+    let next_owner_hash = base32::encode_string_hex(&next_owner_hash_octets)
+        .to_ascii_lowercase();
+
+    let mut builder = RtypeBitmap::<Bytes>::builder();
+    for rtype in types.split_whitespace() {
+        builder.add(Rtype::from_str(rtype).unwrap()).unwrap();
+    }
+    let types = builder.finalize();
+
+    mk_record(
+        &hashed_owner_name,
+        Nsec3::new(
+            cfg.params.hash_algorithm(),
+            cfg.params.flags(),
+            cfg.params.iterations(),
+            cfg.params.salt().clone(),
+            OwnerHash::from_str(&next_owner_hash).unwrap(),
+            types,
+        )
+        .into(),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn mk_rrsig_rr<R>(
     owner: &str,
@@ -150,10 +213,10 @@ where
 }
 
 #[allow(clippy::type_complexity)]
-pub(crate) fn contains_owner(
-    nsecs: &[Record<StoredName, Nsec<Bytes, StoredName>>],
+pub(crate) fn contains_owner<R>(
+    recs: &[Record<StoredName, R>],
     name: &str,
 ) -> bool {
     let name = mk_name(name);
-    nsecs.iter().any(|rr| rr.owner() == &name)
+    recs.iter().any(|rr| rr.owner() == &name)
 }

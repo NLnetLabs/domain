@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn soa_is_required() {
-        let cfg = GenerateNsecConfig::new()
+        let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
-        let cfg = GenerateNsecConfig::new()
+        let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn records_outside_zone_are_ignored() {
-        let cfg = GenerateNsecConfig::new()
+        let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
@@ -288,9 +288,10 @@ mod tests {
 
     #[test]
     fn occluded_records_are_ignored() {
-        let cfg = GenerateNsecConfig::new()
+        let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
 
         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
         records
@@ -315,7 +316,7 @@ mod tests {
 
     #[test]
     fn expect_dnskeys_at_the_apex() {
-        let cfg = GenerateNsecConfig::new();
+        let cfg = GenerateNsecConfig::default();
 
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
@@ -336,7 +337,7 @@ mod tests {
 
     #[test]
     fn rfc_4034_and_9077_compliant() {
-        let cfg = GenerateNsecConfig::new()
+        let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
 
         // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A

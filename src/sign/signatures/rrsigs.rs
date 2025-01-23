@@ -1502,7 +1502,6 @@ mod tests {
         assert_eq!(generated_records.rrsigs.len(), 8);
 
         // Filter out the records one by one until there should be none left.
-
         let it = generated_records
             .dnskeys
             .iter()

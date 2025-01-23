@@ -581,6 +581,7 @@ where
 
     Ok(Record::new(owner_name, Class::IN, ttl, nsec3))
 }
+
 pub fn mk_hashed_nsec3_owner_name<N, Octs, SaltOcts>(
     name: &N,
     alg: Nsec3HashAlg,
@@ -797,267 +798,354 @@ impl<N, Octets> Nsec3Records<N, Octets> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use pretty_assertions::assert_eq;
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
 
-//     use crate::base::Ttl;
-//     use crate::sign::records::SortedRecords;
-//     use crate::sign::test_util::*;
-//     use crate::zonetree::types::StoredRecordData;
-//     use crate::zonetree::StoredName;
+    use crate::sign::records::SortedRecords;
+    use crate::sign::test_util::*;
+    use crate::zonetree::types::StoredRecordData;
+    use crate::zonetree::StoredName;
 
-//     use super::*;
+    use super::*;
 
-//     #[test]
-//     fn soa_is_required() {
-//         let mut records =
-//             SortedRecords::<StoredName, StoredRecordData>::default();
-//         records.insert(mk_a_rr("some_a.a.")).unwrap();
-//         let res = generate_nsec3s(records.owner_rrs(), false);
-//         assert!(matches!(
-//             res,
-//             Err(SigningError::SoaRecordCouldNotBeDetermined)
-//         ));
-//     }
+    #[test]
+    fn soa_is_required() {
+        let mut cfg = GenerateNsec3Config::default()
+            .without_assuming_dnskeys_will_be_added();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
+        records.insert(mk_a_rr("some_a.a.")).unwrap();
+        let res = generate_nsec3s(records.owner_rrs(), &mut cfg);
+        assert!(matches!(
+            res,
+            Err(SigningError::SoaRecordCouldNotBeDetermined)
+        ));
+    }
 
-//     #[test]
-//     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
-//         let mut records =
-//             SortedRecords::<StoredName, StoredRecordData>::default();
-//         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-//         records.insert(mk_soa_rr("a.", "d.", "e.")).unwrap();
-//         let res = generate_nsecs(records.owner_rrs(), false);
-//         assert!(matches!(
-//             res,
-//             Err(SigningError::SoaRecordCouldNotBeDetermined)
-//         ));
-//     }
+    #[test]
+    fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
+        let mut cfg = GenerateNsec3Config::default()
+            .without_assuming_dnskeys_will_be_added();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
+        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
+        records.insert(mk_soa_rr("a.", "d.", "e.")).unwrap();
+        let res = generate_nsec3s(records.owner_rrs(), &mut cfg);
+        assert!(matches!(
+            res,
+            Err(SigningError::SoaRecordCouldNotBeDetermined)
+        ));
+    }
 
-//     #[test]
-//     fn records_outside_zone_are_ignored() {
-//         let mut records =
-//             SortedRecords::<StoredName, StoredRecordData>::default();
+    #[test]
+    fn records_outside_zone_are_ignored() {
+        let mut cfg = GenerateNsec3Config::default()
+            .without_assuming_dnskeys_will_be_added();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
 
-//         records.insert(mk_soa_rr("b.", "d.", "e.")).unwrap();
-//         records.insert(mk_a_rr("some_a.b.")).unwrap();
-//         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-//         records.insert(mk_a_rr("some_a.a.")).unwrap();
+        records.insert(mk_soa_rr("b.", "d.", "e.")).unwrap();
+        records.insert(mk_a_rr("some_a.b.")).unwrap();
+        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
+        records.insert(mk_a_rr("some_a.a.")).unwrap();
 
-//         // First generate NSECs for the total record collection. As the
-//         // collection is sorted in canonical order the a zone preceeds the b
-//         // zone and NSECs should only be generated for the first zone in the
-//         // collection.
-//         let a_and_b_records = records.owner_rrs();
-//         let nsecs = generate_nsecs(a_and_b_records, false).unwrap();
+        // First generate NSECs for the total record collection. As the
+        // collection is sorted in canonical order the a zone preceeds the b
+        // zone and NSECs should only be generated for the first zone in the
+        // collection.
+        let a_and_b_records = records.owner_rrs();
 
-//         assert_eq!(
-//             nsecs,
-//             [
-//                 mk_nsec_rr("a.", "some_a.a.", "SOA RRSIG NSEC"),
-//                 mk_nsec_rr("some_a.a.", "a.", "A RRSIG NSEC"),
-//             ]
-//         );
+        let generated_records =
+            generate_nsec3s(a_and_b_records, &mut cfg).unwrap();
 
-//         // Now skip the a zone in the collection and generate NSECs for the
-//         // remaining records which should only generate NSECs for the b zone.
-//         let mut b_records_only = records.owner_rrs();
-//         b_records_only.skip_before(&mk_name("b."));
-//         let nsecs = generate_nsecs(b_records_only, false).unwrap();
+        let mut expected_records = SortedRecords::default();
+        expected_records.extend([
+            mk_nsec3_rr(
+                "a.",
+                "a.",
+                "some_a.a.",
+                "SOA RRSIG NSEC3PARAM",
+                &cfg,
+            ),
+            mk_nsec3_rr("a.", "some_a.a.", "a.", "A RRSIG", &cfg),
+        ]);
 
-//         assert_eq!(
-//             nsecs,
-//             [
-//                 mk_nsec_rr("b.", "some_a.b.", "SOA RRSIG NSEC"),
-//                 mk_nsec_rr("some_a.b.", "b.", "A RRSIG NSEC"),
-//             ]
-//         );
-//     }
+        assert_eq!(generated_records.nsec3s, expected_records.into_inner());
 
-//     #[test]
-//     fn occluded_records_are_ignored() {
-//         let mut records = SortedRecords::default();
+        // Now skip the a zone in the collection and generate NSECs for the
+        // remaining records which should only generate NSECs for the b zone.
+        let mut b_records_only = records.owner_rrs();
+        b_records_only.skip_before(&mk_name("b."));
 
-//         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-//         records
-//             .insert(mk_ns_rr("some_ns.a.", "some_a.other.b."))
-//             .unwrap();
-//         records.insert(mk_a_rr("some_a.some_ns.a.")).unwrap();
+        let generated_records =
+            generate_nsec3s(b_records_only, &mut cfg).unwrap();
 
-//         let nsecs = generate_nsecs(records.owner_rrs(), false).unwrap();
+        let mut expected_records = SortedRecords::default();
+        expected_records.extend([
+            mk_nsec3_rr(
+                "b.",
+                "b.",
+                "some_a.b.",
+                "SOA RRSIG NSEC3PARAM",
+                &cfg,
+            ),
+            mk_nsec3_rr("b.", "some_a.b.", "b.", "A RRSIG", &cfg),
+        ]);
 
-//         // Implicit negative test.
-//         assert_eq!(
-//             nsecs,
-//             [
-//                 mk_nsec_rr("a.", "some_ns.a.", "SOA RRSIG NSEC"),
-//                 mk_nsec_rr("some_ns.a.", "a.", "NS RRSIG NSEC"),
-//             ]
-//         );
+        assert_eq!(generated_records.nsec3s, expected_records.into_inner());
+    }
 
-//         // Explicit negative test.
-//         assert!(!contains_owner(&nsecs, "some_a.some_ns.a.example."));
-//     }
+    // #[test]
+    // fn occluded_records_are_ignored() {
+    //     let mut cfg = GenerateNsec3Config::default()
+    //         .without_assuming_dnskeys_will_be_added();
+    //     let mut records = SortedRecords::default();
 
-//     #[test]
-//     fn expect_dnskeys_at_the_apex() {
-//         let mut records =
-//             SortedRecords::<StoredName, StoredRecordData>::default();
+    //     records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
+    //     records
+    //         .insert(mk_ns_rr("some_ns.a.", "some_a.other.b."))
+    //         .unwrap();
+    //     records.insert(mk_a_rr("some_a.some_ns.a.")).unwrap();
 
-//         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-//         records.insert(mk_a_rr("some_a.a.")).unwrap();
+    //     let generated_records =
+    //         generate_nsec3s(records.owner_rrs(), &mut cfg).unwrap();
 
-//         let nsecs = generate_nsecs(records.owner_rrs(), true).unwrap();
+    //     // Implicit negative test.
+    //     assert_eq!(
+    //         generated_records.nsec3s,
+    //         [
+    //             mk_nsec3_rr(
+    //                 "a.",
+    //                 "a.",
+    //                 "some_ns.a.",
+    //                 "SOA RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "a.",
+    //                 "some_ns.a.",
+    //                 "a.",
+    //                 "NS RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //         ]
+    //     );
 
-//         assert_eq!(
-//             nsecs,
-//             [
-//                 mk_nsec_rr("a.", "some_a.a.", "SOA DNSKEY RRSIG NSEC"),
-//                 mk_nsec_rr("some_a.a.", "a.", "A RRSIG NSEC"),
-//             ]
-//         );
-//     }
+    //     // Explicit negative test.
+    //     assert!(!contains_owner(
+    //         &generated_records.nsec3s,
+    //         "some_a.some_ns.a.example."
+    //     ));
+    // }
 
-//     #[test]
-//     fn rfc_4034_and_9077_compliant() {
-//         // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
-//         let zonefile = include_bytes!(
-//             "../../../test-data/zonefiles/rfc4035-appendix-A.zone"
-//         );
+    // #[test]
+    // fn expect_dnskeys_at_the_apex() {
+    //     let mut cfg = GenerateNsec3Config::default();
 
-//         let records = bytes_to_records(&zonefile[..]);
-//         let nsecs = generate_nsecs(records.owner_rrs(), false).unwrap();
+    //     let mut records =
+    //         SortedRecords::<StoredName, StoredRecordData>::default();
 
-//         assert_eq!(nsecs.len(), 10);
+    //     records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
+    //     records.insert(mk_a_rr("some_a.a.")).unwrap();
 
-//         assert_eq!(
-//             nsecs,
-//             [
-//                 mk_nsec_rr("example.", "a.example", "NS SOA MX RRSIG NSEC"),
-//                 mk_nsec_rr("a.example.", "ai.example", "NS DS RRSIG NSEC"),
-//                 mk_nsec_rr(
-//                     "ai.example.",
-//                     "b.example",
-//                     "A HINFO AAAA RRSIG NSEC"
-//                 ),
-//                 mk_nsec_rr("b.example.", "ns1.example", "NS RRSIG NSEC"),
-//                 mk_nsec_rr("ns1.example.", "ns2.example", "A RRSIG NSEC"),
-//                 // The next record also validates that we comply with
-//                 // https://datatracker.ietf.org/doc/html/rfc4034#section-6.2
-//                 // 4.1.3. "Inclusion of Wildcard Names in NSEC RDATA" when
-//                 // it says:
-//                 //   "If a wildcard owner name appears in a zone, the wildcard
-//                 //   label ("*") is treated as a literal symbol and is treated
-//                 //   the same as any other owner name for the purposes of
-//                 //   generating NSEC RRs. Wildcard owner names appear in the
-//                 //   Next Domain Name field without any wildcard expansion.
-//                 //   [RFC4035] describes the impact of wildcards on
-//                 //   authenticated denial of existence."
-//                 mk_nsec_rr("ns2.example.", "*.w.example", "A RRSIG NSEC"),
-//                 mk_nsec_rr("*.w.example.", "x.w.example", "MX RRSIG NSEC"),
-//                 mk_nsec_rr("x.w.example.", "x.y.w.example", "MX RRSIG NSEC"),
-//                 mk_nsec_rr("x.y.w.example.", "xx.example", "MX RRSIG NSEC"),
-//                 mk_nsec_rr(
-//                     "xx.example.",
-//                     "example",
-//                     "A HINFO AAAA RRSIG NSEC"
-//                 )
-//             ],
-//         );
+    //     let generated_records =
+    //         generate_nsec3s(records.owner_rrs(), &mut cfg).unwrap();
 
-//         // TTLs are not compared by the eq check above so check them
-//         // explicitly now.
-//         //
-//         // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to say that
-//         // the "TTL of the NSEC(3) RR that is returned MUST be the lesser of
-//         // the MINIMUM field of the SOA record and the TTL of the SOA itself".
-//         //
-//         // So in our case that is min(1800, 3600) = 1800.
-//         for nsec in &nsecs {
-//             assert_eq!(nsec.ttl(), Ttl::from_secs(1800));
-//         }
+    //     assert_eq!(
+    //         generated_records.nsec3s,
+    //         [
+    //             mk_nsec3_rr(
+    //                 "a.",
+    //                 "a.",
+    //                 "some_a.a.",
+    //                 "SOA DNSKEY RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "a.",
+    //                 "some_a.a.",
+    //                 "a.",
+    //                 "A RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //         ]
+    //     );
+    // }
 
-//         // https://rfc-annotations.research.icann.org/rfc4035.html#section-2.3
-//         // 2.3.  Including NSEC RRs in a Zone
-//         //   ...
-//         //   "The type bitmap of every NSEC resource record in a signed zone
-//         //   MUST indicate the presence of both the NSEC record itself and its
-//         //   corresponding RRSIG record."
-//         for nsec in &nsecs {
-//             assert!(nsec.data().types().contains(Rtype::NSEC));
-//             assert!(nsec.data().types().contains(Rtype::RRSIG));
-//         }
+    // #[test]
+    // fn rfc_4034_and_9077_compliant() {
+    //     let mut cfg = GenerateNsec3Config::default()
+    //         .without_assuming_dnskeys_will_be_added();
 
-//         // https://rfc-annotations.research.icann.org/rfc4034.html#section-4.1.1
-//         // 4.1.2.  The Type Bit Maps Field
-//         //   "Bits representing pseudo-types MUST be clear, as they do not
-//         //    appear in zone data."
-//         //
-//         // There is nothing to test for this as it is excluded at the Rust
-//         // type system level by the generate_nsecs() function taking
-//         // ZoneRecordData (which excludes pseudo record types) as input rather
-//         // than AllRecordData (which includes pseudo record types).
+    //     // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
+    //     let zonefile = include_bytes!(
+    //         "../../../test-data/zonefiles/rfc4035-appendix-A.zone"
+    //     );
 
-//         // https://rfc-annotations.research.icann.org/rfc4034.html#section-4.1.1
-//         // 4.1.2.  The Type Bit Maps Field
-//         //   ...
-//         //   "A zone MUST NOT include an NSEC RR for any domain name that only
-//         //    holds glue records."
-//         //
-//         // The "rfc4035-appendix-A.zone" file that we load contains glue A
-//         // records for ns1.example, ns1.a.example, ns1.b.example, ns2.example
-//         // and ns2.a.example all with no other record types at that name. We
-//         // can verify that an NSEC RR was NOT created for those that are not
-//         // within the example zone as we are not authoritative for thos.
-//         assert!(contains_owner(&nsecs, "ns1.example."));
-//         assert!(!contains_owner(&nsecs, "ns1.a.example."));
-//         assert!(!contains_owner(&nsecs, "ns1.b.example."));
-//         assert!(contains_owner(&nsecs, "ns2.example."));
-//         assert!(!contains_owner(&nsecs, "ns2.a.example."));
+    //     let records = bytes_to_records(&zonefile[..]);
+    //     let generated_records =
+    //         generate_nsec3s(records.owner_rrs(), &mut cfg).unwrap();
 
-//         // https://rfc-annotations.research.icann.org/rfc4035.html#section-2.3
-//         // 2.3.  Including NSEC RRs in a Zone
-//         //   ...
-//         //  "The bitmap for the NSEC RR at a delegation point requires special
-//         //  attention.  Bits corresponding to the delegation NS RRset and any
-//         //  RRsets for which the parent zone has authoritative data MUST be
-//         //  set; bits corresponding to any non-NS RRset for which the parent
-//         //  is not authoritative MUST be clear."
-//         //
-//         // The "rfc4035-appendix-A.zone" file that we load has been modified
-//         // compared to the original to include a glue A record at b.example.
-//         // We can verify that an NSEC RR was NOT created for that name.
-//         let name = mk_name("b.example.");
-//         let nsec = nsecs.iter().find(|rr| rr.owner() == &name).unwrap();
-//         assert!(nsec.data().types().contains(Rtype::NSEC));
-//         assert!(nsec.data().types().contains(Rtype::RRSIG));
-//         assert!(!nsec.data().types().contains(Rtype::A));
-//     }
-// }
+    //     assert_eq!(generated_records.nsec3s.len(), 10);
 
-// // TODO: Add tests for nsec3s() that validate the following from RFC 5155:
-// //
-// // https://www.rfc-editor.org/rfc/rfc5155.html#section-7.1
-// // 7.1. Zone Signing
-// //     "Zones using NSEC3 must satisfy the following properties:
-// //
-// //      o  Each owner name within the zone that owns authoritative RRSets
-// //         MUST have a corresponding NSEC3 RR.  Owner names that correspond
-// //         to unsigned delegations MAY have a corresponding NSEC3 RR.
-// //         However, if there is not a corresponding NSEC3 RR, there MUST be
-// //         an Opt-Out NSEC3 RR that covers the "next closer" name to the
-// //         delegation.  Other non-authoritative RRs are not represented by
-// //         NSEC3 RRs.
-// //
-// //      o  Each empty non-terminal MUST have a corresponding NSEC3 RR, unless
-// //         the empty non-terminal is only derived from an insecure delegation
-// //         covered by an Opt-Out NSEC3 RR.
-// //
-// //      o  The TTL value for any NSEC3 RR SHOULD be the same as the minimum
-// //         TTL value field in the zone SOA RR.
-// //
-// //      o  The Type Bit Maps field of every NSEC3 RR in a signed zone MUST
-// //         indicate the presence of all types present at the original owner
-// //         name, except for the types solely contributed by an NSEC3 RR
-// //         itself.  Note that this means that the NSEC3 type itself will
-// //         never be present in the Type Bit Maps."
+    //     assert_eq!(
+    //         generated_records.nsec3s,
+    //         [
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "example.",
+    //                 "a.example",
+    //                 "NS SOA MX RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "a.example.",
+    //                 "ai.example",
+    //                 "NS DS RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "ai.example.",
+    //                 "b.example",
+    //                 "A HINFO AAAA RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "b.example.",
+    //                 "ns1.example",
+    //                 "NS RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "ns1.example.",
+    //                 "ns2.example",
+    //                 "A RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             // The next record also validates that we comply with
+    //             // https://datatracker.ietf.org/doc/html/rfc4034#section-6.2
+    //             // 4.1.3. "Inclusion of Wildcard Names in NSEC RDATA" when
+    //             // it says:
+    //             //   "If a wildcard owner name appears in a zone, the wildcard
+    //             //   label ("*") is treated as a literal symbol and is treated
+    //             //   the same as any other owner name for the purposes of
+    //             //   generating NSEC RRs. Wildcard owner names appear in the
+    //             //   Next Domain Name field without any wildcard expansion.
+    //             //   [RFC4035] describes the impact of wildcards on
+    //             //   authenticated denial of existence."
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "ns2.example.",
+    //                 "*.w.example",
+    //                 "A RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "*.w.example.",
+    //                 "x.w.example",
+    //                 "MX RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "x.w.example.",
+    //                 "x.y.w.example",
+    //                 "MX RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "x.y.w.example.",
+    //                 "xx.example",
+    //                 "MX RRSIG NSEC",
+    //                 &mut cfg
+    //             ),
+    //             mk_nsec3_rr(
+    //                 "example.",
+    //                 "xx.example.",
+    //                 "example",
+    //                 "A HINFO AAAA RRSIG NSEC",
+    //                 &mut cfg
+    //             )
+    //         ],
+    //     );
+
+    //     // TTLs are not compared by the eq check above so check them
+    //     // explicitly now.
+    //     //
+    //     // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to say that
+    //     // the "TTL of the NSEC(3) RR that is returned MUST be the lesser of
+    //     // the MINIMUM field of the SOA record and the TTL of the SOA itself".
+    //     //
+    //     // So in our case that is min(1800, 3600) = 1800.
+    //     for nsec3 in &generated_records.nsec3s {
+    //         assert_eq!(nsec3.ttl(), Ttl::from_secs(1800));
+    //     }
+
+    //     // https://rfc-annotations.research.icann.org/rfc4035.html#section-2.3
+    //     // 2.3.  Including NSEC RRs in a Zone
+    //     //   ...
+    //     //   "The type bitmap of every NSEC resource record in a signed zone
+    //     //   MUST indicate the presence of both the NSEC record itself and its
+    //     //   corresponding RRSIG record."
+    //     for nsec3 in &generated_records.nsec3s {
+    //         assert!(nsec3.data().types().contains(Rtype::NSEC));
+    //         assert!(nsec3.data().types().contains(Rtype::RRSIG));
+    //     }
+
+    //     // https://rfc-annotations.research.icann.org/rfc4034.html#section-4.1.1
+    //     // 4.1.2.  The Type Bit Maps Field
+    //     //   "Bits representing pseudo-types MUST be clear, as they do not
+    //     //    appear in zone data."
+    //     //
+    //     // There is nothing to test for this as it is excluded at the Rust
+    //     // type system level by the generate_nsecs() function taking
+    //     // ZoneRecordData (which excludes pseudo record types) as input rather
+    //     // than AllRecordData (which includes pseudo record types).
+
+    //     // https://rfc-annotations.research.icann.org/rfc4034.html#section-4.1.1
+    //     // 4.1.2.  The Type Bit Maps Field
+    //     //   ...
+    //     //   "A zone MUST NOT include an NSEC RR for any domain name that only
+    //     //    holds glue records."
+    //     //
+    //     // The "rfc4035-appendix-A.zone" file that we load contains glue A
+    //     // records for ns1.example, ns1.a.example, ns1.b.example, ns2.example
+    //     // and ns2.a.example all with no other record types at that name. We
+    //     // can verify that an NSEC RR was NOT created for those that are not
+    //     // within the example zone as we are not authoritative for thos.
+    //     assert!(contains_owner(&generated_records.nsec3s, "ns1.example."));
+    //     assert!(!contains_owner(&generated_records.nsec3s, "ns1.a.example."));
+    //     assert!(!contains_owner(&generated_records.nsec3s, "ns1.b.example."));
+    //     assert!(contains_owner(&generated_records.nsec3s, "ns2.example."));
+    //     assert!(!contains_owner(&generated_records.nsec3s, "ns2.a.example."));
+
+    //     // https://rfc-annotations.research.icann.org/rfc4035.html#section-2.3
+    //     // 2.3.  Including NSEC RRs in a Zone
+    //     //   ...
+    //     //  "The bitmap for the NSEC RR at a delegation point requires special
+    //     //  attention.  Bits corresponding to the delegation NS RRset and any
+    //     //  RRsets for which the parent zone has authoritative data MUST be
+    //     //  set; bits corresponding to any non-NS RRset for which the parent
+    //     //  is not authoritative MUST be clear."
+    //     //
+    //     // The "rfc4035-appendix-A.zone" file that we load has been modified
+    //     // compared to the original to include a glue A record at b.example.
+    //     // We can verify that an NSEC RR was NOT created for that name.
+    //     let name = mk_name("b.example.");
+    //     let nsec3 = generated_records
+    //         .nsec3s
+    //         .iter()
+    //         .find(|rr| rr.owner() == &name)
+    //         .unwrap();
+    //     assert!(nsec3.data().types().contains(Rtype::NSEC));
+    //     assert!(nsec3.data().types().contains(Rtype::RRSIG));
+    //     assert!(!nsec3.data().types().contains(Rtype::A));
+    // }
+}
