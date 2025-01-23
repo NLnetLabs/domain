@@ -397,19 +397,18 @@ where
             // Nothing to do.
         }
 
-        DenialConfig::Nsec => {
-            let nsecs =
-                generate_nsecs(owner_rrs, signing_config.add_used_dnskeys)?;
+        DenialConfig::Nsec(ref cfg) => {
+            let nsecs = generate_nsecs(owner_rrs, cfg)?;
 
             in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
         }
 
-        DenialConfig::Nsec3(ref mut config, extra) if extra.is_empty() => {
+        DenialConfig::Nsec3(ref mut cfg, extra) if extra.is_empty() => {
             // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
             // order." We store the NSEC3s as we create them and sort them
             // afterwards.
             let Nsec3Records { nsec3s, nsec3param } =
-                generate_nsec3s::<N, Octs, HP, Sort>(owner_rrs, config)?;
+                generate_nsec3s::<N, Octs, HP, Sort>(owner_rrs, cfg)?;
 
             // Add the generated NSEC3 records.
             in_out.sorted_extend(
@@ -423,6 +422,7 @@ where
         }
 
         DenialConfig::TransitioningNsecToNsec3(
+            _nsec_config,
             _nsec3_config,
             _nsec_to_nsec3_transition_state,
         ) => {
@@ -430,6 +430,7 @@ where
         }
 
         DenialConfig::TransitioningNsec3ToNsec(
+            _nsec_config,
             _nsec3_config,
             _nsec3_to_nsec_transition_state,
         ) => {

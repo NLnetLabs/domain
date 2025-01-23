@@ -13,6 +13,34 @@ use crate::rdata::{Nsec, ZoneRecordData};
 use crate::sign::error::SigningError;
 use crate::sign::records::RecordsIter;
 
+//----------- GenerateNsec3Config --------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GenerateNsecConfig {
+    pub assume_dnskeys_will_be_added: bool,
+}
+
+impl GenerateNsecConfig {
+    pub fn new() -> Self {
+        Self {
+            assume_dnskeys_will_be_added: true,
+        }
+    }
+
+    pub fn without_assuming_dnskeys_will_be_added(mut self) -> Self {
+        self.assume_dnskeys_will_be_added = false;
+        self
+    }
+}
+
+impl Default for GenerateNsecConfig {
+    fn default() -> Self {
+        Self {
+            assume_dnskeys_will_be_added: true,
+        }
+    }
+}
+
 /// Generate DNSSEC NSEC records for an unsigned zone.
 ///
 /// This function returns a collection of generated NSEC records for the given
@@ -40,7 +68,7 @@ use crate::sign::records::RecordsIter;
 #[allow(clippy::type_complexity)]
 pub fn generate_nsecs<N, Octs>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
-    assume_dnskeys_will_be_added: bool,
+    config: &GenerateNsecConfig,
 ) -> Result<Vec<Record<N, Nsec<Octs, N>>>, SigningError>
 where
     N: ToName + Clone + PartialEq,
@@ -106,7 +134,9 @@ where
         //    its corresponding RRSIG record."
         bitmap.add(Rtype::RRSIG).unwrap();
 
-        if assume_dnskeys_will_be_added && owner_rrs.owner() == &apex_owner {
+        if config.assume_dnskeys_will_be_added
+            && owner_rrs.owner() == &apex_owner
+        {
             // Assume there's gonna be a DNSKEY.
             bitmap.add(Rtype::DNSKEY).unwrap();
         }
@@ -187,10 +217,12 @@ mod tests {
 
     #[test]
     fn soa_is_required() {
+        let cfg = GenerateNsecConfig::new()
+            .without_assuming_dnskeys_will_be_added();
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_a_rr("some_a.a.")).unwrap();
-        let res = generate_nsecs(records.owner_rrs(), false);
+        let res = generate_nsecs(records.owner_rrs(), &cfg);
         assert!(matches!(
             res,
             Err(SigningError::SoaRecordCouldNotBeDetermined)
@@ -199,11 +231,13 @@ mod tests {
 
     #[test]
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
+        let cfg = GenerateNsecConfig::new()
+            .without_assuming_dnskeys_will_be_added();
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
         records.insert(mk_soa_rr("a.", "d.", "e.")).unwrap();
-        let res = generate_nsecs(records.owner_rrs(), false);
+        let res = generate_nsecs(records.owner_rrs(), &cfg);
         assert!(matches!(
             res,
             Err(SigningError::SoaRecordCouldNotBeDetermined)
@@ -212,6 +246,8 @@ mod tests {
 
     #[test]
     fn records_outside_zone_are_ignored() {
+        let cfg = GenerateNsecConfig::new()
+            .without_assuming_dnskeys_will_be_added();
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
 
@@ -225,7 +261,7 @@ mod tests {
         // zone and NSECs should only be generated for the first zone in the
         // collection.
         let a_and_b_records = records.owner_rrs();
-        let nsecs = generate_nsecs(a_and_b_records, false).unwrap();
+        let nsecs = generate_nsecs(a_and_b_records, &cfg).unwrap();
 
         assert_eq!(
             nsecs,
@@ -239,7 +275,7 @@ mod tests {
         // remaining records which should only generate NSECs for the b zone.
         let mut b_records_only = records.owner_rrs();
         b_records_only.skip_before(&mk_name("b."));
-        let nsecs = generate_nsecs(b_records_only, false).unwrap();
+        let nsecs = generate_nsecs(b_records_only, &cfg).unwrap();
 
         assert_eq!(
             nsecs,
@@ -252,6 +288,8 @@ mod tests {
 
     #[test]
     fn occluded_records_are_ignored() {
+        let cfg = GenerateNsecConfig::new()
+            .without_assuming_dnskeys_will_be_added();
         let mut records = SortedRecords::default();
 
         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
@@ -260,7 +298,7 @@ mod tests {
             .unwrap();
         records.insert(mk_a_rr("some_a.some_ns.a.")).unwrap();
 
-        let nsecs = generate_nsecs(records.owner_rrs(), false).unwrap();
+        let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
 
         // Implicit negative test.
         assert_eq!(
@@ -277,13 +315,15 @@ mod tests {
 
     #[test]
     fn expect_dnskeys_at_the_apex() {
+        let cfg = GenerateNsecConfig::new();
+
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
 
         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
         records.insert(mk_a_rr("some_a.a.")).unwrap();
 
-        let nsecs = generate_nsecs(records.owner_rrs(), true).unwrap();
+        let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
 
         assert_eq!(
             nsecs,
@@ -296,13 +336,16 @@ mod tests {
 
     #[test]
     fn rfc_4034_and_9077_compliant() {
+        let cfg = GenerateNsecConfig::new()
+            .without_assuming_dnskeys_will_be_added();
+
         // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
         let zonefile = include_bytes!(
             "../../../test-data/zonefiles/rfc4035-appendix-A.zone"
         );
 
         let records = bytes_to_records(&zonefile[..]);
-        let nsecs = generate_nsecs(records.owner_rrs(), false).unwrap();
+        let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
 
         assert_eq!(nsecs.len(), 10);
 

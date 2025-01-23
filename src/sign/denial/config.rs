@@ -2,10 +2,13 @@ use core::convert::From;
 
 use std::vec::Vec;
 
+use super::nsec::GenerateNsecConfig;
 use super::nsec3::{
     GenerateNsec3Config, Nsec3HashProvider, OnDemandNsec3HashProvider,
 };
+use crate::base::{Name, ToName};
 use crate::sign::records::DefaultSorter;
+use octseq::{EmptyBuilder, FromBuilder};
 
 //------------ NsecToNsec3TransitionState ------------------------------------
 
@@ -74,7 +77,7 @@ pub enum Nsec3ToNsecTransitionState {
 ///
 /// This type can be used to choose which denial mechanism should be used when
 /// DNSSEC signing a zone.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DenialConfig<
     N,
     O,
@@ -88,8 +91,7 @@ pub enum DenialConfig<
     AlreadyPresent,
 
     /// The zone already has NSEC records.
-    #[default]
-    Nsec,
+    Nsec(GenerateNsecConfig),
 
     /// The zone already has NSEC3 records, possibly more than one set.
     ///
@@ -117,13 +119,27 @@ pub enum DenialConfig<
 
     /// The zone is transitioning from NSEC to NSEC3.
     TransitioningNsecToNsec3(
+        GenerateNsecConfig,
         GenerateNsec3Config<N, O, HP, Sort>,
         NsecToNsec3TransitionState,
     ),
 
     /// The zone is transitioning from NSEC3 to NSEC.
     TransitioningNsec3ToNsec(
+        GenerateNsecConfig,
         GenerateNsec3Config<N, O, HP, Sort>,
         Nsec3ToNsecTransitionState,
     ),
+}
+
+impl<N, O> Default
+    for DenialConfig<N, O, OnDemandNsec3HashProvider<O>, DefaultSorter>
+where
+    N: ToName + From<Name<O>>,
+    O: AsRef<[u8]> + From<&'static [u8]> + FromBuilder,
+    <O as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
+    fn default() -> Self {
+        Self::Nsec(GenerateNsecConfig::default())
+    }
 }
