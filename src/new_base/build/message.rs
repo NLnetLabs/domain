@@ -1,45 +1,35 @@
 //! Building whole DNS messages.
 
+use core::cell::UnsafeCell;
+
 use crate::new_base::{
-    wire::TruncationError, Header, Message, Question, RClass, RType, Record,
-    TTL,
+    wire::{ParseBytesByRef, TruncationError},
+    Header, Message, Question, RClass, RType, Record, TTL,
 };
 
-use super::{BuildIntoMessage, Builder, BuilderContext, RecordBuilder};
+use super::{
+    BuildIntoMessage, Builder, BuilderContext, MessageState, QuestionBuilder,
+    RecordBuilder,
+};
 
 //----------- MessageBuilder -------------------------------------------------
 
 /// A builder for a whole DNS message.
 ///
-/// This is subtly different from a regular [`Builder`] -- it does not allow
-/// for commits and so can always modify the entire message.  It has methods
-/// for adding entire questions and records to the message.
+/// This is a high-level building interface, offering methods to put together
+/// entire questions and records.  It directly writes into an allocated buffer
+/// (on the stack or the heap).
 pub struct MessageBuilder<'b> {
-    /// The underlying [`Builder`].
-    ///
-    /// Its commit point is always 0.
-    inner: Builder<'b>,
+    /// The message being constructed.
+    message: &'b mut Message,
+
+    /// Context for building.
+    pub(super) context: &'b mut BuilderContext,
 }
 
 //--- Initialization
 
 impl<'b> MessageBuilder<'b> {
-    /// Construct a [`MessageBuilder`] from raw parts.
-    ///
-    /// # Safety
-    ///
-    /// - `message` and `context` are paired together.
-    pub unsafe fn from_raw_parts(
-        message: &'b mut Message,
-        context: &'b mut BuilderContext,
-    ) -> Self {
-        // SAFETY: since 'commit' is 0, no part of the message is immutably
-        // borrowed; it is thus sound to represent as a mutable borrow.
-        let inner =
-            unsafe { Builder::from_raw_parts(message.into(), context, 0) };
-        Self { inner }
-    }
-
     /// Initialize an empty [`MessageBuilder`].
     ///
     /// The message header is left uninitialized.  use [`Self::header_mut()`]
@@ -53,8 +43,10 @@ impl<'b> MessageBuilder<'b> {
         buffer: &'b mut [u8],
         context: &'b mut BuilderContext,
     ) -> Self {
-        let inner = Builder::new(buffer, context);
-        Self { inner }
+        let message = Message::parse_bytes_by_mut(buffer)
+            .expect("The caller's buffer is at least 12 bytes big");
+        *context = BuilderContext::default();
+        Self { message, context }
     }
 }
 
@@ -62,21 +54,18 @@ impl<'b> MessageBuilder<'b> {
 
 impl<'b> MessageBuilder<'b> {
     /// The message header.
-    ///
-    /// The header can be modified by the builder, and so is only available
-    /// for a short lifetime.  Note that it implements [`Copy`].
     pub fn header(&self) -> &Header {
-        self.inner.header()
+        &self.message.header
     }
 
-    /// Mutable access to the message header.
+    /// The message header, mutably.
     pub fn header_mut(&mut self) -> &mut Header {
-        self.inner.header_mut()
+        &mut self.message.header
     }
 
     /// The message built thus far.
     pub fn message(&self) -> &Message {
-        self.inner.cur_message()
+        self.message.slice_to(self.context.size)
     }
 
     /// The message built thus far, mutably.
@@ -86,34 +75,26 @@ impl<'b> MessageBuilder<'b> {
     /// The caller must not modify any compressed names among these bytes.
     /// This can invalidate name compression state.
     pub unsafe fn message_mut(&mut self) -> &mut Message {
-        // SAFETY: Since no bytes are committed, and the rest of the message
-        // is borrowed mutably for 'self', we can use a mutable reference.
-        unsafe { self.inner.cur_message_ptr().as_mut() }
+        self.message.slice_to_mut(self.context.size)
     }
 
     /// The builder context.
     pub fn context(&self) -> &BuilderContext {
-        self.inner.context()
-    }
-
-    /// Decompose this builder into raw parts.
-    ///
-    /// This returns the message buffer and the context for this builder.  The
-    /// two are linked, and the builder can be recomposed with
-    /// [`Self::from_raw_parts()`].
-    pub fn into_raw_parts(self) -> (&'b mut Message, &'b mut BuilderContext) {
-        let (mut message, context, _commit) = self.inner.into_raw_parts();
-        // SAFETY: As per 'Builder::into_raw_parts()', the message is borrowed
-        // mutably for the lifetime 'b.  Since the commit point is 0, there is
-        // no immutably-borrowed content in the message, so it can be turned
-        // into a regular reference.
-        (unsafe { message.as_mut() }, context)
+        self.context
     }
 }
 
 //--- Interaction
 
 impl MessageBuilder<'_> {
+    /// Reborrow the builder with a shorter lifetime.
+    pub fn reborrow(&mut self) -> MessageBuilder<'_> {
+        MessageBuilder {
+            message: self.message,
+            context: self.context,
+        }
+    }
+
     /// Limit the total message size.
     ///
     /// The message will not be allowed to exceed the given size, in bytes.
@@ -121,148 +102,124 @@ impl MessageBuilder<'_> {
     /// or TCP packet size is not considered.  If the message already exceeds
     /// this size, a [`TruncationError`] is returned.
     ///
-    /// This size will apply to all builders for this message (including those
-    /// that delegated to `self`).  It will not be automatically revoked if
-    /// message building fails.
-    ///
     /// # Panics
     ///
     /// Panics if the given size is less than 12 bytes.
     pub fn limit_to(&mut self, size: usize) -> Result<(), TruncationError> {
-        self.inner.limit_to(size)
+        if 12 + self.context.size <= size {
+            // Move out of 'message' so that the full lifetime is available.
+            // See the 'replace_with' and 'take_mut' crates.
+            debug_assert!(size < 12 + self.message.contents.len());
+            let message = unsafe { core::ptr::read(&self.message) };
+            // NOTE: Precondition checked, will not panic.
+            let message = message.slice_to_mut(size - 12);
+            unsafe { core::ptr::write(&mut self.message, message) };
+            Ok(())
+        } else {
+            Err(TruncationError)
+        }
     }
 
-    /// Append a question.
+    /// Truncate the message.
     ///
-    /// # Panics
+    /// This will remove all message contents and mark it as truncated.
+    pub fn truncate(&mut self) {
+        self.message.header.flags =
+            self.message.header.flags.set_truncated(true);
+        *self.context = BuilderContext::default();
+    }
+
+    /// Obtain a [`Builder`].
+    pub(super) fn builder(&mut self, start: usize) -> Builder<'_> {
+        debug_assert!(start <= self.context.size);
+        unsafe {
+            let contents = &mut self.message.contents;
+            let contents = contents as *mut [u8] as *const UnsafeCell<[u8]>;
+            Builder::from_raw_parts(&*contents, &mut self.context, start)
+        }
+    }
+
+    /// Build a question.
     ///
-    /// Panics if the message contains any records (as questions must come
-    /// before all records).
-    pub fn append_question<N>(
+    /// If a question is already being built, it will be finished first.  If
+    /// an answer, authority, or additional record has been added, [`None`] is
+    /// returned instead.
+    pub fn build_question<N: BuildIntoMessage>(
         &mut self,
         question: &Question<N>,
-    ) -> Result<(), TruncationError>
-    where
-        N: BuildIntoMessage,
-    {
-        // Ensure there are no records present.
-        assert_eq!(self.header().counts.as_array()[1..], [0, 0, 0]);
+    ) -> Result<Option<QuestionBuilder<'_>>, TruncationError> {
+        if self.context.state.section_index() > 0 {
+            // We've progressed into a later section.
+            return Ok(None);
+        }
 
-        question.build_into_message(self.inner.delegate())?;
-        self.header_mut().counts.questions += 1;
-        Ok(())
-    }
-
-    /// Build an arbitrary record.
-    ///
-    /// The record will be added to the specified section (1, 2, or 3, i.e.
-    /// answers, authorities, and additional records respectively).  There
-    /// must not be any existing records in sections after this one.
-    pub fn build_record(
-        &mut self,
-        rname: impl BuildIntoMessage,
-        rtype: RType,
-        rclass: RClass,
-        ttl: TTL,
-        section: u8,
-    ) -> Result<RecordBuilder<'_>, TruncationError> {
-        RecordBuilder::new(
-            self.inner.delegate(),
-            rname,
-            rtype,
-            rclass,
-            ttl,
-            section,
-        )
-    }
-
-    /// Append an answer record.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the message contains any authority or additional records.
-    pub fn append_answer<N, D>(
-        &mut self,
-        record: &Record<N, D>,
-    ) -> Result<(), TruncationError>
-    where
-        N: BuildIntoMessage,
-        D: BuildIntoMessage,
-    {
-        // Ensure there are no authority or additional records present.
-        assert_eq!(self.header().counts.as_array()[2..], [0, 0]);
-
-        record.build_into_message(self.inner.delegate())?;
-        self.header_mut().counts.answers += 1;
-        Ok(())
+        self.context.state = MessageState::Questions;
+        QuestionBuilder::build(self.reborrow(), question).map(Some)
     }
 
     /// Build an answer record.
     ///
-    /// # Panics
-    ///
-    /// Panics if the message contains any authority or additional records.
+    /// If a question or answer is already being built, it will be finished
+    /// first.  If an authority or additional record has been added, [`None`]
+    /// is returned instead.
     pub fn build_answer(
         &mut self,
         rname: impl BuildIntoMessage,
         rtype: RType,
         rclass: RClass,
         ttl: TTL,
-    ) -> Result<RecordBuilder<'_>, TruncationError> {
-        self.build_record(rname, rtype, rclass, ttl, 1)
-    }
+    ) -> Result<Option<RecordBuilder<'_>>, TruncationError> {
+        if self.context.state.section_index() > 1 {
+            // We've progressed into a later section.
+            return Ok(None);
+        }
 
-    /// Append an authority record.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the message contains any additional records.
-    pub fn append_authority<N, D>(
-        &mut self,
-        record: &Record<N, D>,
-    ) -> Result<(), TruncationError>
-    where
-        N: BuildIntoMessage,
-        D: BuildIntoMessage,
-    {
-        // Ensure there are no additional records present.
-        assert_eq!(self.header().counts.as_array()[3..], [0]);
+        let record = Record {
+            rname,
+            rtype,
+            rclass,
+            ttl,
+            rdata: &[] as &[u8],
+        };
 
-        record.build_into_message(self.inner.delegate())?;
-        self.header_mut().counts.authorities += 1;
-        Ok(())
+        self.context.state = MessageState::Answers;
+        RecordBuilder::build(self.reborrow(), &record).map(Some)
     }
 
     /// Build an authority record.
     ///
-    /// # Panics
-    ///
-    /// Panics if the message contains any additional records.
+    /// If a question, answer, or authority is already being built, it will be
+    /// finished first.  If an additional record has been added, [`None`] is
+    /// returned instead.
     pub fn build_authority(
         &mut self,
         rname: impl BuildIntoMessage,
         rtype: RType,
         rclass: RClass,
         ttl: TTL,
-    ) -> Result<RecordBuilder<'_>, TruncationError> {
-        self.build_record(rname, rtype, rclass, ttl, 2)
-    }
+    ) -> Result<Option<RecordBuilder<'_>>, TruncationError> {
+        if self.context.state.section_index() > 2 {
+            // We've progressed into a later section.
+            return Ok(None);
+        }
 
-    /// Append an additional record.
-    pub fn append_additional<N, D>(
-        &mut self,
-        record: &Record<N, D>,
-    ) -> Result<(), TruncationError>
-    where
-        N: BuildIntoMessage,
-        D: BuildIntoMessage,
-    {
-        record.build_into_message(self.inner.delegate())?;
-        self.header_mut().counts.additional += 1;
-        Ok(())
+        let record = Record {
+            rname,
+            rtype,
+            rclass,
+            ttl,
+            rdata: &[] as &[u8],
+        };
+
+        self.context.state = MessageState::Authorities;
+        RecordBuilder::build(self.reborrow(), &record).map(Some)
     }
 
     /// Build an additional record.
+    ///
+    /// If a question or record is already being built, it will be finished
+    /// first.  Note that it is always possible to add an additional record to
+    /// a message.
     pub fn build_additional(
         &mut self,
         rname: impl BuildIntoMessage,
@@ -270,6 +227,15 @@ impl MessageBuilder<'_> {
         rclass: RClass,
         ttl: TTL,
     ) -> Result<RecordBuilder<'_>, TruncationError> {
-        self.build_record(rname, rtype, rclass, ttl, 3)
+        let record = Record {
+            rname,
+            rtype,
+            rclass,
+            ttl,
+            rdata: &[] as &[u8],
+        };
+
+        self.context.state = MessageState::Additionals;
+        RecordBuilder::build(self.reborrow(), &record)
     }
 }

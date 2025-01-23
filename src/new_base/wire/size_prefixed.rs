@@ -248,13 +248,13 @@ impl<T: ?Sized + BuildIntoMessage> BuildIntoMessage for SizePrefixed<T> {
         &self,
         mut builder: build::Builder<'_>,
     ) -> BuildResult {
-        assert_eq!(builder.appended(), &[] as &[u8]);
+        assert_eq!(builder.uncommitted(), &[] as &[u8]);
         builder.append_bytes(&0u16.to_be_bytes())?;
         self.data.build_into_message(builder.delegate())?;
-        let size = builder.appended().len() - 2;
+        let size = builder.uncommitted().len() - 2;
         let size = u16::try_from(size).expect("the data never exceeds 64KiB");
         // SAFETY: A 'U16' is being modified, not a domain name.
-        let size_buf = unsafe { &mut builder.appended_mut()[0..2] };
+        let size_buf = unsafe { &mut builder.uncommitted_mut()[0..2] };
         size_buf.copy_from_slice(&size.to_be_bytes());
         Ok(builder.commit())
     }

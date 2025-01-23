@@ -1,176 +1,230 @@
 //! Building DNS records.
 
+use core::{mem::ManuallyDrop, ptr};
+
 use crate::new_base::{
-    name::RevName,
-    wire::{AsBytes, TruncationError},
-    Header, Message, RClass, RType, TTL,
+    name::UnparsedName,
+    parse::ParseMessageBytes,
+    wire::{AsBytes, ParseBytes, SizePrefixed, TruncationError},
+    RClass, RType, Record, TTL,
 };
 
-use super::{BuildCommitted, BuildIntoMessage, Builder};
+use super::{
+    BuildCommitted, BuildIntoMessage, Builder, MessageBuilder, MessageState,
+};
 
-//----------- RecordBuilder --------------------------------------------------
+//----------- RecordBuilder ------------------------------------------------
 
-/// A builder for a DNS record.
-///
-/// This is used to incrementally build the data for a DNS record.  It can be
-/// constructed using [`MessageBuilder::build_answer()`] etc.
-///
-/// [`MessageBuilder::build_answer()`]: super::MessageBuilder::build_answer()
+/// A DNS record builder.
 pub struct RecordBuilder<'b> {
-    /// The underlying [`Builder`].
-    ///
-    /// Its commit point lies at the beginning of the record.
-    inner: Builder<'b>,
+    /// The underlying message builder.
+    builder: MessageBuilder<'b>,
 
-    /// The position of the record data.
-    ///
-    /// This is an offset from the message contents.
-    start: usize,
+    /// The offset of the record name.
+    name: u16,
 
-    /// The section the record is a part of.
-    ///
-    /// The appropriate section count will be incremented on completion.
-    section: u8,
+    /// The offset of the record data.
+    data: u16,
 }
 
-//--- Initialization
+//--- Construction
 
 impl<'b> RecordBuilder<'b> {
-    /// Construct a [`RecordBuilder`] from raw parts.
+    /// Build a [`Record`].
+    ///
+    /// The provided builder must be empty (i.e. must not have uncommitted
+    /// content).
+    pub(super) fn build<N, D>(
+        mut builder: MessageBuilder<'b>,
+        record: &Record<N, D>,
+    ) -> Result<Self, TruncationError>
+    where
+        N: BuildIntoMessage,
+        D: BuildIntoMessage,
+    {
+        // Build the record and remember important positions.
+        let start = builder.context.size;
+        let (name, data) = {
+            let name = start.try_into().expect("Messages are at most 64KiB");
+            let mut b = builder.builder(start);
+            record.rname.build_into_message(b.delegate())?;
+            b.append_bytes(&record.rtype.as_bytes())?;
+            b.append_bytes(&record.rclass.as_bytes())?;
+            b.append_bytes(&record.ttl.as_bytes())?;
+            let size = b.context().size;
+            SizePrefixed::new(&record.rdata)
+                .build_into_message(b.delegate())?;
+            let data =
+                (size + 2).try_into().expect("Messages are at most 64KiB");
+            (name, data)
+        };
+
+        // Update the message state.
+        match builder.context.state {
+            ref mut state @ MessageState::Answers => {
+                *state = MessageState::MidAnswer { name, data };
+            }
+
+            ref mut state @ MessageState::Authorities => {
+                *state = MessageState::MidAuthority { name, data };
+            }
+
+            ref mut state @ MessageState::Additionals => {
+                *state = MessageState::MidAdditional { name, data };
+            }
+
+            _ => unreachable!(),
+        }
+
+        Ok(Self {
+            builder,
+            name,
+            data,
+        })
+    }
+
+    /// Reconstruct a [`RecordBuilder`] from raw parts.
     ///
     /// # Safety
     ///
-    /// - `builder`, `start`, and `section` are paired together.
+    /// `builder.message().contents[name..]` must represent a valid
+    /// [`Record`] in the wire format.  `contents[data..]` must represent the
+    /// record data (i.e. immediately after the record data size field).
     pub unsafe fn from_raw_parts(
-        builder: Builder<'b>,
-        start: usize,
-        section: u8,
+        builder: MessageBuilder<'b>,
+        name: u16,
+        data: u16,
     ) -> Self {
         Self {
-            inner: builder,
-            start,
-            section,
+            builder,
+            name,
+            data,
         }
-    }
-
-    /// Initialize a new [`RecordBuilder`].
-    ///
-    /// A new record with the given name, type, and class will be created.
-    /// The returned builder can be used to add data for the record.
-    ///
-    /// The count for the specified section (1, 2, or 3, i.e. answers,
-    /// authorities, and additional records respectively) will be incremented
-    /// when the builder finishes successfully.
-    pub fn new(
-        mut builder: Builder<'b>,
-        rname: impl BuildIntoMessage,
-        rtype: RType,
-        rclass: RClass,
-        ttl: TTL,
-        section: u8,
-    ) -> Result<Self, TruncationError> {
-        debug_assert_eq!(builder.appended(), &[] as &[u8]);
-        debug_assert!((1..4).contains(&section));
-
-        assert!(builder
-            .header()
-            .counts
-            .as_array()
-            .iter()
-            .skip(1 + section as usize)
-            .all(|&c| c == 0));
-
-        // Build the record header.
-        rname.build_into_message(builder.delegate())?;
-        builder.append_bytes(rtype.as_bytes())?;
-        builder.append_bytes(rclass.as_bytes())?;
-        builder.append_bytes(ttl.as_bytes())?;
-        builder.append_bytes(&0u16.to_be_bytes())?;
-        let start = builder.appended().len();
-
-        // Set up the builder.
-        Ok(Self {
-            inner: builder,
-            start,
-            section,
-        })
     }
 }
 
 //--- Inspection
 
 impl<'b> RecordBuilder<'b> {
-    /// The message header.
-    pub fn header(&self) -> &Header {
-        self.inner.header()
+    /// The (unparsed) record name.
+    pub fn rname(&self) -> &UnparsedName {
+        let contents = &self.builder.message().contents;
+        let contents = &contents[..contents.len() - 4];
+        <&UnparsedName>::parse_message_bytes(contents, self.name.into())
+            .expect("The record was serialized correctly")
     }
 
-    /// The message without this record.
-    pub fn message(&self) -> &Message {
-        self.inner.message()
+    /// The record type.
+    pub fn rtype(&self) -> RType {
+        let contents = &self.builder.message().contents;
+        let contents = &contents[usize::from(self.data) - 8..];
+        RType::parse_bytes(&contents[0..2])
+            .expect("The record was serialized correctly")
     }
 
-    /// The record data appended thus far.
-    pub fn data(&self) -> &[u8] {
-        &self.inner.appended()[self.start..]
+    /// The record class.
+    pub fn rclass(&self) -> RClass {
+        let contents = &self.builder.message().contents;
+        let contents = &contents[usize::from(self.data) - 8..];
+        RClass::parse_bytes(&contents[2..4])
+            .expect("The record was serialized correctly")
     }
 
-    /// Decompose this builder into raw parts.
-    ///
-    /// This returns the underlying builder, the offset of the record data in
-    /// the record, and the section number for this record (1, 2, or 3).  The
-    /// builder can be recomposed with [`Self::from_raw_parts()`].
-    pub fn into_raw_parts(self) -> (Builder<'b>, usize, u8) {
-        (self.inner, self.start, self.section)
+    /// The TTL.
+    pub fn ttl(&self) -> TTL {
+        let contents = &self.builder.message().contents;
+        let contents = &contents[usize::from(self.data) - 8..];
+        TTL::parse_bytes(&contents[4..8])
+            .expect("The record was serialized correctly")
+    }
+
+    /// The record data built thus far.
+    pub fn rdata(&self) -> &[u8] {
+        &self.builder.message().contents[usize::from(self.data)..]
+    }
+
+    /// Deconstruct this [`RecordBuilder`] into its raw parts.
+    pub fn into_raw_parts(self) -> (MessageBuilder<'b>, u16, u16) {
+        let (name, data) = (self.name, self.data);
+        let this = ManuallyDrop::new(self);
+        let this = (&*this) as *const Self;
+        // SAFETY: 'this' is a valid object that can be moved out of.
+        let builder = unsafe { ptr::read(ptr::addr_of!((*this).builder)) };
+        (builder, name, data)
     }
 }
 
 //--- Interaction
 
-impl RecordBuilder<'_> {
-    /// Finish the record.
+impl<'b> RecordBuilder<'b> {
+    /// Commit this record.
     ///
-    /// The respective section count will be incremented.  The builder will be
-    /// consumed and the record will be committed.
-    pub fn finish(mut self) -> BuildCommitted {
-        // Increment the appropriate section count.
-        self.inner.header_mut().counts.as_array_mut()
-            [self.section as usize] += 1;
+    /// The builder will be consumed, and the record will be committed so that
+    /// it can no longer be removed.
+    pub fn commit(self) -> BuildCommitted {
+        match self.builder.context.state {
+            ref mut state @ MessageState::MidAnswer { .. } => {
+                *state = MessageState::Answers;
+            }
 
-        // Set the record data length.
-        let size = self.inner.appended().len() - self.start;
-        let size = u16::try_from(size)
-            .expect("Record data must be smaller than 64KiB");
-        // SAFETY: The record data size is not part of a compressed name.
-        let appended = unsafe { self.inner.appended_mut() };
-        appended[self.start - 2..self.start]
-            .copy_from_slice(&size.to_be_bytes());
+            ref mut state @ MessageState::MidAuthority { .. } => {
+                *state = MessageState::Authorities;
+            }
 
-        self.inner.commit()
+            ref mut state @ MessageState::MidAdditional { .. } => {
+                *state = MessageState::Additionals;
+            }
+
+            _ => unreachable!(),
+        }
+
+        // NOTE: The record data size will be fixed on drop.
+        BuildCommitted
     }
 
-    /// Delegate to a new builder.
+    /// Stop building and remove this record.
     ///
-    /// Any content committed by the builder will be added as record data.
+    /// The builder will be consumed, and the record will be removed.
+    pub fn cancel(self) {
+        self.builder.context.size = self.name.into();
+        match self.builder.context.state {
+            ref mut state @ MessageState::MidAnswer { .. } => {
+                *state = MessageState::Answers;
+            }
+
+            ref mut state @ MessageState::MidAuthority { .. } => {
+                *state = MessageState::Authorities;
+            }
+
+            ref mut state @ MessageState::MidAdditional { .. } => {
+                *state = MessageState::Additionals;
+            }
+
+            _ => unreachable!(),
+        }
+
+        // NOTE: The drop glue is a no-op.
+    }
+
+    /// Delegate further building of the record data to a new [`Builder`].
     pub fn delegate(&mut self) -> Builder<'_> {
-        self.inner.delegate()
+        let offset = self.builder.context.size;
+        self.builder.builder(offset)
     }
+}
 
-    /// Append some bytes.
-    ///
-    /// No name compression will be performed.
-    pub fn append_bytes(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<(), TruncationError> {
-        self.inner.append_bytes(bytes)
-    }
+//--- Drop
 
-    /// Compress and append a domain name.
-    pub fn append_name(
-        &mut self,
-        name: &RevName,
-    ) -> Result<(), TruncationError> {
-        self.inner.append_name(name)
+impl Drop for RecordBuilder<'_> {
+    fn drop(&mut self) {
+        // Fixup the record data size so the overall message builder is valid.
+        let size = self.builder.context.size as u16;
+        if self.data <= size {
+            // SAFETY: Only the record data size field is being modified.
+            let message = unsafe { self.builder.message_mut() };
+            let data = usize::from(self.data);
+            message.contents[data - 2..data]
+                .copy_from_slice(&size.to_be_bytes());
+        }
     }
 }

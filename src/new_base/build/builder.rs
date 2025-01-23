@@ -1,18 +1,18 @@
 //! A builder for DNS messages.
 
 use core::{
-    marker::PhantomData,
+    cell::UnsafeCell,
     mem::ManuallyDrop,
-    ptr::{self, NonNull},
+    ptr::{self},
+    slice,
 };
 
 use crate::new_base::{
     name::RevName,
-    wire::{BuildBytes, ParseBytesByRef, TruncationError},
-    Header, Message,
+    wire::{BuildBytes, TruncationError},
 };
 
-use super::BuildCommitted;
+use super::{BuildCommitted, BuilderContext};
 
 //----------- Builder --------------------------------------------------------
 
@@ -60,144 +60,49 @@ use super::BuildCommitted;
 /// will be reverted on failure).  For this, we have [`delegate()`].
 ///
 /// [`delegate()`]: Self::delegate()
-///
-/// For example:
-///
-/// ```
-/// # use domain::new_base::build::{Builder, BuildResult, BuilderContext};
-///
-/// /// A build function with the conventional type signature.
-/// fn foo(mut builder: Builder<'_>) -> BuildResult {
-///     // Content added by the parent builder is considered committed.
-///     assert_eq!(builder.committed(), b"hi! ");
-///
-///     // Append some content to the builder.
-///     builder.append_bytes(b"foo!")?;
-///
-///     // Try appending a very long string, which can't fit.
-///     builder.append_bytes(b"helloworldthisiswaytoobig")?;
-///
-///     Ok(builder.commit())
-/// }
-///
-/// // Construct a builder for a particular buffer.
-/// let mut buffer = [0u8; 20];
-/// let mut context = BuilderContext::default();
-/// let mut builder = Builder::new(&mut buffer, &mut context);
-///
-/// // Try appending some content to the builder.
-/// builder.append_bytes(b"hi! ").unwrap();
-/// assert_eq!(builder.appended(), b"hi! ");
-///
-/// // Try calling 'foo' -- note that it will fail.
-/// // Note that we delegated the builder.
-/// foo(builder.delegate()).unwrap_err();
-///
-/// // No partial content was written.
-/// assert_eq!(builder.appended(), b"hi! ");
-/// ```
 pub struct Builder<'b> {
-    /// The message being built.
+    /// The contents of the built message.
     ///
-    /// The message is divided into four parts:
+    /// The buffer is divided into three parts:
     ///
-    /// - The message header (borrowed mutably by this type).
     /// - Committed message contents (borrowed *immutably* by this type).
     /// - Appended message contents (borrowed mutably by this type).
     /// - Uninitialized message contents (borrowed mutably by this type).
-    message: NonNull<Message>,
-
-    _message: PhantomData<&'b mut Message>,
+    contents: &'b UnsafeCell<[u8]>,
 
     /// Context for building.
     context: &'b mut BuilderContext,
 
-    /// The commit point of this builder.
+    /// The start point of this builder.
     ///
     /// Message contents up to this point are committed and cannot be removed
     /// by this builder.  Message contents following this (up to the size in
     /// the builder context) are appended but uncommitted.
-    commit: usize,
+    start: usize,
 }
 
-/// # Initialization
-///
-/// In order to begin building a DNS message:
-///
-/// ```
-/// # use domain::new_base::build::{Builder, BuilderContext};
-///
-/// // Allocate a slice of 'u8's somewhere.
-/// let mut buffer = [0u8; 20];
-///
-/// // Obtain a builder context.
-/// //
-/// // The value doesn't matter, it will be overwritten.
-/// let mut context = BuilderContext::default();
-///
-/// // Construct the actual 'Builder'.
-/// let builder = Builder::new(&mut buffer, &mut context);
-///
-/// assert!(builder.committed().is_empty());
-/// assert!(builder.appended().is_empty());
-/// ```
 impl<'b> Builder<'b> {
-    /// Create a [`Builder`] for a new, empty DNS message.
-    ///
-    /// The message header is left uninitialized.  Use [`Self::header_mut()`]
-    /// to initialize it.  The message contents are completely empty.
-    ///
-    /// The provided builder context will be overwritten with a default state.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer is less than 12 bytes long (which is the minimum
-    /// possible size for a DNS message).
-    pub fn new(
-        buffer: &'b mut [u8],
-        context: &'b mut BuilderContext,
-    ) -> Self {
-        let message = Message::parse_bytes_by_mut(buffer)
-            .expect("The buffure must be at least 12 bytes in size");
-        context.size = 0;
-
-        // SAFETY: 'message' and 'context' are now consistent.
-        unsafe { Self::from_raw_parts(message.into(), context, 0) }
-    }
-
     /// Construct a [`Builder`] from raw parts.
-    ///
-    /// The provided components must originate from [`into_raw_parts()`], and
-    /// none of the components can be modified since they were extracted.
-    ///
-    /// [`into_raw_parts()`]: Self::into_raw_parts()
-    ///
-    /// This method is useful when overcoming limitations in lifetimes or
-    /// borrow checking, or when a builder has to be constructed from another
-    /// with specific characteristics.
     ///
     /// # Safety
     ///
-    /// The expression `from_raw_parts(message, context, commit)` is sound if
+    /// The expression `from_raw_parts(contents, context, start)` is sound if
     /// and only if all of the following conditions are satisfied:
     ///
-    /// - `message` is a valid reference for the lifetime `'b`.
-    /// - `message.header` is mutably borrowed for `'b`.
-    /// - `message.contents[..commit]` is immutably borrowed for `'b`.
-    /// - `message.contents[commit..]` is mutably borrowed for `'b`.
+    /// - `message[..start]` is immutably borrowed for `'b`.
+    /// - `message[start..]` is mutably borrowed for `'b`.
     ///
     /// - `message` and `context` originate from the same builder.
-    /// - `commit <= context.size() <= message.contents.len()`.
+    /// - `start <= context.size() <= message.len()`.
     pub unsafe fn from_raw_parts(
-        message: NonNull<Message>,
+        contents: &'b UnsafeCell<[u8]>,
         context: &'b mut BuilderContext,
-        commit: usize,
+        start: usize,
     ) -> Self {
         Self {
-            message,
-            _message: PhantomData,
+            contents,
             context,
-            commit,
+            start,
         }
     }
 }
@@ -210,38 +115,30 @@ impl<'b> Builder<'b> {
 /// ```text
 /// name          | position
 /// --------------+---------
-/// header        |
-/// committed     | 0 .. commit
-/// appended      | commit .. size
-/// uninitialized | size .. limit
+/// committed     | 0 .. start
+/// appended      | start .. offset
+/// uninitialized | offset .. limit
 /// inaccessible  | limit ..
 /// ```
-///
-/// The DNS message header can be modified at any time.  It is made available
-/// through [`header()`] and [`header_mut()`].  In general, it is inadvisable
-/// to change the section counts arbitrarily (although it will not cause
-/// undefined behaviour).
-///
-/// [`header()`]: Self::header()
-/// [`header_mut()`]: Self::header_mut()
 ///
 /// The committed content of the builder is immutable, and is available to
 /// reference, through [`committed()`], for the lifetime `'b`.
 ///
 /// [`committed()`]: Self::committed()
 ///
-/// The appended content of the builder is made available via [`appended()`].
-/// It is content that has been added by this builder, but that has not yet
-/// been committed.  When the [`Builder`] is dropped, this content is removed
-/// (it becomes uninitialized).  Appended content can be modified, but any
-/// compressed names within it have to be handled with great care; they can
-/// only be modified by removing them entirely (by rewinding the builder,
-/// using [`rewind()`]) and building them again.  When compressed names are
-/// guaranteed to not be modified, [`appended_mut()`] can be used.
+/// The appended but uncommitted content of the builder is made available via
+/// [`uncommitted_mut()`].  It is content that has been added by this builder,
+/// but that has not yet been committed.  When the [`Builder`] is dropped,
+/// this content is removed (it becomes uninitialized).  Appended content can
+/// be modified, but any compressed names within it have to be handled with
+/// great care; they can only be modified by removing them entirely (by
+/// rewinding the builder, using [`rewind()`]) and building them again.  When
+/// compressed names are guaranteed to not be modified, [`uncommitted_mut()`]
+/// can be used.
 ///
 /// [`appended()`]: Self::appended()
 /// [`rewind()`]: Self::rewind()
-/// [`appended_mut()`]: Self::appended_mut()
+/// [`uncommitted_mut()`]: Self::uncommitted_mut()
 ///
 /// The uninitialized space in the builder will be written to when appending
 /// new content.  It can be accessed directly, in case that is more efficient
@@ -259,37 +156,31 @@ impl<'b> Builder<'b> {
 ///
 /// [`limit_to()`]: Self::limit_to()
 impl<'b> Builder<'b> {
-    /// The header of the DNS message.
-    pub fn header(&self) -> &Header {
-        // SAFETY: 'message.header' is mutably borrowed by 'self'.
-        unsafe { &(*self.message.as_ptr()).header }
-    }
-
-    /// The header of the DNS message, mutably.
-    ///
-    /// It is possible to modify the section counts arbitrarily through this
-    /// method; while doing so cannot cause undefined behaviour, it is not
-    /// recommended.
-    pub fn header_mut(&mut self) -> &mut Header {
-        // SAFETY: 'message.header' is mutably borrowed by 'self'.
-        unsafe { &mut (*self.message.as_ptr()).header }
-    }
-
     /// Committed message contents.
     pub fn committed(&self) -> &'b [u8] {
-        // SAFETY: 'message.contents[..commit]' is immutably borrowed by
-        // 'self'.
-        unsafe { &(*self.message.as_ptr()).contents[..self.commit] }
+        let message = self.contents.get().cast_const().cast();
+        // SAFETY: 'message[..start]' is immutably borrowed.
+        unsafe { slice::from_raw_parts(message, self.start) }
+    }
+
+    /// Appended (and committed) message contents.
+    pub fn appended(&self) -> &[u8] {
+        let message = self.contents.get().cast_const().cast();
+        // SAFETY: 'message[..offset]' is (im)mutably borrowed.
+        unsafe { slice::from_raw_parts(message, self.context.size) }
     }
 
     /// The appended but uncommitted contents of the message.
     ///
     /// The builder can modify or rewind these contents, so they are offered
     /// with a short lifetime.
-    pub fn appended(&self) -> &[u8] {
-        // SAFETY: 'message.contents[commit..]' is mutably borrowed by 'self'.
-        let range = self.commit..self.context.size;
-        unsafe { &(*self.message.as_ptr()).contents[range] }
+    pub fn uncommitted(&self) -> &[u8] {
+        let message = self.contents.get().cast::<u8>().cast_const();
+        // SAFETY: It is guaranteed that 'start <= message.len()'.
+        let message = unsafe { message.offset(self.start as isize) };
+        let size = self.context.size - self.start;
+        // SAFETY: 'message[start..]' is mutably borrowed.
+        unsafe { slice::from_raw_parts(message, size) }
     }
 
     /// The appended but uncommitted contents of the message, mutably.
@@ -298,10 +189,13 @@ impl<'b> Builder<'b> {
     ///
     /// The caller must not modify any compressed names among these bytes.
     /// This can invalidate name compression state.
-    pub unsafe fn appended_mut(&mut self) -> &mut [u8] {
-        // SAFETY: 'message.contents[commit..]' is mutably borrowed by 'self'.
-        let range = self.commit..self.context.size;
-        unsafe { &mut (*self.message.as_ptr()).contents[range] }
+    pub unsafe fn uncommitted_mut(&mut self) -> &mut [u8] {
+        let message = self.contents.get().cast::<u8>();
+        // SAFETY: It is guaranteed that 'start <= message.len()'.
+        let message = unsafe { message.offset(self.start as isize) };
+        let size = self.context.size - self.start;
+        // SAFETY: 'message[start..]' is mutably borrowed.
+        unsafe { slice::from_raw_parts_mut(message, size) }
     }
 
     /// Uninitialized space in the message buffer.
@@ -310,39 +204,12 @@ impl<'b> Builder<'b> {
     /// should be treated as appended content in the message, call
     /// [`self.mark_appended(n)`](Self::mark_appended()).
     pub fn uninitialized(&mut self) -> &mut [u8] {
-        // SAFETY: 'message.contents[commit..]' is mutably borrowed by 'self'.
-        unsafe { &mut (*self.message.as_ptr()).contents[self.context.size..] }
-    }
-
-    /// The message with all committed contents.
-    ///
-    /// The header of the message can be modified by the builder, so the
-    /// returned reference has a short lifetime.  The message contents can be
-    /// borrowed for a longer lifetime -- see [`committed()`].  The message
-    /// does not include content that has been appended but not committed.
-    ///
-    /// [`committed()`]: Self::committed()
-    pub fn message(&self) -> &Message {
-        // SAFETY: All of 'message' can be immutably borrowed by 'self'.
-        unsafe { self.message.as_ref() }.slice_to(self.commit)
-    }
-
-    /// The message including any uncommitted contents.
-    pub fn cur_message(&self) -> &Message {
-        // SAFETY: All of 'message' can be immutably borrowed by 'self'.
-        unsafe { self.message.as_ref() }.slice_to(self.context.size)
-    }
-
-    /// A pointer to the message, including any uncommitted contents.
-    ///
-    /// The first `commit` bytes of the message contents (also provided by
-    /// [`Self::committed()`]) are immutably borrowed for the lifetime `'b`.
-    /// The remainder of the message is initialized and borrowed by `self`.
-    pub fn cur_message_ptr(&mut self) -> NonNull<Message> {
-        let message = self.message.as_ptr();
-        let size = self.context.size;
-        let message = unsafe { Message::ptr_slice_to(message, size) };
-        unsafe { NonNull::new_unchecked(message) }
+        let message = self.contents.get().cast::<u8>();
+        // SAFETY: It is guaranteed that 'size <= message.len()'.
+        let message = unsafe { message.offset(self.context.size as isize) };
+        let size = self.max_size() - self.context.size;
+        // SAFETY: 'message[size..]' is mutably borrowed.
+        unsafe { slice::from_raw_parts_mut(message, size) }
     }
 
     /// The builder context.
@@ -356,7 +223,15 @@ impl<'b> Builder<'b> {
     /// initialized.  The content before this point has been committed and is
     /// immutable.  The builder can be rewound up to this point.
     pub fn start(&self) -> usize {
-        self.commit
+        self.start
+    }
+
+    /// The append point of this builder.
+    ///
+    /// This is the offset into the message contents at which new data will be
+    /// written.  The content after this point is uninitialized.
+    pub fn offset(&self) -> usize {
+        self.context.size
     }
 
     /// The size limit of this builder.
@@ -365,12 +240,11 @@ impl<'b> Builder<'b> {
     /// [`TruncationError`]s will occur.  The limit can be tightened using
     /// [`limit_to()`](Self::limit_to()).
     pub fn max_size(&self) -> usize {
-        // SAFETY: 'Message' ends with a slice DST, and so references to it
-        // hold the length of that slice; we can cast it to another slice type
-        // and the pointer representation is unchanged.  By using a slice type
-        // of ZST elements, aliasing is impossible, and it can be dereferenced
+        // SAFETY: We can cast 'contents' to another slice type and the
+        // pointer representation is unchanged.  By using a slice type of ZST
+        // elements, aliasing is impossible, and it can be dereferenced
         // safely.
-        unsafe { &*(self.message.as_ptr() as *mut [()]) }.len()
+        unsafe { &*(self.contents.get() as *mut [()]) }.len()
     }
 
     /// Decompose this builder into raw parts.
@@ -389,14 +263,14 @@ impl<'b> Builder<'b> {
     /// The builder can be recomposed with [`Self::from_raw_parts()`].
     pub fn into_raw_parts(
         self,
-    ) -> (NonNull<Message>, &'b mut BuilderContext, usize) {
+    ) -> (&'b UnsafeCell<[u8]>, &'b mut BuilderContext, usize) {
         // NOTE: The context has to be moved out carefully.
-        let (message, commit) = (self.message, self.commit);
+        let (contents, start) = (self.contents, self.start);
         let this = ManuallyDrop::new(self);
         let this = (&*this) as *const Self;
         // SAFETY: 'this' is a valid object that can be moved out of.
         let context = unsafe { ptr::read(ptr::addr_of!((*this).context)) };
-        (message, context, commit)
+        (contents, context, start)
     }
 }
 
@@ -437,7 +311,7 @@ impl<'b> Builder<'b> {
 impl Builder<'_> {
     /// Rewind the builder, removing all uncommitted content.
     pub fn rewind(&mut self) {
-        self.context.size = self.commit;
+        self.context.size = self.start;
     }
 
     /// Commit the changes made by this builder.
@@ -447,7 +321,7 @@ impl Builder<'_> {
     /// this method on success paths.
     pub fn commit(mut self) -> BuildCommitted {
         // Update 'commit' so that the drop glue is a no-op.
-        self.commit = self.context.size;
+        self.start = self.context.size;
         BuildCommitted
     }
 
@@ -459,9 +333,11 @@ impl Builder<'_> {
     /// limit, a [`TruncationError`] is returned.
     pub fn limit_to(&mut self, size: usize) -> Result<(), TruncationError> {
         if self.context.size <= size {
-            let message = self.message.as_ptr();
-            let message = unsafe { Message::ptr_slice_to(message, size) };
-            self.message = unsafe { NonNull::new_unchecked(message) };
+            let message = self.contents.get().cast::<u8>();
+            debug_assert!(size <= self.max_size());
+            self.contents = unsafe {
+                &*(ptr::slice_from_raw_parts_mut(message, size) as *const _)
+            };
             Ok(())
         } else {
             Err(TruncationError)
@@ -490,7 +366,7 @@ impl Builder<'_> {
     pub fn delegate(&mut self) -> Builder<'_> {
         let commit = self.context.size;
         unsafe {
-            Builder::from_raw_parts(self.message, &mut *self.context, commit)
+            Builder::from_raw_parts(self.contents, &mut *self.context, commit)
         }
     }
 
@@ -550,18 +426,3 @@ unsafe impl Send for Builder<'_> {}
 // SAFETY: Only parts of the referenced message that are borrowed immutably
 // can be accessed through an immutable reference to `self`.
 unsafe impl Sync for Builder<'_> {}
-
-//----------- BuilderContext -------------------------------------------------
-
-/// Context for building a DNS message.
-///
-/// This type holds auxiliary information necessary for building DNS messages,
-/// e.g. name compression state.  To construct it, call [`default()`].
-///
-/// [`default()`]: Self::default()
-#[derive(Clone, Debug, Default)]
-pub struct BuilderContext {
-    // TODO: Name compression.
-    /// The current size of the message contents.
-    size: usize,
-}

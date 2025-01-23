@@ -4,8 +4,6 @@
 //! but it is not specialized to DNS messages.  This module provides that
 //! specialization within an ergonomic interface.
 //!
-//! # The High-Level Interface
-//!
 //! The core of the high-level interface is [`MessageBuilder`].  It provides
 //! the most intuitive methods for appending whole questions and records.
 //!
@@ -42,57 +40,24 @@
 //!     qtype: QType::A,
 //!     qclass: QClass::IN,
 //! };
-//! builder.append_question(&question).unwrap();
+//! let _ = builder.build_question(&question).unwrap().unwrap();
 //!
 //! // Use the built message.
 //! let message = builder.message();
 //! # let _ = message;
 //! ```
-//!
-//! # The Low-Level Interface
-//!
-//! [`Builder`] is a powerful low-level interface that can be used to build
-//! DNS messages.  It implements atomic building and name compression, and is
-//! the foundation of [`MessageBuilder`].
-//!
-//! The [`Builder`] interface does not know about questions and records; it is
-//! only capable of appending simple bytes and compressing domain names.  Its
-//! access to the message buffer is limited; it can only append, modify, or
-//! truncate the message up to a certain point (all data before that point is
-//! immutable).  Special attention is given to the message header, as it can
-//! be modified at any point in the message building process.
-//!
-//! ```
-//! use domain::new_base::build::{BuilderContext, Builder, BuildIntoMessage};
-//! use domain::new_rdata::A;
-//!
-//! // Construct a builder for a particular buffer.
-//! let mut buffer = [0u8; 20];
-//! let mut context = BuilderContext::default();
-//! let mut builder = Builder::new(&mut buffer, &mut context);
-//!
-//! // Try appending some raw bytes to the builder.
-//! builder.append_bytes(b"hi! ").unwrap();
-//! assert_eq!(builder.appended(), b"hi! ");
-//!
-//! // Try appending some structured content to the builder.
-//! A::from(std::net::Ipv4Addr::new(127, 0, 0, 1))
-//!     .build_into_message(builder.delegate())
-//!     .unwrap();
-//! assert_eq!(builder.appended(), b"hi! \x7F\x00\x00\x01");
-//!
-//! // Finish using the builder.
-//! builder.commit();
-//!
-//! // Note: the first 12 bytes hold the message header.
-//! assert_eq!(&buffer[12..20], b"hi! \x7F\x00\x00\x01");
-//! ```
 
 mod builder;
-pub use builder::{Builder, BuilderContext};
+pub use builder::Builder;
+
+mod context;
+pub use context::{BuilderContext, MessageState};
 
 mod message;
 pub use message::MessageBuilder;
+
+mod question;
+pub use question::QuestionBuilder;
 
 mod record;
 pub use record::RecordBuilder;
