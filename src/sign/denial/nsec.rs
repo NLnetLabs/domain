@@ -180,12 +180,15 @@ mod tests {
     use crate::base::Ttl;
     use crate::sign::records::SortedRecords;
     use crate::sign::test_util::*;
+    use crate::zonetree::types::StoredRecordData;
+    use crate::zonetree::StoredName;
 
     use super::*;
 
     #[test]
     fn soa_is_required() {
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_a_rr("some_a.a.")).unwrap();
         let res = generate_nsecs(records.owner_rrs(), false);
         assert!(matches!(
@@ -196,7 +199,8 @@ mod tests {
 
     #[test]
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
         records.insert(mk_soa_rr("a.", "d.", "e.")).unwrap();
         let res = generate_nsecs(records.owner_rrs(), false);
@@ -208,7 +212,8 @@ mod tests {
 
     #[test]
     fn records_outside_zone_are_ignored() {
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
 
         records.insert(mk_soa_rr("b.", "d.", "e.")).unwrap();
         records.insert(mk_a_rr("some_a.b.")).unwrap();
@@ -272,7 +277,8 @@ mod tests {
 
     #[test]
     fn expect_dnskeys_at_the_apex() {
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
 
         records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
         records.insert(mk_a_rr("some_a.a.")).unwrap();

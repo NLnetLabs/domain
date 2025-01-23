@@ -722,6 +722,7 @@ mod tests {
     use crate::zonetree::StoredName;
 
     use super::*;
+    use crate::zonetree::types::StoredRecordData;
     use rand::Rng;
 
     const TEST_INCEPTION: u32 = 0;
@@ -738,7 +739,8 @@ mod tests {
         //   ...
         //   "For example, "www.example.com." has a Labels field value of 3"
         // We can use any class as RRSIGs are class independent.
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_a_rr("www.example.com.")).unwrap();
         let rrset = Rrset::new(&records);
 
@@ -796,7 +798,8 @@ mod tests {
         // 3.1.3.  The Labels Field
         //   ...
         //   ""*.example.com." has a Labels field value of 2"
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_a_rr("*.example.com.")).unwrap();
         let rrset = Rrset::new(&records);
 
@@ -818,7 +821,8 @@ mod tests {
         let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
         let dnskey = key.public_key().to_dnskey().convert();
 
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
         records
             .insert(mk_rrsig_rr("any.", Rtype::A, 1, ".", &dnskey))
             .unwrap();
@@ -850,7 +854,8 @@ mod tests {
         let apex_owner = Name::root();
         let key = SigningKey::new(apex_owner.clone(), 0, TestKey::default());
 
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_a_rr("any.")).unwrap();
         let rrset = Rrset::new(&records);
 
@@ -953,7 +958,8 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_without_keys_should_succeed_for_empty_zone() {
-        let records = SortedRecords::default();
+        let records =
+            SortedRecords::<StoredName, StoredRecordData>::default();
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
         generate_rrsigs(
