@@ -86,6 +86,12 @@ impl From<SignError> for SigningError {
     }
 }
 
+impl From<Nsec3HashError> for SigningError {
+    fn from(err: Nsec3HashError) -> Self {
+        Self::Nsec3HashingError(err)
+    }
+}
+
 //----------- SignError ------------------------------------------------------
 
 /// A signature failure.

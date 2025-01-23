@@ -3,8 +3,9 @@ use core::convert::From;
 use std::vec::Vec;
 
 use super::nsec3::{
-    Nsec3Config, Nsec3HashProvider, OnDemandNsec3HashProvider,
+    GenerateNsec3Config, Nsec3HashProvider, OnDemandNsec3HashProvider,
 };
+use crate::sign::records::DefaultSorter;
 
 //------------ NsecToNsec3TransitionState ------------------------------------
 
@@ -74,8 +75,12 @@ pub enum Nsec3ToNsecTransitionState {
 /// This type can be used to choose which denial mechanism should be used when
 /// DNSSEC signing a zone.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum DenialConfig<N, O, HP = OnDemandNsec3HashProvider<O>>
-where
+pub enum DenialConfig<
+    N,
+    O,
+    HP = OnDemandNsec3HashProvider<O>,
+    Sort = DefaultSorter,
+> where
     HP: Nsec3HashProvider<N, O>,
     O: AsRef<[u8]> + From<&'static [u8]>,
 {
@@ -105,17 +110,20 @@ where
     ///    the only practical and palatable transition mechanisms may require
     ///    an intermediate transition to an insecure state, or to a state that
     ///    uses NSEC records instead of NSEC3."
-    Nsec3(Nsec3Config<N, O, HP>, Vec<Nsec3Config<N, O, HP>>),
+    Nsec3(
+        GenerateNsec3Config<N, O, HP, Sort>,
+        Vec<GenerateNsec3Config<N, O, HP, Sort>>,
+    ),
 
     /// The zone is transitioning from NSEC to NSEC3.
     TransitioningNsecToNsec3(
-        Nsec3Config<N, O, HP>,
+        GenerateNsec3Config<N, O, HP, Sort>,
         NsecToNsec3TransitionState,
     ),
 
     /// The zone is transitioning from NSEC3 to NSEC.
     TransitioningNsec3ToNsec(
-        Nsec3Config<N, O, HP>,
+        GenerateNsec3Config<N, O, HP, Sort>,
         Nsec3ToNsecTransitionState,
     ),
 }

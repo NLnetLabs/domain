@@ -15,6 +15,8 @@ use crate::base::name::ToName;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::base::Ttl;
+use crate::zonetree::types::StoredRecordData;
+use crate::zonetree::StoredName;
 
 //------------ Sorter --------------------------------------------------------
 
@@ -64,8 +66,11 @@ impl Sorter for DefaultSorter {
 /// overridden by being generic over an alternate implementation of
 /// [`Sorter`].
 #[derive(Clone)]
-pub struct SortedRecords<N, D, Sort = DefaultSorter>
-where
+pub struct SortedRecords<
+    N = StoredName,
+    D = StoredRecordData,
+    Sort = DefaultSorter,
+> where
     Record<N, D>: Send,
     Sort: Sorter,
 {
@@ -310,9 +315,7 @@ where
     }
 }
 
-impl<N: Send, D: Send + CanonicalOrd> Default
-    for SortedRecords<N, D, DefaultSorter>
-{
+impl Default for SortedRecords<StoredName, StoredRecordData, DefaultSorter> {
     fn default() -> Self {
         Self::new()
     }

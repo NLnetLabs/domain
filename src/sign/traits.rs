@@ -30,6 +30,7 @@ use crate::sign::records::{
 use crate::sign::sign_zone;
 use crate::sign::signatures::rrsigs::generate_rrsigs;
 use crate::sign::signatures::rrsigs::GenerateRrsigConfig;
+use crate::sign::signatures::rrsigs::RrsigRecords;
 use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
 use crate::sign::SigningConfig;
 use crate::sign::{PublicKeyBytes, SignableZoneInOut, Signature};
@@ -499,12 +500,12 @@ where
         &self,
         expected_apex: &N,
         keys: &[DSK],
-    ) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
+    ) -> Result<RrsigRecords<N, Octs>, SigningError>
     where
         DSK: DesignatedSigningKey<Octs, Inner>,
         KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     {
-        generate_rrsigs::<_, _, DSK, _, KeyStrat, Sort>(
+        generate_rrsigs::<N, Octs, DSK, _, KeyStrat, Sort>(
             self.owner_rrs(),
             keys,
             &GenerateRrsigConfig::new().with_zone_apex(expected_apex),

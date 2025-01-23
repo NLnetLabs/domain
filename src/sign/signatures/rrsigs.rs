@@ -20,7 +20,7 @@ use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::Name;
 use crate::rdata::dnssec::ProtoRrsig;
-use crate::rdata::{Dnskey, ZoneRecordData};
+use crate::rdata::{Dnskey, Rrsig, ZoneRecordData};
 use crate::sign::error::SigningError;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::keys::signingkey::SigningKey;
@@ -30,6 +30,8 @@ use crate::sign::records::{
 use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
 use crate::sign::traits::SignRaw;
 use smallvec::SmallVec;
+
+//----------- GenerateRrsigConfig --------------------------------------------
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
@@ -79,6 +81,46 @@ impl<N> Default
     }
 }
 
+//------------ RrsigRecords --------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct RrsigRecords<N, Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    /// The NSEC3 records.
+    pub rrsigs: Vec<Record<N, Rrsig<Octs, N>>>,
+
+    /// The DNSKEY records.
+    pub dnskeys: Vec<Record<N, Dnskey<Octs>>>,
+}
+
+impl<N, Octs> RrsigRecords<N, Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    pub fn new(
+        rrsigs: Vec<Record<N, Rrsig<Octs, N>>>,
+        dnskeys: Vec<Record<N, Dnskey<Octs>>>,
+    ) -> Self {
+        Self { rrsigs, dnskeys }
+    }
+}
+
+impl<N, Octs> Default for RrsigRecords<N, Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    fn default() -> Self {
+        Self {
+            rrsigs: Default::default(),
+            dnskeys: Default::default(),
+        }
+    }
+}
+
+//------------ generate_rrsigs() ---------------------------------------------
+
 /// Generate RRSIG RRs for a collection of zone records.
 ///
 /// Returns the collection of RRSIG and (optionally) DNSKEY RRs that must be
@@ -102,7 +144,7 @@ pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[DSK],
     config: &GenerateRrsigConfig<'_, N, KeyStrat, Sort>,
-) -> Result<Vec<Record<N, ZoneRecordData<Octs, N>>>, SigningError>
+) -> Result<RrsigRecords<N, Octs>, SigningError>
 where
     DSK: DesignatedSigningKey<Octs, Inner>,
     Inner: SignRaw,
@@ -141,7 +183,7 @@ where
         // No records were provided. As we are able to generate RRSIGs for
         // partial zones this is a special case of a partial zone, an empty
         // input, for which there is nothing to do.
-        return Ok(vec![]);
+        return Ok(RrsigRecords::default());
     };
 
     let first_owner = first_rrs.owner().clone();
@@ -207,7 +249,7 @@ where
         );
     }
 
-    let mut res: Vec<Record<N, ZoneRecordData<Octs, N>>> = Vec::new();
+    let mut out = RrsigRecords::default();
     let mut reusable_scratch = Vec::new();
     let mut cut: Option<N> = None;
 
@@ -223,7 +265,7 @@ where
             &dnskey_signing_key_idxs,
             &non_dnskey_signing_key_idxs,
             &keys_in_use_idxs,
-            &mut res,
+            &mut out,
             &mut reusable_scratch,
         )?;
     }
@@ -280,7 +322,7 @@ where
                     zone_apex,
                     &mut reusable_scratch,
                 )?;
-                res.push(rrsig_rr);
+                out.rrsigs.push(rrsig_rr);
                 debug!(
                     "Signed {} RRSET at {} with keytag {}",
                     rrset.rtype(),
@@ -291,9 +333,13 @@ where
         }
     }
 
-    debug!("Returning {} records from signature generation", res.len());
+    debug!(
+        "Returning {} RRSIG RRs and {} DNSKEY RRs from signature generation",
+        out.rrsigs.len(),
+        out.dnskeys.len(),
+    );
 
-    Ok(res)
+    Ok(out)
 }
 
 fn log_keys_in_use<Octs, DSK, Inner>(
@@ -361,7 +407,7 @@ fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     dnskey_signing_key_idxs: &[usize],
     non_dnskey_signing_key_idxs: &[usize],
     keys_in_use_idxs: &[usize],
-    generated_rrs: &mut Vec<Record<N, ZoneRecordData<Octs, N>>>,
+    out: &mut RrsigRecords<N, Octs>,
     reusable_scratch: &mut Vec<u8>,
 ) -> Result<(), SigningError>
 where
@@ -474,11 +520,11 @@ where
 
         if config.add_used_dnskeys && is_new_dnskey {
             // Add the DNSKEY RR to the set of new RRs to output for the zone.
-            generated_rrs.push(Record::new(
+            out.dnskeys.push(Record::new(
                 zone_apex.clone(),
                 zone_class,
                 dnskey_rrset_ttl,
-                Dnskey::convert(dnskey).into(),
+                Dnskey::convert(dnskey),
             ));
         }
     }
@@ -502,7 +548,7 @@ where
         for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
             let rrsig_rr =
                 sign_rrset_in(key, &rrset, zone_apex, reusable_scratch)?;
-            generated_rrs.push(rrsig_rr);
+            out.rrsigs.push(rrsig_rr);
             trace!(
                 "Signed {} RRs in RRSET {} at the zone apex with keytag {}",
                 rrset.iter().len(),
@@ -529,7 +575,7 @@ pub fn sign_rrset<N, D, Octs, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset: &Rrset<'_, N, D>,
     apex_owner: &N,
-) -> Result<Record<N, ZoneRecordData<Octs, N>>, SigningError>
+) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
 where
     N: ToName + Clone + Send,
     D: RecordData
@@ -568,7 +614,7 @@ pub fn sign_rrset_in<N, D, Octs, Inner>(
     rrset: &Rrset<'_, N, D>,
     apex_owner: &N,
     scratch: &mut Vec<u8>,
-) -> Result<Record<N, ZoneRecordData<Octs, N>>, SigningError>
+) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
 where
     N: ToName + Clone + Send,
     D: RecordData
@@ -655,7 +701,7 @@ where
         rrset.owner().clone(),
         rrset.class(),
         rrset.ttl(),
-        ZoneRecordData::Rrsig(rrsig),
+        rrsig,
     ))
 }
 
@@ -673,8 +719,7 @@ mod tests {
     use crate::sign::keys::DnssecSigningKey;
     use crate::sign::test_util::*;
     use crate::sign::{test_util, PublicKeyBytes, Signature};
-    use crate::zonetree::types::StoredRecordData;
-    use crate::zonetree::{StoredName, StoredRecord};
+    use crate::zonetree::StoredName;
 
     use super::*;
     use rand::Rng;
@@ -693,14 +738,12 @@ mod tests {
         //   ...
         //   "For example, "www.example.com." has a Labels field value of 3"
         // We can use any class as RRSIGs are class independent.
-        let records = [mk_a_rr("www.example.com.")];
+        let mut records = SortedRecords::default();
+        records.insert(mk_a_rr("www.example.com.")).unwrap();
         let rrset = Rrset::new(&records);
 
         let rrsig_rr = sign_rrset(&key, &rrset, &apex_owner).unwrap();
-
-        let ZoneRecordData::Rrsig(rrsig) = rrsig_rr.data() else {
-            unreachable!();
-        };
+        let rrsig = rrsig_rr.data();
 
         // RFC 4035
         // 2.2.  Including RRSIG RRs in a Zone
@@ -753,14 +796,12 @@ mod tests {
         // 3.1.3.  The Labels Field
         //   ...
         //   ""*.example.com." has a Labels field value of 2"
-        let records = [mk_a_rr("*.example.com.")];
+        let mut records = SortedRecords::default();
+        records.insert(mk_a_rr("*.example.com.")).unwrap();
         let rrset = Rrset::new(&records);
 
         let rrsig_rr = sign_rrset(&key, &rrset, &apex_owner).unwrap();
-
-        let ZoneRecordData::Rrsig(rrsig) = rrsig_rr.data() else {
-            unreachable!();
-        };
+        let rrsig = rrsig_rr.data();
 
         assert_eq!(rrsig.labels(), 2);
     }
@@ -777,7 +818,10 @@ mod tests {
         let key = key.with_validity(Timestamp::from(0), Timestamp::from(0));
         let dnskey = key.public_key().to_dnskey().convert();
 
-        let records = [mk_rrsig_rr("any.", Rtype::A, 1, ".", &dnskey)];
+        let mut records = SortedRecords::default();
+        records
+            .insert(mk_rrsig_rr("any.", Rtype::A, 1, ".", &dnskey))
+            .unwrap();
         let rrset = Rrset::new(&records);
 
         let res = sign_rrset(&key, &rrset, &apex_owner);
@@ -806,7 +850,8 @@ mod tests {
         let apex_owner = Name::root();
         let key = SigningKey::new(apex_owner.clone(), 0, TestKey::default());
 
-        let records = [mk_a_rr("any.")];
+        let mut records = SortedRecords::default();
+        records.insert(mk_a_rr("any.")).unwrap();
         let rrset = Rrset::new(&records);
 
         fn calc_timestamps(
@@ -908,7 +953,7 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_without_keys_should_succeed_for_empty_zone() {
-        let records: [Record<StoredName, StoredRecordData>; 0] = [];
+        let records = SortedRecords::default();
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
         generate_rrsigs(
@@ -921,7 +966,8 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_without_keys_should_fail_for_non_empty_zone() {
-        let records = [mk_a_rr("example.")];
+        let mut records = SortedRecords::default();
+        records.insert(mk_a_rr("example.")).unwrap();
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
         let res = generate_rrsigs(
@@ -936,7 +982,8 @@ mod tests {
     #[test]
     fn generate_rrsigs_without_suitable_keys_should_fail_for_non_empty_zone()
     {
-        let records = [mk_a_rr("example.")];
+        let mut records = SortedRecords::default();
+        records.insert(mk_a_rr("example.")).unwrap();
 
         let res = generate_rrsigs(
             RecordsIter::new(&records),
@@ -974,7 +1021,8 @@ mod tests {
         // This is an example of generating RRSIGs for something other than a
         // full zone, in this case just for an A record. This test
         // deliberately does not include a SOA record as the zone is partial.
-        let records = [mk_a_rr(record_owner)];
+        let mut records = SortedRecords::default();
+        records.insert(mk_a_rr(record_owner)).unwrap();
 
         // Prepare a zone signing key and a key signing key.
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
@@ -995,9 +1043,10 @@ mod tests {
 
         // Check the generated RRSIG records
         let expected_labels = mk_name(record_owner).rrsig_label_count();
-        assert_eq!(generated_records.len(), 1);
+        assert_eq!(generated_records.rrsigs.len(), 1);
+        assert!(generated_records.dnskeys.is_empty());
         assert_eq!(
-            generated_records[0],
+            generated_records.rrsigs[0],
             mk_rrsig_rr(
                 record_owner,
                 Rtype::A,
@@ -1010,11 +1059,12 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_ignores_records_outside_the_zone() {
-        let records = [
+        let mut records = SortedRecords::default();
+        records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
             mk_a_rr("in_zone.example."),
             mk_a_rr("out_of_zone."),
-        ];
+        ]);
 
         // Prepare a zone signing key and a key signing key.
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
@@ -1029,9 +1079,13 @@ mod tests {
 
         // Check the generated records
         assert_eq!(
-            generated_records,
+            generated_records.dnskeys,
+            [mk_dnskey_rr("example.", &dnskey),]
+        );
+
+        assert_eq!(
+            generated_records.rrsigs,
             [
-                mk_dnskey_rr("example.", &dnskey),
                 mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &dnskey),
                 mk_rrsig_rr(
                     "example.",
@@ -1060,9 +1114,12 @@ mod tests {
         )
         .unwrap();
 
+        // Check the generated DNSKEY records
+        assert!(generated_records.dnskeys.is_empty());
+
         // Check the generated RRSIG records
         assert_eq!(
-            generated_records,
+            generated_records.rrsigs,
             [mk_rrsig_rr(
                 "out_of_zone.",
                 Rtype::A,
@@ -1075,11 +1132,12 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_fails_with_multiple_soas_at_apex() {
-        let records = [
+        let mut records = SortedRecords::default();
+        records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
             mk_soa_rr("example.", "other.mname.", "other.rname."),
             mk_a_rr("in_zone.example."),
-        ];
+        ]);
 
         // Prepare a zone signing key and a key signing key.
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
@@ -1194,7 +1252,8 @@ mod tests {
         let zsk = &dnskeys[zsk_idx];
 
         // Check the generated records.
-        let mut iter = generated_records.iter();
+        let mut dnskey_iter = generated_records.dnskeys.iter();
+        let mut rrsig_iter = generated_records.rrsigs.iter();
 
         // The records should be in a fixed canonical order because the input
         // records must be in canonical order, with the exception of the added
@@ -1218,10 +1277,13 @@ mod tests {
         if cfg.add_used_dnskeys {
             // DNSKEY records should have been generated for the apex for both
             // of the keys that we used to sign the zone.
-            assert_eq!(*iter.next().unwrap(), mk_dnskey_rr("example.", ksk));
+            assert_eq!(
+                *dnskey_iter.next().unwrap(),
+                mk_dnskey_rr("example.", ksk)
+            );
             if ksk_idx != zsk_idx {
                 assert_eq!(
-                    *iter.next().unwrap(),
+                    *dnskey_iter.next().unwrap(),
                     mk_dnskey_rr("example.", zsk)
                 );
             }
@@ -1230,15 +1292,15 @@ mod tests {
         // RRSIG records should have been generated for the zone apex records,
         // one RRSIG per ZSK used.
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("example.", Rtype::NS, 1, "example.", zsk)
         );
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", zsk)
         );
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("example.", Rtype::MX, 1, "example.", zsk)
         );
         // https://datatracker.ietf.org/doc/html/rfc4035#section-2.2 2.2.
@@ -1266,7 +1328,7 @@ mod tests {
         // keys based on their `IntendedKeyPurpose` which we assigned above
         // when creating the keys.
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("example.", Rtype::DNSKEY, 1, "example.", ksk)
         );
 
@@ -1283,7 +1345,7 @@ mod tests {
         //    zone's name servers) MUST NOT be signed."
 
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("a.example.", Rtype::DS, 2, "example.", zsk)
         );
 
@@ -1314,15 +1376,15 @@ mod tests {
         // -- ai.example.
 
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("ai.example.", Rtype::A, 2, "example.", zsk)
         );
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("ai.example.", Rtype::HINFO, 2, "example.", zsk)
         );
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("ai.example.", Rtype::AAAA, 2, "example.", zsk)
         );
 
@@ -1345,56 +1407,56 @@ mod tests {
         // -- ns1.example.
 
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("ns1.example.", Rtype::A, 2, "example.", zsk)
         );
 
         // -- ns2.example.
 
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("ns2.example.", Rtype::A, 2, "example.", zsk)
         );
 
         // -- *.w.example.
 
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("*.w.example.", Rtype::MX, 2, "example.", zsk)
         );
 
         // -- x.w.example.
 
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("x.w.example.", Rtype::MX, 3, "example.", zsk)
         );
 
         // -- x.y.w.example.
 
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("x.y.w.example.", Rtype::MX, 4, "example.", zsk)
         );
 
         // -- xx.example.
 
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("xx.example.", Rtype::A, 2, "example.", zsk)
         );
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("xx.example.", Rtype::HINFO, 2, "example.", zsk)
         );
         assert_eq!(
-            *iter.next().unwrap(),
+            *rrsig_iter.next().unwrap(),
             mk_rrsig_rr("xx.example.", Rtype::AAAA, 2, "example.", zsk)
         );
 
         // No other records should have been generated.
 
-        assert!(iter.next().is_none());
+        assert!(rrsig_iter.next().is_none());
 
         Ok(())
     }
@@ -1402,11 +1464,13 @@ mod tests {
     #[test]
     fn generate_rrsigs_for_complete_zone_with_multiple_ksks_and_zsks() {
         let apex = "example.";
-        let records = [
+
+        let mut records = SortedRecords::default();
+        records.extend([
             mk_soa_rr(apex, "some.mname.", "some.rname."),
             mk_ns_rr(apex, "ns.example."),
             mk_a_rr("ns.example."),
-        ];
+        ]);
 
         let keys = [
             mk_dnssec_signing_key(IntendedKeyPurpose::KSK),
@@ -1428,16 +1492,33 @@ mod tests {
         .unwrap();
 
         // Check the generated records.
-        assert_eq!(generated_records.len(), 12);
+        assert_eq!(generated_records.dnskeys.len(), 4);
+        assert_eq!(generated_records.rrsigs.len(), 8);
 
         // Filter out the records one by one until there should be none left.
 
         let it = generated_records
+            .dnskeys
             .iter()
             .filter(|&rr| rr != &mk_dnskey_rr(apex, &ksk1))
             .filter(|&rr| rr != &mk_dnskey_rr(apex, &ksk2))
             .filter(|&rr| rr != &mk_dnskey_rr(apex, &zsk1))
-            .filter(|&rr| rr != &mk_dnskey_rr(apex, &zsk2))
+            .filter(|&rr| rr != &mk_dnskey_rr(apex, &zsk2));
+
+        let mut it = it.inspect(|rr| {
+            eprintln!(
+                "Warning: Unexpected DNSKEY RRs remaining after filtering: {} {} => {:?}",
+                rr.owner(),
+                rr.rtype(),
+                rr.data(),
+            );
+        });
+
+        assert!(it.next().is_none());
+
+        let it = generated_records
+            .rrsigs
+            .iter()
             .filter(|&rr| {
                 rr != &mk_rrsig_rr(apex, Rtype::SOA, 1, apex, &zsk1)
             })
@@ -1460,15 +1541,12 @@ mod tests {
             });
 
         let mut it = it.inspect(|rr| {
-            eprint!(
-                "Warning: Unexpected record remaining after filtering: {} {}",
+            eprintln!(
+                "Warning: Unexpected RRSIG RRs remaining after filtering: {} {} => {:?}",
                 rr.owner(),
-                rr.rtype()
+                rr.rtype(),
+                rr.data(),
             );
-            if let ZoneRecordData::Rrsig(rrsig) = rr.data() {
-                eprint!(" => {:?}", rrsig);
-            }
-            eprintln!();
         });
 
         assert!(it.next().is_none());
@@ -1480,30 +1558,23 @@ mod tests {
 
         let dnskey = keys[0].public_key().to_dnskey().convert();
 
-        let records = [
+        let mut records = SortedRecords::default();
+        records.extend([
             // -- example.
             mk_soa_rr("example.", "some.mname.", "some.rname."),
             mk_ns_rr("example.", "ns.example."),
             mk_dnskey_rr("example.", &dnskey),
-            Record::from_record(mk_nsec_rr(
-                "example",
-                "ns.example.",
-                "SOA NS DNSKEY NSEC RRSIG",
-            )),
+            mk_nsec_rr("example", "ns.example.", "SOA NS DNSKEY NSEC RRSIG"),
             mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &dnskey),
             mk_rrsig_rr("example.", Rtype::NS, 1, "example.", &dnskey),
             mk_rrsig_rr("example.", Rtype::DNSKEY, 1, "example.", &dnskey),
             mk_rrsig_rr("example.", Rtype::NSEC, 1, "example.", &dnskey),
             // -- ns.example.
             mk_a_rr("ns.example."),
-            Record::from_record(mk_nsec_rr(
-                "ns.example",
-                "example.",
-                "A NSEC RRSIG",
-            )),
+            mk_nsec_rr("ns.example", "example.", "A NSEC RRSIG"),
             mk_rrsig_rr("ns.example.", Rtype::A, 1, "example.", &dnskey),
             mk_rrsig_rr("ns.example.", Rtype::NSEC, 1, "example.", &dnskey),
-        ];
+        ]);
 
         let generated_records = generate_rrsigs(
             RecordsIter::new(&records),
@@ -1513,7 +1584,7 @@ mod tests {
         .unwrap();
 
         // Check the generated records.
-        let mut iter = generated_records.iter();
+        let mut iter = generated_records.rrsigs.iter();
 
         // The records should be in a fixed canonical order because the input
         // records must be in canonical order, with the exception of the added
@@ -1533,16 +1604,17 @@ mod tests {
 
         // The DNSKEY was already present in the zone so we do NOT expect a
         // DNSKEY to be included in the output.
+        assert!(generated_records.dnskeys.is_empty());
 
         // RRSIG records should have been generated for the zone apex records,
         // one RRSIG per ZSK used, even if RRSIG RRs already exist.
         assert_eq!(
             *iter.next().unwrap(),
-            mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &dnskey)
+            mk_rrsig_rr("example.", Rtype::NS, 1, "example.", &dnskey)
         );
         assert_eq!(
             *iter.next().unwrap(),
-            mk_rrsig_rr("example.", Rtype::NS, 1, "example.", &dnskey)
+            mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &dnskey)
         );
         assert_eq!(
             *iter.next().unwrap(),
@@ -1598,7 +1670,13 @@ mod tests {
         DnssecSigningKey::new(key, purpose)
     }
 
-    fn mk_dnskey_rr(name: &str, dnskey: &Dnskey<Bytes>) -> StoredRecord {
+    fn mk_dnskey_rr<R>(
+        name: &str,
+        dnskey: &Dnskey<Bytes>,
+    ) -> Record<StoredName, R>
+    where
+        R: From<Dnskey<Bytes>>,
+    {
         test_util::mk_dnskey_rr(
             name,
             dnskey.flags(),
@@ -1607,13 +1685,16 @@ mod tests {
         )
     }
 
-    fn mk_rrsig_rr(
+    fn mk_rrsig_rr<R>(
         name: &str,
         covered_rtype: Rtype,
         labels: u8,
         signer_name: &str,
         dnskey: &Dnskey<Bytes>,
-    ) -> StoredRecord {
+    ) -> Record<StoredName, R>
+    where
+        R: From<Rrsig<Bytes, StoredName>>,
+    {
         test_util::mk_rrsig_rr(
             name,
             covered_rtype,

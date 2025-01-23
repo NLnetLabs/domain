@@ -31,7 +31,7 @@ pub struct SigningConfig<
     Sort: Sorter,
 {
     /// Authenticated denial of existing mechanism configuration.
-    pub denial: DenialConfig<N, Octs, HP>,
+    pub denial: DenialConfig<N, Octs, HP, Sort>,
 
     /// Should keys used to sign the zone be added as DNSKEY RRs?
     pub add_used_dnskeys: bool,
@@ -49,7 +49,7 @@ where
     Sort: Sorter,
 {
     pub fn new(
-        denial: DenialConfig<N, Octs, HP>,
+        denial: DenialConfig<N, Octs, HP, Sort>,
         add_used_dnskeys: bool,
     ) -> Self {
         Self {

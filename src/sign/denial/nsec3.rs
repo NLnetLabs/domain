@@ -1,3 +1,4 @@
+use core::cmp::min;
 use core::convert::From;
 use core::fmt::{Debug, Display};
 use core::marker::{PhantomData, Send};
@@ -16,9 +17,90 @@ use crate::base::{Name, NameBuilder, Record, Ttl};
 use crate::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Nsec3, Nsec3param, ZoneRecordData};
-use crate::sign::records::{RecordsIter, SortedRecords, Sorter};
+use crate::sign::error::SigningError;
+use crate::sign::records::{
+    DefaultSorter, RecordsIter, SortedRecords, Sorter,
+};
 use crate::utils::base32;
 use crate::validate::{nsec3_hash, Nsec3HashError};
+
+//----------- GenerateNsec3Config --------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GenerateNsec3Config<N, Octs, HashProvider, Sort>
+where
+    HashProvider: Nsec3HashProvider<N, Octs>,
+    Octs: AsRef<[u8]> + From<&'static [u8]>,
+{
+    pub assume_dnskeys_will_be_added: bool,
+    pub params: Nsec3param<Octs>,
+    pub opt_out: Nsec3OptOut,
+    pub nsec3param_ttl_mode: Nsec3ParamTtlMode,
+    pub hash_provider: HashProvider,
+    _phantom: PhantomData<(N, Sort)>,
+}
+
+impl<N, Octs, HashProvider, Sort>
+    GenerateNsec3Config<N, Octs, HashProvider, Sort>
+where
+    HashProvider: Nsec3HashProvider<N, Octs>,
+    Octs: AsRef<[u8]> + From<&'static [u8]>,
+{
+    pub fn new(
+        params: Nsec3param<Octs>,
+        opt_out: Nsec3OptOut,
+        hash_provider: HashProvider,
+    ) -> Self {
+        Self {
+            assume_dnskeys_will_be_added: true,
+            params,
+            opt_out,
+            hash_provider,
+            nsec3param_ttl_mode: Default::default(),
+            _phantom: Default::default(),
+        }
+    }
+
+    pub fn with_ttl_mode(mut self, ttl_mode: Nsec3ParamTtlMode) -> Self {
+        self.nsec3param_ttl_mode = ttl_mode;
+        self
+    }
+
+    pub fn without_assuming_dnskeys_will_be_added(mut self) -> Self {
+        self.assume_dnskeys_will_be_added = false;
+        self
+    }
+}
+
+impl<N, Octs> Default
+    for GenerateNsec3Config<
+        N,
+        Octs,
+        OnDemandNsec3HashProvider<Octs>,
+        DefaultSorter,
+    >
+where
+    N: ToName + From<Name<Octs>>,
+    Octs: AsRef<[u8]> + From<&'static [u8]> + Clone + FromBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
+    fn default() -> Self {
+        let params = Nsec3param::default();
+        let hash_provider = OnDemandNsec3HashProvider::new(
+            params.hash_algorithm(),
+            params.iterations(),
+            params.salt().clone(),
+        );
+        Self {
+            assume_dnskeys_will_be_added: true,
+            params,
+            opt_out: Default::default(),
+            nsec3param_ttl_mode: Default::default(),
+            hash_provider,
+            _phantom: Default::default(),
+        }
+    }
+}
 
 /// Generate [RFC5155] NSEC3 and NSEC3PARAM records for this record set.
 ///
@@ -35,17 +117,19 @@ use crate::validate::{nsec3_hash, Nsec3HashError};
 /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077.html
 /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
 // TODO: Add mutable iterator based variant.
+// TODO: Get rid of &mut for GenerateNsec3Config.
 pub fn generate_nsec3s<N, Octs, HashProvider, Sort>(
-    ttl: Ttl,
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
-    params: Nsec3param<Octs>,
-    opt_out: Nsec3OptOut,
-    assume_dnskeys_will_be_added: bool,
-    hash_provider: &mut HashProvider,
-) -> Result<Nsec3Records<N, Octs>, Nsec3HashError>
+    config: &mut GenerateNsec3Config<N, Octs, HashProvider, Sort>,
+) -> Result<Nsec3Records<N, Octs>, SigningError>
 where
     N: ToName + Clone + Display + Ord + Hash + Send + From<Name<Octs>>,
-    Octs: FromBuilder + OctetsFrom<Vec<u8>> + Default + Clone + Send,
+    Octs: FromBuilder
+        + From<&'static [u8]>
+        + OctetsFrom<Vec<u8>>
+        + Default
+        + Clone
+        + Send,
     Octs::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
     <Octs::Builder as OctetsBuilder>::AppendError: Debug,
     HashProvider: Nsec3HashProvider<N, Octs>,
@@ -58,8 +142,11 @@ where
 
     // RFC 5155 7.1 step 2:
     //   "If Opt-Out is being used, set the Opt-Out bit to one."
-    let mut nsec3_flags = params.flags();
-    if matches!(opt_out, Nsec3OptOut::OptOut | Nsec3OptOut::OptOutFlagsOnly) {
+    let mut nsec3_flags = config.params.flags();
+    if matches!(
+        config.opt_out,
+        Nsec3OptOut::OptOut | Nsec3OptOut::OptOutFlagsOnly
+    ) {
         // Set the Opt-Out flag.
         nsec3_flags |= 0b0000_0001;
     }
@@ -80,6 +167,8 @@ where
     let apex_label_count = apex_owner.iter_labels().count();
 
     let mut last_nent_stack: Vec<N> = vec![];
+    let mut ttl = None;
+    let mut nsec3param_ttl = None;
 
     for owner_rrs in records {
         trace!("Owner: {}", owner_rrs.owner());
@@ -134,7 +223,7 @@ where
         // even when Opt-Out is not being used because we also need to know
         // there at a later step.
         let has_ds = owner_rrs.records().any(|rec| rec.rtype() == Rtype::DS);
-        if opt_out == Nsec3OptOut::OptOut && cut.is_some() && !has_ds {
+        if config.opt_out == Nsec3OptOut::OptOut && cut.is_some() && !has_ds {
             debug!("Excluding owner {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",owner_rrs.owner());
             continue;
         }
@@ -303,27 +392,57 @@ where
                 trace!("Adding {} to the bitmap", rrset.rtype());
                 bitmap.add(rrset.rtype()).unwrap();
             }
+
+            if rrset.rtype() == Rtype::SOA {
+                if rrset.len() > 1 {
+                    return Err(SigningError::SoaRecordCouldNotBeDetermined);
+                }
+
+                let soa_rr = rrset.first();
+
+                // Check that the RDATA for the SOA record can be parsed.
+                let ZoneRecordData::Soa(ref soa_data) = soa_rr.data() else {
+                    return Err(SigningError::SoaRecordCouldNotBeDetermined);
+                };
+
+                // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to
+                // say that the "TTL of the NSEC(3) RR that is returned MUST
+                // be the lesser of the MINIMUM field of the SOA record and
+                // the TTL of the SOA itself".
+                ttl = Some(min(soa_data.minimum(), soa_rr.ttl()));
+
+                nsec3param_ttl = match config.nsec3param_ttl_mode {
+                    Nsec3ParamTtlMode::Fixed(ttl) => Some(ttl),
+                    Nsec3ParamTtlMode::Soa => Some(soa_rr.ttl()),
+                    Nsec3ParamTtlMode::SoaMinimum => Some(soa_data.minimum()),
+                };
+            }
+        }
+
+        if ttl.is_none() {
+            return Err(SigningError::SoaRecordCouldNotBeDetermined);
         }
 
         if distance_to_apex == 0 {
             trace!("Adding NSEC3PARAM to the bitmap as we are at the apex and RRSIG RRs are expected to be added");
             bitmap.add(Rtype::NSEC3PARAM).unwrap();
-            if assume_dnskeys_will_be_added {
+            if config.assume_dnskeys_will_be_added {
                 trace!("Adding DNSKEY to the bitmap as we are at the apex and DNSKEY RRs are expected to be added");
                 bitmap.add(Rtype::DNSKEY).unwrap();
             }
         }
 
+        // SAFETY: ttl will be set above before we get here.
         let rec: Record<N, Nsec3<Octs>> = mk_nsec3(
             &name,
-            hash_provider,
-            params.hash_algorithm(),
+            &mut config.hash_provider,
+            config.params.hash_algorithm(),
             nsec3_flags,
-            params.iterations(),
-            params.salt(),
+            config.params.iterations(),
+            config.params.salt(),
             &apex_owner,
             bitmap,
-            ttl,
+            ttl.unwrap(),
             false,
         )?;
 
@@ -341,16 +460,17 @@ where
         let bitmap = RtypeBitmap::<Octs>::builder();
 
         debug!("Generating NSEC3 RR for ENT at {name}");
+        // SAFETY: ttl will be set below before prev is set to Some.
         let rec = mk_nsec3(
             &name,
-            hash_provider,
-            params.hash_algorithm(),
+            &mut config.hash_provider,
+            config.params.hash_algorithm(),
             nsec3_flags,
-            params.iterations(),
-            params.salt(),
+            config.params.iterations(),
+            config.params.salt(),
             &apex_owner,
             bitmap,
-            ttl,
+            ttl.unwrap(),
             true,
         )?;
 
@@ -384,17 +504,22 @@ where
         last_nsec3.set_next_owner(owner_hash.clone());
     }
 
+    let Some(nsec3param_ttl) = nsec3param_ttl else {
+        return Err(SigningError::SoaRecordCouldNotBeDetermined);
+    };
+
     // RFC 5155 7.1 step 8:
     //   "Finally, add an NSEC3PARAM RR with the same Hash Algorithm,
     //    Iterations, and Salt fields to the zone apex."
+    // SAFETY: nsec3param_ttl will be set above before we get here.
     let nsec3param = Record::new(
         apex_owner
             .try_to_name::<Octs>()
             .map_err(|_| Nsec3HashError::AppendError)?
             .into(),
         Class::IN,
-        ttl,
-        params,
+        nsec3param_ttl,
+        config.params.clone(),
     );
 
     // RFC 5155 7.1 after step 8:
@@ -653,86 +778,22 @@ impl Nsec3ParamTtlMode {
     }
 }
 
-//----------- Nsec3Config ----------------------------------------------------
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Nsec3Config<N, Octs, HashProvider>
-where
-    HashProvider: Nsec3HashProvider<N, Octs>,
-    Octs: AsRef<[u8]> + From<&'static [u8]>,
-{
-    pub params: Nsec3param<Octs>,
-    pub opt_out: Nsec3OptOut,
-    pub ttl_mode: Nsec3ParamTtlMode,
-    pub hash_provider: HashProvider,
-    _phantom: PhantomData<N>,
-}
-
-impl<N, Octs, HashProvider> Nsec3Config<N, Octs, HashProvider>
-where
-    HashProvider: Nsec3HashProvider<N, Octs>,
-    Octs: AsRef<[u8]> + From<&'static [u8]>,
-{
-    pub fn new(
-        params: Nsec3param<Octs>,
-        opt_out: Nsec3OptOut,
-        hash_provider: HashProvider,
-    ) -> Self {
-        Self {
-            params,
-            opt_out,
-            hash_provider,
-            ttl_mode: Default::default(),
-            _phantom: Default::default(),
-        }
-    }
-
-    pub fn with_ttl_mode(mut self, ttl_mode: Nsec3ParamTtlMode) -> Self {
-        self.ttl_mode = ttl_mode;
-        self
-    }
-}
-
-impl<N, Octs> Default
-    for Nsec3Config<N, Octs, OnDemandNsec3HashProvider<Octs>>
-where
-    N: ToName + From<Name<Octs>>,
-    Octs: AsRef<[u8]> + From<&'static [u8]> + Clone + FromBuilder,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-{
-    fn default() -> Self {
-        let params = Nsec3param::default();
-        let hash_provider = OnDemandNsec3HashProvider::new(
-            params.hash_algorithm(),
-            params.iterations(),
-            params.salt().clone(),
-        );
-        Self {
-            params,
-            opt_out: Default::default(),
-            ttl_mode: Default::default(),
-            hash_provider,
-            _phantom: Default::default(),
-        }
-    }
-}
-
 //------------ Nsec3Records ---------------------------------------------------
 
 pub struct Nsec3Records<N, Octets> {
     /// The NSEC3 records.
-    pub recs: Vec<Record<N, Nsec3<Octets>>>,
+    pub nsec3s: Vec<Record<N, Nsec3<Octets>>>,
 
     /// The NSEC3PARAM record.
-    pub param: Record<N, Nsec3param<Octets>>,
+    pub nsec3param: Record<N, Nsec3param<Octets>>,
 }
 
 impl<N, Octets> Nsec3Records<N, Octets> {
     pub fn new(
-        recs: Vec<Record<N, Nsec3<Octets>>>,
-        param: Record<N, Nsec3param<Octets>>,
+        nsec3s: Vec<Record<N, Nsec3<Octets>>>,
+        nsec3param: Record<N, Nsec3param<Octets>>,
     ) -> Self {
-        Self { recs, param }
+        Self { nsec3s, nsec3param }
     }
 }
 

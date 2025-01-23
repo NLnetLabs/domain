@@ -118,7 +118,6 @@ pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 pub use self::config::SigningConfig;
 pub use self::keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
-use core::cmp::min;
 use core::fmt::Display;
 use core::hash::Hash;
 use core::marker::PhantomData;
@@ -134,17 +133,16 @@ use crate::rdata::ZoneRecordData;
 
 use denial::config::DenialConfig;
 use denial::nsec::generate_nsecs;
-use denial::nsec3::{
-    generate_nsec3s, Nsec3Config, Nsec3HashProvider, Nsec3ParamTtlMode,
-    Nsec3Records,
-};
+use denial::nsec3::{generate_nsec3s, Nsec3HashProvider, Nsec3Records};
 use error::SigningError;
 use keys::keymeta::DesignatedSigningKey;
 use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
 use records::{RecordsIter, Sorter};
-use signatures::rrsigs::{generate_rrsigs, GenerateRrsigConfig};
+use signatures::rrsigs::{
+    generate_rrsigs, GenerateRrsigConfig, RrsigRecords,
+};
 use signatures::strategy::SigningKeyUsageStrategy;
 use traits::{SignRaw, SignableZone, SortedExtend};
 
@@ -390,17 +388,7 @@ where
     // one SOA record.
     let soa_rr = get_apex_soa_rr(in_out.as_slice())?;
 
-    // Check that the RDATA for the SOA record can be parsed.
-    let ZoneRecordData::Soa(ref soa_data) = soa_rr.data() else {
-        return Err(SigningError::SoaRecordCouldNotBeDetermined);
-    };
-
     let apex_owner = soa_rr.owner().clone();
-
-    // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to say that
-    // the "TTL of the NSEC(3) RR that is returned MUST be the lesser of
-    // the MINIMUM field of the SOA record and the TTL of the SOA itself".
-    let ttl = min(soa_data.minimum(), soa_rr.ttl());
 
     let owner_rrs = RecordsIter::new(in_out.as_slice());
 
@@ -416,42 +404,17 @@ where
             in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
         }
 
-        DenialConfig::Nsec3(
-            Nsec3Config {
-                params,
-                opt_out,
-                ttl_mode,
-                hash_provider,
-                ..
-            },
-            extra,
-        ) if extra.is_empty() => {
+        DenialConfig::Nsec3(ref mut config, extra) if extra.is_empty() => {
             // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
             // order." We store the NSEC3s as we create them and sort them
             // afterwards.
-            let Nsec3Records { recs, mut param } =
-                generate_nsec3s::<N, Octs, HP, Sort>(
-                    ttl,
-                    owner_rrs,
-                    params.clone(),
-                    *opt_out,
-                    signing_config.add_used_dnskeys,
-                    hash_provider,
-                )
-                .map_err(SigningError::Nsec3HashingError)?;
-
-            let ttl = match ttl_mode {
-                Nsec3ParamTtlMode::Fixed(ttl) => *ttl,
-                Nsec3ParamTtlMode::Soa => soa_rr.ttl(),
-                Nsec3ParamTtlMode::SoaMinimum => soa_data.minimum(),
-            };
-
-            param.set_ttl(ttl);
+            let Nsec3Records { nsec3s, nsec3param } =
+                generate_nsec3s::<N, Octs, HP, Sort>(owner_rrs, config)?;
 
             // Add the generated NSEC3 records.
             in_out.sorted_extend(
-                std::iter::once(Record::from_record(param))
-                    .chain(recs.into_iter().map(Record::from_record)),
+                std::iter::once(Record::from_record(nsec3param))
+                    .chain(nsec3s.into_iter().map(Record::from_record)),
             );
         }
 
@@ -482,7 +445,7 @@ where
         // Sign the NSEC(3)s.
         let owner_rrs = RecordsIter::new(in_out.as_out_slice());
 
-        let nsec_rrsigs =
+        let RrsigRecords { rrsigs, dnskeys } =
             generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
                 owner_rrs,
                 signing_keys,
@@ -491,12 +454,17 @@ where
 
         // Sorting may not be strictly needed, but we don't have the option to
         // extend without sort at the moment.
-        in_out.sorted_extend(nsec_rrsigs);
+        in_out.sorted_extend(
+            dnskeys
+                .into_iter()
+                .map(Record::from_record)
+                .chain(rrsigs.into_iter().map(Record::from_record)),
+        );
 
         // Sign the original unsigned records.
         let owner_rrs = RecordsIter::new(in_out.as_slice());
 
-        let rrsigs_and_dnskeys =
+        let RrsigRecords { rrsigs, dnskeys } =
             generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
                 owner_rrs,
                 signing_keys,
@@ -505,7 +473,12 @@ where
 
         // Sorting may not be strictly needed, but we don't have the option to
         // extend without sort at the moment.
-        in_out.sorted_extend(rrsigs_and_dnskeys);
+        in_out.sorted_extend(
+            dnskeys
+                .into_iter()
+                .map(Record::from_record)
+                .chain(rrsigs.into_iter().map(Record::from_record)),
+        );
     }
 
     Ok(())
