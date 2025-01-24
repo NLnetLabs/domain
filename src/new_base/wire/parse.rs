@@ -189,7 +189,7 @@ pub unsafe trait ParseBytesByRef {
     /// may be provided.  Until then, it should be implemented using one of
     /// the following expressions:
     ///
-    /// ```ignore
+    /// ```text
     /// fn ptr_with_address(
     ///     &self,
     ///     addr: *const (),
