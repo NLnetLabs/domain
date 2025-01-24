@@ -177,7 +177,7 @@ impl<'b> Builder<'b> {
     pub fn uncommitted(&self) -> &[u8] {
         let message = self.contents.get().cast::<u8>().cast_const();
         // SAFETY: It is guaranteed that 'start <= message.len()'.
-        let message = unsafe { message.offset(self.start as isize) };
+        let message = unsafe { message.add(self.start) };
         let size = self.context.size - self.start;
         // SAFETY: 'message[start..]' is mutably borrowed.
         unsafe { slice::from_raw_parts(message, size) }
@@ -192,7 +192,7 @@ impl<'b> Builder<'b> {
     pub unsafe fn uncommitted_mut(&mut self) -> &mut [u8] {
         let message = self.contents.get().cast::<u8>();
         // SAFETY: It is guaranteed that 'start <= message.len()'.
-        let message = unsafe { message.offset(self.start as isize) };
+        let message = unsafe { message.add(self.start) };
         let size = self.context.size - self.start;
         // SAFETY: 'message[start..]' is mutably borrowed.
         unsafe { slice::from_raw_parts_mut(message, size) }
@@ -206,7 +206,7 @@ impl<'b> Builder<'b> {
     pub fn uninitialized(&mut self) -> &mut [u8] {
         let message = self.contents.get().cast::<u8>();
         // SAFETY: It is guaranteed that 'size <= message.len()'.
-        let message = unsafe { message.offset(self.context.size as isize) };
+        let message = unsafe { message.add(self.context.size) };
         let size = self.max_size() - self.context.size;
         // SAFETY: 'message[size..]' is mutably borrowed.
         unsafe { slice::from_raw_parts_mut(message, size) }

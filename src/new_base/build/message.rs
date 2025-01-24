@@ -52,7 +52,7 @@ impl<'b> MessageBuilder<'b> {
 
 //--- Inspection
 
-impl<'b> MessageBuilder<'b> {
+impl MessageBuilder<'_> {
     /// The message header.
     pub fn header(&self) -> &Header {
         &self.message.header
@@ -135,7 +135,7 @@ impl MessageBuilder<'_> {
         unsafe {
             let contents = &mut self.message.contents;
             let contents = contents as *mut [u8] as *const UnsafeCell<[u8]>;
-            Builder::from_raw_parts(&*contents, &mut self.context, start)
+            Builder::from_raw_parts(&*contents, self.context, start)
         }
     }
 

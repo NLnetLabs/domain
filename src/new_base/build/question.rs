@@ -91,7 +91,7 @@ impl<'b> QuestionBuilder<'b> {
 
 //--- Interaction
 
-impl<'b> QuestionBuilder<'b> {
+impl QuestionBuilder<'_> {
     /// Commit this question.
     ///
     /// The builder will be consumed, and the question will be committed so

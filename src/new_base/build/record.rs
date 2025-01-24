@@ -53,9 +53,9 @@ impl<'b> RecordBuilder<'b> {
             let name = start.try_into().expect("Messages are at most 64KiB");
             let mut b = builder.builder(start);
             record.rname.build_into_message(b.delegate())?;
-            b.append_bytes(&record.rtype.as_bytes())?;
-            b.append_bytes(&record.rclass.as_bytes())?;
-            b.append_bytes(&record.ttl.as_bytes())?;
+            b.append_bytes(record.rtype.as_bytes())?;
+            b.append_bytes(record.rclass.as_bytes())?;
+            b.append_bytes(record.ttl.as_bytes())?;
             let size = b.context().size;
             SizePrefixed::new(&record.rdata)
                 .build_into_message(b.delegate())?;
@@ -163,7 +163,7 @@ impl<'b> RecordBuilder<'b> {
 
 //--- Interaction
 
-impl<'b> RecordBuilder<'b> {
+impl RecordBuilder<'_> {
     /// Commit this record.
     ///
     /// The builder will be consumed, and the record will be committed so that

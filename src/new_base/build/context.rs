@@ -137,13 +137,13 @@ impl MessageState {
 
     /// Whether a question or record is being built.
     pub const fn mid_component(&self) -> bool {
-        match self {
-            Self::MidQuestion { .. } => true,
-            Self::MidAnswer { .. } => true,
-            Self::MidAuthority { .. } => true,
-            Self::MidAdditional { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Self::MidQuestion { .. }
+                | Self::MidAnswer { .. }
+                | Self::MidAuthority { .. }
+                | Self::MidAdditional { .. }
+        )
     }
 
     /// Commit a question or record and update the section counts.
