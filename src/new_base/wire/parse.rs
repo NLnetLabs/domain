@@ -1,6 +1,7 @@
 //! Parsing bytes in the basic network format.
 
 use core::fmt;
+use core::mem::MaybeUninit;
 
 //----------- ParseBytes -----------------------------------------------------
 
@@ -26,6 +27,15 @@ impl<'a> ParseBytes<'a> for u8 {
 impl<'a, T: ?Sized + ParseBytesByRef> ParseBytes<'a> for &'a T {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         T::parse_bytes_by_ref(bytes).map_err(|_| ParseError)
+    }
+}
+
+impl<'a, T: SplitBytes<'a>, const N: usize> ParseBytes<'a> for [T; N] {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        match Self::split_bytes(bytes) {
+            Ok((this, &[])) => Ok(this),
+            _ => Err(ParseError),
+        }
     }
 }
 
@@ -83,6 +93,50 @@ impl<'a, T: ?Sized + SplitBytesByRef> SplitBytes<'a> for &'a T {
 impl<'a> SplitBytes<'a> for u8 {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         bytes.split_first().map(|(&f, r)| (f, r)).ok_or(ParseError)
+    }
+}
+
+impl<'a, T: SplitBytes<'a>, const N: usize> SplitBytes<'a> for [T; N] {
+    fn split_bytes(
+        mut bytes: &'a [u8],
+    ) -> Result<(Self, &'a [u8]), ParseError> {
+        // TODO: Rewrite when either 'array_try_map' or 'try_array_from_fn'
+        // is stabilized.
+
+        /// A guard for dropping initialized elements on panic / failure.
+        struct Guard<T, const N: usize> {
+            buffer: [MaybeUninit<T>; N],
+            initialized: usize,
+        }
+
+        impl<T, const N: usize> Drop for Guard<T, N> {
+            fn drop(&mut self) {
+                for elem in &mut self.buffer[..self.initialized] {
+                    // SAFETY: The first 'initialized' elems are initialized.
+                    unsafe { elem.assume_init_drop() };
+                }
+            }
+        }
+
+        let mut guard = Guard::<T, N> {
+            buffer: [const { MaybeUninit::uninit() }; N],
+            initialized: 0,
+        };
+
+        while guard.initialized < N {
+            let (elem, rest) = T::split_bytes(bytes)?;
+            guard.buffer[guard.initialized].write(elem);
+            bytes = rest;
+            guard.initialized += 1;
+        }
+
+        // Disable the guard since we're moving data out now.
+        guard.initialized = 0;
+
+        // SAFETY: '[MaybeUninit<T>; N]' and '[T; N]' have the same layout,
+        // because 'MaybeUninit<T>' and 'T' have the same layout, because it
+        // is documented in the standard library.
+        Ok((unsafe { core::mem::transmute_copy(&guard.buffer) }, bytes))
     }
 }
 
