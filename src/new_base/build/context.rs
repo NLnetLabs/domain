@@ -2,6 +2,8 @@
 
 //----------- BuilderContext -------------------------------------------------
 
+use crate::new_base::SectionCounts;
+
 /// Context for building a DNS message.
 ///
 /// This type holds auxiliary information necessary for building DNS messages,
@@ -130,6 +132,51 @@ impl MessageState {
             Self::Answers | Self::MidAnswer { .. } => 1,
             Self::Authorities | Self::MidAuthority { .. } => 2,
             Self::Additionals | Self::MidAdditional { .. } => 3,
+        }
+    }
+
+    /// Whether a question or record is being built.
+    pub const fn mid_component(&self) -> bool {
+        match self {
+            Self::MidQuestion { .. } => true,
+            Self::MidAnswer { .. } => true,
+            Self::MidAuthority { .. } => true,
+            Self::MidAdditional { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Commit a question or record and update the section counts.
+    pub fn commit(&mut self, counts: &mut SectionCounts) {
+        match self {
+            Self::MidQuestion { .. } => {
+                counts.questions += 1;
+                *self = Self::Questions;
+            }
+            Self::MidAnswer { .. } => {
+                counts.answers += 1;
+                *self = Self::Answers;
+            }
+            Self::MidAuthority { .. } => {
+                counts.authorities += 1;
+                *self = Self::Authorities;
+            }
+            Self::MidAdditional { .. } => {
+                counts.additional += 1;
+                *self = Self::Additionals;
+            }
+            _ => {}
+        }
+    }
+
+    /// Cancel a question or record.
+    pub fn cancel(&mut self) {
+        match self {
+            Self::MidQuestion { .. } => *self = Self::Questions,
+            Self::MidAnswer { .. } => *self = Self::Answers,
+            Self::MidAuthority { .. } => *self = Self::Authorities,
+            Self::MidAdditional { .. } => *self = Self::Additionals,
+            _ => {}
         }
     }
 }

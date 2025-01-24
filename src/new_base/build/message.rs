@@ -4,7 +4,7 @@ use core::cell::UnsafeCell;
 
 use crate::new_base::{
     wire::{ParseBytesByRef, TruncationError},
-    Header, Message, Question, RClass, RType, Record, TTL,
+    Header, Message, Question, Record,
 };
 
 use super::{
@@ -21,7 +21,7 @@ use super::{
 /// (on the stack or the heap).
 pub struct MessageBuilder<'b> {
     /// The message being constructed.
-    message: &'b mut Message,
+    pub(super) message: &'b mut Message,
 
     /// Context for building.
     pub(super) context: &'b mut BuilderContext,
@@ -148,12 +148,18 @@ impl MessageBuilder<'_> {
         &mut self,
         question: &Question<N>,
     ) -> Result<Option<QuestionBuilder<'_>>, TruncationError> {
-        if self.context.state.section_index() > 0 {
+        let state = &mut self.context.state;
+        if state.section_index() > 0 {
             // We've progressed into a later section.
             return Ok(None);
         }
 
-        self.context.state = MessageState::Questions;
+        if state.mid_component() {
+            let index = state.section_index() as usize;
+            self.message.header.counts.as_array_mut()[index] += 1;
+        }
+
+        *state = MessageState::Questions;
         QuestionBuilder::build(self.reborrow(), question).map(Some)
     }
 
@@ -180,28 +186,23 @@ impl MessageBuilder<'_> {
     /// If a question or answer is already being built, it will be finished
     /// first.  If an authority or additional record has been added, [`None`]
     /// is returned instead.
-    pub fn build_answer(
+    pub fn build_answer<N: BuildIntoMessage, D: BuildIntoMessage>(
         &mut self,
-        rname: impl BuildIntoMessage,
-        rtype: RType,
-        rclass: RClass,
-        ttl: TTL,
+        record: &Record<N, D>,
     ) -> Result<Option<RecordBuilder<'_>>, TruncationError> {
-        if self.context.state.section_index() > 1 {
+        let state = &mut self.context.state;
+        if state.section_index() > 1 {
             // We've progressed into a later section.
             return Ok(None);
         }
 
-        let record = Record {
-            rname,
-            rtype,
-            rclass,
-            ttl,
-            rdata: &[] as &[u8],
-        };
+        if state.mid_component() {
+            let index = state.section_index() as usize;
+            self.message.header.counts.as_array_mut()[index] += 1;
+        }
 
-        self.context.state = MessageState::Answers;
-        RecordBuilder::build(self.reborrow(), &record).map(Some)
+        *state = MessageState::Answers;
+        RecordBuilder::build(self.reborrow(), record).map(Some)
     }
 
     /// Resume building an answer record.
@@ -228,28 +229,23 @@ impl MessageBuilder<'_> {
     /// If a question, answer, or authority is already being built, it will be
     /// finished first.  If an additional record has been added, [`None`] is
     /// returned instead.
-    pub fn build_authority(
+    pub fn build_authority<N: BuildIntoMessage, D: BuildIntoMessage>(
         &mut self,
-        rname: impl BuildIntoMessage,
-        rtype: RType,
-        rclass: RClass,
-        ttl: TTL,
+        record: &Record<N, D>,
     ) -> Result<Option<RecordBuilder<'_>>, TruncationError> {
-        if self.context.state.section_index() > 2 {
+        let state = &mut self.context.state;
+        if state.section_index() > 2 {
             // We've progressed into a later section.
             return Ok(None);
         }
 
-        let record = Record {
-            rname,
-            rtype,
-            rclass,
-            ttl,
-            rdata: &[] as &[u8],
-        };
+        if state.mid_component() {
+            let index = state.section_index() as usize;
+            self.message.header.counts.as_array_mut()[index] += 1;
+        }
 
-        self.context.state = MessageState::Authorities;
-        RecordBuilder::build(self.reborrow(), &record).map(Some)
+        *state = MessageState::Authorities;
+        RecordBuilder::build(self.reborrow(), record).map(Some)
     }
 
     /// Resume building an authority record.
@@ -276,23 +272,18 @@ impl MessageBuilder<'_> {
     /// If a question or record is already being built, it will be finished
     /// first.  Note that it is always possible to add an additional record to
     /// a message.
-    pub fn build_additional(
+    pub fn build_additional<N: BuildIntoMessage, D: BuildIntoMessage>(
         &mut self,
-        rname: impl BuildIntoMessage,
-        rtype: RType,
-        rclass: RClass,
-        ttl: TTL,
+        record: &Record<N, D>,
     ) -> Result<RecordBuilder<'_>, TruncationError> {
-        let record = Record {
-            rname,
-            rtype,
-            rclass,
-            ttl,
-            rdata: &[] as &[u8],
-        };
+        let state = &mut self.context.state;
+        if state.mid_component() {
+            let index = state.section_index() as usize;
+            self.message.header.counts.as_array_mut()[index] += 1;
+        }
 
-        self.context.state = MessageState::Additionals;
-        RecordBuilder::build(self.reborrow(), &record)
+        *state = MessageState::Additionals;
+        RecordBuilder::build(self.reborrow(), record)
     }
 
     /// Resume building an additional record.
@@ -323,7 +314,9 @@ mod test {
         new_base::{
             build::{BuildIntoMessage, BuilderContext, MessageState},
             name::RevName,
-            QClass, QType, Question, RClass, RType, TTL,
+            wire::U16,
+            QClass, QType, Question, RClass, RType, Record, SectionCounts,
+            TTL,
         },
         new_rdata::A,
     };
@@ -366,6 +359,7 @@ mod test {
 
         let state = MessageState::MidQuestion { name: 0 };
         assert_eq!(builder.context().state, state);
+        assert_eq!(builder.message().header.counts, SectionCounts::default());
         let contents = b"\x03www\x07example\x03org\x00\x00\x01\x00\x01";
         assert_eq!(&builder.message().contents, contents);
     }
@@ -387,6 +381,15 @@ mod test {
         assert_eq!(qb.qname().as_bytes(), b"\x03www\x07example\x03org\x00");
         assert_eq!(qb.qtype(), question.qtype);
         assert_eq!(qb.qclass(), question.qclass);
+
+        qb.commit();
+        assert_eq!(
+            builder.message().header.counts,
+            SectionCounts {
+                questions: U16::new(1),
+                ..Default::default()
+            }
+        );
     }
 
     #[test]
@@ -395,24 +398,24 @@ mod test {
         let mut context = BuilderContext::default();
         let mut builder = MessageBuilder::new(&mut buffer, &mut context);
 
+        let record = Record {
+            rname: WWW_EXAMPLE_ORG,
+            rtype: RType::A,
+            rclass: RClass::IN,
+            ttl: TTL::from(42),
+            rdata: b"",
+        };
+
         {
-            let mut rb = builder
-                .build_answer(
-                    WWW_EXAMPLE_ORG,
-                    RType::A,
-                    RClass::IN,
-                    TTL::from(42),
-                )
-                .unwrap()
-                .unwrap();
+            let mut rb = builder.build_answer(&record).unwrap().unwrap();
 
             assert_eq!(
                 rb.rname().as_bytes(),
                 b"\x03www\x07example\x03org\x00"
             );
-            assert_eq!(rb.rtype(), RType::A);
-            assert_eq!(rb.rclass(), RClass::IN);
-            assert_eq!(rb.ttl(), TTL::from(42));
+            assert_eq!(rb.rtype(), record.rtype);
+            assert_eq!(rb.rclass(), record.rclass);
+            assert_eq!(rb.ttl(), record.ttl);
             assert_eq!(rb.rdata(), b"");
 
             assert!(rb.delegate().append_bytes(&[0u8; 5]).is_err());
@@ -426,6 +429,7 @@ mod test {
 
         let state = MessageState::MidAnswer { name: 0, data: 27 };
         assert_eq!(builder.context().state, state);
+        assert_eq!(builder.message().header.counts, SectionCounts::default());
         let contents = b"\x03www\x07example\x03org\x00\x00\x01\x00\x01\x00\x00\x00\x2A\x00\x04\x7F\x00\x00\x01";
         assert_eq!(&builder.message().contents, contents.as_slice());
     }
@@ -436,21 +440,29 @@ mod test {
         let mut context = BuilderContext::default();
         let mut builder = MessageBuilder::new(&mut buffer, &mut context);
 
-        let _ = builder
-            .build_answer(
-                WWW_EXAMPLE_ORG,
-                RType::A,
-                RClass::IN,
-                TTL::from(42),
-            )
-            .unwrap()
-            .unwrap();
+        let record = Record {
+            rname: WWW_EXAMPLE_ORG,
+            rtype: RType::A,
+            rclass: RClass::IN,
+            ttl: TTL::from(42),
+            rdata: b"",
+        };
+        let _ = builder.build_answer(&record).unwrap().unwrap();
 
         let rb = builder.resume_answer().unwrap();
         assert_eq!(rb.rname().as_bytes(), b"\x03www\x07example\x03org\x00");
-        assert_eq!(rb.rtype(), RType::A);
-        assert_eq!(rb.rclass(), RClass::IN);
-        assert_eq!(rb.ttl(), TTL::from(42));
+        assert_eq!(rb.rtype(), record.rtype);
+        assert_eq!(rb.rclass(), record.rclass);
+        assert_eq!(rb.ttl(), record.ttl);
         assert_eq!(rb.rdata(), b"");
+
+        rb.commit();
+        assert_eq!(
+            builder.message().header.counts,
+            SectionCounts {
+                answers: U16::new(1),
+                ..Default::default()
+            }
+        );
     }
 }

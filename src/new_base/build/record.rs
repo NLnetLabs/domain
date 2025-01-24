@@ -169,21 +169,10 @@ impl<'b> RecordBuilder<'b> {
     /// The builder will be consumed, and the record will be committed so that
     /// it can no longer be removed.
     pub fn commit(self) -> BuildCommitted {
-        match self.builder.context.state {
-            ref mut state @ MessageState::MidAnswer { .. } => {
-                *state = MessageState::Answers;
-            }
-
-            ref mut state @ MessageState::MidAuthority { .. } => {
-                *state = MessageState::Authorities;
-            }
-
-            ref mut state @ MessageState::MidAdditional { .. } => {
-                *state = MessageState::Additionals;
-            }
-
-            _ => unreachable!(),
-        }
+        self.builder
+            .context
+            .state
+            .commit(&mut self.builder.message.header.counts);
 
         // NOTE: The record data size will be fixed on drop.
         BuildCommitted
@@ -194,21 +183,7 @@ impl<'b> RecordBuilder<'b> {
     /// The builder will be consumed, and the record will be removed.
     pub fn cancel(self) {
         self.builder.context.size = self.name.into();
-        match self.builder.context.state {
-            ref mut state @ MessageState::MidAnswer { .. } => {
-                *state = MessageState::Answers;
-            }
-
-            ref mut state @ MessageState::MidAuthority { .. } => {
-                *state = MessageState::Authorities;
-            }
-
-            ref mut state @ MessageState::MidAdditional { .. } => {
-                *state = MessageState::Additionals;
-            }
-
-            _ => unreachable!(),
-        }
+        self.builder.context.state.cancel();
 
         // NOTE: The drop glue is a no-op.
     }

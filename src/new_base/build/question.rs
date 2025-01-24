@@ -98,6 +98,7 @@ impl<'b> QuestionBuilder<'b> {
     /// that it can no longer be removed.
     pub fn commit(self) -> BuildCommitted {
         self.builder.context.state = MessageState::Questions;
+        self.builder.message.header.counts.questions += 1;
         BuildCommitted
     }
 

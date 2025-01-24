@@ -81,10 +81,25 @@ impl<T: ?Sized + BuildIntoMessage> BuildIntoMessage for &T {
     }
 }
 
-impl BuildIntoMessage for [u8] {
+impl BuildIntoMessage for u8 {
     fn build_into_message(&self, mut builder: Builder<'_>) -> BuildResult {
-        builder.append_bytes(self)?;
+        builder.append_bytes(&[*self])?;
         Ok(builder.commit())
+    }
+}
+
+impl<T: BuildIntoMessage> BuildIntoMessage for [T] {
+    fn build_into_message(&self, mut builder: Builder<'_>) -> BuildResult {
+        for elem in self {
+            elem.build_into_message(builder.delegate())?;
+        }
+        Ok(builder.commit())
+    }
+}
+
+impl<T: BuildIntoMessage, const N: usize> BuildIntoMessage for [T; N] {
+    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
+        self.as_slice().build_into_message(builder)
     }
 }
 
