@@ -16,6 +16,11 @@ use super::{
 //----------- RecordBuilder ------------------------------------------------
 
 /// A DNS record builder.
+///
+/// A [`RecordBuilder`] provides access to a record that has been appended to
+/// a DNS message (using a [`MessageBuilder`]).  It can be used to inspect the
+/// record, to (re)write the record data, and to commit (finish building) or
+/// cancel (remove) the record.
 pub struct RecordBuilder<'b> {
     /// The underlying message builder.
     builder: MessageBuilder<'b>,

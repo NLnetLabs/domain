@@ -12,6 +12,11 @@ use super::{BuildCommitted, BuildIntoMessage, MessageBuilder, MessageState};
 //----------- QuestionBuilder ------------------------------------------------
 
 /// A DNS question builder.
+///
+/// A [`QuestionBuilder`] provides control over a DNS question that has been
+/// appended to a message (using a [`MessageBuilder`]).  It can be used to
+/// inspect the question's fields, to replace it with a new question, and to
+/// commit (finish building) or cancel (remove) the question.
 pub struct QuestionBuilder<'b> {
     /// The underlying message builder.
     builder: MessageBuilder<'b>,

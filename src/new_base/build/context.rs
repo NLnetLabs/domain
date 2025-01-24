@@ -26,7 +26,7 @@ pub struct BuilderContext {
 /// additionals.  [`MessageState`] remembers the start position of the last
 /// question or record in the message, allowing it to be modifying or removed
 /// (for additional flexibility in the building process).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum MessageState {
     /// Questions are being built.
     ///

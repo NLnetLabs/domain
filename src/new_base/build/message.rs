@@ -157,6 +157,24 @@ impl MessageBuilder<'_> {
         QuestionBuilder::build(self.reborrow(), question).map(Some)
     }
 
+    /// Resume building a question.
+    ///
+    /// If a question was built (using [`build_question()`]) but the returned
+    /// builder was neither committed nor canceled, the question builder will
+    /// be recovered and returned.
+    ///
+    /// [`build_question()`]: Self::build_question()
+    pub fn resume_question(&mut self) -> Option<QuestionBuilder<'_>> {
+        let MessageState::MidQuestion { name } = self.context.state else {
+            return None;
+        };
+
+        // SAFETY: 'self.context.state' is synchronized with the message.
+        Some(unsafe {
+            QuestionBuilder::from_raw_parts(self.reborrow(), name)
+        })
+    }
+
     /// Build an answer record.
     ///
     /// If a question or answer is already being built, it will be finished
@@ -184,6 +202,25 @@ impl MessageBuilder<'_> {
 
         self.context.state = MessageState::Answers;
         RecordBuilder::build(self.reborrow(), &record).map(Some)
+    }
+
+    /// Resume building an answer record.
+    ///
+    /// If an answer record was built (using [`build_answer()`]) but the
+    /// returned builder was neither committed nor canceled, the record
+    /// builder will be recovered and returned.
+    ///
+    /// [`build_answer()`]: Self::build_answer()
+    pub fn resume_answer(&mut self) -> Option<RecordBuilder<'_>> {
+        let MessageState::MidAnswer { name, data } = self.context.state
+        else {
+            return None;
+        };
+
+        // SAFETY: 'self.context.state' is synchronized with the message.
+        Some(unsafe {
+            RecordBuilder::from_raw_parts(self.reborrow(), name, data)
+        })
     }
 
     /// Build an authority record.
@@ -215,6 +252,25 @@ impl MessageBuilder<'_> {
         RecordBuilder::build(self.reborrow(), &record).map(Some)
     }
 
+    /// Resume building an authority record.
+    ///
+    /// If an authority record was built (using [`build_authority()`]) but
+    /// the returned builder was neither committed nor canceled, the record
+    /// builder will be recovered and returned.
+    ///
+    /// [`build_authority()`]: Self::build_authority()
+    pub fn resume_authority(&mut self) -> Option<RecordBuilder<'_>> {
+        let MessageState::MidAuthority { name, data } = self.context.state
+        else {
+            return None;
+        };
+
+        // SAFETY: 'self.context.state' is synchronized with the message.
+        Some(unsafe {
+            RecordBuilder::from_raw_parts(self.reborrow(), name, data)
+        })
+    }
+
     /// Build an additional record.
     ///
     /// If a question or record is already being built, it will be finished
@@ -237,5 +293,24 @@ impl MessageBuilder<'_> {
 
         self.context.state = MessageState::Additionals;
         RecordBuilder::build(self.reborrow(), &record)
+    }
+
+    /// Resume building an additional record.
+    ///
+    /// If an additional record was built (using [`build_additional()`]) but
+    /// the returned builder was neither committed nor canceled, the record
+    /// builder will be recovered and returned.
+    ///
+    /// [`build_additional()`]: Self::build_additional()
+    pub fn resume_additional(&mut self) -> Option<RecordBuilder<'_>> {
+        let MessageState::MidAdditional { name, data } = self.context.state
+        else {
+            return None;
+        };
+
+        // SAFETY: 'self.context.state' is synchronized with the message.
+        Some(unsafe {
+            RecordBuilder::from_raw_parts(self.reborrow(), name, data)
+        })
     }
 }
