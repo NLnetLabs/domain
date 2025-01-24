@@ -95,22 +95,10 @@ impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
 
 impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        // Strip the record name (root) and the record type.
-        let rest = bytes.strip_prefix(&[0, 0, 41]).ok_or(ParseError)?;
-
-        let (&max_udp_payload, rest) = <&U16>::split_bytes(rest)?;
-        let (&ext_rcode, rest) = <&u8>::split_bytes(rest)?;
-        let (&version, rest) = <&u8>::split_bytes(rest)?;
-        let (&flags, rest) = <&EdnsFlags>::split_bytes(rest)?;
-        let options = <SizePrefixed<&Opt>>::parse_bytes(rest)?;
-
-        Ok(Self {
-            max_udp_payload,
-            ext_rcode,
-            version,
-            flags,
-            options,
-        })
+        match Self::split_bytes(bytes) {
+            Ok((this, &[])) => Ok(this),
+            _ => Err(ParseError), 
+        }
     }
 }
 
@@ -237,25 +225,9 @@ impl EdnsOption<'_> {
 
 impl<'b> ParseBytes<'b> for EdnsOption<'b> {
     fn parse_bytes(bytes: &'b [u8]) -> Result<Self, ParseError> {
-        let (code, rest) = OptionCode::split_bytes(bytes)?;
-        let data = <&SizePrefixed<[u8]>>::parse_bytes(rest)?;
-
-        match code {
-            OptionCode::COOKIE => match data.len() {
-                8 => ClientCookie::parse_bytes_by_ref(data)
-                    .map(Self::ClientCookie),
-                16..=40 => Cookie::parse_bytes_by_ref(data).map(Self::Cookie),
-                _ => Err(ParseError),
-            },
-
-            OptionCode::EXT_ERROR => {
-                ExtError::parse_bytes_by_ref(data).map(Self::ExtError)
-            }
-
-            _ => {
-                let data = UnknownOption::parse_bytes_by_ref(data)?;
-                Ok(Self::Unknown(code, data))
-            }
+        match Self::split_bytes(bytes) {
+            Ok((this, &[])) => Ok(this),
+            _ => Err(ParseError), 
         }
     }
 }

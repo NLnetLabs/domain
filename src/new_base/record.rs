@@ -91,14 +91,10 @@ where
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (rname, rest) = N::split_message_bytes(contents, start)?;
-        let (&rtype, rest) = <&RType>::split_message_bytes(contents, rest)?;
-        let (&rclass, rest) = <&RClass>::split_message_bytes(contents, rest)?;
-        let (&ttl, rest) = <&TTL>::split_message_bytes(contents, rest)?;
-        let _ = <&SizePrefixed<[u8]>>::parse_message_bytes(contents, rest)?;
-        let rdata = D::parse_record_data(contents, rest, rtype)?;
-
-        Ok(Self::new(rname, rtype, rclass, ttl, rdata))
+        match Self::split_message_bytes(contents, start) {
+            Ok((this, rest)) if rest == contents.len() => Ok(this),
+            _ => Err(ParseError),
+        }
     }
 }
 
@@ -148,14 +144,10 @@ where
     D: ParseRecordData<'a>,
 {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let (rname, rest) = N::split_bytes(bytes)?;
-        let (rtype, rest) = RType::split_bytes(rest)?;
-        let (rclass, rest) = RClass::split_bytes(rest)?;
-        let (ttl, rest) = TTL::split_bytes(rest)?;
-        let rdata = <&SizePrefixed<[u8]>>::parse_bytes(rest)?;
-        let rdata = D::parse_record_data_bytes(rdata, rtype)?;
-
-        Ok(Self::new(rname, rtype, rclass, ttl, rdata))
+        match Self::split_bytes(bytes) {
+            Ok((this, &[])) => Ok(this),
+            _ => Err(ParseError),
+        }
     }
 }
 

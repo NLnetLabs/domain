@@ -65,10 +65,10 @@ where
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (qname, rest) = N::split_message_bytes(contents, start)?;
-        let (&qtype, rest) = <&QType>::split_message_bytes(contents, rest)?;
-        let &qclass = <&QClass>::parse_message_bytes(contents, rest)?;
-        Ok(Self::new(qname, qtype, qclass))
+        match Self::split_message_bytes(contents, start) {
+            Ok((this, rest)) if rest == contents.len() => Ok(this),
+            _ => Err(ParseError),
+        }
     }
 }
 

@@ -407,20 +407,10 @@ impl<'a> SplitBytes<'a> for RevNameBuf {
 
 impl<'a> ParseBytes<'a> for RevNameBuf {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        let mut buffer = Self::empty();
-
-        let (pointer, rest) = parse_segment(bytes, &mut buffer)?;
-        if pointer.is_some() {
-            // We can't follow compression pointers, so fail.
-            return Err(ParseError);
-        } else if !rest.is_empty() {
-            // The name didn't reach the end of the input range, fail.
-            return Err(ParseError);
+        match Self::split_bytes(bytes) {
+            Ok((this, &[])) => Ok(this),
+            _ => Err(ParseError), 
         }
-
-        // NOTE: 'buffer' is now well-formed because we only stop when we
-        // reach a root label (which has been prepended into it).
-        Ok(buffer)
     }
 }
 

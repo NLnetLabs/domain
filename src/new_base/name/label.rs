@@ -116,9 +116,10 @@ impl<'a> SplitBytes<'a> for &'a Label {
 
 impl<'a> ParseBytes<'a> for &'a Label {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        Self::split_bytes(bytes).and_then(|(this, rest)| {
-            rest.is_empty().then_some(this).ok_or(ParseError)
-        })
+        match Self::split_bytes(bytes) {
+            Ok((this, &[])) => Ok(this),
+            _ => Err(ParseError),
+        }
     }
 }
 

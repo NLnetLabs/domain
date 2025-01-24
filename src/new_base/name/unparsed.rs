@@ -124,38 +124,9 @@ impl<'a> ParseMessageBytes<'a> for &'a UnparsedName {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let bytes = &contents[start..];
-        let mut offset = 0;
-        loop {
-            match bytes[offset..] {
-                // This is the root label.
-                [0] => break,
-
-                // This looks like a regular label.
-                [l, ref rest @ ..] if (1..64).contains(&l) => {
-                    let length = l as usize;
-
-                    if rest.len() < length || offset + 2 + length > 255 {
-                        // The name is incomplete or too big.
-                        return Err(ParseError);
-                    }
-
-                    offset += 1 + length;
-                }
-
-                // This is a compression pointer.
-                [hi, lo] if hi >= 0xC0 => {
-                    let ptr = u16::from_be_bytes([hi, lo]);
-                    if usize::from(ptr - 0xC000) >= start {
-                        return Err(ParseError);
-                    }
-                    break;
-                }
-
-                _ => return Err(ParseError),
-            }
+        match Self::split_message_bytes(contents, start) {
+            Ok((this, rest)) if rest == contents.len() => Ok(this),
+            _ => Err(ParseError),
         }
-
-        Ok(unsafe { UnparsedName::from_bytes_unchecked(bytes) })
     }
 }
