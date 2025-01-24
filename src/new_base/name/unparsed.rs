@@ -4,8 +4,10 @@ use domain_macros::*;
 
 use crate::new_base::{
     parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::ParseError,
+    wire::{ParseError, SplitBytes},
 };
+
+use super::Label;
 
 //----------- UnparsedName ---------------------------------------------------
 
@@ -68,9 +70,34 @@ impl UnparsedName {
         self.0.len() == 1
     }
 
+    /// The value of this compression pointer.
+    ///
+    /// This returns [`Some`] if the name contains no labels, and only has a
+    /// compression pointer.  The returned value is in the range 0..16384, as
+    /// an offset from the start of the containing DNS message.
+    pub const fn pointer_value(&self) -> Option<u16> {
+        if let &[hi @ 0xC0..=0xFF, lo] = self.as_bytes() {
+            Some(u16::from_be_bytes([hi, lo]) & 0x3FFF)
+        } else {
+            None
+        }
+    }
+
     /// A byte representation of the [`UnparsedName`].
     pub const fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+}
+
+//--- Interaction
+
+impl UnparsedName {
+    /// Split the first label from the name.
+    pub fn split_first(&self) -> Option<(&Label, &Self)> {
+        let (label, rest) = <&Label>::split_bytes(self.as_bytes())
+            .ok()
+            .filter(|(label, _)| !label.is_root())?;
+        Some((label, unsafe { Self::from_bytes_unchecked(rest) }))
     }
 }
 
