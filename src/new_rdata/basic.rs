@@ -437,6 +437,8 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
 #[repr(transparent)]
 pub struct Txt {
     /// The text strings, as concatenated [`CharStr`]s.
+    ///
+    /// The [`CharStr`]s begin with a length octet so they can be separated.
     content: [u8],
 }
 
