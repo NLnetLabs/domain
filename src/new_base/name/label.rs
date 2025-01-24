@@ -1,15 +1,21 @@
 //! Labels in domain names.
 
 use core::{
+    borrow::{Borrow, BorrowMut},
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
     iter::FusedIterator,
+    ops::{Deref, DerefMut},
 };
 
 use domain_macros::AsBytes;
 
-use crate::new_base::wire::{ParseBytes, ParseError, SplitBytes};
+use crate::new_base::{
+    build::{BuildIntoMessage, BuildResult, Builder},
+    parse::{ParseMessageBytes, SplitMessageBytes},
+    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
+};
 
 //----------- Label ----------------------------------------------------------
 
@@ -48,9 +54,52 @@ impl Label {
         // SAFETY: 'Label' is 'repr(transparent)' to '[u8]'.
         unsafe { core::mem::transmute(bytes) }
     }
+
+    /// Assume a mutable byte slice is a valid label.
+    ///
+    /// # Safety
+    ///
+    /// The byte slice must have length 63 or less.
+    pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
+        // SAFETY: 'Label' is 'repr(transparent)' to '[u8]'.
+        unsafe { core::mem::transmute(bytes) }
+    }
 }
 
-//--- Parsing
+//--- Parsing from DNS messages
+
+impl<'a> ParseMessageBytes<'a> for &'a Label {
+    fn parse_message_bytes(
+        contents: &'a [u8],
+        start: usize,
+    ) -> Result<Self, ParseError> {
+        Self::parse_bytes(&contents[start..])
+    }
+}
+
+impl<'a> SplitMessageBytes<'a> for &'a Label {
+    fn split_message_bytes(
+        contents: &'a [u8],
+        start: usize,
+    ) -> Result<(Self, usize), ParseError> {
+        Self::split_bytes(&contents[start..])
+            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
+    }
+}
+
+//--- Building into DNS messages
+
+impl BuildIntoMessage for Label {
+    fn build_into_message(&self, mut builder: Builder<'_>) -> BuildResult {
+        builder.append_with(self.len() + 1, |buf| {
+            buf[0] = self.len() as u8;
+            buf[1..].copy_from_slice(self.as_bytes());
+        })?;
+        Ok(builder.commit())
+    }
+}
+
+//--- Parsing from bytes
 
 impl<'a> SplitBytes<'a> for &'a Label {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
@@ -70,6 +119,20 @@ impl<'a> ParseBytes<'a> for &'a Label {
         Self::split_bytes(bytes).and_then(|(this, rest)| {
             rest.is_empty().then_some(this).ok_or(ParseError)
         })
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildBytes for Label {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        let (size, data) = bytes.split_first_mut().ok_or(TruncationError)?;
+        let rest = self.as_bytes().build_bytes(data)?;
+        *size = self.len() as u8;
+        Ok(rest)
     }
 }
 
@@ -206,6 +269,160 @@ impl fmt::Debug for Label {
         f.debug_tuple("Label")
             .field(&format_args!("{}", self))
             .finish()
+    }
+}
+
+//----------- LabelBuf -------------------------------------------------------
+
+/// A 64-byte buffer holding a [`Label`].
+#[derive(Clone)]
+#[repr(C)] // make layout compatible with '[u8; 64]'
+pub struct LabelBuf {
+    /// The size of the label, in bytes.
+    ///
+    /// This value is guaranteed to be in the range '0..64'.
+    size: u8,
+
+    /// The underlying label data.
+    data: [u8; 63],
+}
+
+//--- Construction
+
+impl LabelBuf {
+    /// Copy a [`Label`] into a buffer.
+    pub fn copy_from(label: &Label) -> Self {
+        let size = label.len() as u8;
+        let mut data = [0u8; 63];
+        data[..size as usize].copy_from_slice(label.as_bytes());
+        Self { size, data }
+    }
+}
+
+//--- Parsing from DNS messages
+
+impl ParseMessageBytes<'_> for LabelBuf {
+    fn parse_message_bytes(
+        contents: &'_ [u8],
+        start: usize,
+    ) -> Result<Self, ParseError> {
+        Self::parse_bytes(&contents[start..])
+    }
+}
+
+impl SplitMessageBytes<'_> for LabelBuf {
+    fn split_message_bytes(
+        contents: &'_ [u8],
+        start: usize,
+    ) -> Result<(Self, usize), ParseError> {
+        Self::split_bytes(&contents[start..])
+            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
+    }
+}
+
+//--- Building into DNS messages
+
+impl BuildIntoMessage for LabelBuf {
+    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
+        (**self).build_into_message(builder)
+    }
+}
+
+//--- Parsing from byte strings
+
+impl ParseBytes<'_> for LabelBuf {
+    fn parse_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
+        <&Label>::parse_bytes(bytes).map(Self::copy_from)
+    }
+}
+
+impl SplitBytes<'_> for LabelBuf {
+    fn split_bytes(bytes: &'_ [u8]) -> Result<(Self, &'_ [u8]), ParseError> {
+        <&Label>::split_bytes(bytes)
+            .map(|(label, rest)| (Self::copy_from(label), rest))
+    }
+}
+
+//--- Building into byte strings
+
+impl BuildBytes for LabelBuf {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        (**self).build_bytes(bytes)
+    }
+}
+
+//--- Access to the underlying 'Label'
+
+impl Deref for LabelBuf {
+    type Target = Label;
+
+    fn deref(&self) -> &Self::Target {
+        let label = &self.data[..self.size as usize];
+        // SAFETY: A 'LabelBuf' always contains a valid 'Label'.
+        unsafe { Label::from_bytes_unchecked(label) }
+    }
+}
+
+impl DerefMut for LabelBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        let label = &mut self.data[..self.size as usize];
+        // SAFETY: A 'LabelBuf' always contains a valid 'Label'.
+        unsafe { Label::from_bytes_unchecked_mut(label) }
+    }
+}
+
+impl Borrow<Label> for LabelBuf {
+    fn borrow(&self) -> &Label {
+        self
+    }
+}
+
+impl BorrowMut<Label> for LabelBuf {
+    fn borrow_mut(&mut self) -> &mut Label {
+        self
+    }
+}
+
+impl AsRef<Label> for LabelBuf {
+    fn as_ref(&self) -> &Label {
+        self
+    }
+}
+
+impl AsMut<Label> for LabelBuf {
+    fn as_mut(&mut self) -> &mut Label {
+        self
+    }
+}
+
+//--- Forwarding equality, comparison, and hashing
+
+impl PartialEq for LabelBuf {
+    fn eq(&self, that: &Self) -> bool {
+        **self == **that
+    }
+}
+
+impl Eq for LabelBuf {}
+
+impl PartialOrd for LabelBuf {
+    fn partial_cmp(&self, that: &Self) -> Option<Ordering> {
+        Some(self.cmp(that))
+    }
+}
+
+impl Ord for LabelBuf {
+    fn cmp(&self, that: &Self) -> Ordering {
+        (**self).cmp(&**that)
+    }
+}
+
+impl Hash for LabelBuf {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (**self).hash(state)
     }
 }
 

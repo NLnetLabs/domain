@@ -15,7 +15,7 @@
 //! is expressed can sometimes be confusing.
 
 mod label;
-pub use label::{Label, LabelIter};
+pub use label::{Label, LabelBuf, LabelIter};
 
 mod reversed;
 pub use reversed::{RevName, RevNameBuf};
