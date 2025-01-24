@@ -61,6 +61,7 @@ impl<'b> RecordBuilder<'b> {
                 .build_into_message(b.delegate())?;
             let data =
                 (size + 2).try_into().expect("Messages are at most 64KiB");
+            b.commit();
             (name, data)
         };
 
@@ -114,7 +115,8 @@ impl<'b> RecordBuilder<'b> {
     /// The (unparsed) record name.
     pub fn rname(&self) -> &UnparsedName {
         let contents = &self.builder.message().contents;
-        let contents = &contents[..contents.len() - 4];
+        let contents =
+            &contents[usize::from(self.name)..usize::from(self.data) - 10];
         <&UnparsedName>::parse_message_bytes(contents, self.name.into())
             .expect("The record was serialized correctly")
     }
@@ -122,7 +124,7 @@ impl<'b> RecordBuilder<'b> {
     /// The record type.
     pub fn rtype(&self) -> RType {
         let contents = &self.builder.message().contents;
-        let contents = &contents[usize::from(self.data) - 8..];
+        let contents = &contents[usize::from(self.data) - 10..];
         RType::parse_bytes(&contents[0..2])
             .expect("The record was serialized correctly")
     }
@@ -130,7 +132,7 @@ impl<'b> RecordBuilder<'b> {
     /// The record class.
     pub fn rclass(&self) -> RClass {
         let contents = &self.builder.message().contents;
-        let contents = &contents[usize::from(self.data) - 8..];
+        let contents = &contents[usize::from(self.data) - 10..];
         RClass::parse_bytes(&contents[2..4])
             .expect("The record was serialized correctly")
     }
@@ -138,7 +140,7 @@ impl<'b> RecordBuilder<'b> {
     /// The TTL.
     pub fn ttl(&self) -> TTL {
         let contents = &self.builder.message().contents;
-        let contents = &contents[usize::from(self.data) - 8..];
+        let contents = &contents[usize::from(self.data) - 10..];
         TTL::parse_bytes(&contents[4..8])
             .expect("The record was serialized correctly")
     }
@@ -228,6 +230,7 @@ impl Drop for RecordBuilder<'_> {
             // SAFETY: Only the record data size field is being modified.
             let message = unsafe { self.builder.message_mut() };
             let data = usize::from(self.data);
+            let size = size - self.data;
             message.contents[data - 2..data]
                 .copy_from_slice(&size.to_be_bytes());
         }

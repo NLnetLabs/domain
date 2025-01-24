@@ -64,7 +64,7 @@ impl<'b> QuestionBuilder<'b> {
     /// The (unparsed) question name.
     pub fn qname(&self) -> &UnparsedName {
         let contents = &self.builder.message().contents;
-        let contents = &contents[..contents.len() - 4];
+        let contents = &contents[usize::from(self.name)..contents.len() - 4];
         <&UnparsedName>::parse_message_bytes(contents, self.name.into())
             .expect("The question was serialized correctly")
     }

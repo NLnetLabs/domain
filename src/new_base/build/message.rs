@@ -314,3 +314,143 @@ impl MessageBuilder<'_> {
         })
     }
 }
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        new_base::{
+            build::{BuildIntoMessage, BuilderContext, MessageState},
+            name::RevName,
+            QClass, QType, Question, RClass, RType, TTL,
+        },
+        new_rdata::A,
+    };
+
+    use super::MessageBuilder;
+
+    const WWW_EXAMPLE_ORG: &RevName = unsafe {
+        RevName::from_bytes_unchecked(b"\x00\x03org\x07example\x03www")
+    };
+
+    #[test]
+    fn new() {
+        let mut buffer = [0u8; 12];
+        let mut context = BuilderContext::default();
+
+        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
+
+        assert_eq!(&builder.message().contents, &[] as &[u8]);
+        assert_eq!(unsafe { &builder.message_mut().contents }, &[] as &[u8]);
+        assert_eq!(builder.context().size, 0);
+        assert_eq!(builder.context().state, MessageState::Questions);
+    }
+
+    #[test]
+    fn build_question() {
+        let mut buffer = [0u8; 33];
+        let mut context = BuilderContext::default();
+        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
+
+        let question = Question {
+            qname: WWW_EXAMPLE_ORG,
+            qtype: QType::A,
+            qclass: QClass::IN,
+        };
+        let qb = builder.build_question(&question).unwrap().unwrap();
+
+        assert_eq!(qb.qname().as_bytes(), b"\x03www\x07example\x03org\x00");
+        assert_eq!(qb.qtype(), question.qtype);
+        assert_eq!(qb.qclass(), question.qclass);
+
+        let state = MessageState::MidQuestion { name: 0 };
+        assert_eq!(builder.context().state, state);
+        let contents = b"\x03www\x07example\x03org\x00\x00\x01\x00\x01";
+        assert_eq!(&builder.message().contents, contents);
+    }
+
+    #[test]
+    fn resume_question() {
+        let mut buffer = [0u8; 33];
+        let mut context = BuilderContext::default();
+        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
+
+        let question = Question {
+            qname: WWW_EXAMPLE_ORG,
+            qtype: QType::A,
+            qclass: QClass::IN,
+        };
+        let _ = builder.build_question(&question).unwrap().unwrap();
+
+        let qb = builder.resume_question().unwrap();
+        assert_eq!(qb.qname().as_bytes(), b"\x03www\x07example\x03org\x00");
+        assert_eq!(qb.qtype(), question.qtype);
+        assert_eq!(qb.qclass(), question.qclass);
+    }
+
+    #[test]
+    fn build_record() {
+        let mut buffer = [0u8; 43];
+        let mut context = BuilderContext::default();
+        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
+
+        {
+            let mut rb = builder
+                .build_answer(
+                    WWW_EXAMPLE_ORG,
+                    RType::A,
+                    RClass::IN,
+                    TTL::from(42),
+                )
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(
+                rb.rname().as_bytes(),
+                b"\x03www\x07example\x03org\x00"
+            );
+            assert_eq!(rb.rtype(), RType::A);
+            assert_eq!(rb.rclass(), RClass::IN);
+            assert_eq!(rb.ttl(), TTL::from(42));
+            assert_eq!(rb.rdata(), b"");
+
+            assert!(rb.delegate().append_bytes(&[0u8; 5]).is_err());
+
+            let rdata = A {
+                octets: [127, 0, 0, 1],
+            };
+            rdata.build_into_message(rb.delegate()).unwrap();
+            assert_eq!(rb.rdata(), b"\x7F\x00\x00\x01");
+        }
+
+        let state = MessageState::MidAnswer { name: 0, data: 27 };
+        assert_eq!(builder.context().state, state);
+        let contents = b"\x03www\x07example\x03org\x00\x00\x01\x00\x01\x00\x00\x00\x2A\x00\x04\x7F\x00\x00\x01";
+        assert_eq!(&builder.message().contents, contents.as_slice());
+    }
+
+    #[test]
+    fn resume_record() {
+        let mut buffer = [0u8; 39];
+        let mut context = BuilderContext::default();
+        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
+
+        let _ = builder
+            .build_answer(
+                WWW_EXAMPLE_ORG,
+                RType::A,
+                RClass::IN,
+                TTL::from(42),
+            )
+            .unwrap()
+            .unwrap();
+
+        let rb = builder.resume_answer().unwrap();
+        assert_eq!(rb.rname().as_bytes(), b"\x03www\x07example\x03org\x00");
+        assert_eq!(rb.rtype(), RType::A);
+        assert_eq!(rb.rclass(), RClass::IN);
+        assert_eq!(rb.ttl(), TTL::from(42));
+        assert_eq!(rb.rdata(), b"");
+    }
+}

@@ -273,6 +273,22 @@ pub struct RClass {
     pub code: U16,
 }
 
+//--- Associated Constants
+
+impl RClass {
+    const fn new(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+
+    /// The Internet class.
+    pub const IN: Self = Self::new(1);
+
+    /// The CHAOS class.
+    pub const CH: Self = Self::new(3);
+}
+
 //----------- TTL ------------------------------------------------------------
 
 /// How long a record can be cached.
@@ -296,6 +312,22 @@ pub struct RClass {
 pub struct TTL {
     /// The underlying value.
     pub value: U32,
+}
+
+//--- Conversion to and from integers
+
+impl From<u32> for TTL {
+    fn from(value: u32) -> Self {
+        Self {
+            value: U32::new(value),
+        }
+    }
+}
+
+impl From<TTL> for u32 {
+    fn from(value: TTL) -> Self {
+        value.value.get()
+    }
 }
 
 //----------- ParseRecordData ------------------------------------------------
