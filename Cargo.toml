@@ -6,9 +6,8 @@ members = [".", "./macros"]
 name = "domain"
 version = "0.10.3"
 
-# This is the mimimal Rust version with minimal dependencies as specified
-# below. With latest dependency versions 1.76.0 is currently required.
-rust-version = "1.68.2"
+# The MSRV is at least 4 versions behind stable (about half a year).
+rust-version = "1.79.0"
 
 edition = "2021"
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
