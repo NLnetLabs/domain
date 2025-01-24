@@ -1,11 +1,11 @@
 //! Reversed domain names.
 
 use core::{
-    borrow::Borrow,
+    borrow::{Borrow, BorrowMut},
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
-    ops::Deref,
+    ops::{Deref, DerefMut},
 };
 
 use crate::new_base::{
@@ -54,6 +54,19 @@ impl RevName {
     /// be followed by any number of encoded labels, as long as the size of
     /// the whole string is 255 bytes or less.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
+        // SAFETY: 'RevName' is 'repr(transparent)' to '[u8]', so casting a
+        // '[u8]' into a 'RevName' is sound.
+        core::mem::transmute(bytes)
+    }
+
+    /// Assume a mutable byte string is a valid [`RevName`].
+    ///
+    /// # Safety
+    ///
+    /// The byte string must begin with a root label (0-value byte).  It must
+    /// be followed by any number of encoded labels, as long as the size of
+    /// the whole string is 255 bytes or less.
+    pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'RevName' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'RevName' is sound.
         core::mem::transmute(bytes)
@@ -447,14 +460,34 @@ impl Deref for RevNameBuf {
     }
 }
 
+impl DerefMut for RevNameBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        let name = &mut self.buffer[self.offset as usize..];
+        // SAFETY: A 'RevNameBuf' always contains a valid 'RevName'.
+        unsafe { RevName::from_bytes_unchecked_mut(name) }
+    }
+}
+
 impl Borrow<RevName> for RevNameBuf {
     fn borrow(&self) -> &RevName {
         self
     }
 }
 
+impl BorrowMut<RevName> for RevNameBuf {
+    fn borrow_mut(&mut self) -> &mut RevName {
+        self
+    }
+}
+
 impl AsRef<RevName> for RevNameBuf {
     fn as_ref(&self) -> &RevName {
+        self
+    }
+}
+
+impl AsMut<RevName> for RevNameBuf {
+    fn as_mut(&mut self) -> &mut RevName {
         self
     }
 }
