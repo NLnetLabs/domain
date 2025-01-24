@@ -3,12 +3,8 @@
 //! See [RFC 1035](https://datatracker.ietf.org/doc/html/rfc1035).
 
 use core::fmt;
-
-#[cfg(feature = "std")]
+use core::net::Ipv4Addr;
 use core::str::FromStr;
-
-#[cfg(feature = "std")]
-use std::net::Ipv4Addr;
 
 use domain_macros::*;
 
@@ -46,7 +42,6 @@ pub struct A {
 
 //--- Converting to and from 'Ipv4Addr'
 
-#[cfg(feature = "std")]
 impl From<Ipv4Addr> for A {
     fn from(value: Ipv4Addr) -> Self {
         Self {
@@ -55,7 +50,6 @@ impl From<Ipv4Addr> for A {
     }
 }
 
-#[cfg(feature = "std")]
 impl From<A> for Ipv4Addr {
     fn from(value: A) -> Self {
         Self::from(value.octets)
@@ -64,7 +58,6 @@ impl From<A> for Ipv4Addr {
 
 //--- Parsing from a string
 
-#[cfg(feature = "std")]
 impl FromStr for A {
     type Err = <Ipv4Addr as FromStr>::Err;
 
@@ -77,8 +70,7 @@ impl FromStr for A {
 
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let [a, b, c, d] = self.octets;
-        write!(f, "{a}.{b}.{c}.{d}")
+        Ipv4Addr::from(*self).fmt(f)
     }
 }
 
