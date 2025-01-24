@@ -17,6 +17,9 @@
 mod label;
 pub use label::{Label, LabelBuf, LabelIter};
 
+mod absolute;
+pub use absolute::Name;
+
 mod reversed;
 pub use reversed::{RevName, RevNameBuf};
 
