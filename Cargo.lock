@@ -235,6 +235,7 @@ dependencies = [
  "bytes",
  "chrono",
  "domain-macros",
+ "either",
  "futures-util",
  "hashbrown 0.14.5",
  "heapless",

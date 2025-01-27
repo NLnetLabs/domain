@@ -22,6 +22,8 @@ license = "BSD-3-Clause"
 [dependencies]
 domain-macros  = { path = "./macros", version = "0.10.3" }
 
+either = { version = "1.10.0", default-features = false }
+
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
@@ -58,7 +60,7 @@ bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
-std         = ["dep:hashbrown", "bytes?/std", "octseq/std", "time/std"]
+std         = ["dep:hashbrown", "either/use_std", "bytes?/std", "octseq/std", "time/std"]
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
