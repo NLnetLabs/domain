@@ -354,6 +354,8 @@ impl<'req, T: ServiceLayer<'req>> ServiceLayer<'req> for [T] {
         request: Self::Consumer,
     ) -> ControlFlow<Self::Producer, Self::Transformer> {
         let mut transformers = Vec::new();
+        // TODO (MSRV 1.80): Use Box<[T]>: IntoIterator
+        let request: Vec<_> = request.into();
         for (layer, request) in self.iter().zip(request) {
             match layer.respond(request) {
                 ControlFlow::Continue(t) => transformers.push(t),
