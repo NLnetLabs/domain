@@ -97,7 +97,7 @@ impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         match Self::split_bytes(bytes) {
             Ok((this, &[])) => Ok(this),
-            _ => Err(ParseError), 
+            _ => Err(ParseError),
         }
     }
 }
@@ -227,7 +227,7 @@ impl<'b> ParseBytes<'b> for EdnsOption<'b> {
     fn parse_bytes(bytes: &'b [u8]) -> Result<Self, ParseError> {
         match Self::split_bytes(bytes) {
             Ok((this, &[])) => Ok(this),
-            _ => Err(ParseError), 
+            _ => Err(ParseError),
         }
     }
 }

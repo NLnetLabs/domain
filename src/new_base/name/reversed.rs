@@ -409,7 +409,7 @@ impl<'a> ParseBytes<'a> for RevNameBuf {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         match Self::split_bytes(bytes) {
             Ok((this, &[])) => Ok(this),
-            _ => Err(ParseError), 
+            _ => Err(ParseError),
         }
     }
 }
