@@ -134,12 +134,13 @@ where
     RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
     RequestMeta: Default + Clone,
     Metadata: Clone,
-    Target: Composer + Default,
+    Target: Composer + Default + Send + Sync,
     T: Fn(
             Request<RequestOctets, RequestMeta>,
             Metadata,
         ) -> ServiceResult<Target>
         + Clone,
+    Self: Clone + Send + Sync + 'static,
 {
     type Target = Target;
     type Stream = Once<Ready<ServiceResult<Self::Target>>>;

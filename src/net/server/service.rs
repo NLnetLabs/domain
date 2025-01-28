@@ -7,11 +7,10 @@ use core::fmt::Display;
 use core::ops::Deref;
 
 use std::time::Duration;
-use std::vec::Vec;
 
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::wire::ParseError;
+use crate::base::wire::{Composer, ParseError};
 use crate::base::StreamTarget;
 
 use super::message::Request;
@@ -167,19 +166,20 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// [`call`]: Self::call()
 /// [`service_fn`]: crate::net::server::util::service_fn()
 pub trait Service<
-    RequestOctets: AsRef<[u8]> + Send + Sync = Vec<u8>,
-    RequestMeta: Clone + Default = (),
->
+    RequestOctets: AsRef<[u8]> + Send + Sync,
+    RequestMeta: Clone + Default,
+>: Send + Sync + 'static
 {
     /// The underlying byte storage type used to hold generated responses.
-    type Target;
+    type Target: Composer + Default + Send + Sync;
 
     /// The type of stream that the service produces.
     type Stream: futures_util::stream::Stream<Item = ServiceResult<Self::Target>>
-        + Unpin;
+        + Unpin
+        + Send;
 
     /// The type of future that will yield the service result stream.
-    type Future: core::future::Future<Output = Self::Stream>;
+    type Future: core::future::Future<Output = Self::Stream> + Send;
 
     /// Generate a response to a fully pre-processed request.
     fn call(
@@ -195,8 +195,8 @@ impl<RequestOctets, RequestMeta, T, U> Service<RequestOctets, RequestMeta>
     for U
 where
     RequestOctets: Unpin + Send + Sync + AsRef<[u8]>,
-    T: ?Sized + Service<RequestOctets, RequestMeta>,
-    U: Deref<Target = T> + Clone,
+    T: Service<RequestOctets, RequestMeta>,
+    U: Deref<Target = T> + Clone + Send + Sync + 'static,
     RequestMeta: Clone + Default,
 {
     type Target = T::Target;

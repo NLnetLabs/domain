@@ -39,7 +39,7 @@ async fn main() {
         .ok();
 
     // Start building the query router plus upstreams.
-    let mut qr: QnameRouter<Vec<u8>, Vec<u8>, ReplyMessage> =
+    let mut qr: QnameRouter<Vec<u8>, Vec<u8>, (), ReplyMessage> =
         QnameRouter::new();
 
     // Queries to the root go to 2606:4700:4700::1111 and 1.1.1.1.
@@ -57,8 +57,8 @@ async fn main() {
     let conn_service = ClientTransportToSingleService::new(redun);
     qr.add(Name::<Vec<u8>>::from_str("nl").unwrap(), conn_service);
 
-    let srv = SingleServiceToService::new(qr);
-    let srv = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(srv);
+    let srv = SingleServiceToService::<_, _, _, _>::new(qr);
+    let srv = MandatoryMiddlewareSvc::new(srv);
     let my_svc = Arc::new(srv);
 
     let udpsocket = UdpSocket::bind("[::1]:8053").await.unwrap();

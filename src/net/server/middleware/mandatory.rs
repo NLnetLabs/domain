@@ -11,7 +11,7 @@ use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::{Opcode, OptRcode};
 use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::wire::{Composer, ParseError};
+use crate::base::wire::ParseError;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::service::{CallResult, Service, ServiceResult};
@@ -41,7 +41,13 @@ pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
 /// [9619]: https://datatracker.ietf.org/doc/html/rfc9619
 #[derive(Clone, Debug)]
-pub struct MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+pub struct MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+where
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Future: Unpin,
+    RequestMeta: Clone + Default + 'static + Send + Sync + Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+{
     /// The upstream [`Service`] to pass requests to and receive responses
     /// from.
     next_svc: NextSvc,
@@ -55,6 +61,11 @@ pub struct MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
 
 impl<RequestOctets, NextSvc, RequestMeta>
     MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+where
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Future: Unpin,
+    RequestMeta: Clone + Default + 'static + Send + Sync + Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
 {
     /// Creates an instance of this middleware service.
     ///
@@ -84,10 +95,10 @@ impl<RequestOctets, NextSvc, RequestMeta>
 impl<RequestOctets, NextSvc, RequestMeta>
     MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
-    RequestOctets: Octets + Send + Sync + Unpin,
     NextSvc: Service<RequestOctets, RequestMeta>,
-    NextSvc::Target: Composer + Default,
-    RequestMeta: Clone + Default,
+    NextSvc::Future: Unpin,
+    RequestMeta: Clone + Default + 'static + Send + Sync + Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
 {
     /// Truncate the given response message if it is too large.
     ///
@@ -303,11 +314,10 @@ where
 impl<RequestOctets, NextSvc, RequestMeta> Service<RequestOctets, RequestMeta>
     for MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
-    RequestOctets: Octets + Send + Sync + 'static + Unpin,
     NextSvc: Service<RequestOctets, RequestMeta>,
     NextSvc::Future: Unpin,
-    NextSvc::Target: Composer + Default,
-    RequestMeta: Clone + Default + Unpin,
+    RequestMeta: Clone + Default + 'static + Send + Sync + Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
 {
     type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
@@ -331,6 +341,7 @@ where
     ) -> Self::Future {
         match self.preprocess(request.message()) {
             ControlFlow::Continue(()) => {
+                let request = request.with_new_metadata(Default::default());
                 let svc_call_fut = self.next_svc.call(request.clone());
                 let map = PostprocessingStream::new(
                     svc_call_fut,
@@ -341,6 +352,7 @@ where
                 ready(MiddlewareStream::Map(map))
             }
             ControlFlow::Break(mut response) => {
+                let request = request.with_new_metadata(Default::default());
                 Self::postprocess(&request, &mut response, self.strict);
                 ready(MiddlewareStream::Result(once(ready(Ok(
                     CallResult::new(response),
@@ -457,7 +469,7 @@ mod tests {
         );
 
         fn my_service(
-            req: Request<Vec<u8>>,
+            req: Request<Vec<u8>, ()>,
             _meta: (),
         ) -> ServiceResult<Vec<u8>> {
             // For each request create a single response:
