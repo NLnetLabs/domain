@@ -7,110 +7,54 @@ use std::{boxed::Box, rc::Rc, sync::Arc, vec::Vec};
 
 use either::Either::{self, Left, Right};
 
-use crate::{
-    new_base::{
-        build::{MessageBuilder, QuestionBuilder, RecordBuilder},
-        name::RevNameBuf,
-        Header, Question, Record,
-    },
-    new_rdata::RecordData,
+use crate::new_base::{
+    build::{MessageBuilder, QuestionBuilder, RecordBuilder},
+    Header,
 };
 
 use super::{
-    ConsumeMessage, ProduceMessage, Service, ServiceLayer, TransformMessage,
+    LocalService, LocalServiceLayer, ProduceMessage, RequestMessage, Service,
+    ServiceLayer, TransformMessage,
 };
 
 //----------- impl Service ---------------------------------------------------
 
-impl<'req, T: ?Sized + Service<'req>> Service<'req> for &T {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(&self, request: Self::Consumer) -> Self::Producer {
-        T::respond(self, request)
+impl<T: ?Sized + Service> Service for &T {
+    async fn respond(&self, request: &RequestMessage<'_>) -> Self::Producer {
+        T::respond(self, request).await
     }
 }
 
-impl<'req, T: ?Sized + Service<'req>> Service<'req> for &mut T {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(&self, request: Self::Consumer) -> Self::Producer {
-        T::respond(self, request)
+impl<T: ?Sized + Service> Service for &mut T {
+    async fn respond(&self, request: &RequestMessage<'_>) -> Self::Producer {
+        T::respond(self, request).await
     }
 }
 
 #[cfg(feature = "std")]
-impl<'req, T: ?Sized + Service<'req>> Service<'req> for Box<T> {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(&self, request: Self::Consumer) -> Self::Producer {
-        T::respond(self, request)
+impl<T: ?Sized + Service> Service for Box<T> {
+    async fn respond(&self, request: &RequestMessage<'_>) -> Self::Producer {
+        T::respond(self, request).await
     }
 }
 
 #[cfg(feature = "std")]
-impl<'req, T: ?Sized + Service<'req>> Service<'req> for Rc<T> {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(&self, request: Self::Consumer) -> Self::Producer {
-        T::respond(self, request)
+impl<T: ?Sized + Send + Service> Service for Arc<T> {
+    async fn respond(&self, request: &RequestMessage<'_>) -> Self::Producer {
+        T::respond(self, request).await
     }
 }
 
-#[cfg(feature = "std")]
-impl<'req, T: ?Sized + Service<'req>> Service<'req> for Arc<T> {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(&self, request: Self::Consumer) -> Self::Producer {
-        T::respond(self, request)
-    }
-}
-
-impl<'req, A, S: ?Sized> Service<'req> for (A, S)
+impl<A, S: ?Sized> Service for (A, S)
 where
-    A: ServiceLayer<'req>,
-    S: Service<'req>,
+    A: ServiceLayer,
+    S: Service,
 {
-    type Consumer = (A::Consumer, S::Consumer);
-
-    type Producer = Either<A::Producer, (A::Transformer, S::Producer)>;
-
-    fn consume(&self) -> Self::Consumer {
-        (self.0.consume(), self.1.consume())
-    }
-
-    fn respond(&self, request: Self::Consumer) -> Self::Producer {
-        match self.0.respond(request.0) {
-            ControlFlow::Continue(t) => Right((t, self.1.respond(request.1))),
+    async fn respond(&self, request: &RequestMessage<'_>) -> Self::Producer {
+        match self.0.respond(request).await {
+            ControlFlow::Continue(t) => {
+                Right((t, self.1.respond(request).await))
+            }
             ControlFlow::Break(p) => Left(p),
         }
     }
@@ -118,28 +62,19 @@ where
 
 macro_rules! impl_service_tuple {
     ($($layers:ident)* .. $service:ident) => {
-        impl<'req, $($layers,)* $service: ?Sized>
-        Service<'req> for ($($layers,)* $service,)
+        impl<$($layers,)* $service: ?Sized>
+        Service for ($($layers,)* $service,)
         where
-            $($layers: ServiceLayer<'req>,)*
-            $service: Service<'req>,
+            $($layers: ServiceLayer,)*
+            $service: Service,
         {
-            type Consumer =
-                <(($($layers),*,), $service) as Service<'req>>::Consumer;
-
-            type Producer =
-                <(($($layers),*,), $service) as Service<'req>>::Producer;
-
-            fn consume(&self) -> Self::Consumer {
+            async fn respond(
+                &self,
+                request: &RequestMessage<'_>,
+            ) -> Self::Producer {
                 #[allow(non_snake_case)]
                 let ($($layers,)* $service,) = self;
-                (($($layers),*,), $service).consume()
-            }
-
-            fn respond(&self, request: Self::Consumer) -> Self::Producer {
-                #[allow(non_snake_case)]
-                let ($($layers,)* $service,) = self;
-                (($($layers),*,), $service).respond(request)
+                (($($layers),*,), $service).respond(request).await
             }
         }
     };
@@ -156,131 +91,175 @@ impl_service_tuple!(A B C D E F G H I..S);
 impl_service_tuple!(A B C D E F G H I J..S);
 impl_service_tuple!(A B C D E F G H I J K..S);
 
+//----------- impl LocalService ----------------------------------------------
+
+impl<T: ?Sized + LocalService> LocalService for &T {
+    type Producer = T::Producer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> Self::Producer {
+        T::respond_local(self, request).await
+    }
+}
+
+impl<T: ?Sized + LocalService> LocalService for &mut T {
+    type Producer = T::Producer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> Self::Producer {
+        T::respond_local(self, request).await
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: ?Sized + LocalService> LocalService for Box<T> {
+    type Producer = T::Producer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> Self::Producer {
+        T::respond_local(self, request).await
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: ?Sized + LocalService> LocalService for Rc<T> {
+    type Producer = T::Producer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> Self::Producer {
+        T::respond_local(self, request).await
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: ?Sized + LocalService> LocalService for Arc<T> {
+    type Producer = T::Producer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> Self::Producer {
+        T::respond_local(self, request).await
+    }
+}
+
+impl<A, S: ?Sized> LocalService for (A, S)
+where
+    A: LocalServiceLayer,
+    S: LocalService,
+{
+    type Producer = Either<A::Producer, (A::Transformer, S::Producer)>;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> Self::Producer {
+        match self.0.respond_local(request).await {
+            ControlFlow::Continue(t) => {
+                Right((t, self.1.respond_local(request).await))
+            }
+            ControlFlow::Break(p) => Left(p),
+        }
+    }
+}
+
+macro_rules! impl_local_service_tuple {
+    ($($layers:ident)* .. $service:ident) => {
+        impl<$($layers,)* $service: ?Sized>
+        LocalService for ($($layers,)* $service,)
+        where
+            $($layers: LocalServiceLayer,)*
+            $service: LocalService,
+        {
+            type Producer =
+                <(($($layers),*,), $service) as LocalService>::Producer;
+
+            async fn respond_local(
+                &self,
+                request: &RequestMessage<'_>,
+            ) -> Self::Producer {
+                #[allow(non_snake_case)]
+                let ($($layers,)* $service,) = self;
+                (($($layers),*,), $service).respond_local(request).await
+            }
+        }
+    };
+}
+
+impl_local_service_tuple!(A B..S);
+impl_local_service_tuple!(A B C..S);
+impl_local_service_tuple!(A B C D..S);
+impl_local_service_tuple!(A B C D E..S);
+impl_local_service_tuple!(A B C D E F..S);
+impl_local_service_tuple!(A B C D E F G..S);
+impl_local_service_tuple!(A B C D E F G H..S);
+impl_local_service_tuple!(A B C D E F G H I..S);
+impl_local_service_tuple!(A B C D E F G H I J..S);
+impl_local_service_tuple!(A B C D E F G H I J K..S);
+
 //----------- impl ServiceLayer ----------------------------------------------
 
-impl<'req, T: ?Sized + ServiceLayer<'req>> ServiceLayer<'req> for &T {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    type Transformer = T::Transformer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(
+impl<T: ?Sized + ServiceLayer> ServiceLayer for &T {
+    async fn respond(
         &self,
-        request: Self::Consumer,
+        request: &RequestMessage<'_>,
     ) -> ControlFlow<Self::Producer, Self::Transformer> {
-        T::respond(self, request)
+        T::respond(self, request).await
     }
 }
 
-impl<'req, T: ?Sized + ServiceLayer<'req>> ServiceLayer<'req> for &mut T {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    type Transformer = T::Transformer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(
+impl<T: ?Sized + ServiceLayer> ServiceLayer for &mut T {
+    async fn respond(
         &self,
-        request: Self::Consumer,
+        request: &RequestMessage<'_>,
     ) -> ControlFlow<Self::Producer, Self::Transformer> {
-        T::respond(self, request)
+        T::respond(self, request).await
     }
 }
 
 #[cfg(feature = "std")]
-impl<'req, T: ?Sized + ServiceLayer<'req>> ServiceLayer<'req> for Box<T> {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    type Transformer = T::Transformer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(
+impl<T: ?Sized + ServiceLayer> ServiceLayer for Box<T> {
+    async fn respond(
         &self,
-        request: Self::Consumer,
+        request: &RequestMessage<'_>,
     ) -> ControlFlow<Self::Producer, Self::Transformer> {
-        T::respond(self, request)
+        T::respond(self, request).await
     }
 }
 
 #[cfg(feature = "std")]
-impl<'req, T: ?Sized + ServiceLayer<'req>> ServiceLayer<'req> for Rc<T> {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    type Transformer = T::Transformer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(
+impl<T: ?Sized + ServiceLayer + Send> ServiceLayer for Arc<T> {
+    async fn respond(
         &self,
-        request: Self::Consumer,
+        request: &RequestMessage<'_>,
     ) -> ControlFlow<Self::Producer, Self::Transformer> {
-        T::respond(self, request)
+        T::respond(self, request).await
     }
 }
 
-#[cfg(feature = "std")]
-impl<'req, T: ?Sized + ServiceLayer<'req>> ServiceLayer<'req> for Arc<T> {
-    type Consumer = T::Consumer;
-
-    type Producer = T::Producer;
-
-    type Transformer = T::Transformer;
-
-    fn consume(&self) -> Self::Consumer {
-        T::consume(self)
-    }
-
-    fn respond(
-        &self,
-        request: Self::Consumer,
-    ) -> ControlFlow<Self::Producer, Self::Transformer> {
-        T::respond(self, request)
-    }
-}
-
-impl<'req, A, B: ?Sized> ServiceLayer<'req> for (A, B)
+impl<A, B: ?Sized> ServiceLayer for (A, B)
 where
-    A: ServiceLayer<'req>,
-    B: ServiceLayer<'req>,
+    A: ServiceLayer,
+    B: ServiceLayer,
 {
-    type Consumer = (A::Consumer, B::Consumer);
-
-    type Producer = Either<A::Producer, (A::Transformer, B::Producer)>;
-
-    type Transformer = (A::Transformer, B::Transformer);
-
-    fn consume(&self) -> Self::Consumer {
-        (self.0.consume(), self.1.consume())
-    }
-
-    fn respond(
+    async fn respond(
         &self,
-        request: Self::Consumer,
+        request: &RequestMessage<'_>,
     ) -> ControlFlow<Self::Producer, Self::Transformer> {
-        let at = match self.0.respond(request.0) {
+        let at = match <A as ServiceLayer>::respond(&self.0, request).await {
             ControlFlow::Continue(at) => at,
             ControlFlow::Break(ap) => return ControlFlow::Break(Left(ap)),
         };
 
-        match self.1.respond(request.1) {
+        match <B as ServiceLayer>::respond(&self.1, request).await {
             ControlFlow::Continue(bt) => ControlFlow::Continue((at, bt)),
             ControlFlow::Break(bp) => ControlFlow::Break(Right((at, bp))),
         }
@@ -289,40 +268,21 @@ where
 
 macro_rules! impl_service_layer_tuple {
     ($first:ident .. $last:ident: $($middle:ident)+) => {
-        impl<'req, $first, $($middle,)+ $last: ?Sized>
-        ServiceLayer<'req> for ($first, $($middle,)+ $last)
+        impl<$first, $($middle,)+ $last: ?Sized>
+        ServiceLayer for ($first, $($middle,)+ $last)
         where
-            $first: ServiceLayer<'req>,
-            $($middle: ServiceLayer<'req>,)+
-            $last: ServiceLayer<'req>,
+            $first: ServiceLayer,
+            $($middle: ServiceLayer,)+
+            $last: ServiceLayer,
         {
-            type Consumer =
-                <($first, ($($middle,)+ $last)) as ServiceLayer<'req>>
-                    ::Consumer;
-
-            type Producer =
-                <($first, ($($middle,)+ $last)) as ServiceLayer<'req>>
-                    ::Producer;
-
-            type Transformer =
-                <($first, ($($middle,)+ $last)) as ServiceLayer<'req>>
-                    ::Transformer;
-
-            fn consume(&self) -> Self::Consumer
-            {
-                #[allow(non_snake_case)]
-                let ($first, $($middle,)+ $last) = self;
-                ($first, ($($middle,)+ $last)).consume()
-            }
-
-            fn respond(
+            async fn respond(
                 &self,
-                request: Self::Consumer,
+                request: &RequestMessage<'_>,
             ) -> ControlFlow<Self::Producer, Self::Transformer>
             {
                 #[allow(non_snake_case)]
                 let ($first, $($middle,)+ ref $last) = self;
-                ($first, ($($middle,)+ $last)).respond(request)
+                ($first, ($($middle,)+ $last)).respond(request).await
             }
         }
     }
@@ -340,24 +300,14 @@ impl_service_layer_tuple!(A..K: B C D E F G H I J);
 impl_service_layer_tuple!(A..L: B C D E F G H I J K);
 
 #[cfg(feature = "std")]
-impl<'req, T: ServiceLayer<'req>> ServiceLayer<'req> for [T] {
-    type Consumer = Box<[T::Consumer]>;
-    type Producer = (Box<[T::Transformer]>, T::Producer);
-    type Transformer = Box<[T::Transformer]>;
-
-    fn consume(&self) -> Self::Consumer {
-        self.iter().map(T::consume).collect()
-    }
-
-    fn respond(
+impl<T: ServiceLayer> ServiceLayer for [T] {
+    async fn respond(
         &self,
-        request: Self::Consumer,
+        request: &RequestMessage<'_>,
     ) -> ControlFlow<Self::Producer, Self::Transformer> {
         let mut transformers = Vec::new();
-        // TODO (MSRV 1.80): Use Box<[T]>: IntoIterator
-        let request: Vec<_> = request.into();
-        for (layer, request) in self.iter().zip(request) {
-            match layer.respond(request) {
+        for layer in self {
+            match layer.respond(request).await {
                 ControlFlow::Continue(t) => transformers.push(t),
                 ControlFlow::Break(p) => {
                     return ControlFlow::Break((transformers.into(), p));
@@ -369,256 +319,183 @@ impl<'req, T: ServiceLayer<'req>> ServiceLayer<'req> for [T] {
 }
 
 #[cfg(feature = "std")]
-impl<'req, T: ServiceLayer<'req>> ServiceLayer<'req> for Vec<T> {
-    type Consumer = Box<[T::Consumer]>;
+impl<T: ServiceLayer> ServiceLayer for Vec<T> {
+    async fn respond(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> ControlFlow<Self::Producer, Self::Transformer> {
+        self.as_slice().respond(request).await
+    }
+}
+
+//----------- impl LocalServiceLayer -----------------------------------------
+
+impl<T: ?Sized + LocalServiceLayer> LocalServiceLayer for &T {
+    type Producer = T::Producer;
+
+    type Transformer = T::Transformer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> ControlFlow<Self::Producer, Self::Transformer> {
+        T::respond_local(self, request).await
+    }
+}
+
+impl<T: ?Sized + LocalServiceLayer> LocalServiceLayer for &mut T {
+    type Producer = T::Producer;
+
+    type Transformer = T::Transformer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> ControlFlow<Self::Producer, Self::Transformer> {
+        T::respond_local(self, request).await
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: ?Sized + LocalServiceLayer> LocalServiceLayer for Box<T> {
+    type Producer = T::Producer;
+
+    type Transformer = T::Transformer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> ControlFlow<Self::Producer, Self::Transformer> {
+        T::respond_local(self, request).await
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: ?Sized + LocalServiceLayer> LocalServiceLayer for Rc<T> {
+    type Producer = T::Producer;
+
+    type Transformer = T::Transformer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> ControlFlow<Self::Producer, Self::Transformer> {
+        T::respond_local(self, request).await
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: ?Sized + LocalServiceLayer> LocalServiceLayer for Arc<T> {
+    type Producer = T::Producer;
+
+    type Transformer = T::Transformer;
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> ControlFlow<Self::Producer, Self::Transformer> {
+        T::respond_local(self, request).await
+    }
+}
+
+impl<A, B: ?Sized> LocalServiceLayer for (A, B)
+where
+    A: LocalServiceLayer,
+    B: LocalServiceLayer,
+{
+    type Producer = Either<A::Producer, (A::Transformer, B::Producer)>;
+
+    type Transformer = (A::Transformer, B::Transformer);
+
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> ControlFlow<Self::Producer, Self::Transformer> {
+        let at = match self.0.respond_local(request).await {
+            ControlFlow::Continue(at) => at,
+            ControlFlow::Break(ap) => return ControlFlow::Break(Left(ap)),
+        };
+
+        match self.1.respond_local(request).await {
+            ControlFlow::Continue(bt) => ControlFlow::Continue((at, bt)),
+            ControlFlow::Break(bp) => ControlFlow::Break(Right((at, bp))),
+        }
+    }
+}
+
+macro_rules! impl_local_service_layer_tuple {
+    ($first:ident .. $last:ident: $($middle:ident)+) => {
+        impl<$first, $($middle,)+ $last: ?Sized>
+        LocalServiceLayer for ($first, $($middle,)+ $last)
+        where
+            $first: LocalServiceLayer,
+            $($middle: LocalServiceLayer,)+
+            $last: LocalServiceLayer,
+        {
+            type Producer =
+                <($first, ($($middle,)+ $last)) as LocalServiceLayer>
+                    ::Producer;
+
+            type Transformer =
+                <($first, ($($middle,)+ $last)) as LocalServiceLayer>
+                    ::Transformer;
+
+            async fn respond_local(
+                &self,
+                request: &RequestMessage<'_>,
+            ) -> ControlFlow<Self::Producer, Self::Transformer>
+            {
+                #[allow(non_snake_case)]
+                let ($first, $($middle,)+ ref $last) = self;
+                ($first, ($($middle,)+ $last)).respond_local(request).await
+            }
+        }
+    }
+}
+
+impl_local_service_layer_tuple!(A..C: B);
+impl_local_service_layer_tuple!(A..D: B C);
+impl_local_service_layer_tuple!(A..E: B C D);
+impl_local_service_layer_tuple!(A..F: B C D E);
+impl_local_service_layer_tuple!(A..G: B C D E F);
+impl_local_service_layer_tuple!(A..H: B C D E F G);
+impl_local_service_layer_tuple!(A..I: B C D E F G H);
+impl_local_service_layer_tuple!(A..J: B C D E F G H I);
+impl_local_service_layer_tuple!(A..K: B C D E F G H I J);
+impl_local_service_layer_tuple!(A..L: B C D E F G H I J K);
+
+#[cfg(feature = "std")]
+impl<T: LocalServiceLayer> LocalServiceLayer for [T] {
     type Producer = (Box<[T::Transformer]>, T::Producer);
     type Transformer = Box<[T::Transformer]>;
 
-    fn consume(&self) -> Self::Consumer {
-        self.as_slice().consume()
-    }
-
-    fn respond(
+    async fn respond_local(
         &self,
-        request: Self::Consumer,
+        request: &RequestMessage<'_>,
     ) -> ControlFlow<Self::Producer, Self::Transformer> {
-        self.as_slice().respond(request)
-    }
-}
-
-//----------- impl ConsumeMessage --------------------------------------------
-
-impl<'msg, T: ?Sized + ConsumeMessage<'msg>> ConsumeMessage<'msg> for &mut T {
-    fn consume_header(&mut self, header: &'msg Header) {
-        T::consume_header(self, header);
-    }
-
-    fn consume_question(&mut self, question: &Question<RevNameBuf>) {
-        T::consume_question(self, question);
-    }
-
-    fn consume_answer(
-        &mut self,
-        answer: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        T::consume_answer(self, answer);
-    }
-
-    fn consume_authority(
-        &mut self,
-        authority: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        T::consume_authority(self, authority);
-    }
-
-    fn consume_additional(
-        &mut self,
-        additional: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        T::consume_additional(self, additional);
-    }
-}
-
-#[cfg(feature = "std")]
-impl<'msg, T: ?Sized + ConsumeMessage<'msg>> ConsumeMessage<'msg> for Box<T> {
-    fn consume_header(&mut self, header: &'msg Header) {
-        T::consume_header(self, header);
-    }
-
-    fn consume_question(&mut self, question: &Question<RevNameBuf>) {
-        T::consume_question(self, question);
-    }
-
-    fn consume_answer(
-        &mut self,
-        answer: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        T::consume_answer(self, answer);
-    }
-
-    fn consume_authority(
-        &mut self,
-        authority: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        T::consume_authority(self, authority);
-    }
-
-    fn consume_additional(
-        &mut self,
-        additional: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        T::consume_additional(self, additional);
-    }
-}
-
-impl<'msg, A, B> ConsumeMessage<'msg> for Either<A, B>
-where
-    A: ConsumeMessage<'msg>,
-    B: ConsumeMessage<'msg>,
-{
-    fn consume_header(&mut self, header: &'msg Header) {
-        either::for_both!(self, x => x.consume_header(header))
-    }
-
-    fn consume_question(&mut self, question: &Question<RevNameBuf>) {
-        either::for_both!(self, x => x.consume_question(question))
-    }
-
-    fn consume_answer(
-        &mut self,
-        answer: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        either::for_both!(self, x => x.consume_answer(answer))
-    }
-
-    fn consume_authority(
-        &mut self,
-        authority: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        either::for_both!(self, x => x.consume_authority(authority))
-    }
-
-    fn consume_additional(
-        &mut self,
-        additional: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        either::for_both!(self, x => x.consume_additional(additional))
-    }
-}
-
-macro_rules! impl_consume_message_tuple {
-    ($($middle:ident)* .. $last:ident) => {
-        impl<'msg, $($middle,)* $last: ?Sized>
-        ConsumeMessage<'msg> for ($($middle,)* $last,)
-        where
-            $($middle: ConsumeMessage<'msg>,)*
-            $last: ConsumeMessage<'msg>,
-        {
-            fn consume_header(&mut self, header: &'msg Header) {
-                #[allow(non_snake_case)]
-                let ($($middle,)* ref mut $last,) = self;
-                $($middle.consume_header(header);)*
-                $last.consume_header(header);
-            }
-
-            fn consume_question(&mut self, question: &Question<RevNameBuf>) {
-                #[allow(non_snake_case)]
-                let ($($middle,)* ref mut $last,) = self;
-                $($middle.consume_question(question);)*
-                $last.consume_question(question);
-            }
-
-            fn consume_answer(
-                &mut self,
-                answer: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-            ) {
-                #[allow(non_snake_case)]
-                let ($($middle,)* ref mut $last,) = self;
-                $($middle.consume_answer(answer);)*
-                $last.consume_answer(answer);
-            }
-
-            fn consume_authority(
-                &mut self,
-                authority: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-            ) {
-                #[allow(non_snake_case)]
-                let ($($middle,)* ref mut $last,) = self;
-                $($middle.consume_authority(authority);)*
-                $last.consume_authority(authority);
-            }
-
-            fn consume_additional(
-                &mut self,
-                additional: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-            ) {
-                #[allow(non_snake_case)]
-                let ($($middle,)* ref mut $last,) = self;
-                $($middle.consume_additional(additional);)*
-                $last.consume_additional(additional);
+        let mut transformers = Vec::new();
+        for layer in self {
+            match layer.respond_local(request).await {
+                ControlFlow::Continue(t) => transformers.push(t),
+                ControlFlow::Break(p) => {
+                    return ControlFlow::Break((transformers.into(), p));
+                }
             }
         }
-    };
-}
-
-impl_consume_message_tuple!(..A);
-impl_consume_message_tuple!(A..B);
-impl_consume_message_tuple!(A B..C);
-impl_consume_message_tuple!(A B C..D);
-impl_consume_message_tuple!(A B C D..E);
-impl_consume_message_tuple!(A B C D E..F);
-impl_consume_message_tuple!(A B C D E F..G);
-impl_consume_message_tuple!(A B C D E F G..H);
-impl_consume_message_tuple!(A B C D E F G H..I);
-impl_consume_message_tuple!(A B C D E F G H I..J);
-impl_consume_message_tuple!(A B C D E F G H I J..K);
-impl_consume_message_tuple!(A B C D E F G H I J K..L);
-
-impl<'msg, T: ConsumeMessage<'msg>> ConsumeMessage<'msg> for [T] {
-    fn consume_header(&mut self, header: &'msg Header) {
-        self.iter_mut()
-            .for_each(|layer| layer.consume_header(header));
-    }
-
-    fn consume_question(&mut self, question: &Question<RevNameBuf>) {
-        self.iter_mut()
-            .for_each(|layer| layer.consume_question(question));
-    }
-
-    fn consume_answer(
-        &mut self,
-        answer: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        self.iter_mut()
-            .for_each(|layer| layer.consume_answer(answer));
-    }
-
-    fn consume_authority(
-        &mut self,
-        authority: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        self.iter_mut()
-            .for_each(|layer| layer.consume_authority(authority));
-    }
-
-    fn consume_additional(
-        &mut self,
-        additional: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        self.iter_mut()
-            .for_each(|layer| layer.consume_additional(additional));
+        ControlFlow::Continue(transformers.into())
     }
 }
 
 #[cfg(feature = "std")]
-impl<'msg, T: ConsumeMessage<'msg>> ConsumeMessage<'msg> for Vec<T> {
-    fn consume_header(&mut self, header: &'msg Header) {
-        self.as_mut_slice().consume_header(header)
-    }
+impl<T: LocalServiceLayer> LocalServiceLayer for Vec<T> {
+    type Producer = (Box<[T::Transformer]>, T::Producer);
+    type Transformer = Box<[T::Transformer]>;
 
-    fn consume_question(&mut self, question: &Question<RevNameBuf>) {
-        self.as_mut_slice().consume_question(question)
-    }
-
-    fn consume_answer(
-        &mut self,
-        answer: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        self.as_mut_slice().consume_answer(answer)
-    }
-
-    fn consume_authority(
-        &mut self,
-        authority: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        self.as_mut_slice().consume_authority(authority)
-    }
-
-    fn consume_additional(
-        &mut self,
-        additional: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        self.as_mut_slice().consume_additional(additional)
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> ControlFlow<Self::Producer, Self::Transformer> {
+        self.as_slice().respond_local(request).await
     }
 }
 

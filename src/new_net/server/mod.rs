@@ -14,43 +14,64 @@
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
 
-use core::ops::ControlFlow;
+use core::{future::Future, ops::ControlFlow};
 
-use crate::{
-    new_base::{
-        build::{MessageBuilder, QuestionBuilder, RecordBuilder},
-        name::RevNameBuf,
-        Header, Question, Record,
-    },
-    new_rdata::RecordData,
+use crate::new_base::{
+    build::{MessageBuilder, QuestionBuilder, RecordBuilder},
+    Header,
 };
 
 mod impls;
 
+mod request;
+pub use request::RequestMessage;
+
 //----------- Service --------------------------------------------------------
 
-/// A DNS service, that computes responses for requests.
+/// A (multi-threaded) DNS service, that computes responses for requests.
 ///
 /// Given a DNS request message, a service computes an appropriate response.
 /// Services are usually wrapped in a network transport that receives requests
 /// and returns the service's responses.
+///
+/// Use [`LocalService`] for a single-threaded equivalent.
 ///
 /// # Layering
 ///
 /// Additional functionality can be added to a service by prefixing it with
 /// service layers, usually in a tuple.  A number of blanket implementations
 /// are provided to simplify this.
-pub trait Service<'req> {
-    /// A consumer of DNS requests.
+pub trait Service: LocalService<Producer: Send> + Sync {
+    /// Respond to a DNS request.
     ///
-    /// This type is given access to every component in a DNS request message.
-    /// It should store only the information relevant to this service.
+    /// The provided consumer must have been provided the entire DNS request
+    /// message.  This method will use the extracted information to formulate
+    /// a response message, in the form of a producer type.
     ///
-    /// # Lifetimes
-    ///
-    /// The consumer can borrow from the request message (`'req`).
-    type Consumer: ConsumeMessage<'req>;
+    /// The returned future implements [`Send`].  Use [`LocalService`] and
+    /// [`LocalService::respond_local()`] if [`Send`] is not necessary.
+    fn respond(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> impl Future<Output = Self::Producer> + Send;
+}
 
+//----------- LocalService ---------------------------------------------------
+
+/// A (single-threaded) DNS service, that computes responses for requests.
+///
+/// Given a DNS request message, a service computes an appropriate response.
+/// Services are usually wrapped in a network transport that receives requests
+/// and returns the service's responses.
+///
+/// Use [`Service`] for a multi-threaded equivalent.
+///
+/// # Layering
+///
+/// Additional functionality can be added to a service by prefixing it with
+/// service layers, usually in a tuple.  A number of blanket implementations
+/// are provided to simplify this.
+pub trait LocalService {
     /// A producer of DNS responses.
     ///
     /// This type returns components to insert in a DNS response message.  It
@@ -62,43 +83,69 @@ pub trait Service<'req> {
     /// it cannot borrow from the response message.
     type Producer: ProduceMessage;
 
-    /// Consume a DNS request.
-    ///
-    /// The returned consumer should be provided with a DNS request message.
-    /// After the whole message is consumed, a response message can be built
-    /// using [`Self::respond()`].
-    fn consume(&self) -> Self::Consumer;
-
     /// Respond to a DNS request.
     ///
     /// The provided consumer must have been provided the entire DNS request
     /// message.  This method will use the extracted information to formulate
     /// a response message, in the form of a producer type.
-    fn respond(&self, request: Self::Consumer) -> Self::Producer;
+    ///
+    /// The returned future does not implement [`Send`].  Use [`Service`] and
+    /// [`Service::respond()`] for a [`Send`]-implementing version.
+    #[allow(async_fn_in_trait)]
+    async fn respond_local(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> Self::Producer;
 }
 
 //----------- ServiceLayer ---------------------------------------------------
 
-/// A layer wrapping a DNS [`Service`].
+/// A (multi-threaded) layer wrapping a DNS [`Service`].
 ///
 /// A layer can be wrapped around a service, inspecting the requests sent to
 /// it and transforming the responses returned by it.
+///
+/// Use [`LocalServiceLayer`] for a single-threaded equivalent.
 ///
 /// # Combinations
 ///
 /// Layers can be combined (usually in a tuple) into larger layers.  A number
 /// of blanket implementations are provided to simplify this.
-pub trait ServiceLayer<'req> {
-    /// A consumer of DNS requests.
+pub trait ServiceLayer:
+    LocalServiceLayer<Producer: Send, Transformer: Send> + Sync
+{
+    /// Respond to a DNS request.
     ///
-    /// This type is given access to every component in a DNS request message.
-    /// It should store only the information relevant to this service.
+    /// The provided consumer must have been provided the entire DNS request
+    /// message.  If the request should be forwarded through to the wrapped
+    /// service, [`ControlFlow::Continue`] is returned, with a transformer to
+    /// modify the wrapped service's response.  However, if the request should
+    /// be responded to directly by this layer, without any interaction from
+    /// the wrapped service, [`ControlFlow::Break`] is returned.
     ///
-    /// # Lifetimes
-    ///
-    /// The consumer can borrow from the request message (`'req`).
-    type Consumer: ConsumeMessage<'req>;
+    /// The returned future implements [`Send`].  Use [`LocalServiceLayer`]
+    /// and [`LocalServiceLayer::respond_local()`] if [`Send`] is not
+    /// necessary.
+    fn respond(
+        &self,
+        request: &RequestMessage<'_>,
+    ) -> impl Future<Output = ControlFlow<Self::Producer, Self::Transformer>> + Send;
+}
 
+//----------- LocalServiceLayer ----------------------------------------------
+
+/// A (single-threaded) layer wrapping a DNS [`Service`].
+///
+/// A layer can be wrapped around a service, inspecting the requests sent to
+/// it and transforming the responses returned by it.
+///
+/// Use [`ServiceLayer`] for a multi-threaded equivalent.
+///
+/// # Combinations
+///
+/// Layers can be combined (usually in a tuple) into larger layers.  A number
+/// of blanket implementations are provided to simplify this.
+pub trait LocalServiceLayer {
     /// A producer of DNS responses.
     ///
     /// This type returns components to insert in a DNS response message.  It
@@ -123,14 +170,6 @@ pub trait ServiceLayer<'req> {
     /// that it cannot borrow from the response message.
     type Transformer: TransformMessage;
 
-    /// Consume a DNS request.
-    ///
-    /// The returned consumer should be provided with a DNS request message,
-    /// that should also be provided to the wrapped service.  After the whole
-    /// message is consumed, the wrapped service's response can be transformed
-    /// using [`Self::respond()`].
-    fn consume(&self) -> Self::Consumer;
-
     /// Respond to a DNS request.
     ///
     /// The provided consumer must have been provided the entire DNS request
@@ -139,106 +178,15 @@ pub trait ServiceLayer<'req> {
     /// modify the wrapped service's response.  However, if the request should
     /// be responded to directly by this layer, without any interaction from
     /// the wrapped service, [`ControlFlow::Break`] is returned.
-    fn respond(
+    ///
+    /// The returned future does not implement [`Send`].  Use [`ServiceLayer`]
+    /// and [`ServiceLayer::respond_local()`] for a [`Send`]-implementing
+    /// version.
+    #[allow(async_fn_in_trait)]
+    async fn respond_local(
         &self,
-        request: Self::Consumer,
+        request: &RequestMessage<'_>,
     ) -> ControlFlow<Self::Producer, Self::Transformer>;
-}
-
-//----------- ConsumeMessage -------------------------------------------------
-
-/// A type that consumes a DNS message.
-///
-/// This interface is akin to a visitor pattern; its methods get called on
-/// every component of the DNS message.  Implementing types are expected to
-/// extract whatever information they need and ignore most of the input.
-///
-/// The consumer's methods should only be called in a fixed order, as they are
-/// laid out in the wire format of a DNS message: the header, then questions,
-/// answers, authorities, and additional records.
-///
-/// # Lifetimes
-///
-/// Implementing types can borrow from the message they are consuming; the
-/// message is offered for the lifetime `'msg`.  However, decompressed names
-/// are offered for a temporary lifetime, as they would otherwise have to be
-/// allocated on the heap.
-///
-/// # Architecture
-///
-/// This interface is convenient when multiple independent consumers need to
-/// consume the same message.  Rather than forcing each consumer to iterate
-/// over the entire message every time, including resolving compressed names,
-/// this interface allows a message to be iterated through once but examined
-/// by an arbitrary number of consumers.  For this reason, a number of blanket
-/// implementations (e.g. for tuples and slices) are provided.
-///
-/// # Examples
-///
-/// ```
-/// # use domain::new_base::{Question, name::RevNameBuf};
-/// # use domain::new_net::server::ConsumeMessage;
-///
-/// /// A type that extracts the first question in a DNS message.
-/// struct FirstQuestion(Option<Question<RevNameBuf>>);
-///
-/// impl ConsumeMessage<'_> for FirstQuestion {
-///     fn consume_question(&mut self, question: &Question<RevNameBuf>) {
-///         if self.0.is_none() {
-///             self.0 = Some(question.clone());
-///         }
-///     }
-/// }
-/// ```
-pub trait ConsumeMessage<'msg> {
-    /// Consume the header of the message.
-    fn consume_header(&mut self, header: &'msg Header) {
-        let _ = header;
-    }
-
-    /// Consume a DNS question.
-    ///
-    /// The question is offered for a temporary lifetime because it contains a
-    /// decompressed name, which is stored outside the original message.
-    fn consume_question(&mut self, question: &Question<RevNameBuf>) {
-        let _ = question;
-    }
-
-    /// Consume a DNS answer record.
-    ///
-    /// The record is offered for a temporary lifetime because it contains a
-    /// decompressed name, which is stored outside the original message.
-    /// However, record data may be referenced from the original message.
-    fn consume_answer(
-        &mut self,
-        answer: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        let _ = answer;
-    }
-
-    /// Consume a DNS authority record.
-    ///
-    /// The record is offered for a temporary lifetime because it contains a
-    /// decompressed name, which is stored outside the original message.
-    /// However, record data may be referenced from the original message.
-    fn consume_authority(
-        &mut self,
-        authority: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        let _ = authority;
-    }
-
-    /// Consume a DNS additional record.
-    ///
-    /// The record is offered for a temporary lifetime because it contains a
-    /// decompressed name, which is stored outside the original message.
-    /// However, record data may be referenced from the original message.
-    fn consume_additional(
-        &mut self,
-        additional: &Record<RevNameBuf, RecordData<'msg, RevNameBuf>>,
-    ) {
-        let _ = additional;
-    }
 }
 
 //----------- ProduceMessage -------------------------------------------------
