@@ -77,7 +77,7 @@ where
 /// // provide, and returns one or more DNS responses.
 /// //
 /// // Note that using `service_fn()` does not permit you to use async code!
-/// fn my_service(req: Request<Vec<u8>>, _meta: MyMeta)
+/// fn my_service(req: Request<Vec<u8>, ()>, _meta: MyMeta)
 ///     -> ServiceResult<Vec<u8>>
 /// {
 ///     let builder = mk_builder_for_target();

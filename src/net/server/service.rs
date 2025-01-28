@@ -58,7 +58,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// use domain::rdata::A;
 ///
 /// fn mk_answer(
-///     msg: &Request<Vec<u8>>,
+///     msg: &Request<Vec<u8>, ()>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
 /// ) -> AdditionalBuilder<StreamTarget<Vec<u8>>> {
 ///     let mut answer = builder
@@ -73,7 +73,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///     answer.additional()
 /// }
 ///
-/// fn mk_response_stream(msg: &Request<Vec<u8>>)
+/// fn mk_response_stream(msg: &Request<Vec<u8>, ()>)
 ///   -> Once<Ready<ServiceResult<Vec<u8>>>>
 /// {
 ///     let builder = mk_builder_for_target();
@@ -85,14 +85,14 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// //------------ A synchronous service example ------------------------------
 /// struct MySyncService;
 ///
-/// impl Service<Vec<u8>> for MySyncService {
+/// impl Service<Vec<u8>, ()> for MySyncService {
 ///     type Target = Vec<u8>;
 ///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
 ///     type Future = Ready<Self::Stream>;
 ///     
 ///     fn call(
 ///         &self,
-///         msg: Request<Vec<u8>>,
+///         msg: Request<Vec<u8>, ()>,
 ///     ) -> Self::Future {
 ///         ready(mk_response_stream(&msg))
 ///     }
@@ -101,21 +101,21 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// //------------ An anonymous async block service example -------------------
 /// struct MyAsyncBlockService;
 ///
-/// impl Service<Vec<u8>> for MyAsyncBlockService {
+/// impl Service<Vec<u8>, ()> for MyAsyncBlockService {
 ///     type Target = Vec<u8>;
 ///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
 ///     type Future = Pin<Box<dyn std::future::Future<Output = Self::Stream>>>;
 ///
 ///     fn call(
 ///         &self,
-///         msg: Request<Vec<u8>>,
+///         msg: Request<Vec<u8>, ()>,
 ///     ) -> Self::Future {
 ///         Box::pin(async move { mk_response_stream(&msg) })
 ///     }
 /// }
 ///
 /// //------------ A named Future service example -----------------------------
-/// struct MyFut(Request<Vec<u8>>);
+/// struct MyFut(Request<Vec<u8>, ()>);
 ///
 /// impl std::future::Future for MyFut {
 ///     type Output = Once<Ready<ServiceResult<Vec<u8>>>>;
@@ -127,12 +127,12 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// struct MyNamedFutureService;
 ///
-/// impl Service<Vec<u8>> for MyNamedFutureService {
+/// impl Service<Vec<u8>, ()> for MyNamedFutureService {
 ///     type Target = Vec<u8>;
 ///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
 ///     type Future = MyFut;
 ///     
-///     fn call(&self, msg: Request<Vec<u8>>) -> Self::Future { MyFut(msg) }
+///     fn call(&self, msg: Request<Vec<u8>, ()>) -> Self::Future { MyFut(msg) }
 /// }
 /// ```
 ///
