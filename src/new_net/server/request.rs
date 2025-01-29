@@ -1,34 +1,34 @@
 //! DNS request messages.
 
+use core::ops::Range;
+
 use crate::new_base::{
     name::UnparsedName,
-    parse::SplitMessageBytes,
+    parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{AsBytes, ParseError, SizePrefixed, U16},
     Message, Question, RType, Record, UnparsedRecordData,
 };
 
 /// A DNS request message.
+#[derive(Clone)]
 pub struct RequestMessage<'b> {
     /// The underlying [`Message`].
     pub message: &'b Message,
 
-    /// Cached indices of the initial questions and records.
-    ///
-    /// For questions, the indices span the whole question.
-    ///
-    /// For records, the indices span the record header (the record name,
-    /// type, class, TTL, and data size).  The record data can be located
-    /// using the header very easily.
-    indices: [(u16, u16); 8],
+    /// Cached offsets for the question section.
+    questions: (Range<u16>, [Range<u16>; 1]),
 
-    /// Cached offset of the EDNS record.
-    edns_offset: u16,
+    /// Cached offsets for the answer section.
+    answers: (Range<u16>, [Range<u16>; 0]),
 
-    /// Cached indices of the EDNS options in the message.
-    edns_indices: [(u16, u16); 8],
+    /// Cached offsets for the authority section.
+    authorities: (Range<u16>, [Range<u16>; 0]),
 
-    /// The number of components before the end of every section.
-    section_offsets: [u16; 4],
+    /// Cached offsets for the additional section.
+    additional: (Range<u16>, [Range<u16>; 2]),
+
+    /// Cached offsets for the EDNS record.
+    edns: (Range<u16>, u16, [Range<u16>; 4]),
 }
 
 //--- Construction
@@ -39,91 +39,86 @@ impl<'b> RequestMessage<'b> {
     /// This will iterate through the message, pre-filling some caches for
     /// efficient access in the future.
     pub fn new(message: &'b Message) -> Result<Self, ParseError> {
-        let mut indices = [(0u16, 0u16); 8];
-        let mut edns_indices = [(0u16, 0u16); 8];
+        /// Parse the question section into cached offsets.
+        fn parse_questions(
+            contents: &[u8],
+            range: &mut Range<u16>,
+            number: u16,
+            indices: &mut [Range<u16>],
+        ) -> Result<(), ParseError> {
+            let mut indices = indices.iter_mut();
+            let mut offset = range.start as usize;
 
-        // DNS messages are 64KiB at the largest.
-        let _ = u16::try_from(message.as_bytes().len())
-            .map_err(|_| ParseError)?;
+            for _ in 0..number {
+                let (_question, rest) =
+                    Question::<&UnparsedName>::split_message_bytes(
+                        contents, offset,
+                    )?;
 
-        // The offset (in bytes) into the message contents.
-        let mut offset = 0;
-
-        // The section counts from the message.
-        let counts = &message.header.counts.as_array();
-
-        // The offset of each section, in components.
-        let mut section_offsets = [0u16; 4];
-
-        // First, parse all questions.
-        for i in 0..counts[0].get() {
-            let (_question, rest) =
-                Question::<&'b UnparsedName>::split_message_bytes(
-                    &message.contents,
-                    offset,
-                )?;
-
-            if let Some(indices) = indices.get_mut(i as usize) {
-                *indices = (offset as u16, rest as u16);
-            }
-
-            offset = rest;
-        }
-
-        // The offset (in components) of this section in the message.
-        let mut section_offset = counts[0].get();
-        section_offsets[0] = section_offset;
-
-        // The offset of the EDNS record, if any.
-        let mut edns_offset = u16::MAX;
-
-        // Parse all records.
-        for section in 1..4 {
-            for i in 0..counts[section].get() {
-                let (record, rest) = Record::<
-                    &'b UnparsedName,
-                    &'b UnparsedRecordData,
-                >::split_message_bytes(
-                    &message.contents, offset
-                )?;
-
-                let component = (section_offset + i) as usize;
-                if let Some(indices) = indices.get_mut(component) {
-                    let data = offset + record.rname.len() + 10;
-                    *indices = (offset as u16, data as u16);
-                }
-
-                if record.rtype == RType::OPT {
-                    if edns_offset != u16::MAX {
-                        // A DNS message can only contain one EDNS record.
-                        return Err(ParseError);
-                    } else {
-                        edns_offset = offset as u16;
-                    }
+                if let Some(indices) = indices.next() {
+                    *indices = offset as u16..rest as u16;
                 }
 
                 offset = rest;
             }
 
-            section_offset += counts[section].get();
-            section_offsets[section] = section_offset;
+            range.end = offset as u16;
+            Ok(())
         }
 
-        // Parse EDNS options.
-        if edns_offset < u16::MAX {
-            // Extract the EDNS record data.
-            let offset = edns_offset as usize + 9;
-            let (&size, mut offset) =
-                <&U16>::split_message_bytes(&message.contents, offset)?;
+        /// Parse a record section into cached offsets.
+        fn parse_records(
+            contents: &[u8],
+            section: u8,
+            range: &mut Range<u16>,
+            number: u16,
+            indices: &mut [Range<u16>],
+            edns_range: &mut Option<Range<u16>>,
+        ) -> Result<(), ParseError> {
+            let mut indices = indices.iter_mut();
+            let mut offset = range.start as usize;
 
-            let contents = message
-                .contents
-                .get(..offset + size.get() as usize)
-                .ok_or(ParseError)?;
+            for _ in 0..number {
+                let (record, rest) = Record::<
+                    &UnparsedName,
+                    &UnparsedRecordData,
+                >::split_message_bytes(
+                    contents, offset
+                )?;
+                let data = offset + record.rname.len() + 10;
+                let range = offset as u16..data as u16;
 
-            // Parse through it.
-            let mut indices = edns_indices.iter_mut();
-            while offset < contents.len() {
+                if let Some(indices) = indices.next() {
+                    *indices = range.clone();
+                }
+
+                if section == 3 && record.rtype == RType::OPT {
+                    if edns_range.is_some() {
+                        // A DNS message can only contain one EDNS record.
+                        return Err(ParseError);
+                    }
+
+                    *edns_range = Some(range);
+                }
+
+                offset = rest;
+            }
+
+            range.end = offset as u16;
+            Ok(())
+        }
+
+        /// Parse the EDNS record into cached offsets.
+        fn parse_edns(
+            contents: &[u8],
+            range: Range<u16>,
+            number: &mut u16,
+            indices: &mut [Range<u16>],
+        ) -> Result<(), ParseError> {
+            let mut indices = indices.iter_mut();
+            let mut offset = range.start as usize;
+
+            while offset < range.end as usize {
                 let (_type, rest) =
                     <&U16>::split_message_bytes(contents, offset)?;
                 let (_data, rest) =
@@ -131,20 +126,80 @@ impl<'b> RequestMessage<'b> {
                         contents, rest,
                     )?;
 
+                *number += 1;
+
                 if let Some(indices) = indices.next() {
-                    *indices = (offset as u16, rest as u16);
+                    *indices = offset as u16..rest as u16;
                 }
 
                 offset = rest;
             }
+
+            Ok(())
         }
 
-        Ok(Self {
+        // DNS messages are 64KiB at the largest.
+        let _ = u16::try_from(message.as_bytes().len())
+            .map_err(|_| ParseError)?;
+
+        let mut this = Self {
             message,
-            indices,
-            edns_offset,
-            edns_indices,
-            section_offsets,
-        })
+            questions: Default::default(),
+            answers: Default::default(),
+            authorities: Default::default(),
+            additional: Default::default(),
+            edns: Default::default(),
+        };
+
+        let mut edns_range = None;
+
+        parse_questions(
+            &message.contents,
+            &mut this.questions.0,
+            message.header.counts.questions.get(),
+            &mut this.questions.1,
+        )?;
+
+        this.answers.0 = this.questions.0.end..0;
+        parse_records(
+            &message.contents,
+            1,
+            &mut this.answers.0,
+            message.header.counts.answers.get(),
+            &mut this.answers.1,
+            &mut edns_range,
+        )?;
+
+        this.authorities.0 = this.answers.0.end..0;
+        parse_records(
+            &message.contents,
+            2,
+            &mut this.authorities.0,
+            message.header.counts.authorities.get(),
+            &mut this.authorities.1,
+            &mut edns_range,
+        )?;
+
+        this.additional.0 = this.authorities.0.end..0;
+        parse_records(
+            &message.contents,
+            2,
+            &mut this.additional.0,
+            message.header.counts.additional.get(),
+            &mut this.additional.1,
+            &mut edns_range,
+        )?;
+
+        if let Some(edns_range) = edns_range {
+            this.edns.0 = edns_range.clone();
+            parse_edns(
+                &message.contents,
+                edns_range,
+                &mut this.edns.1,
+                &mut this.edns.2,
+            )?;
+        }
+
+        Ok(this)
     }
 }
