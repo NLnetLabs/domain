@@ -23,7 +23,7 @@ use crate::new_base::{
 
 mod impls;
 
-mod request;
+pub mod request;
 pub use request::RequestMessage;
 
 //----------- Service --------------------------------------------------------

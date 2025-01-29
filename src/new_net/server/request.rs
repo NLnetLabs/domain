@@ -268,6 +268,8 @@ impl<'b> RequestMessage<'b> {
 
     /// The questions in the message.
     ///
+    /// An iterator of [`Question`]s is returned.
+    ///
     /// # Name Compression
     ///
     /// The returned questions use [`UnparsedName`] for the QNAMEs.  These can
@@ -284,6 +286,8 @@ impl<'b> RequestMessage<'b> {
     }
 
     /// The answer records in the message.
+    ///
+    /// An iterator of [`Record`]s is returned.
     ///
     /// # Name Compression
     ///
@@ -313,6 +317,8 @@ impl<'b> RequestMessage<'b> {
 
     /// The authority records in the message.
     ///
+    /// An iterator of [`Record`]s is returned.
+    ///
     /// # Name Compression
     ///
     /// The returned records use [`UnparsedName`] for the RNAMEs.  These can
@@ -341,6 +347,8 @@ impl<'b> RequestMessage<'b> {
 
     /// The additional records in the message.
     ///
+    /// An iterator of [`Record`]s is returned.
+    ///
     /// # Name Compression
     ///
     /// The returned records use [`UnparsedName`] for the RNAMEs.  These can
@@ -368,6 +376,17 @@ impl<'b> RequestMessage<'b> {
     }
 
     /// The EDNS options in the message.
+    ///
+    /// An iterator of (results of) [`EdnsOption`]s is returned.
+    ///
+    /// If the message does not contain an EDNS record, this is empty.
+    ///
+    /// # Errors
+    ///
+    /// While the overall structure of the EDNS record is verified when the
+    /// [`RequestMessage`] is constructed, option-specific validation (e.g.
+    /// checking the size of an EDNS cookie option) is not performed early.
+    /// Those errors will be caught and returned by the iterator.
     pub fn edns_options(&self) -> RequestEdnsOptions<'b> {
         let start = self.edns.0.start as usize + 11;
         let end = self.edns.0.end as usize;
@@ -541,6 +560,10 @@ impl<'b, D> FusedIterator for RequestRecords<'_, 'b, D> where
 //----------- RequestEdnsOptions ---------------------------------------------
 
 /// The EDNS options in a [`RequestMessage`].
+///
+/// This is a wrapper around [`EdnsOptionsIter`] that also implements
+/// [`ExactSizeIterator`], as the total number of EDNS options is cached in
+/// the [`RequestMessage`].
 #[derive(Clone)]
 pub struct RequestEdnsOptions<'b> {
     /// The underlying iterator.
@@ -551,11 +574,11 @@ pub struct RequestEdnsOptions<'b> {
 }
 
 impl<'b> Iterator for RequestEdnsOptions<'b> {
-    type Item = EdnsOption<'b>;
+    type Item = Result<EdnsOption<'b>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let _ = self.indices.next()?;
-        self.inner.next().map(Result::unwrap)
+        self.inner.next()
     }
 }
 
