@@ -75,7 +75,7 @@ pub trait LocalService {
     /// A producer of DNS responses.
     ///
     /// This type returns components to insert in a DNS response message.  It
-    /// is constructed by [`Self::respond()`].
+    /// is constructed by [`Self::respond_local()`].
     ///
     /// # Lifetimes
     ///
@@ -149,8 +149,8 @@ pub trait LocalServiceLayer {
     /// A producer of DNS responses.
     ///
     /// This type returns components to insert in a DNS response message.  It
-    /// is constructed by [`Self::respond()`], if a response is returned early
-    /// (without the wrapped service interacting with it).
+    /// is constructed by [`Self::respond_local()`], if a response is returned
+    /// early (without the wrapped service interacting with it).
     ///
     /// # Lifetimes
     ///
@@ -162,7 +162,8 @@ pub trait LocalServiceLayer {
     ///
     /// This type modifies the response from the wrapped service, by adding,
     /// removing, or modifying the components of the response message.  It is
-    /// constructed by [`Self::respond()`], if an early return does not occur.
+    /// constructed by [`Self::respond_local()`], if an early return does not
+    /// occur.
     ///
     /// # Lifetimes
     ///
@@ -180,8 +181,7 @@ pub trait LocalServiceLayer {
     /// the wrapped service, [`ControlFlow::Break`] is returned.
     ///
     /// The returned future does not implement [`Send`].  Use [`ServiceLayer`]
-    /// and [`ServiceLayer::respond_local()`] for a [`Send`]-implementing
-    /// version.
+    /// and [`ServiceLayer::respond()`] for a [`Send`]-implementing version.
     #[allow(async_fn_in_trait)]
     async fn respond_local(
         &self,
