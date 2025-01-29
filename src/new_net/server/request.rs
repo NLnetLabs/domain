@@ -3,10 +3,10 @@
 use core::ops::Range;
 
 use crate::new_base::{
-    name::UnparsedName,
+    name::{Name, UnparsedName},
     parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{AsBytes, ParseError, SizePrefixed, U16},
-    Message, Question, RType, Record, UnparsedRecordData,
+    wire::{AsBytes, ParseBytes, ParseError, SizePrefixed, U16},
+    Message, QClass, QType, Question, RType, Record, UnparsedRecordData,
 };
 
 /// A DNS request message.
@@ -201,5 +201,42 @@ impl<'b> RequestMessage<'b> {
         }
 
         Ok(this)
+    }
+}
+
+//--- Inspection
+
+impl<'b> RequestMessage<'b> {
+    /// The sole question in the message.
+    ///
+    /// # Name Compression
+    ///
+    /// Due to the restrictions around compressed domain names (in order to
+    /// prevent attackers from crafting compression pointer loops), it is
+    /// guaranteed that the first QNAME in the message is uncompressed.
+    ///
+    /// # Errors
+    ///
+    /// Fails if there are zero or more than one question in the message.
+    pub fn sole_question<N>(&self) -> Result<Question<&'b Name>, ParseError> {
+        if self.message.header.counts.questions.get() != 1 {
+            return Err(ParseError);
+        }
+
+        // SAFETY: 'RequestMessage' is pre-validated.
+        let range = self.questions.1[0].clone();
+        let range = range.start as usize..range.end as usize;
+        let contents = &self.message.contents[range];
+        let qname = &contents[..contents.len() - 4];
+        let qname = unsafe { Name::from_bytes_unchecked(qname) };
+        let fields = &contents[contents.len() - 4..];
+        let qtype = QType::parse_bytes(&fields[0..2]).unwrap();
+        let qclass = QClass::parse_bytes(&fields[2..4]).unwrap();
+
+        Ok(Question {
+            qname,
+            qtype,
+            qclass,
+        })
     }
 }
