@@ -4,17 +4,17 @@
 //! content of zones without requiring knowledge of the low-level details of
 //! how the [`WritableZone`] trait implemented by [`Zone`] works.
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin;
 
-use std::borrow::ToOwned;
 use std::boxed::Box;
 
 use bytes::Bytes;
 use tracing::trace;
 
 use crate::base::name::{FlattenInto, Label};
-use crate::base::{ParsedName, Record, Rtype};
-use crate::net::xfr::protocol::ParsedRecord;
+use crate::base::scan::ScannerError;
+use crate::base::{Name, Record, Rtype, ToName};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
@@ -214,7 +214,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// ```
 ///
 /// [`apply()`]: ZoneUpdater::apply()
-pub struct ZoneUpdater {
+pub struct ZoneUpdater<N> {
     /// The zone to be updated.
     zone: Zone,
 
@@ -226,9 +226,15 @@ pub struct ZoneUpdater {
 
     /// The current state of the updater.
     state: ZoneUpdaterState,
+
+    _phantom: PhantomData<N>,
 }
 
-impl ZoneUpdater {
+impl<N> ZoneUpdater<N>
+where
+    N: ToName + Clone,
+    ZoneRecordData<Bytes, N>: FlattenInto<ZoneRecordData<Bytes, Name<Bytes>>>,
+{
     /// Creates a new [`ZoneUpdater`] that will update the given [`Zone`]
     /// content.
     ///
@@ -246,12 +252,17 @@ impl ZoneUpdater {
                 zone,
                 write,
                 state: Default::default(),
+                _phantom: PhantomData,
             })
         })
     }
 }
 
-impl ZoneUpdater {
+impl<N> ZoneUpdater<N>
+where
+    N: ToName + Clone,
+    ZoneRecordData<Bytes, N>: FlattenInto<ZoneRecordData<Bytes, Name<Bytes>>>,
+{
     /// Apply the given [`ZoneUpdate`] to the [`Zone`] being updated.
     ///
     /// Returns `Ok` on success, `Err` otherwise. On success, if changes were
@@ -266,7 +277,7 @@ impl ZoneUpdater {
     /// progress and re-open the zone for editing again.
     pub async fn apply(
         &mut self,
-        update: ZoneUpdate<ParsedRecord>,
+        update: ZoneUpdate<Record<N, ZoneRecordData<Bytes, N>>>,
     ) -> Result<Option<InMemoryZoneDiff>, Error> {
         trace!("Update: {update}");
 
@@ -344,7 +355,11 @@ impl ZoneUpdater {
     }
 }
 
-impl ZoneUpdater {
+impl<N> ZoneUpdater<N>
+where
+    N: ToName + Clone,
+    ZoneRecordData<Bytes, N>: FlattenInto<ZoneRecordData<Bytes, Name<Bytes>>>,
+{
     /// Given a zone record, obtain a [`WritableZoneNode`] for the owner.
     ///
     /// A [`Zone`] is a tree structure which can be modified by descending the
@@ -364,7 +379,7 @@ impl ZoneUpdater {
     /// the record owner name.
     async fn get_writable_child_node_for_owner(
         &mut self,
-        rec: &ParsedRecord,
+        rec: &Record<N, ZoneRecordData<Bytes, N>>,
     ) -> Result<Option<Box<dyn WritableZoneNode>>, Error> {
         let mut it = rel_name_rev_iter(self.zone.apex_name(), rec.owner())?;
 
@@ -386,17 +401,19 @@ impl ZoneUpdater {
     /// Create or update the SOA RRset using the given SOA record.
     async fn update_soa(
         &mut self,
-        new_soa: Record<
-            ParsedName<Bytes>,
-            ZoneRecordData<Bytes, ParsedName<Bytes>>,
-        >,
+        new_soa: Record<N, ZoneRecordData<Bytes, N>>,
     ) -> Result<(), Error> {
         if new_soa.rtype() != Rtype::SOA {
             return Err(Error::NotSoaRecord);
         }
 
         let mut rrset = Rrset::new(Rtype::SOA, new_soa.ttl());
-        rrset.push_data(new_soa.data().to_owned().flatten_into());
+        let Ok(flattened) = new_soa.data().clone().try_flatten_into() else {
+            return Err(Error::IoError(std::io::Error::custom(
+                "Unable to flatten bytes",
+            )));
+        };
+        rrset.push_data(flattened);
         self.write
             .update_root_rrset(SharedRrset::new(rrset))
             .await?;
@@ -407,10 +424,7 @@ impl ZoneUpdater {
     /// Find and delete a resource record in the zone by exact match.
     async fn delete_record_from_rrset(
         &mut self,
-        rec: Record<
-            ParsedName<Bytes>,
-            ZoneRecordData<Bytes, ParsedName<Bytes>>,
-        >,
+        rec: Record<N, ZoneRecordData<Bytes, N>>,
     ) -> Result<(), Error> {
         // Find or create the point to edit in the node tree.
         let tree_node = self.get_writable_child_node_for_owner(&rec).await?;
@@ -443,11 +457,12 @@ impl ZoneUpdater {
     /// Add a resource record to a new or existing RRset.
     async fn add_record_to_rrset(
         &mut self,
-        rec: Record<
-            ParsedName<Bytes>,
-            ZoneRecordData<Bytes, ParsedName<Bytes>>,
-        >,
-    ) -> Result<(), Error> {
+        rec: Record<N, ZoneRecordData<Bytes, N>>,
+    ) -> Result<(), Error>
+    where
+        ZoneRecordData<Bytes, N>:
+            FlattenInto<ZoneRecordData<Bytes, Name<Bytes>>>,
+    {
         // Find or create the point to edit in the node tree.
         let tree_node = self.get_writable_child_node_for_owner(&rec).await?;
         let tree_node = tree_node.as_ref().unwrap_or(self.write.root());
@@ -456,7 +471,11 @@ impl ZoneUpdater {
         // RRset in the tree plus the one to add.
         let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
         let rtype = rec.rtype();
-        let data = rec.into_data().flatten_into();
+        let Ok(data) = rec.into_data().try_flatten_into() else {
+            return Err(Error::IoError(std::io::Error::custom(
+                "Unable to flatten bytes",
+            )));
+        };
 
         rrset.push_data(data);
 
@@ -904,7 +923,7 @@ mod tests {
 
         //                        IN NS  NS.JAIN.AD.JP.
         let ns_1 = Record::new(
-            ParsedName::from(Name::from_str("JAIN.AD.JP.").unwrap()),
+            ParsedName::from(Name::<Bytes>::from_str("JAIN.AD.JP.").unwrap()),
             Class::IN,
             Ttl::from_secs(0),
             Ns::new(ParsedName::from(
@@ -919,7 +938,9 @@ mod tests {
 
         //    NS.JAIN.AD.JP.      IN A   133.69.136.1
         let a_1 = Record::new(
-            ParsedName::from(Name::from_str("NS.JAIN.AD.JP.").unwrap()),
+            ParsedName::from(
+                Name::<Bytes>::from_str("NS.JAIN.AD.JP.").unwrap(),
+            ),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 1)).into(),
@@ -931,7 +952,9 @@ mod tests {
 
         //    NEZU.JAIN.AD.JP.    IN A   133.69.136.5
         let nezu = Record::new(
-            ParsedName::from(Name::from_str("NEZU.JAIN.AD.JP.").unwrap()),
+            ParsedName::from(
+                Name::<Bytes>::from_str("NEZU.JAIN.AD.JP.").unwrap(),
+            ),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 5)).into(),
@@ -956,7 +979,9 @@ mod tests {
             .await
             .unwrap();
         let a_2 = Record::new(
-            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
+            ParsedName::from(
+                Name::<Bytes>::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(),
+            ),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 4)).into(),
@@ -991,7 +1016,9 @@ mod tests {
             .await
             .unwrap();
         let a_4 = Record::new(
-            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
+            ParsedName::from(
+                Name::<Bytes>::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(),
+            ),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 3)).into(),
