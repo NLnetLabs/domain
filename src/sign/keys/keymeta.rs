@@ -2,6 +2,8 @@ use core::convert::From;
 use core::marker::PhantomData;
 use core::ops::Deref;
 
+use std::fmt::Display;
+
 use crate::sign::keys::signingkey::SigningKey;
 use crate::sign::SignRaw;
 
@@ -83,6 +85,19 @@ pub enum IntendedKeyPurpose {
     Inactive,
 }
 
+//--- impl Display
+
+impl Display for IntendedKeyPurpose {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            IntendedKeyPurpose::KSK => f.write_str("KSK"),
+            IntendedKeyPurpose::ZSK => f.write_str("ZSK"),
+            IntendedKeyPurpose::CSK => f.write_str("CSK"),
+            IntendedKeyPurpose::Inactive => f.write_str("Inactive"),
+        }
+    }
+}
+
 //------------ DnssecSigningKey ----------------------------------------------
 
 /// A key that can be used for DNSSEC signing.
@@ -161,6 +176,9 @@ where
         self.purpose
     }
 
+    pub fn set_purpose(&mut self, purpose: IntendedKeyPurpose) {
+        self.purpose = purpose;
+    }
     pub fn into_inner(self) -> SigningKey<Octs, Inner> {
         self.key
     }
