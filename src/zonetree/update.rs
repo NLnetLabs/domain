@@ -51,7 +51,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 ///
 /// ```
 /// # use std::str::FromStr;
-/// #
+/// # use bytes::Bytes; 
 /// # use domain::base::iana::Class;
 /// # use domain::base::MessageBuilder;
 /// # use domain::base::Name;
@@ -76,8 +76,8 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #
 /// # // Prepare some records to pass to ZoneUpdater
 /// # let serial = Serial::now();
-/// # let mname = ParsedName::from(Name::from_str("mname").unwrap());
-/// # let rname = ParsedName::from(Name::from_str("rname").unwrap());
+/// # let mname = ParsedName::from(Name::<Bytes>::from_str("mname").unwrap());
+/// # let rname = ParsedName::from(Name::<Bytes>::from_str("rname").unwrap());
 /// # let ttl = Ttl::from_secs(0);
 /// # let new_soa_rec = Record::new(
 /// #     ParsedName::from(Name::from_str("example.com").unwrap()),
@@ -106,7 +106,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 ///
 /// ```rust
 /// # use std::str::FromStr;
-/// #
+/// # use bytes::Bytes;
 /// # use domain::base::iana::Class;
 /// # use domain::base::MessageBuilder;
 /// # use domain::base::Name;
@@ -133,8 +133,8 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #
 /// # // Prepare some records to pass to ZoneUpdater
 /// # let serial = Serial::now();
-/// # let mname = ParsedName::from(Name::from_str("mname").unwrap());
-/// # let rname = ParsedName::from(Name::from_str("rname").unwrap());
+/// # let mname = ParsedName::from(Name::<Bytes>::from_str("mname").unwrap());
+/// # let rname = ParsedName::from(Name::<Bytes>::from_str("rname").unwrap());
 /// # let ttl = Ttl::from_secs(0);
 /// # let new_soa_rec = Record::new(
 /// #     ParsedName::from(Name::from_str("example.com").unwrap()),
