@@ -31,6 +31,7 @@ use crate::sign::sign_zone;
 use crate::sign::signatures::rrsigs::generate_rrsigs;
 use crate::sign::signatures::rrsigs::GenerateRrsigConfig;
 use crate::sign::signatures::rrsigs::RrsigRecords;
+use crate::sign::signatures::strategy::RrsigValidityPeriodStrategy;
 use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
 use crate::sign::SigningConfig;
 use crate::sign::{PublicKeyBytes, SignableZoneInOut, Signature};
@@ -163,6 +164,7 @@ where
 /// use domain::rdata::dnssec::Timestamp;
 /// use domain::sign::keys::DnssecSigningKey;
 /// use domain::sign::records::SortedRecords;
+/// use domain::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
 /// use domain::sign::traits::SignableZone;
 /// use domain::sign::SigningConfig;
 ///
@@ -189,11 +191,11 @@ where
 /// // Generate or import signing keys (see above).
 ///
 /// // Assign signature validity period and operator intent to the keys.
-/// let key = key.with_validity(Timestamp::now(), Timestamp::now());
+/// let validity = FixedRrsigValidityPeriodStrategy::from((0, 0));
 /// let keys = [DnssecSigningKey::new_csk(key)];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config = SigningConfig::default();
+/// let mut signing_config = SigningConfig::default(validity);
 ///
 /// // Then generate the records which when added to the zone make it signed.
 /// let mut signer_generated_records = SortedRecords::default();
@@ -227,13 +229,14 @@ where
     /// This function is a convenience wrapper around calling
     /// [`crate::sign::sign_zone()`] function with enum variant
     /// [`SignableZoneInOut::SignInto`].
-    fn sign_zone<DSK, Inner, KeyStrat, HP, T>(
+    fn sign_zone<DSK, Inner, KeyStrat, ValidityStrat, HP, T>(
         &self,
         signing_config: &mut SigningConfig<
             N,
             Octs,
             Inner,
             KeyStrat,
+            ValidityStrat,
             Sort,
             HP,
         >,
@@ -248,17 +251,14 @@ where
         <Octs as FromBuilder>::Builder: Truncate,
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
         KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+        ValidityStrat: RrsigValidityPeriodStrategy + Clone,
         T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
             + SortedExtend<N, Octs, Sort>
             + ?Sized,
         Self: Sized,
     {
         let in_out = SignableZoneInOut::new_into(self, out);
-        sign_zone::<N, Octs, Self, DSK, Inner, KeyStrat, Sort, HP, T>(
-            in_out,
-            signing_config,
-            signing_keys,
-        )
+        sign_zone(in_out, signing_config, signing_keys)
     }
 }
 
@@ -316,6 +316,7 @@ where
 /// use domain::rdata::dnssec::Timestamp;
 /// use domain::sign::keys::DnssecSigningKey;
 /// use domain::sign::records::SortedRecords;
+/// use domain::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
 /// use domain::sign::traits::SignableZoneInPlace;
 /// use domain::sign::SigningConfig;
 ///
@@ -342,11 +343,11 @@ where
 /// // Generate or import signing keys (see above).
 ///
 /// // Assign signature validity period and operator intent to the keys.
-/// let key = key.with_validity(Timestamp::now(), Timestamp::now());
+/// let validity = FixedRrsigValidityPeriodStrategy::from((0, 0));
 /// let keys = [DnssecSigningKey::new_csk(key)];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config = SigningConfig::default();
+/// let mut signing_config = SigningConfig::default(validity);
 ///
 /// // Then sign the zone in-place.
 /// records.sign_zone(&mut signing_config, &keys).unwrap();
@@ -374,13 +375,14 @@ where
     /// This function is a convenience wrapper around calling
     /// [`crate::sign::sign_zone()`] function with enum variant
     /// [`SignableZoneInOut::SignInPlace`].
-    fn sign_zone<DSK, Inner, KeyStrat, HP>(
+    fn sign_zone<DSK, Inner, KeyStrat, ValidityStrat, HP>(
         &mut self,
         signing_config: &mut SigningConfig<
             N,
             Octs,
             Inner,
             KeyStrat,
+            ValidityStrat,
             Sort,
             HP,
         >,
@@ -394,13 +396,11 @@ where
         <Octs as FromBuilder>::Builder: Truncate,
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
         KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+        ValidityStrat: RrsigValidityPeriodStrategy + Clone,
     {
-        let in_out = SignableZoneInOut::new_in_place(self);
-        sign_zone::<N, Octs, Self, DSK, Inner, KeyStrat, Sort, HP, Self>(
-            in_out,
-            signing_config,
-            signing_keys,
-        )
+        let in_out =
+            SignableZoneInOut::<_, _, Self, _, _>::new_in_place(self);
+        sign_zone(in_out, signing_config, signing_keys)
     }
 }
 
@@ -467,9 +467,11 @@ where
 /// # let mut records = SortedRecords::default();
 /// use domain::sign::traits::Signable;
 /// use domain::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
+/// use domain::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
 /// let apex = Name::<Vec<u8>>::root();
 /// let rrset = Rrset::new(&records);
-/// let generated_records = rrset.sign::<KeyStrat>(&apex, &keys).unwrap();
+/// let validity = FixedRrsigValidityPeriodStrategy::from((0, 0));
+/// let generated_records = rrset.sign::<KeyStrat, _>(&apex, &keys, validity).unwrap();
 /// ```
 pub trait Signable<N, Octs, DSK, Inner, Sort = DefaultSorter>
 where
@@ -496,20 +498,24 @@ where
     ///
     /// This function is a thin wrapper around [`generate_rrsigs()`].
     #[allow(clippy::type_complexity)]
-    fn sign<KeyStrat>(
+    fn sign<KeyStrat, ValidityStrat>(
         &self,
         expected_apex: &N,
         keys: &[DSK],
+        rrsig_validity_period_strategy: ValidityStrat,
     ) -> Result<RrsigRecords<N, Octs>, SigningError>
     where
         DSK: DesignatedSigningKey<Octs, Inner>,
         KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+        ValidityStrat: RrsigValidityPeriodStrategy,
     {
-        generate_rrsigs::<N, Octs, DSK, _, KeyStrat, Sort>(
-            self.owner_rrs(),
-            keys,
-            &GenerateRrsigConfig::new().with_zone_apex(expected_apex),
-        )
+        let rrsig_config =
+            GenerateRrsigConfig::<N, KeyStrat, ValidityStrat, Sort>::new(
+                rrsig_validity_period_strategy,
+            )
+            .with_zone_apex(expected_apex);
+
+        generate_rrsigs(self.owner_rrs(), keys, &rrsig_config)
     }
 }
 
