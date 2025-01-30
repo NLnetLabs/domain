@@ -26,6 +26,8 @@ mod impls;
 pub mod request;
 pub use request::RequestMessage;
 
+pub mod transport;
+
 //----------- Service --------------------------------------------------------
 
 /// A (multi-threaded) DNS service, that computes responses for requests.
