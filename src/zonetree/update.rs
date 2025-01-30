@@ -51,7 +51,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 ///
 /// ```
 /// # use std::str::FromStr;
-/// # use bytes::Bytes; 
+/// # use bytes::Bytes;
 /// # use domain::base::iana::Class;
 /// # use domain::base::MessageBuilder;
 /// # use domain::base::Name;
