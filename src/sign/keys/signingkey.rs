@@ -1,8 +1,5 @@
-use core::ops::RangeInclusive;
-
 use crate::base::iana::SecAlg;
 use crate::base::Name;
-use crate::rdata::dnssec::Timestamp;
 use crate::sign::{PublicKeyBytes, SignRaw};
 use crate::validate::Key;
 
@@ -22,13 +19,6 @@ pub struct SigningKey<Octs, Inner: SignRaw> {
 
     /// The raw private key.
     inner: Inner,
-
-    /// The validity period to assign to any DNSSEC signatures created using
-    /// this key.
-    ///
-    /// The range spans from the inception timestamp up to and including the
-    /// expiration timestamp.
-    signature_validity_period: Option<RangeInclusive<Timestamp>>,
 }
 
 //--- Construction
@@ -40,24 +30,7 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
             owner,
             flags,
             inner,
-            signature_validity_period: None,
         }
-    }
-
-    pub fn with_validity(
-        mut self,
-        inception: Timestamp,
-        expiration: Timestamp,
-    ) -> Self {
-        self.signature_validity_period =
-            Some(RangeInclusive::new(inception, expiration));
-        self
-    }
-
-    pub fn signature_validity_period(
-        &self,
-    ) -> Option<RangeInclusive<Timestamp>> {
-        self.signature_validity_period.clone()
     }
 }
 

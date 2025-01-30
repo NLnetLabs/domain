@@ -7,8 +7,7 @@ use crate::sign::SignRaw;
 
 //------------ DesignatedSigningKey ------------------------------------------
 
-pub trait DesignatedSigningKey<Octs, Inner>:
-    Deref<Target = SigningKey<Octs, Inner>>
+pub trait DesignatedSigningKey<Octs, Inner>
 where
     Octs: AsRef<[u8]>,
     Inner: SignRaw,
@@ -20,6 +19,27 @@ where
     /// Should this key be used to "sign a zone" (RFC 4033 section 2 "Zone
     /// Signing Key (ZSK)").
     fn signs_zone_data(&self) -> bool;
+
+    fn signing_key(&self) -> &SigningKey<Octs, Inner>;
+}
+
+impl<Octs, Inner, T> DesignatedSigningKey<Octs, Inner> for &T
+where
+    Octs: AsRef<[u8]>,
+    Inner: SignRaw,
+    T: DesignatedSigningKey<Octs, Inner>,
+{
+    fn signs_keys(&self) -> bool {
+        (**self).signs_keys()
+    }
+
+    fn signs_zone_data(&self) -> bool {
+        (**self).signs_zone_data()
+    }
+
+    fn signing_key(&self) -> &SigningKey<Octs, Inner> {
+        (**self).signing_key()
+    }
 }
 
 //------------ IntendedKeyPurpose --------------------------------------------
@@ -201,5 +221,9 @@ where
             self.purpose,
             IntendedKeyPurpose::ZSK | IntendedKeyPurpose::CSK
         )
+    }
+
+    fn signing_key(&self) -> &SigningKey<Octs, Inner> {
+        &self.key
     }
 }
