@@ -5,16 +5,13 @@ use std::{io, sync::Arc, vec::Vec};
 
 use tokio::net::UdpSocket;
 
-use crate::{
-    new_base::{
-        build::{BuilderContext, MessageBuilder},
-        wire::{AsBytes, ParseBytesByRef},
-        Message,
-    },
-    new_net::server::{ProduceMessage, RequestMessage},
+use crate::new_base::{
+    build::{BuilderContext, MessageBuilder},
+    wire::{AsBytes, ParseBytesByRef},
+    Message,
 };
 
-use super::Service;
+use super::{ProduceMessage, RequestMessage, Service};
 
 //----------- serve_udp() ----------------------------------------------------
 
