@@ -66,6 +66,13 @@ where
             _phantom: PhantomData,
         }
     }
+
+    pub fn set_rrsig_validity_period_strategy(
+        &mut self,
+        rrsig_validity_period_strategy: ValidityStrat,
+    ) {
+        self.rrsig_validity_period_strategy = rrsig_validity_period_strategy;
+    }
 }
 
 impl<N, Octs, Inner, ValidityStrat>
