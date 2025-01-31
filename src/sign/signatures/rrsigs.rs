@@ -602,8 +602,8 @@ pub fn sign_rrset<N, D, Octs, Inner>(
     expiration: Timestamp,
 ) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
 where
-    N: ToName + Clone + Send,
-    D: RecordData + ComposeRecordData + CanonicalOrd + Send,
+    N: ToName + Clone,
+    D: RecordData + ComposeRecordData + CanonicalOrd,
     Inner: SignRaw,
     Octs: AsRef<[u8]> + OctetsFrom<Vec<u8>>,
 {
@@ -639,8 +639,8 @@ pub fn sign_rrset_in<N, D, Octs, Inner>(
     scratch: &mut Vec<u8>,
 ) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
 where
-    N: ToName + Clone + Send,
-    D: RecordData + ComposeRecordData + CanonicalOrd + Send,
+    N: ToName + Clone,
+    D: RecordData + ComposeRecordData + CanonicalOrd,
     Inner: SignRaw,
     Octs: AsRef<[u8]> + OctetsFrom<Vec<u8>>,
 {
