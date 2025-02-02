@@ -215,13 +215,13 @@ mod tests {
 
     use super::*;
 
+    type StoredSortedRecords = SortedRecords<StoredName, StoredRecordData>;
+
     #[test]
     fn soa_is_required() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
-        let mut records =
-            SortedRecords::<StoredName, StoredRecordData>::default();
-        records.insert(mk_a_rr("some_a.a.")).unwrap();
+        let records = StoredSortedRecords::from_iter([mk_a_rr("some_a.a.")]);
         let res = generate_nsecs(records.owner_rrs(), &cfg);
         assert!(matches!(
             res,
@@ -233,10 +233,10 @@ mod tests {
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
-        let mut records =
-            SortedRecords::<StoredName, StoredRecordData>::default();
-        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-        records.insert(mk_soa_rr("a.", "d.", "e.")).unwrap();
+        let records = StoredSortedRecords::from_iter([
+            mk_soa_rr("a.", "b.", "c."),
+            mk_soa_rr("a.", "d.", "e."),
+        ]);
         let res = generate_nsecs(records.owner_rrs(), &cfg);
         assert!(matches!(
             res,
@@ -248,13 +248,12 @@ mod tests {
     fn records_outside_zone_are_ignored() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
-        let mut records =
-            SortedRecords::<StoredName, StoredRecordData>::default();
-
-        records.insert(mk_soa_rr("b.", "d.", "e.")).unwrap();
-        records.insert(mk_a_rr("some_a.b.")).unwrap();
-        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-        records.insert(mk_a_rr("some_a.a.")).unwrap();
+        let records = StoredSortedRecords::from_iter([
+            mk_soa_rr("b.", "d.", "e."),
+            mk_a_rr("some_a.b."),
+            mk_soa_rr("a.", "b.", "c."),
+            mk_a_rr("some_a.a."),
+        ]);
 
         // First generate NSECs for the total record collection. As the
         // collection is sorted in canonical order the a zone preceeds the b
@@ -290,14 +289,11 @@ mod tests {
     fn occluded_records_are_ignored() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
-        let mut records =
-            SortedRecords::<StoredName, StoredRecordData>::default();
-
-        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-        records
-            .insert(mk_ns_rr("some_ns.a.", "some_a.other.b."))
-            .unwrap();
-        records.insert(mk_a_rr("some_a.some_ns.a.")).unwrap();
+        let records = StoredSortedRecords::from_iter([
+            mk_soa_rr("a.", "b.", "c."),
+            mk_ns_rr("some_ns.a.", "some_a.other.b."),
+            mk_a_rr("some_a.some_ns.a."),
+        ]);
 
         let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
 
@@ -318,11 +314,10 @@ mod tests {
     fn expect_dnskeys_at_the_apex() {
         let cfg = GenerateNsecConfig::default();
 
-        let mut records =
-            SortedRecords::<StoredName, StoredRecordData>::default();
-
-        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-        records.insert(mk_a_rr("some_a.a.")).unwrap();
+        let records = StoredSortedRecords::from_iter([
+            mk_soa_rr("a.", "b.", "c."),
+            mk_a_rr("some_a.a."),
+        ]);
 
         let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
 
