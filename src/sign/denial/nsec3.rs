@@ -804,8 +804,6 @@ mod tests {
 
     use crate::sign::records::SortedRecords;
     use crate::sign::test_util::*;
-    use crate::zonetree::types::StoredRecordData;
-    use crate::zonetree::StoredName;
 
     use super::*;
 
@@ -813,9 +811,8 @@ mod tests {
     fn soa_is_required() {
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
-        let mut records =
-            SortedRecords::<StoredName, StoredRecordData>::default();
-        records.insert(mk_a_rr("some_a.a.")).unwrap();
+        let records =
+            SortedRecords::<_, _>::from_iter([mk_a_rr("some_a.a.")]);
         let res = generate_nsec3s(records.owner_rrs(), &mut cfg);
         assert!(matches!(
             res,
@@ -827,10 +824,10 @@ mod tests {
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
-        let mut records =
-            SortedRecords::<StoredName, StoredRecordData>::default();
-        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-        records.insert(mk_soa_rr("a.", "d.", "e.")).unwrap();
+        let records = SortedRecords::<_, _>::from_iter([
+            mk_soa_rr("a.", "b.", "c."),
+            mk_soa_rr("a.", "d.", "e."),
+        ]);
         let res = generate_nsec3s(records.owner_rrs(), &mut cfg);
         assert!(matches!(
             res,
@@ -842,25 +839,23 @@ mod tests {
     fn records_outside_zone_are_ignored() {
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
-        let mut records =
-            SortedRecords::<StoredName, StoredRecordData>::default();
+        let records = SortedRecords::<_, _>::from_iter([
+            mk_soa_rr("b.", "d.", "e."),
+            mk_soa_rr("a.", "b.", "c."),
+            mk_a_rr("some_a.a."),
+            mk_a_rr("some_a.b."),
+        ]);
 
-        records.insert(mk_soa_rr("b.", "d.", "e.")).unwrap();
-        records.insert(mk_a_rr("some_a.b.")).unwrap();
-        records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-        records.insert(mk_a_rr("some_a.a.")).unwrap();
-
-        // First generate NSECs for the total record collection. As the
+        // First generate NSEC3s for the total record collection. As the
         // collection is sorted in canonical order the a zone preceeds the b
-        // zone and NSECs should only be generated for the first zone in the
+        // zone and NSEC3s should only be generated for the first zone in the
         // collection.
         let a_and_b_records = records.owner_rrs();
 
         let generated_records =
             generate_nsec3s(a_and_b_records, &mut cfg).unwrap();
 
-        let mut expected_records = SortedRecords::default();
-        expected_records.extend([
+        let expected_records = SortedRecords::<_, _>::from_iter([
             mk_nsec3_rr(
                 "a.",
                 "a.",
@@ -873,16 +868,15 @@ mod tests {
 
         assert_eq!(generated_records.nsec3s, expected_records.into_inner());
 
-        // Now skip the a zone in the collection and generate NSECs for the
-        // remaining records which should only generate NSECs for the b zone.
+        // Now skip the a zone in the collection and generate NSEC3s for the
+        // remaining records which should only generate NSEC3s for the b zone.
         let mut b_records_only = records.owner_rrs();
         b_records_only.skip_before(&mk_name("b."));
 
         let generated_records =
             generate_nsec3s(b_records_only, &mut cfg).unwrap();
 
-        let mut expected_records = SortedRecords::default();
-        expected_records.extend([
+        let expected_records = SortedRecords::<_, _>::from_iter([
             mk_nsec3_rr(
                 "b.",
                 "b.",
@@ -896,48 +890,47 @@ mod tests {
         assert_eq!(generated_records.nsec3s, expected_records.into_inner());
     }
 
-    // #[test]
-    // fn occluded_records_are_ignored() {
-    //     let mut cfg = GenerateNsec3Config::default()
-    //         .without_assuming_dnskeys_will_be_added();
-    //     let mut records = SortedRecords::default();
+    #[test]
+    fn occluded_records_are_ignored() {
+        let mut cfg = GenerateNsec3Config::default()
+            .without_assuming_dnskeys_will_be_added();
+        let records = SortedRecords::<_, _>::from_iter([
+            mk_soa_rr("a.", "b.", "c."),
+            mk_ns_rr("some_ns.a.", "some_a.other.b."),
+            mk_a_rr("some_a.some_ns.a."),
+        ]);
 
-    //     records.insert(mk_soa_rr("a.", "b.", "c.")).unwrap();
-    //     records
-    //         .insert(mk_ns_rr("some_ns.a.", "some_a.other.b."))
-    //         .unwrap();
-    //     records.insert(mk_a_rr("some_a.some_ns.a.")).unwrap();
+        let generated_records =
+            generate_nsec3s(records.owner_rrs(), &mut cfg).unwrap();
 
-    //     let generated_records =
-    //         generate_nsec3s(records.owner_rrs(), &mut cfg).unwrap();
+        let expected_records = SortedRecords::<_, _>::from_iter([
+            mk_nsec3_rr(
+                "a.",
+                "a.",
+                "some_ns.a.",
+                "SOA RRSIG NSEC3PARAM",
+                &cfg,
+            ),
+            // Unlike with NSEC the type bitmap for the NSEC3 for some_ns.a
+            // does NOT include RRSIG. This is because with NSEC "Each owner
+            // name in the zone that has authoritative data or a delegation
+            // point NS RRset MUST have an NSEC resource record" (RFC 4035
+            // section 2.3), and while the zone is not authoritative for the
+            // NS record, "NSEC RRsets are authoritative data and are
+            // therefore signed" (RFC 4035 section 2.3). With NSEC3 however
+            // as the NSEC3 record for the unsigned delegation is generated
+            // (because we are not using opt out) but not stored at some_ns.a
+            // (but instead at <HASH>.a.) then the only record at some_ns.a
+            // is the NS record itself which is not authoritative and so
+            // doesn't get an RRSIG.
+            mk_nsec3_rr("a.", "some_ns.a.", "a.", "NS", &cfg),
+        ]);
 
-    //     // Implicit negative test.
-    //     assert_eq!(
-    //         generated_records.nsec3s,
-    //         [
-    //             mk_nsec3_rr(
-    //                 "a.",
-    //                 "a.",
-    //                 "some_ns.a.",
-    //                 "SOA RRSIG NSEC",
-    //                 &mut cfg
-    //             ),
-    //             mk_nsec3_rr(
-    //                 "a.",
-    //                 "some_ns.a.",
-    //                 "a.",
-    //                 "NS RRSIG NSEC",
-    //                 &mut cfg
-    //             ),
-    //         ]
-    //     );
+        assert_eq!(generated_records.nsec3s, expected_records.into_inner());
+    }
 
-    //     // Explicit negative test.
-    //     assert!(!contains_owner(
-    //         &generated_records.nsec3s,
-    //         "some_a.some_ns.a.example."
-    //     ));
-    // }
+    // TODO: Repeat above test but with opt out enabled. Or add a separate opt
+    // test.
 
     // #[test]
     // fn expect_dnskeys_at_the_apex() {
