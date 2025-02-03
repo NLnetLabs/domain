@@ -233,10 +233,6 @@ where
         self.records.iter()
     }
 
-    pub(super) fn as_mut_slice(&mut self) -> &mut [Record<N, D>] {
-        self.records.as_mut_slice()
-    }
-
     pub fn into_inner(self) -> Vec<Record<N, D>> {
         self.records
     }

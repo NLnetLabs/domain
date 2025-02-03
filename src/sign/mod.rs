@@ -60,9 +60,9 @@
 //!   [`generate_rrsigs()`] and [`sign_rrset()`] functions.
 //! - To generate signatures for arbitrary data see the [`SignRaw`] trait.
 //!
-//! # Known limitations
+//! # Limitations
 //!
-//! This module does not yet support :
+//! This module does not yet support:
 //! - `async` signing (useful for interacting with cryptographic hardware like
 //!   Hardware Security Modules (HSMs)).
 //! - Re-signing an already signed zone, only unsigned zones can be signed.
@@ -72,6 +72,9 @@
 //!   [`Record`]s, only signing of slices is supported.
 //! - Signing with both `NSEC` and `NSEC3` or multiple `NSEC3` configurations
 //!   at once.
+//! - Rewriting the DNSKEY RR algorithm identifier when using NSEC3 with the
+//!   older DSA or RSASHA1 algorithms (which is anyway only possible at
+//!   present if you bring your own cryptography).
 //!
 //! [`common`]: crate::sign::crypto::common
 //! [`keyset`]: crate::sign::keys::keyset
@@ -300,46 +303,54 @@ where
 /// as they handle the construction of the [`SignableZoneInOut`] type and
 /// calling of this function for you.
 ///
+/// # Requirements
+///
 /// The record collection to be signed is required to implement the
 /// [`SignableZone`] trait. The collection to extend with generated records is
 /// required to implement the [`SortedExtend`] trait, implementations of which
 /// are provided for the [`SortedRecords`] and [`Vec`] types.
 ///
-/// <div class="warning">
-///
 /// The record collection to be signed must meet the following requirements.
-///
 /// Failure to meet these requirements will likely lead to incorrect signing
 /// output.
 ///
 /// 1. The record collection to be signed **MUST** be ordered according to
-///    [`CanonicalOrd`].
+///    [`CanonicalOrd`]. This is always true for [`SortedRecords`].
 /// 2. The record collection to be signed **MUST** be unsigned, i.e. must not
 ///    contain `DNSKEY`, `NSEC`, `NSEC3`, `NSEC3PARAM`, or `RRSIG` records.
 ///
-/// [`SortedRecords`] will be sorted at all times and thus is safe to use with
-/// this function. [`Vec`] however is safe to use **ONLY IF** the content has
-/// been sorted prior to calling this function.
+/// <div class="warning">
 ///
-/// This function does **NOT** yet support re-signing, i.e. re-generating
-/// expired `RRSIG` signatures, updating the NSEC(3) chain to match added or
-/// removed records or adding signatures for another key to an already signed
-/// zone e.g. to support key rollover. For the latter case it does however
-/// support providing multiple sets of key to sign with the
-/// [`SigningKeyUsageStrategy`] implementation being used to determine which
-/// keys to use to sign which records.
-///
-/// This function does **NOT** yet support signing with multiple NSEC(3)
-/// configurations at once, e.g. to migrate from NSEC <-> NSEC3 or between
-/// NSEC3 configurations.
-///
-/// This function does **NOT** yet support signing of record collections
-/// stored in the [`Zone`] type as it currently only support signing of record
-/// slices whereas the records in a [`Zone`] currently only supports a visitor
-/// style read interface via [`ReadableZone`] whereby a callback function is
-/// invoked for each node that is "walked".
+///   When using a type other than [`SortedRecords`] as input to this function
+///   you **MUST** be sure that its content is already sorted according to
+///   [`CanonicalOrd`] prior to calling this function.
 ///
 /// </div>
+///
+/// # Limitations
+///
+/// This function does not yet support:
+///
+/// - Enforcement of [RFC 5155 section 2 Backwards Compatibility] regarding
+///   use of NSEC3 algorithm aliases in DNSKEY RRs.
+///
+/// - Re-signing, i.e. re-generating expired `RRSIG` signatures, updating the
+///   NSEC(3) chain to match added or removed records or adding signatures for
+///   another key to an already signed zone e.g. to support key rollover. For
+///   the latter case it does however support providing multiple sets of key
+///   to sign with the [`SigningKeyUsageStrategy`] implementation being used
+///   to determine which keys to use to sign which records.
+///
+/// - Signing with multiple NSEC(3) configurations at once, e.g. to migrate
+///   from NSEC <-> NSEC3 or between NSEC3 configurations.
+///
+/// - Signing of record collections stored in the [`Zone`] type as it
+///   currently only support signing of record slices whereas the records in a
+///   [`Zone`] currently only supports a visitor style read interface via
+///   [`ReadableZone`] whereby a callback function is invoked for each node
+///   that is "walked".
+///
+/// # Configuration
 ///
 /// Various aspects of the signing process are configurable, see
 /// [`SigningConfig`] for more information.
@@ -348,6 +359,8 @@ where
 /// [RFC 4035 section 2 Zone Signing]:
 ///     https://www.rfc-editor.org/rfc/rfc4035.html#section-2
 /// [RFC 5155]: https://www.rfc-editor.org/info/rfc5155
+/// [RFC 5155 section 2 Backwards Compatibility]:
+///     https://www.rfc-editor.org/rfc/rfc5155.html#section-2
 /// [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
 /// [`SortedRecords`]: crate::sign::records::SortedRecords
 /// [`Zone`]: crate::zonetree::Zone

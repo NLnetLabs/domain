@@ -348,15 +348,15 @@ mod tests {
         assert_eq!(
             nsecs,
             [
-                mk_nsec_rr("example.", "a.example", "NS SOA MX RRSIG NSEC"),
-                mk_nsec_rr("a.example.", "ai.example", "NS DS RRSIG NSEC"),
+                mk_nsec_rr("example.", "a.example.", "NS SOA MX RRSIG NSEC"),
+                mk_nsec_rr("a.example.", "ai.example.", "NS DS RRSIG NSEC"),
                 mk_nsec_rr(
                     "ai.example.",
                     "b.example",
                     "A HINFO AAAA RRSIG NSEC"
                 ),
-                mk_nsec_rr("b.example.", "ns1.example", "NS RRSIG NSEC"),
-                mk_nsec_rr("ns1.example.", "ns2.example", "A RRSIG NSEC"),
+                mk_nsec_rr("b.example.", "ns1.example.", "NS RRSIG NSEC"),
+                mk_nsec_rr("ns1.example.", "ns2.example.", "A RRSIG NSEC"),
                 // The next record also validates that we comply with
                 // https://datatracker.ietf.org/doc/html/rfc4034#section-6.2
                 // 4.1.3. "Inclusion of Wildcard Names in NSEC RDATA" when
@@ -368,13 +368,13 @@ mod tests {
                 //   Next Domain Name field without any wildcard expansion.
                 //   [RFC4035] describes the impact of wildcards on
                 //   authenticated denial of existence."
-                mk_nsec_rr("ns2.example.", "*.w.example", "A RRSIG NSEC"),
-                mk_nsec_rr("*.w.example.", "x.w.example", "MX RRSIG NSEC"),
-                mk_nsec_rr("x.w.example.", "x.y.w.example", "MX RRSIG NSEC"),
-                mk_nsec_rr("x.y.w.example.", "xx.example", "MX RRSIG NSEC"),
+                mk_nsec_rr("ns2.example.", "*.w.example.", "A RRSIG NSEC"),
+                mk_nsec_rr("*.w.example.", "x.w.example.", "MX RRSIG NSEC"),
+                mk_nsec_rr("x.w.example.", "x.y.w.example.", "MX RRSIG NSEC"),
+                mk_nsec_rr("x.y.w.example.", "xx.example.", "MX RRSIG NSEC"),
                 mk_nsec_rr(
                     "xx.example.",
-                    "example",
+                    "example.",
                     "A HINFO AAAA RRSIG NSEC"
                 )
             ],
@@ -447,5 +447,27 @@ mod tests {
         assert!(nsec.data().types().contains(Rtype::NSEC));
         assert!(nsec.data().types().contains(Rtype::RRSIG));
         assert!(!nsec.data().types().contains(Rtype::A));
+    }
+
+    #[test]
+    fn existing_nsec_records_are_ignored() {
+        let cfg = GenerateNsecConfig::default();
+
+        let records = StoredSortedRecords::from_iter([
+            mk_soa_rr("a.", "b.", "c."),
+            mk_a_rr("some_a.a."),
+            mk_nsec_rr("a.", "some_a.a.", "SOA NSEC"),
+            mk_nsec_rr("some_a.a.", "a.", "A RRSIG NSEC"),
+        ]);
+
+        let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
+
+        assert_eq!(
+            nsecs,
+            [
+                mk_nsec_rr("a.", "some_a.a.", "SOA DNSKEY RRSIG NSEC"),
+                mk_nsec_rr("some_a.a.", "a.", "A RRSIG NSEC"),
+            ]
+        );
     }
 }
