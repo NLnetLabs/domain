@@ -19,7 +19,7 @@ use super::{BuildCommitted, BuildIntoMessage, MessageBuilder, MessageState};
 /// commit (finish building) or cancel (remove) the question.
 pub struct QuestionBuilder<'b> {
     /// The underlying message builder.
-    builder: MessageBuilder<'b>,
+    builder: MessageBuilder<'b, 'b>,
 
     /// The offset of the question name.
     name: u16,
@@ -33,7 +33,7 @@ impl<'b> QuestionBuilder<'b> {
     /// The provided builder must be empty (i.e. must not have uncommitted
     /// content).
     pub(super) fn build<N: BuildIntoMessage>(
-        mut builder: MessageBuilder<'b>,
+        mut builder: MessageBuilder<'b, 'b>,
         question: &Question<N>,
     ) -> Result<Self, TruncationError> {
         // TODO: Require that the QNAME serialize correctly?
@@ -51,7 +51,7 @@ impl<'b> QuestionBuilder<'b> {
     /// `builder.message().contents[name..]` must represent a valid
     /// [`Question`] in the wire format.
     pub unsafe fn from_raw_parts(
-        builder: MessageBuilder<'b>,
+        builder: MessageBuilder<'b, 'b>,
         name: u16,
     ) -> Self {
         Self { builder, name }
@@ -84,7 +84,7 @@ impl<'b> QuestionBuilder<'b> {
     }
 
     /// Deconstruct this [`QuestionBuilder`] into its raw parts.
-    pub fn into_raw_parts(self) -> (MessageBuilder<'b>, u16) {
+    pub fn into_raw_parts(self) -> (MessageBuilder<'b, 'b>, u16) {
         (self.builder, self.name)
     }
 }

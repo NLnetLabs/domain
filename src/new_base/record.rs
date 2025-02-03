@@ -15,7 +15,7 @@ use super::{
 //----------- Record ---------------------------------------------------------
 
 /// A DNS record.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Record<N, D> {
     /// The name of the record.
     pub rname: N,

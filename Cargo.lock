@@ -232,10 +232,10 @@ version = "0.10.3"
 dependencies = [
  "arbitrary",
  "arc-swap",
+ "bumpalo",
  "bytes",
  "chrono",
  "domain-macros",
- "either",
  "futures-util",
  "hashbrown 0.14.5",
  "heapless",

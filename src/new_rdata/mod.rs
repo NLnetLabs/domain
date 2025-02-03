@@ -63,6 +63,40 @@ pub enum RecordData<'a, N> {
     Unknown(RType, &'a UnknownRecordData),
 }
 
+impl<'a, N> RecordData<'a, N> {
+    /// Transform the compressed domain names in this record data.
+    pub fn map_names<R, F: FnMut(N) -> R>(
+        self,
+        mut f: F,
+    ) -> RecordData<'a, R> {
+        match self {
+            Self::A(r) => RecordData::A(r),
+            Self::Ns(r) => RecordData::Ns(Ns { name: (f)(r.name) }),
+            Self::CName(r) => RecordData::CName(CName { name: (f)(r.name) }),
+            Self::Soa(r) => RecordData::Soa(Soa {
+                mname: (f)(r.mname),
+                rname: (f)(r.rname),
+                serial: r.serial,
+                refresh: r.refresh,
+                retry: r.retry,
+                expire: r.expire,
+                minimum: r.minimum,
+            }),
+            Self::Wks(r) => RecordData::Wks(r),
+            Self::Ptr(r) => RecordData::Ptr(Ptr { name: (f)(r.name) }),
+            Self::HInfo(r) => RecordData::HInfo(r),
+            Self::Mx(r) => RecordData::Mx(Mx {
+                preference: r.preference,
+                exchange: (f)(r.exchange),
+            }),
+            Self::Txt(r) => RecordData::Txt(r),
+            Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::Opt(r) => RecordData::Opt(r),
+            Self::Unknown(t, r) => RecordData::Unknown(t, r),
+        }
+    }
+}
+
 //--- Parsing record data
 
 impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>

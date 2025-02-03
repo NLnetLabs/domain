@@ -191,7 +191,7 @@ impl fmt::Debug for EdnsFlags {
 //----------- EdnsOption -----------------------------------------------------
 
 /// An Extended DNS option.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum EdnsOption<'b> {
     /// A client's request for a DNS cookie.

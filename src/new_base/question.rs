@@ -12,7 +12,7 @@ use super::{
 //----------- Question -------------------------------------------------------
 
 /// A DNS question.
-#[derive(Clone, BuildBytes, ParseBytes, SplitBytes)]
+#[derive(Clone, Debug, BuildBytes, ParseBytes, SplitBytes)]
 pub struct Question<N> {
     /// The domain name being requested.
     pub qname: N,

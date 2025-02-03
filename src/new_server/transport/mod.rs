@@ -1,17 +1,20 @@
 //! Network transports for DNS servers.
 
 use core::net::SocketAddr;
-use std::{io, sync::Arc, vec::Vec};
+use std::{io, sync::Arc, time::SystemTime, vec::Vec};
 
+use bumpalo::Bump;
 use tokio::net::UdpSocket;
 
-use crate::new_base::{
-    build::{BuilderContext, MessageBuilder},
-    wire::{AsBytes, ParseBytesByRef},
-    Message,
+use crate::{
+    new_base::{
+        wire::{AsBytes, ParseBytesByRef},
+        Message,
+    },
+    new_server::exchange::Allocator,
 };
 
-use super::{ProduceMessage, RequestMessage, Service};
+use super::{exchange::ParsedMessage, Exchange, Service};
 
 //----------- serve_udp() ----------------------------------------------------
 
@@ -36,17 +39,17 @@ pub async fn serve_udp(
 
     impl<S: Service + Send + 'static> State<S> {
         /// Respond to a particular UDP request.
-        async fn respond(
-            self: Arc<Self>,
-            mut buffer: Vec<u8>,
-            peer: SocketAddr,
-        ) {
+        async fn respond(self: Arc<Self>, buffer: Vec<u8>, peer: SocketAddr) {
             let Ok(message) = Message::parse_bytes_by_ref(&buffer) else {
                 // This message is fundamentally invalid, just give up.
                 return;
             };
 
-            let Ok(request) = RequestMessage::new(message) else {
+            let mut allocator = Bump::new();
+            let mut allocator = Allocator::new(&mut allocator);
+
+            let Ok(request) = ParsedMessage::parse(message, &mut allocator)
+            else {
                 // This message is malformed; inform the peer and stop.
                 let mut buffer = [0u8; 12];
                 let response = Message::parse_bytes_by_mut(&mut buffer)
@@ -58,38 +61,27 @@ pub async fn serve_udp(
                 return;
             };
 
+            // Build a complete 'Exchange' around the request.
+            let mut exchange = Exchange {
+                alloc: allocator,
+                reception: SystemTime::now(),
+                request,
+                response: ParsedMessage::default(),
+                metadata: Vec::new(),
+            };
+
             // Generate the appropriate response.
-            let mut producer = self.service.respond(&request).await;
+            self.service.respond(&mut exchange).await;
 
             // Build up the response message.
-
-            buffer.clear();
-            buffer.resize(65536, 0);
-            let mut context = BuilderContext::default();
-            let mut builder = MessageBuilder::new(&mut buffer, &mut context);
-
-            producer.header(builder.header_mut());
-            while let Some(question) = producer.next_question(&mut builder) {
-                question.commit();
-            }
-            while let Some(answer) = producer.next_answer(&mut builder) {
-                answer.commit();
-            }
-            while let Some(authority) = producer.next_authority(&mut builder)
-            {
-                authority.commit();
-            }
-            while let Some(additional) =
-                producer.next_additional(&mut builder)
-            {
-                additional.commit();
-            }
+            let mut buffer = vec![0u8; 65536];
+            let message =
+                exchange.response.build(&mut buffer).unwrap_or_else(|_| {
+                    todo!("how to handle truncation errors?")
+                });
 
             // Send the response back to the peer.
-            let _ = self
-                .socket
-                .send_to(builder.message().as_bytes(), peer)
-                .await;
+            let _ = self.socket.send_to(message.as_bytes(), peer).await;
         }
     }
 

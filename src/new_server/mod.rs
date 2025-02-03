@@ -16,15 +16,11 @@
 
 use core::{future::Future, ops::ControlFlow};
 
-use crate::new_base::{
-    build::{MessageBuilder, QuestionBuilder, RecordBuilder},
-    Header,
-};
-
 mod impls;
 
-pub mod request;
-pub use request::RequestMessage;
+pub mod exchange;
+pub use exchange::Exchange;
+use exchange::OutgoingResponse;
 
 pub mod transport;
 
@@ -43,19 +39,15 @@ pub mod transport;
 /// Additional functionality can be added to a service by prefixing it with
 /// service layers, usually in a tuple.  A number of blanket implementations
 /// are provided to simplify this.
-pub trait Service: LocalService<Producer: Send> + Sync {
+pub trait Service: LocalService + Sync {
     /// Respond to a DNS request.
     ///
-    /// The provided consumer must have been provided the entire DNS request
-    /// message.  This method will use the extracted information to formulate
-    /// a response message, in the form of a producer type.
-    ///
-    /// The returned future implements [`Send`].  Use [`LocalService`] and
-    /// [`LocalService::respond_local()`] if [`Send`] is not necessary.
+    /// The returned [`Future`] is thread-safe; it implements [`Send`].  Use
+    /// [`LocalService::respond_local()`] if this is not necessary.
     fn respond(
         &self,
-        request: &RequestMessage<'_>,
-    ) -> impl Future<Output = Self::Producer> + Send;
+        exchange: &mut Exchange<'_>,
+    ) -> impl Future<Output = ()> + Send;
 }
 
 //----------- LocalService ---------------------------------------------------
@@ -74,30 +66,14 @@ pub trait Service: LocalService<Producer: Send> + Sync {
 /// service layers, usually in a tuple.  A number of blanket implementations
 /// are provided to simplify this.
 pub trait LocalService {
-    /// A producer of DNS responses.
-    ///
-    /// This type returns components to insert in a DNS response message.  It
-    /// is constructed by [`Self::respond_local()`].
-    ///
-    /// # Lifetimes
-    ///
-    /// The producer can borrow from the request message (`'req`).  Note that
-    /// it cannot borrow from the response message.
-    type Producer: ProduceMessage;
-
     /// Respond to a DNS request.
     ///
-    /// The provided consumer must have been provided the entire DNS request
-    /// message.  This method will use the extracted information to formulate
-    /// a response message, in the form of a producer type.
-    ///
-    /// The returned future does not implement [`Send`].  Use [`Service`] and
-    /// [`Service::respond()`] for a [`Send`]-implementing version.
-    #[allow(async_fn_in_trait)]
-    async fn respond_local(
+    /// The returned [`Future`] is thread-local; it does not implement
+    /// [`Send`].  Use [`Service::respond()`] for a thread-safe alternative.
+    fn respond_local(
         &self,
-        request: &RequestMessage<'_>,
-    ) -> Self::Producer;
+        exchange: &mut Exchange<'_>,
+    ) -> impl Future<Output = ()>;
 }
 
 //----------- ServiceLayer ---------------------------------------------------
@@ -113,25 +89,26 @@ pub trait LocalService {
 ///
 /// Layers can be combined (usually in a tuple) into larger layers.  A number
 /// of blanket implementations are provided to simplify this.
-pub trait ServiceLayer:
-    LocalServiceLayer<Producer: Send, Transformer: Send> + Sync
-{
-    /// Respond to a DNS request.
+pub trait ServiceLayer: LocalServiceLayer + Sync {
+    /// Process an incoming DNS request.
     ///
-    /// The provided consumer must have been provided the entire DNS request
-    /// message.  If the request should be forwarded through to the wrapped
-    /// service, [`ControlFlow::Continue`] is returned, with a transformer to
-    /// modify the wrapped service's response.  However, if the request should
-    /// be responded to directly by this layer, without any interaction from
-    /// the wrapped service, [`ControlFlow::Break`] is returned.
-    ///
-    /// The returned future implements [`Send`].  Use [`LocalServiceLayer`]
-    /// and [`LocalServiceLayer::respond_local()`] if [`Send`] is not
+    /// The returned [`Future`] is thread-safe; it implements [`Send`].  Use
+    /// [`LocalServiceLayer::process_local_incoming()`] if this is not
     /// necessary.
-    fn respond(
+    fn process_incoming(
         &self,
-        request: &RequestMessage<'_>,
-    ) -> impl Future<Output = ControlFlow<Self::Producer, Self::Transformer>> + Send;
+        exchange: &mut Exchange<'_>,
+    ) -> impl Future<Output = ControlFlow<()>> + Send;
+
+    /// Process an outgoing DNS response.
+    ///
+    /// The returned [`Future`] is thread-safe; it implements [`Send`].  Use
+    /// [`LocalServiceLayer::process_local_outgoing()`] if this is not
+    /// necessary.
+    fn process_outgoing(
+        &self,
+        response: OutgoingResponse<'_, '_>,
+    ) -> impl Future<Output = ()> + Send;
 }
 
 //----------- LocalServiceLayer ----------------------------------------------
@@ -148,264 +125,23 @@ pub trait ServiceLayer:
 /// Layers can be combined (usually in a tuple) into larger layers.  A number
 /// of blanket implementations are provided to simplify this.
 pub trait LocalServiceLayer {
-    /// A producer of DNS responses.
+    /// Process an incoming DNS request.
     ///
-    /// This type returns components to insert in a DNS response message.  It
-    /// is constructed by [`Self::respond_local()`], if a response is returned
-    /// early (without the wrapped service interacting with it).
-    ///
-    /// # Lifetimes
-    ///
-    /// The producer can borrow from the request message (`'req`).  Note that
-    /// it cannot borrow from the response message.
-    type Producer: ProduceMessage;
-
-    /// A transformer of DNS responses.
-    ///
-    /// This type modifies the response from the wrapped service, by adding,
-    /// removing, or modifying the components of the response message.  It is
-    /// constructed by [`Self::respond_local()`], if an early return does not
-    /// occur.
-    ///
-    /// # Lifetimes
-    ///
-    /// The transformer can borrow from the request message (`'req`).  Note
-    /// that it cannot borrow from the response message.
-    type Transformer: TransformMessage;
-
-    /// Respond to a DNS request.
-    ///
-    /// The provided consumer must have been provided the entire DNS request
-    /// message.  If the request should be forwarded through to the wrapped
-    /// service, [`ControlFlow::Continue`] is returned, with a transformer to
-    /// modify the wrapped service's response.  However, if the request should
-    /// be responded to directly by this layer, without any interaction from
-    /// the wrapped service, [`ControlFlow::Break`] is returned.
-    ///
-    /// The returned future does not implement [`Send`].  Use [`ServiceLayer`]
-    /// and [`ServiceLayer::respond()`] for a [`Send`]-implementing version.
-    #[allow(async_fn_in_trait)]
-    async fn respond_local(
+    /// The returned [`Future`] is thread-local; it does not implement
+    /// [`Send`].  Use [`ServiceLayer::process_incoming()`] for a thread-safe
+    /// alternative.
+    fn process_local_incoming(
         &self,
-        request: &RequestMessage<'_>,
-    ) -> ControlFlow<Self::Producer, Self::Transformer>;
-}
+        exchange: &mut Exchange<'_>,
+    ) -> impl Future<Output = ControlFlow<()>>;
 
-//----------- ProduceMessage -------------------------------------------------
-
-/// A type that produces a DNS message.
-///
-/// This interface is similar to [`Iterator`], except that it can iterate over
-/// the different components of a message (questions, answers, authorities,
-/// and additional records).
-///
-/// # Architecture
-///
-/// This interface is convenient when multiple transformers need to modify the
-/// message as it is being built.  Rather than forcing each transformer to
-/// parse and rewrite the message, this interface allows the message to built
-/// up over a single iteration, with every transformer directly examining each
-/// component added to the message.
-///
-/// # Examples
-pub trait ProduceMessage {
-    /// The header of the message.
+    /// Process an outgoing DNS response.
     ///
-    /// The provided header will be uninitialized, and this method is expected
-    /// to reset it entirely.  The default implementation does nothing.
-    fn header(&mut self, header: &mut Header) {
-        let _ = header;
-    }
-
-    /// The next DNS question in the message.
-    ///
-    /// This method is expected to add at most one question using the given
-    /// message builder.  If a question is added, its builder is returned so
-    /// that it can be modified or filtered before being finalized.
-    ///
-    /// This must act like a fused iterator; if no question is added, then
-    /// future calls to the same method will also add no questions.
-    ///
-    /// The default implementation of this method will add no questions.
-    ///
-    /// # Errors
-    ///
-    /// If new records cannot be inserted in the message (because it is full),
-    /// the method is responsible for returning gracefully.  The message may
-    /// be marked as truncated, for example.
-    fn next_question<'b>(
-        &mut self,
-        builder: &'b mut MessageBuilder<'_>,
-    ) -> Option<QuestionBuilder<'b>> {
-        let _ = builder;
-        None
-    }
-
-    /// The next answer record in the message.
-    ///
-    /// This method is expected to add at most one answer record using the
-    /// given message builder.  If a record is added, its builder is returned
-    /// so that it can be modified or filtered before being finalized.
-    ///
-    /// This must act like a fused iterator; if no record is added, then
-    /// future calls to the same method will also add no records.
-    ///
-    /// The default implementation of this method will add no records.
-    ///
-    /// # Errors
-    ///
-    /// If new records cannot be inserted in the message (because it is full),
-    /// the method is responsible for returning gracefully.  The message may
-    /// be marked as truncated, for example.
-    fn next_answer<'b>(
-        &mut self,
-        builder: &'b mut MessageBuilder<'_>,
-    ) -> Option<RecordBuilder<'b>> {
-        let _ = builder;
-        None
-    }
-
-    /// The next authority record in the message.
-    ///
-    /// This method is expected to add at most one authority record using the
-    /// given message builder.  If a record is added, its builder is returned
-    /// so that it can be modified or filtered before being finalized.
-    ///
-    /// This must act like a fused iterator; if no record is added, then
-    /// future calls to the same method will also add no records.
-    ///
-    /// The default implementation of this method will add no records.
-    ///
-    /// # Errors
-    ///
-    /// If new records cannot be inserted in the message (because it is full),
-    /// the method is responsible for returning gracefully.  The message may
-    /// be marked as truncated, for example.
-    fn next_authority<'b>(
-        &mut self,
-        builder: &'b mut MessageBuilder<'_>,
-    ) -> Option<RecordBuilder<'b>> {
-        let _ = builder;
-        None
-    }
-
-    /// The next additional record in the message.
-    ///
-    /// This method is expected to add at most one additional record using the
-    /// given message builder.  If a record is added, its builder is returned
-    /// so that it can be modified or filtered before being finalized.
-    ///
-    /// This must act like a fused iterator; if no record is added, then
-    /// future calls to the same method will also add no records.
-    ///
-    /// The default implementation of this method will add no records.
-    ///
-    /// # Errors
-    ///
-    /// If new records cannot be inserted in the message (because it is full),
-    /// the method is responsible for returning gracefully.  The message may
-    /// be marked as truncated, for example.
-    fn next_additional<'b>(
-        &mut self,
-        builder: &'b mut MessageBuilder<'_>,
-    ) -> Option<RecordBuilder<'b>> {
-        let _ = builder;
-        None
-    }
-}
-
-//----------- TransformMessage -----------------------------------------------
-
-/// A type that modifies a DNS message as it is being built.
-///
-/// This interface is designed around [`ProduceMessage`]: as the components of
-/// the message are produced, they are passed through methods of this trait to
-/// be modified or filtered out.  Furthermore, implementing types can add more
-/// components to the message as they also implement [`ProduceMessage`].
-///
-/// # Examples
-pub trait TransformMessage: ProduceMessage {
-    /// Modify the header of the message.
-    ///
-    /// The provided header has been initialized; this method can choose to
-    /// modify it.  The default implementation does nothing.
-    fn modify_header(&mut self, header: &mut Header) {
-        let _ = header;
-    }
-
-    /// Modify a question added to the message.
-    ///
-    /// This method is called when a question is being added to the message.
-    /// The question can be modified.
-    ///
-    /// If [`ControlFlow::Continue`] is returned, the question is preserved,
-    /// and can be passed through future transformations.  Otherwise, the
-    /// question is removed.
-    ///
-    /// The default implementation of this method passes the question through
-    /// transparently.
-    fn modify_question(
-        &mut self,
-        builder: &mut QuestionBuilder<'_>,
-    ) -> ControlFlow<()> {
-        let _ = builder;
-        ControlFlow::Continue(())
-    }
-
-    /// Modify an answer record added to the message.
-    ///
-    /// This method is called when an answer record is being added to the
-    /// message.  The record (and its data) can be modified.
-    ///
-    /// If [`ControlFlow::Continue`] is returned, the record is preserved,
-    /// and can be passed through future transformations.  Otherwise, the
-    /// record is removed.
-    ///
-    /// The default implementation of this method passes the record through
-    /// transparently.
-    fn modify_answer(
-        &mut self,
-        builder: &mut RecordBuilder<'_>,
-    ) -> ControlFlow<()> {
-        let _ = builder;
-        ControlFlow::Continue(())
-    }
-
-    /// Modify an authority record added to the message.
-    ///
-    /// This method is called when an authority record is being added to the
-    /// message.  The record (and its data) can be modified.
-    ///
-    /// If [`ControlFlow::Continue`] is returned, the record is preserved,
-    /// and can be passed through future transformations.  Otherwise, the
-    /// record is removed.
-    ///
-    /// The default implementation of this method passes the record through
-    /// transparently.
-    fn modify_authority(
-        &mut self,
-        builder: &mut RecordBuilder<'_>,
-    ) -> ControlFlow<()> {
-        let _ = builder;
-        ControlFlow::Continue(())
-    }
-
-    /// Modify an additional record added to the message.
-    ///
-    /// This method is called when an additional record is being added to the
-    /// message.  The record (and its data) can be modified.
-    ///
-    /// If [`ControlFlow::Continue`] is returned, the record is preserved,
-    /// and can be passed through future transformations.  Otherwise, the
-    /// record is removed.
-    ///
-    /// The default implementation of this method passes the record through
-    /// transparently.
-    fn modify_additional(
-        &mut self,
-        builder: &mut RecordBuilder<'_>,
-    ) -> ControlFlow<()> {
-        let _ = builder;
-        ControlFlow::Continue(())
-    }
+    /// The returned [`Future`] is thread-local; it does not implement
+    /// [`Send`].  Use [`ServiceLayer::process_outgoing()`] for a thread-safe
+    /// alternative.
+    fn process_local_outgoing(
+        &self,
+        response: OutgoingResponse<'_, '_>,
+    ) -> impl Future<Output = ()>;
 }
