@@ -424,7 +424,7 @@ pub struct Allocator<'a> {
 
 impl<'a> Allocator<'a> {
     /// Construct a new [`Allocator`].
-    pub const fn new(inner: &'a mut Bump) -> Self {
+    pub fn new(inner: &'a mut Bump) -> Self {
         // NOTE: The 'Bump' is mutably borrowed for lifetime 'a; the reference
         // we store is thus guaranteed to be unique.
         Self { inner }
