@@ -1,7 +1,7 @@
 ; Extracted using ldns-readzone -s from the signed zone defined at
-; https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
-; Keys have been replaced by newer algorithm 8 instead of older algorithm 5
-; which we do not support, and to match key pairs stored alongside this file.
+;   https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
+; DNSSEC RRs have been removed, e.g. DNSKEY, NSEC and RRSIG.
+; The SOA MINIMUM has been changed from 3600 to 1800 for RFC 9077 testing.
 ; Contains one extra record compared to that defined in Appendix A of RFC
 ; 4035, b.example A, for additional testing.
 example.        3600    IN      SOA     ns1.example. bugs.x.w.example. 1081539377 3600 300 3600000 1800

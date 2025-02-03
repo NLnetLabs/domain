@@ -110,6 +110,10 @@ impl<Octs> Nsec3<Octs> {
         &self.types
     }
 
+    pub fn set_types(&mut self, types: RtypeBitmap<Octs>) {
+        self.types = types;
+    }
+
     pub(super) fn convert_octets<Target>(
         self,
     ) -> Result<Nsec3<Target>, Target::Error>
@@ -403,6 +407,12 @@ where
 
 //------------ Nsec3Param ----------------------------------------------------
 
+// https://datatracker.ietf.org/doc/html/rfc5155#section-3.2
+// 3.2.  NSEC3 RDATA Wire Format
+//   "Flags field is a single octet, the Opt-Out flag is the least significant
+//    bit"
+const NSEC3_OPT_OUT_FLAG_MASK: u8 = 0b0000_0001;
+
 #[derive(Clone)]
 #[cfg_attr(
     feature = "serde",
@@ -418,9 +428,55 @@ where
     ))
 )]
 pub struct Nsec3param<Octs> {
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.1
+    /// 3.1.1.  Hash Algorithm
+    ///   "The Hash Algorithm field identifies the cryptographic hash
+    ///    algorithm used to construct the hash-value."
     hash_algorithm: Nsec3HashAlg,
+
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.2
+    /// 3.1.2.  Flags
+    ///   "The Flags field contains 8 one-bit flags that can be used to
+    ///   indicate different processing.  All undefined flags must be zero.
+    ///   The only flag defined by this specification is the Opt-Out flag."
+    ///
+    /// 3.1.2.1.  Opt-Out Flag
+    ///   "If the Opt-Out flag is set, the NSEC3 record covers zero or more
+    ///    unsigned delegations.
+    ///    
+    ///    If the Opt-Out flag is clear, the NSEC3 record covers zero unsigned
+    ///    delegations.
+    ///    
+    ///    The Opt-Out Flag indicates whether this NSEC3 RR may cover unsigned
+    ///    delegations.  It is the least significant bit in the Flags field.
+    ///    See Section 6 for details about the use of this flag."
     flags: u8,
+
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.3
+    /// 3.1.3.  Iterations
+    ///   "The Iterations field defines the number of additional times the
+    ///    hash function has been performed.  More iterations result in
+    ///    greater resiliency of the hash value against dictionary attacks,
+    ///    but at a higher computational cost for both the server and
+    ///    resolver.  See Section 5 for details of the use of this field, and
+    ///    Section 10.3 for limitations on the value."
+    /// 
+    /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
+    /// 3.1. Best Practice for Zone Publishers 
+    ///   "If NSEC3 must be used, then an iterations count of 0 MUST be used
+    ///    to alleviate computational burdens."
     iterations: u16,
+
+    /// https://datatracker.ietf.org/doc/html/rfc5155#section-3.1.5
+    /// 3.1.5.  Salt
+    ///   "The Salt field is appended to the original owner name before
+    ///    hashing in order to defend against pre-calculated dictionary
+    ///    attacks."
+    /// 
+    /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
+    /// 3.1. Best Practice for Zone Publishers 
+    ///   "Operators SHOULD NOT use a salt by indicating a zero-length salt
+    ///   value instead (represented as a "-" in the presentation format)."
     salt: Nsec3Salt<Octs>,
 }
 
@@ -451,6 +507,14 @@ impl<Octs> Nsec3param<Octs> {
     pub fn flags(&self) -> u8 {
         self.flags
     }
+
+    pub fn set_opt_out_flag(&mut self) {
+        self.flags |= NSEC3_OPT_OUT_FLAG_MASK;
+    }
+
+    pub fn opt_out_flag(&self) -> bool {
+        self.flags & NSEC3_OPT_OUT_FLAG_MASK == NSEC3_OPT_OUT_FLAG_MASK
+    }    
 
     pub fn iterations(&self) -> u16 {
         self.iterations
