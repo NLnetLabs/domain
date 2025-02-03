@@ -12,7 +12,7 @@ use crate::base::name::FlattenInto;
 use crate::base::{Name, Record, Rtype, Serial, ToName, Ttl};
 use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
 use crate::rdata::nsec3::OwnerHash;
-use crate::rdata::{Dnskey, Ns, Nsec, Nsec3, Rrsig, Soa, A};
+use crate::rdata::{Dnskey, Ns, Nsec, Nsec3, Nsec3param, Rrsig, Soa, A};
 use crate::sign::denial::nsec3::mk_hashed_nsec3_owner_name;
 use crate::utils::base32;
 use crate::validate::nsec3_hash;
@@ -101,6 +101,18 @@ where
     mk_record(owner, Nsec::new(next_name, types).into())
 }
 
+pub(crate) fn mk_nsec3param_rr<R, N, HP, Sort>(
+    owner: &str,
+    cfg: &GenerateNsec3Config<N, Bytes, HP, Sort>,
+) -> Record<StoredName, R>
+where
+    HP: Nsec3HashProvider<N, Bytes>,
+    N: FromStr + ToName + From<Name<Bytes>>,
+    R: From<Nsec3param<Bytes>>,
+{
+    mk_record(owner, cfg.params.clone().into())
+}
+
 pub(crate) fn mk_nsec3_rr<R, N, HP, Sort>(
     apex_owner: &str,
     owner: &str,
@@ -150,6 +162,38 @@ where
             cfg.params.iterations(),
             cfg.params.salt().clone(),
             OwnerHash::from_str(&next_owner_hash).unwrap(),
+            types,
+        )
+        .into(),
+    )
+}
+
+pub(crate) fn mk_precalculated_nsec3_rr<R, N, HP, Sort>(
+    owner: &str,
+    next_owner: &str,
+    types: &str,
+    cfg: &GenerateNsec3Config<N, Bytes, HP, Sort>,
+) -> Record<StoredName, R>
+where
+    HP: Nsec3HashProvider<N, Bytes>,
+    N: FromStr + ToName + From<Name<Bytes>>,
+    <N as FromStr>::Err: Debug,
+    R: From<Nsec3<Bytes>>,
+{
+    let mut builder = RtypeBitmap::<Bytes>::builder();
+    for rtype in types.split_whitespace() {
+        builder.add(Rtype::from_str(rtype).unwrap()).unwrap();
+    }
+    let types = builder.finalize();
+
+    mk_record(
+        owner,
+        Nsec3::new(
+            cfg.params.hash_algorithm(),
+            cfg.params.flags(),
+            cfg.params.iterations(),
+            cfg.params.salt().clone(),
+            OwnerHash::from_str(next_owner).unwrap(),
             types,
         )
         .into(),
