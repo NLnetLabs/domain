@@ -1,4 +1,9 @@
 //! Request-response exchanges for DNS servers.
+//!
+//! This module provides a number of utility types for the DNS service layer
+//! architecture.  In particular, an [`Exchange`] represents a DNS request as
+//! it is being passed along a server pipeline, and an [`OutgoingResponse`] is
+//! the corresponding response as it is passed back through.
 
 use core::any::{Any, TypeId};
 use std::{boxed::Box, time::SystemTime, vec::Vec};
@@ -244,7 +249,8 @@ impl<'a> ParsedMessage<'a> {
 
     /// Build this message into the given buffer.
     ///
-    /// If the message was too large, a [`TruncationError`] is returned.
+    /// If the message could not fit in the given buffer, a
+    /// [`TruncationError`] is returned.
     pub fn build<'b>(
         &self,
         buffer: &'b mut [u8],
@@ -341,8 +347,18 @@ impl ParsedMessage<'_> {
 
 /// Arbitrary metadata about a DNS exchange.
 ///
+/// This should be used by [`ServiceLayer`](super::ServiceLayer)s for storing
+/// information they have extracted from an incoming DNS request message.  The
+/// metadata may be relevant to future layers: for example, some may wish to
+/// handle TSIG-signed requests differently from others.  The metadata is also
+/// relevant to the original layer in [`process_outgoing()`], as it does not
+/// have access to the original request.
+///
+/// # Implementation
+///
 /// This is an enhanced version of `Box<dyn Any + Send + 'static>` that can
-/// perform downcasting more efficiently.
+/// perform downcasting more efficiently.  It stores the [`TypeId`] of the
+/// object inline, allowing it to skip a vtable lookup.
 pub struct Metadata {
     /// The type ID of the object.
     type_id: TypeId,
@@ -408,6 +424,18 @@ impl Metadata {
 /// A bump allocator with a fixed lifetime.
 ///
 /// This is a wrapper around [`bumpalo::Bump`] that guarantees thread safety.
+/// It is equivalent to `&'a mut Bump`, but `&mut &'a mut Bump` does not work
+/// (allocated objects only last for the shorter lifetime, not for `'a`).
+/// `&mut Allocator<'a>` does work, giving objects of lifetime `'a`.
+///
+/// # Thread Safety
+///
+/// [`Bump`] is not thread safe; using it from multiple threads simultaneously
+/// would cause undefined behaviour.  [`Allocator`] implements [`Send`], and
+/// so it cannot directly expose shared references to the underlying [`Bump`];
+/// a user could get `&Bump` on one thread, send the [`Allocator`] to another
+/// thread, then get `&Bump` over there.  This is why [`Allocator`] copies
+/// [`Bump`]'s methods instead of implementing [`Deref`] to [`Bump`].
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct Allocator<'a> {
