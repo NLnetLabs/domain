@@ -953,7 +953,6 @@ mod tests {
 
     #[test]
     fn soa_is_required() {
-        init_logging();
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let records =
@@ -967,7 +966,6 @@ mod tests {
 
     #[test]
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
-        init_logging();
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let records = SortedRecords::<_, _>::from_iter([
@@ -983,7 +981,6 @@ mod tests {
 
     #[test]
     fn records_outside_zone_are_ignored() {
-        init_logging();
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let records = SortedRecords::<_, _>::from_iter([
@@ -1040,7 +1037,6 @@ mod tests {
 
     #[test]
     fn occluded_records_are_ignored() {
-        init_logging();
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let records = SortedRecords::<_, _>::from_iter([
@@ -1081,7 +1077,6 @@ mod tests {
 
     #[test]
     fn expect_dnskeys_at_the_apex() {
-        init_logging();
         let mut cfg = GenerateNsec3Config::default();
 
         let records = SortedRecords::<_, _>::from_iter([
@@ -1109,7 +1104,6 @@ mod tests {
 
     #[test]
     fn rfc_5155_appendix_a_and_rfc_9077_compliant_plus_ents() {
-        init_logging();
         // These NSEC3 settings match those of the NSEC3PARAM record shown in
         // https://datatracker.ietf.org/doc/html/rfc5155#appendix-A.
         let nsec3params = Nsec3param::new(
@@ -1301,7 +1295,6 @@ mod tests {
 
     #[test]
     fn opt_out_with_exclusion() {
-        init_logging();
         // https://www.rfc-editor.org/rfc/rfc5155.html#section-7.1
         // 7.1.  Zone Signing
         // ..
@@ -1340,7 +1333,6 @@ mod tests {
 
     #[test]
     fn opt_out_without_exclusion() {
-        init_logging();
         // https://www.rfc-editor.org/rfc/rfc5155.html#section-7.1
         // 7.1.  Zone Signing
         // ..
@@ -1386,7 +1378,6 @@ mod tests {
         expected = "All RTYPEs for a single owner name should have been combined into a single NSEC3 RR. Was the input NSEC3 canonically ordered?"
     )]
     fn generating_nsec3s_for_unordered_input_should_panic() {
-        init_logging();
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
 
@@ -1402,7 +1393,6 @@ mod tests {
 
     #[test]
     fn test_nsec3_hash_collision_handling() {
-        init_logging();
         let mut cfg = GenerateNsec3Config::<_, _, _, DefaultSorter>::new(
             Nsec3param::default(),
             CollidingHashProvider,
@@ -1434,14 +1424,5 @@ mod tests {
         ) -> Result<StoredName, Nsec3HashError> {
             Ok(StoredName::root())
         }
-    }
-
-    fn init_logging() {
-        tracing_subscriber::fmt()
-        .with_max_level(tracing::level_filters::LevelFilter::TRACE)
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
     }
 }
