@@ -2,420 +2,537 @@
 //!
 //! **This module is experimental and likely to change significantly.**
 //!
-//! Signatures are at the heart of DNSSEC -- they confirm the authenticity of
-//! a DNS record served by a security-aware name server.  Signatures can be
-//! made "online" (in an authoritative name server while it is running) or
-//! "offline" (outside of a name server).  Once generated, signatures can be
-//! serialized as DNS records and stored alongside the authenticated records.
+//! This module provides support for DNSSEC ([RFC 9364]) signing of zones and
+//! managing of the keys used for signing, with support for `NSEC3` ([RFC
+//! 5155]), [RFC 9077] compliant `NSEC(3)` TTLs, and [RFC 9276] compliant
+//! `NSEC3` parameter settings.
 //!
-//! Signatures can be generated using a [`SigningKey`], which combines
-//! cryptographic key material with additional information that defines how
-//! the key should be used.  [`SigningKey`] relies on a cryptographic backend
-//! to provide the underlying signing operation (e.g. [`common::KeyPair`]).
+//! # Background
 //!
-//! # Example Usage
+//! DNSSEC signed zones are normal DNS zones (i.e. with records at the apex
+//! such as the `SOA` and `NS` records, records in the zone such as `A`
+//! records, and delegations to child zones). What makes them different to
+//! non-DNSSEC signed zones is that they also contain additional configuration
+//! data such as `DNSKEY` and `NSEC3PARAM` records, a chain of `NSEC(3)`
+//! records used to provably deny the existence of records, and `RRSIG`
+//! signatures that authenticate the authoritative content of the zone. See
+//! "Signed Zone" in [RFC 9499 section 10] for more information.
 //!
-//! At the moment, only "low-level" signing is supported.
+//! Signatures are generated using a private key and can be validated using
+//! the corresponding public key.
 //!
-//! ```
-//! # use domain::sign::*;
-//! # use domain::base::Name;
-//! // Generate a new Ed25519 key.
-//! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
+//! In a DNSSEC signed zone each generated signature covers a single resource
+//! record set (a group of records having the same owner name, class and type)
+//! and is stored in an `RRSIG` record under the same owner name in the zone.
+//! These `RRSIG` records can then be validated later by a resolver using the
+//! public key.
 //!
-//! // Parse the key into Ring or OpenSSL.
-//! let key_pair = common::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//! Private keys must be stored in a safe location by zone signers while
+//! public keys can be stored in `DNSKEY` records in public DNS zones.
+//! Validating resolvers query the `DNSKEY`s in order to validate `RRSIG`s in
+//! the signed zone and thus authenticate the data which the `RRSIG`s cover.
+//! `DNSKEY` records can be trusted because a chain of trust is established
+//! from a trust anchor to the signed zone with each parent zone in the chain
+//! authenticating the public key used to sign a child zone. A `DS` record in
+//! the parent zone that refers to a `DNSKEY` record in the child zone
+//! establishes this link.
 //!
-//! // Associate the key with important metadata.
-//! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
-//! let flags = 257; // key signing key
-//! let key = SigningKey::new(owner, flags, key_pair);
+//! For increased security keys are rotated (aka "rolled") over time. This key
+//! rolling has to be carefully orchestrated so that at all times the signed
+//! zone which the key belongs to remains valid from the perspective of
+//! resolvers.
 //!
-//! // Access the public key (with metadata).
-//! let pub_key = key.public_key();
-//! println!("{:?}", pub_key);
+//! # Usage
 //!
-//! // Sign arbitrary byte sequences with the key.
-//! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
-//! println!("{:?}", sig);
-//! ```
+//! - To generate and/or import signing keys see the [`crypto`] module.
+//! - To sign a collection of [`Record`]s that represent a zone see the
+//!   [`SignableZoneInPlace`] trait.
+//! - To manage the life cycle of signing keys see the [`keyset`] module.
 //!
-//! It is also possible to import keys stored on disk in the conventional BIND
-//! format.
+//! # Advanced usage
 //!
-//! ```
-//! # use domain::base::iana::SecAlg;
-//! # use domain::{sign::*, validate};
-//! // Load an Ed25519 key named 'Ktest.+015+56037'.
-//! let base = "test-data/dnssec-keys/Ktest.+015+56037";
-//! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
-//! let sec_bytes = SecretKeyBytes::parse_from_bind(&sec_text).unwrap();
-//! let pub_text = std::fs::read_to_string(format!("{base}.key")).unwrap();
-//! let pub_key = validate::Key::<Vec<u8>>::parse_from_bind(&pub_text).unwrap();
+//! - For more control over the signing process see the [`SigningConfig`] type
+//!   and the [`SigningKeyUsageStrategy`] and [`DnssecSigningKey`] traits.
+//! - For additional ways to sign zones see the [`SignableZone`] trait and the
+//!   [`sign_zone()`] function.
+//! - To invoke specific stages of the signing process manually see the
+//!   [`Signable`] trait and the [`generate_nsecs()`], [`generate_nsec3s()`],
+//!   [`generate_rrsigs()`] and [`sign_rrset()`] functions.
+//! - To generate signatures for arbitrary data see the [`SignRaw`] trait.
 //!
-//! // Parse the key into Ring or OpenSSL.
-//! let key_pair = common::KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
+//! # Limitations
 //!
-//! // Associate the key with important metadata.
-//! let key = SigningKey::new(pub_key.owner().clone(), pub_key.flags(), key_pair);
+//! This module does not yet support:
+//! - `async` signing (useful for interacting with cryptographic hardware like
+//!   Hardware Security Modules (HSMs)).
+//! - Re-signing an already signed zone, only unsigned zones can be signed.
+//! - Signing of unsorted zones, record collections must be sorted according
+//!   to [`CanonicalOrd`].
+//! - Signing of [`Zone`] types or via an [`core::iter::Iterator`] over
+//!   [`Record`]s, only signing of slices is supported.
+//! - Signing with both `NSEC` and `NSEC3` or multiple `NSEC3` configurations
+//!   at once.
+//! - Rewriting the DNSKEY RR algorithm identifier when using NSEC3 with the
+//!   older DSA or RSASHA1 algorithms (which is anyway only possible at
+//!   present if you bring your own cryptography).
 //!
-//! // Check that the owner, algorithm, and key tag matched expectations.
-//! assert_eq!(key.owner().to_string(), "test");
-//! assert_eq!(key.algorithm(), SecAlg::ED25519);
-//! assert_eq!(key.public_key().key_tag(), 56037);
-//! ```
-//!
-//! # Cryptography
-//!
-//! This crate supports OpenSSL and Ring for performing cryptography.  These
-//! cryptographic backends are gated on the `openssl` and `ring` features,
-//! respectively.  They offer mostly equivalent functionality, but OpenSSL
-//! supports a larger set of signing algorithms (and, for RSA keys, supports
-//! weaker key sizes).  A [`common`] backend is provided for users that wish
-//! to use either or both backends at runtime.
-//!
-//! Each backend module (`openssl`, `ring`, and `common`) exposes a `KeyPair`
-//! type, representing a cryptographic key that can be used for signing, and a
-//! `generate()` function for creating new keys.
-//!
-//! Users can choose to bring their own cryptography by providing their own
-//! `KeyPair` type that implements [`SignRaw`].  Note that `async` signing
-//! (useful for interacting with cryptographic hardware like HSMs) is not
-//! currently supported.
-//!
-//! While each cryptographic backend can support a limited number of signature
-//! algorithms, even the types independent of a cryptographic backend (e.g.
-//! [`SecretKeyBytes`] and [`GenerateParams`]) support a limited number of
-//! algorithms.  Even with custom cryptographic backends, this module can only
-//! support these algorithms.
-//!
-//! # Importing and Exporting
-//!
-//! The [`SecretKeyBytes`] type is a generic representation of a secret key as
-//! a byte slice.  While it does not offer any cryptographic functionality, it
-//! is useful to transfer secret keys stored in memory, independent of any
-//! cryptographic backend.
-//!
-//! The `KeyPair` types of the cryptographic backends in this module each
-//! support a `from_bytes()` function that parses the generic representation
-//! into a functional cryptographic key.  Importantly, these functions require
-//! both the public and private keys to be provided -- the pair are verified
-//! for consistency.  In some cases, it may also be possible to serialize an
-//! existing cryptographic key back to the generic bytes representation.
-//!
-//! [`SecretKeyBytes`] also supports importing and exporting keys from and to
-//! the conventional private-key format popularized by BIND.  This format is
-//! used by a variety of tools for storing DNSSEC keys on disk.  See the
-//! type-level documentation for a specification of the format.
-//!
-//! # Key Sets and Key Lifetime
-//! The [`keyset`] module provides a way to keep track of the collection of
-//! keys that are used to sign a particular zone. In addition, the lifetime
-//! of keys can be maintained using key rolls that phase out old keys and
-//! introduce new keys.
+//! [`common`]: crate::sign::crypto::common
+//! [`keyset`]: crate::sign::keys::keyset
+//! [`openssl`]: crate::sign::crypto::openssl
+//! [`ring`]: crate::sign::crypto::ring
+//! [`sign_rrset()`]: crate::sign::signatures::rrsigs::sign_rrset
+//! [`DnssecSigningKey`]: crate::sign::keys::DnssecSigningKey
+//! [`Record`]: crate::base::record::Record
+//! [RFC 5155]: https://rfc-editor.org/rfc/rfc5155
+//! [RFC 6781 section 3.1]: https://rfc-editor.org/rfc/rfc6781#section-3.1
+//! [RFC 9077]: https://rfc-editor.org/rfc/rfc9077
+//! [RFC 9276]: https://rfc-editor.org/rfc/rfc9276
+//! [RFC 9364]: https://rfc-editor.org/rfc/rfc9364
+//! [RFC 9499 section 10]:
+//!     https://www.rfc-editor.org/rfc/rfc9499.html#section-10
+//! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
+//! [`KeyPair`]: crate::sign::crypto::common::KeyPair
+//! [`SigningKeyUsageStrategy`]:
+//!     crate::sign::signing::strategy::SigningKeyUsageStrategy
+//! [`Signable`]: crate::sign::traits::Signable
+//! [`SignableZone`]: crate::sign::traits::SignableZone
+//! [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
+//! [`SigningKey`]: crate::sign::keys::SigningKey
+//! [`SortedRecords`]: crate::sign::SortedRecords
+//! [`Zone`]: crate::zonetree::Zone
 
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
-use core::fmt;
+pub mod config;
+pub mod crypto;
+pub mod denial;
+pub mod error;
+pub mod keys;
+pub mod records;
+pub mod signatures;
+pub mod traits;
 
-use crate::{
-    base::{iana::SecAlg, Name},
-    validate,
-};
+#[cfg(test)]
+pub mod test_util;
 
 pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
-mod bytes;
-pub use self::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
+pub use self::config::SigningConfig;
+pub use self::keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
-pub mod common;
-pub mod keyset;
-pub mod openssl;
-pub mod ring;
+use core::fmt::Display;
+use core::hash::Hash;
+use core::marker::PhantomData;
+use core::ops::Deref;
 
-//----------- SigningKey -----------------------------------------------------
+use std::boxed::Box;
+use std::fmt::Debug;
+use std::vec::Vec;
 
-/// A signing key.
+use crate::base::{CanonicalOrd, ToName};
+use crate::base::{Name, Record, Rtype};
+use crate::rdata::ZoneRecordData;
+
+use denial::config::DenialConfig;
+use denial::nsec::generate_nsecs;
+use denial::nsec3::{generate_nsec3s, Nsec3HashProvider, Nsec3Records};
+use error::SigningError;
+use keys::keymeta::DesignatedSigningKey;
+use octseq::{
+    EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
+};
+use records::{RecordsIter, Sorter};
+use signatures::rrsigs::{
+    generate_rrsigs, GenerateRrsigConfig, RrsigRecords,
+};
+use signatures::strategy::{
+    RrsigValidityPeriodStrategy, SigningKeyUsageStrategy,
+};
+use traits::{SignRaw, SignableZone, SortedExtend};
+
+//------------ SignableZoneInOut ---------------------------------------------
+
+/// Combined in and out input type for use with [`sign_zone()`].
 ///
-/// This associates important metadata with a raw cryptographic secret key.
-pub struct SigningKey<Octs, Inner: SignRaw> {
-    /// The owner of the key.
-    owner: Name<Octs>,
-
-    /// The flags associated with the key.
-    ///
-    /// These flags are stored in the DNSKEY record.
-    flags: u16,
-
-    /// The raw private key.
-    inner: Inner,
+/// This type exists, similar to [`Cow`], to allow [`sign_zone()`] to operate
+/// on both mutable and immutable zones as input, acting as an in-out
+/// parameter whereby the same zone is read from and written to, or as
+/// separate in and out parameters where one is an in parameter, the zone to
+/// read from, and the other is an out parameter, the collection to write
+/// generated records to.
+///
+/// Prefer signing via the [`SignableZone`] or [`SignableZoneInPlace`] traits
+/// as they handle the construction of this type and calling [`sign_zone()`].
+///
+/// [`Cow`]: std::borrow::Cow
+/// [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
+pub enum SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
+where
+    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
+    Octs: Clone
+        + FromBuilder
+        + From<&'static [u8]>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + From<Box<[u8]>>
+        + Default,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    Sort: Sorter,
+    T: SortedExtend<N, Octs, Sort> + ?Sized,
+{
+    SignInPlace(&'a mut T, PhantomData<(N, Octs, Sort)>),
+    SignInto(&'a S, &'b mut T),
 }
 
 //--- Construction
 
-impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
-    /// Construct a new signing key manually.
-    pub fn new(owner: Name<Octs>, flags: u16, inner: Inner) -> Self {
-        Self {
-            owner,
-            flags,
-            inner,
-        }
+impl<'a, 'b, N, Octs, S, T, Sort>
+    SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
+where
+    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
+    Octs: Clone
+        + FromBuilder
+        + From<&'static [u8]>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + From<Box<[u8]>>
+        + Default,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    Sort: Sorter,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
+        + SortedExtend<N, Octs, Sort>
+        + ?Sized,
+{
+    /// Create an input suitable for signing a zone in-place.
+    fn new_in_place(signable_zone: &'a mut T) -> Self {
+        Self::SignInPlace(signable_zone, Default::default())
+    }
+
+    /// Create an input suitable for signing a read-only zone.
+    ///
+    /// Records generated by signing should be written into the provided
+    /// separate collection.
+    fn new_into(signable_zone: &'a S, out: &'b mut T) -> Self {
+        Self::SignInto(signable_zone, out)
     }
 }
 
-//--- Inspection
+//--- Accessors
 
-impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
-    /// The owner name attached to the key.
-    pub fn owner(&self) -> &Name<Octs> {
-        &self.owner
-    }
-
-    /// The flags attached to the key.
-    pub fn flags(&self) -> u16 {
-        self.flags
-    }
-
-    /// The raw secret key.
-    pub fn raw_secret_key(&self) -> &Inner {
-        &self.inner
-    }
-
-    /// Whether this is a zone signing key.
+impl<N, Octs, S, T, Sort> SignableZoneInOut<'_, '_, N, Octs, S, T, Sort>
+where
+    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
+    Octs: Clone
+        + FromBuilder
+        + From<&'static [u8]>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + From<Box<[u8]>>
+        + Default,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
+        + SortedExtend<N, Octs, Sort>
+        + ?Sized,
+{
+    /// Read-only slice based access to the zone to be signed.
     ///
-    /// From [RFC 4034, section 2.1.1]:
-    ///
-    /// > Bit 7 of the Flags field is the Zone Key flag.  If bit 7 has value
-    /// > 1, then the DNSKEY record holds a DNS zone key, and the DNSKEY RR's
-    /// > owner name MUST be the name of a zone.  If bit 7 has value 0, then
-    /// > the DNSKEY record holds some other type of DNS public key and MUST
-    /// > NOT be used to verify RRSIGs that cover RRsets.
-    ///
-    /// [RFC 4034, section 2.1.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.1
-    pub fn is_zone_signing_key(&self) -> bool {
-        self.flags & (1 << 8) != 0
-    }
-
-    /// Whether this key has been revoked.
-    ///
-    /// From [RFC 5011, section 3]:
-    ///
-    /// > Bit 8 of the DNSKEY Flags field is designated as the 'REVOKE' flag.
-    /// > If this bit is set to '1', AND the resolver sees an RRSIG(DNSKEY)
-    /// > signed by the associated key, then the resolver MUST consider this
-    /// > key permanently invalid for all purposes except for validating the
-    /// > revocation.
-    ///
-    /// [RFC 5011, section 3]: https://datatracker.ietf.org/doc/html/rfc5011#section-3
-    pub fn is_revoked(&self) -> bool {
-        self.flags & (1 << 7) != 0
-    }
-
-    /// Whether this is a secure entry point.
-    ///
-    /// From [RFC 4034, section 2.1.1]:
-    ///
-    /// > Bit 15 of the Flags field is the Secure Entry Point flag, described
-    /// > in [RFC3757].  If bit 15 has value 1, then the DNSKEY record holds a
-    /// > key intended for use as a secure entry point.  This flag is only
-    /// > intended to be a hint to zone signing or debugging software as to
-    /// > the intended use of this DNSKEY record; validators MUST NOT alter
-    /// > their behavior during the signature validation process in any way
-    /// > based on the setting of this bit.  This also means that a DNSKEY RR
-    /// > with the SEP bit set would also need the Zone Key flag set in order
-    /// > to be able to generate signatures legally.  A DNSKEY RR with the SEP
-    /// > set and the Zone Key flag not set MUST NOT be used to verify RRSIGs
-    /// > that cover RRsets.
-    ///
-    /// [RFC 4034, section 2.1.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.1
-    /// [RFC3757]: https://datatracker.ietf.org/doc/html/rfc3757
-    pub fn is_secure_entry_point(&self) -> bool {
-        self.flags & 1 != 0
-    }
-
-    /// The signing algorithm used.
-    pub fn algorithm(&self) -> SecAlg {
-        self.inner.algorithm()
-    }
-
-    /// The associated public key.
-    pub fn public_key(&self) -> validate::Key<&Octs>
-    where
-        Octs: AsRef<[u8]>,
-    {
-        let owner = Name::from_octets(self.owner.as_octets()).unwrap();
-        validate::Key::new(owner, self.flags, self.inner.raw_public_key())
-    }
-
-    /// The associated raw public key.
-    pub fn raw_public_key(&self) -> PublicKeyBytes {
-        self.inner.raw_public_key()
-    }
-}
-
-// TODO: Conversion to and from key files
-
-//----------- SignRaw --------------------------------------------------------
-
-/// Low-level signing functionality.
-///
-/// Types that implement this trait own a private key and can sign arbitrary
-/// information (in the form of slices of bytes).
-///
-/// Implementing types should validate keys during construction, so that
-/// signing does not fail due to invalid keys.  If the implementing type
-/// allows [`sign_raw()`] to be called on unvalidated keys, it will have to
-/// check the validity of the key for every signature; this is unnecessary
-/// overhead when many signatures have to be generated.
-///
-/// [`sign_raw()`]: SignRaw::sign_raw()
-pub trait SignRaw {
-    /// The signature algorithm used.
-    ///
-    /// See [RFC 8624, section 3.1] for IETF implementation recommendations.
-    ///
-    /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
-    fn algorithm(&self) -> SecAlg;
-
-    /// The raw public key.
-    ///
-    /// This can be used to verify produced signatures.  It must use the same
-    /// algorithm as returned by [`algorithm()`].
-    ///
-    /// [`algorithm()`]: Self::algorithm()
-    fn raw_public_key(&self) -> PublicKeyBytes;
-
-    /// Sign the given bytes.
-    ///
-    /// # Errors
-    ///
-    /// See [`SignError`] for a discussion of possible failure cases.  To the
-    /// greatest extent possible, the implementation should check for failure
-    /// cases beforehand and prevent them (e.g. when the keypair is created).
-    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError>;
-}
-
-//----------- GenerateParams -------------------------------------------------
-
-/// Parameters for generating a secret key.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GenerateParams {
-    /// Generate an RSA/SHA-256 keypair.
-    RsaSha256 {
-        /// The number of bits in the public modulus.
-        ///
-        /// A ~3000-bit key corresponds to a 128-bit security level.  However,
-        /// RSA is mostly used with 2048-bit keys.  Some backends (like Ring)
-        /// do not support smaller key sizes than that.
-        ///
-        /// For more information about security levels, see [NIST SP 800-57
-        /// part 1 revision 5], page 54, table 2.
-        ///
-        /// [NIST SP 800-57 part 1 revision 5]: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
-        bits: u32,
-    },
-
-    /// Generate an ECDSA P-256/SHA-256 keypair.
-    EcdsaP256Sha256,
-
-    /// Generate an ECDSA P-384/SHA-384 keypair.
-    EcdsaP384Sha384,
-
-    /// Generate an Ed25519 keypair.
-    Ed25519,
-
-    /// An Ed448 keypair.
-    Ed448,
-}
-
-//--- Inspection
-
-impl GenerateParams {
-    /// The algorithm of the generated key.
-    pub fn algorithm(&self) -> SecAlg {
+    /// Allows the zone, whether mutable or immutable, to be accessed via
+    /// an immutable reference.
+    fn as_slice(&self) -> &[Record<N, ZoneRecordData<Octs, N>>] {
         match self {
-            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519 => SecAlg::ED25519,
-            Self::Ed448 => SecAlg::ED448,
+            SignableZoneInOut::SignInPlace(input_output, _) => input_output,
+
+            SignableZoneInOut::SignInto(input, _) => input,
+        }
+    }
+
+    /// Read-only slice based access to the record collection being written
+    /// to.
+    fn as_out_slice(&self) -> &[Record<N, ZoneRecordData<Octs, N>>] {
+        match self {
+            SignableZoneInOut::SignInPlace(input_output, _) => input_output,
+            SignableZoneInOut::SignInto(_, output) => output,
+        }
+    }
+
+    /// Add records in sort order to the output.
+    ///
+    /// For an immutable zone this will cause records to be added to the
+    /// separate output collection.
+    ///
+    /// For a mutable zone this will cause records to be added to the zone
+    /// itself.
+    ///
+    /// The destination type is required via the [`SortedExtend`] trait bound
+    /// to ensure that the records are added in [`CanonicalOrd`] order.
+    fn sorted_extend<
+        U: IntoIterator<Item = Record<N, ZoneRecordData<Octs, N>>>,
+    >(
+        &mut self,
+        iter: U,
+    ) {
+        match self {
+            SignableZoneInOut::SignInPlace(input_output, _) => {
+                input_output.sorted_extend(iter)
+            }
+            SignableZoneInOut::SignInto(_, output) => {
+                output.sorted_extend(iter)
+            }
         }
     }
 }
 
-//============ Error Types ===================================================
+//------------ sign_zone() ---------------------------------------------------
 
-//----------- SignError ------------------------------------------------------
+/// DNSSEC sign an unsigned zone using the given configuration and keys.
+///
+/// An implementation of [RFC 4035 section 2 Zone Signing] with optional
+/// support for NSEC3 ([RFC 5155]), i.e. it will generate `DNSKEY` (if
+/// configured), `NSEC` or `NSEC3` (and if NSEC3 is in use then also
+/// `NSEC3PARAM`), and `RRSIG` records.
+///
+/// Signing can either be done in-place (records generated by signing will be
+/// added to the record collection being signed) or into some other provided
+/// record collection (records generated by signing will be added to the other
+/// collection, the record collection being signed will remain untouched).
+///
+/// Prefer signing via the [`SignableZone`] or [`SignableZoneInPlace`] traits
+/// as they handle the construction of the [`SignableZoneInOut`] type and
+/// calling of this function for you.
+///
+/// # Requirements
+///
+/// The record collection to be signed is required to implement the
+/// [`SignableZone`] trait. The collection to extend with generated records is
+/// required to implement the [`SortedExtend`] trait, implementations of which
+/// are provided for the [`SortedRecords`] and [`Vec`] types.
+///
+/// The record collection to be signed must meet the following requirements.
+/// Failure to meet these requirements will likely lead to incorrect signing
+/// output.
+///
+/// 1. The record collection to be signed **MUST** be ordered according to
+///    [`CanonicalOrd`]. This is always true for [`SortedRecords`].
+/// 2. The record collection to be signed **MUST** be unsigned, i.e. must not
+///    contain `DNSKEY`, `NSEC`, `NSEC3`, `NSEC3PARAM`, or `RRSIG` records.
+///
+/// <div class="warning">
+///
+///   When using a type other than [`SortedRecords`] as input to this function
+///   you **MUST** be sure that its content is already sorted according to
+///   [`CanonicalOrd`] prior to calling this function.
+///
+/// </div>
+///
+/// # Limitations
+///
+/// This function does not yet support:
+///
+/// - Enforcement of [RFC 5155 section 2 Backwards Compatibility] regarding
+///   use of NSEC3 algorithm aliases in DNSKEY RRs.
+///
+/// - Re-signing, i.e. re-generating expired `RRSIG` signatures, updating the
+///   NSEC(3) chain to match added or removed records or adding signatures for
+///   another key to an already signed zone e.g. to support key rollover. For
+///   the latter case it does however support providing multiple sets of key
+///   to sign with the [`SigningKeyUsageStrategy`] implementation being used
+///   to determine which keys to use to sign which records.
+///
+/// - Signing with multiple NSEC(3) configurations at once, e.g. to migrate
+///   from NSEC <-> NSEC3 or between NSEC3 configurations.
+///
+/// - Signing of record collections stored in the [`Zone`] type as it
+///   currently only support signing of record slices whereas the records in a
+///   [`Zone`] currently only supports a visitor style read interface via
+///   [`ReadableZone`] whereby a callback function is invoked for each node
+///   that is "walked".
+///
+/// # Configuration
+///
+/// Various aspects of the signing process are configurable, see
+/// [`SigningConfig`] for more information.
+///
+/// [`ReadableZone`]: crate::zonetree::ReadableZone
+/// [RFC 4035 section 2 Zone Signing]:
+///     https://www.rfc-editor.org/rfc/rfc4035.html#section-2
+/// [RFC 5155]: https://www.rfc-editor.org/info/rfc5155
+/// [RFC 5155 section 2 Backwards Compatibility]:
+///     https://www.rfc-editor.org/rfc/rfc5155.html#section-2
+/// [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
+/// [`SortedRecords`]: crate::sign::records::SortedRecords
+/// [`Zone`]: crate::zonetree::Zone
+pub fn sign_zone<
+    N,
+    Octs,
+    S,
+    DSK,
+    Inner,
+    KeyStrat,
+    ValidityStrat,
+    Sort,
+    HP,
+    T,
+>(
+    mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
+    signing_config: &mut SigningConfig<
+        N,
+        Octs,
+        Inner,
+        KeyStrat,
+        ValidityStrat,
+        Sort,
+        HP,
+    >,
+    signing_keys: &[DSK],
+) -> Result<(), SigningError>
+where
+    DSK: DesignatedSigningKey<Octs, Inner>,
+    HP: Nsec3HashProvider<N, Octs>,
+    Inner: SignRaw,
+    N: Display
+        + Send
+        + CanonicalOrd
+        + Clone
+        + ToName
+        + From<Name<Octs>>
+        + Ord
+        + Hash,
+    <Octs as FromBuilder>::Builder:
+        Truncate + EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    ValidityStrat: RrsigValidityPeriodStrategy + Clone,
+    S: SignableZone<N, Octs, Sort>,
+    Sort: Sorter,
+    T: SortedExtend<N, Octs, Sort> + ?Sized,
+    Octs: FromBuilder
+        + Clone
+        + From<&'static [u8]>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + From<Box<[u8]>>
+        + Default,
+    T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>,
+{
+    // Iterate over the RR sets of the first owner name (should be the apex as
+    // the input should be ordered according to [`CanonicalOrd`] and should be
+    // a complete zone) to find the SOA record. There should be one and only
+    // one SOA record.
+    let soa_rr = get_apex_soa_rr(in_out.as_slice())?;
 
-/// A signature failure.
-///
-/// In case such an error occurs, callers should stop using the key pair they
-/// attempted to sign with.  If such an error occurs with every key pair they
-/// have available, or if such an error occurs with a freshly-generated key
-/// pair, they should use a different cryptographic implementation.  If that
-/// is not possible, they must forego signing entirely.
-///
-/// # Failure Cases
-///
-/// Signing should be an infallible process.  There are three considerable
-/// failure cases for it:
-///
-/// - The secret key was invalid (e.g. its parameters were inconsistent).
-///
-///   Such a failure would mean that all future signing (with this key) will
-///   also fail.  In any case, the implementations provided by this crate try
-///   to verify the key (e.g. by checking the consistency of the private and
-///   public components) before any signing occurs, largely ruling this class
-///   of errors out.
-///
-/// - Not enough randomness could be obtained.  This applies to signature
-///   algorithms which use randomization (e.g. RSA and ECDSA).
-///
-///   On the vast majority of platforms, randomness can always be obtained.
-///   The [`getrandom` crate documentation][getrandom] notes:
-///
-///   > If an error does occur, then it is likely that it will occur on every
-///   > call to getrandom, hence after the first successful call one can be
-///   > reasonably confident that no errors will occur.
-///
-///   [getrandom]: https://docs.rs/getrandom
-///
-///   Thus, in case such a failure occurs, all future signing will probably
-///   also fail.
-///
-/// - Not enough memory could be allocated.
-///
-///   Signature algorithms have a small memory overhead, so an out-of-memory
-///   condition means that the program is nearly out of allocatable space.
-///
-///   Callers who do not expect allocations to fail (i.e. who are using the
-///   standard memory allocation routines, not their `try_` variants) will
-///   likely panic shortly after such an error.
-///
-///   Callers who are aware of their memory usage will likely restrict it far
-///   before they get to this point.  Systems running at near-maximum load
-///   tend to quickly become unresponsive and staggeringly slow.  If memory
-///   usage is an important consideration, programs will likely cap it before
-///   the system reaches e.g. 90% memory use.
-///
-///   As such, memory allocation failure should never really occur.  It is far
-///   more likely that one of the other errors has occurred.
-///
-/// It may be reasonable to panic in any such situation, since each kind of
-/// error is essentially unrecoverable.  However, applications where signing
-/// is an optional step, or where crashing is prohibited, may wish to recover
-/// from such an error differently (e.g. by foregoing signatures or informing
-/// an operator).
-#[derive(Clone, Debug)]
-pub struct SignError;
+    let apex_owner = soa_rr.owner().clone();
 
-impl fmt::Display for SignError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("could not create a cryptographic signature")
+    let owner_rrs = RecordsIter::new(in_out.as_slice());
+
+    match &mut signing_config.denial {
+        DenialConfig::AlreadyPresent => {
+            // Nothing to do.
+        }
+
+        DenialConfig::Nsec(ref cfg) => {
+            let nsecs = generate_nsecs(owner_rrs, cfg)?;
+
+            in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
+        }
+
+        DenialConfig::Nsec3(ref mut cfg, extra) if extra.is_empty() => {
+            // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
+            // order." We store the NSEC3s as we create them and sort them
+            // afterwards.
+            let Nsec3Records { nsec3s, nsec3param } =
+                generate_nsec3s::<N, Octs, HP, Sort>(owner_rrs, cfg)?;
+
+            // Add the generated NSEC3 records.
+            in_out.sorted_extend(
+                std::iter::once(Record::from_record(nsec3param))
+                    .chain(nsec3s.into_iter().map(Record::from_record)),
+            );
+        }
+
+        DenialConfig::Nsec3(_nsec3_config, _extra) => {
+            todo!();
+        }
+
+        DenialConfig::TransitioningNsecToNsec3(
+            _nsec_config,
+            _nsec3_config,
+            _nsec_to_nsec3_transition_state,
+        ) => {
+            todo!();
+        }
+
+        DenialConfig::TransitioningNsec3ToNsec(
+            _nsec_config,
+            _nsec3_config,
+            _nsec3_to_nsec_transition_state,
+        ) => {
+            todo!();
+        }
     }
+
+    if !signing_keys.is_empty() {
+        let mut rrsig_config =
+            GenerateRrsigConfig::<N, KeyStrat, ValidityStrat, Sort>::new(
+                signing_config.rrsig_validity_period_strategy.clone(),
+            );
+        rrsig_config.add_used_dnskeys = signing_config.add_used_dnskeys;
+        rrsig_config.zone_apex = Some(&apex_owner);
+
+        // Sign the NSEC(3)s.
+        let owner_rrs = RecordsIter::new(in_out.as_out_slice());
+
+        let RrsigRecords { rrsigs, dnskeys } =
+            generate_rrsigs(owner_rrs, signing_keys, &rrsig_config)?;
+
+        // Sorting may not be strictly needed, but we don't have the option to
+        // extend without sort at the moment.
+        in_out.sorted_extend(
+            dnskeys
+                .into_iter()
+                .map(Record::from_record)
+                .chain(rrsigs.into_iter().map(Record::from_record)),
+        );
+
+        // Sign the original unsigned records.
+        let owner_rrs = RecordsIter::new(in_out.as_slice());
+
+        let RrsigRecords { rrsigs, dnskeys } =
+            generate_rrsigs(owner_rrs, signing_keys, &rrsig_config)?;
+
+        // Sorting may not be strictly needed, but we don't have the option to
+        // extend without sort at the moment.
+        in_out.sorted_extend(
+            dnskeys
+                .into_iter()
+                .map(Record::from_record)
+                .chain(rrsigs.into_iter().map(Record::from_record)),
+        );
+    }
+
+    Ok(())
 }
 
-impl std::error::Error for SignError {}
+// Assumes that the given records are sorted in [`CanonicalOrd`] order.
+fn get_apex_soa_rr<N, Octs>(
+    slice: &[Record<N, ZoneRecordData<Octs, N>>],
+) -> Result<&Record<N, ZoneRecordData<Octs, N>>, SigningError>
+where
+    N: ToName,
+{
+    let first_owner_rrs = RecordsIter::new(slice)
+        .next()
+        .ok_or(SigningError::SoaRecordCouldNotBeDetermined)?;
+    let mut soa_rrs = first_owner_rrs
+        .records()
+        .filter(|rr| rr.rtype() == Rtype::SOA);
+    let soa_rr = soa_rrs
+        .next()
+        .ok_or(SigningError::SoaRecordCouldNotBeDetermined)?;
+    if soa_rrs.next().is_some() {
+        return Err(SigningError::SoaRecordCouldNotBeDetermined);
+    }
+    Ok(soa_rr)
+}

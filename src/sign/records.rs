@@ -1,33 +1,96 @@
-//! Actual signing.
+//! Types for iterating over and storing zone records in canonical sort order.
+use core::cmp::Ordering;
+use core::convert::From;
+use core::iter::Extend;
+use core::marker::{PhantomData, Send};
+use core::ops::Deref;
+use core::slice::Iter;
 
-use super::key::SigningKey;
+use std::vec::Vec;
+use std::{fmt, slice};
+
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToName;
-use crate::base::rdata::{ComposeRecordData, RecordData};
+use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::base::Ttl;
-use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap, Timestamp};
-use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
-use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
-use std::vec::Vec;
-use std::{fmt, io, slice};
+
+//------------ Sorter --------------------------------------------------------
+
+/// A DNS resource record sorter.
+///
+/// Implement this trait to use a different sorting algorithm than that
+/// implemented by [`DefaultSorter`], e.g. to use system resources in a
+/// different way when sorting.
+pub trait Sorter {
+    /// Sort the given DNS resource records.
+    ///
+    /// The imposed order should be compatible with the ordering defined by
+    /// RFC 8976 section 3.3.1, i.e. _"DNSSEC's canonical on-the-wire RR
+    /// format (without name compression) and ordering as specified in
+    /// Sections 6.1, 6.2, and 6.3 of [RFC4034] with the additional provision
+    /// that RRsets having the same owner name MUST be numerically ordered, in
+    /// ascending order, by their numeric RR TYPE"_.
+    fn sort_by<N, D, F>(records: &mut Vec<Record<N, D>>, compare: F)
+    where
+        F: Fn(&Record<N, D>, &Record<N, D>) -> Ordering + Sync,
+        Record<N, D>: CanonicalOrd + Send;
+}
+
+//------------ DefaultSorter -------------------------------------------------
+
+/// The default [`Sorter`] implementation used by [`SortedRecords`].
+///
+/// The current implementation is the single threaded sort provided by Rust
+/// [`std::vec::Vec::sort_by()`].
+pub struct DefaultSorter;
+
+impl Sorter for DefaultSorter {
+    fn sort_by<N, D, F>(records: &mut Vec<Record<N, D>>, compare: F)
+    where
+        F: Fn(&Record<N, D>, &Record<N, D>) -> Ordering + Sync,
+        Record<N, D>: CanonicalOrd + Send,
+    {
+        records.sort_by(compare);
+    }
+}
 
 //------------ SortedRecords -------------------------------------------------
 
 /// A collection of resource records sorted for signing.
+///
+/// The sort algorithm used defaults to [`DefaultSorter`] but can be
+/// overridden by being generic over an alternate implementation of
+/// [`Sorter`].
 #[derive(Clone)]
-pub struct SortedRecords<N, D> {
+pub struct SortedRecords<N, D, Sort = DefaultSorter>
+where
+    Record<N, D>: Send,
+    Sort: Sorter,
+{
     records: Vec<Record<N, D>>,
+
+    _phantom: PhantomData<Sort>,
 }
 
-impl<N, D> SortedRecords<N, D> {
+impl<N, D, Sort> SortedRecords<N, D, Sort>
+where
+    Record<N, D>: Send,
+    Sort: Sorter,
+{
     pub fn new() -> Self {
         SortedRecords {
             records: Vec::new(),
+            _phantom: Default::default(),
         }
     }
 
+    /// Insert a record in sorted order.
+    ///
+    /// If inserting a lot of records at once prefer [`extend()`] instead
+    /// which will sort once after all insertions rather than once per
+    /// insertion.
     pub fn insert(&mut self, record: Record<N, D>) -> Result<(), Record<N, D>>
     where
         N: ToName,
@@ -45,7 +108,85 @@ impl<N, D> SortedRecords<N, D> {
         }
     }
 
-    pub fn families(&self) -> RecordsIter<N, D> {
+    /// Remove all records matching the owner name, class, and rtype.
+    /// Class and Rtype can be None to match any.
+    ///
+    /// Returns:
+    ///   - true: if one or more matching records were found (and removed)
+    ///   - false: if no matching record was found
+    pub fn remove_all_by_name_class_rtype(
+        &mut self,
+        name: N,
+        class: Option<Class>,
+        rtype: Option<Rtype>,
+    ) -> bool
+    where
+        N: ToName + Clone,
+        D: RecordData,
+    {
+        let mut found_one = false;
+        loop {
+            if self.remove_first_by_name_class_rtype(
+                name.clone(),
+                class,
+                rtype,
+            ) {
+                found_one = true
+            } else {
+                break;
+            }
+        }
+
+        found_one
+    }
+
+    /// Remove first records matching the owner name, class, and rtype.
+    /// Class and Rtype can be None to match any.
+    ///
+    /// Returns:
+    ///   - true: if a matching record was found (and removed)
+    ///   - false: if no matching record was found
+    pub fn remove_first_by_name_class_rtype(
+        &mut self,
+        name: N,
+        class: Option<Class>,
+        rtype: Option<Rtype>,
+    ) -> bool
+    where
+        N: ToName,
+        D: RecordData,
+    {
+        let idx = self.records.binary_search_by(|stored| {
+            // Ordering based on base::Record::canonical_cmp excluding comparison of data
+
+            if let Some(class) = class {
+                match stored.class().cmp(&class) {
+                    Ordering::Equal => {}
+                    res => return res,
+                }
+            }
+
+            match stored.owner().name_cmp(&name) {
+                Ordering::Equal => {}
+                res => return res,
+            }
+
+            if let Some(rtype) = rtype {
+                stored.rtype().cmp(&rtype)
+            } else {
+                Ordering::Equal
+            }
+        });
+        match idx {
+            Ok(idx) => {
+                self.records.remove(idx);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    pub fn owner_rrs(&self) -> RecordsIter<N, D> {
         RecordsIter::new(&self.records)
     }
 
@@ -61,258 +202,176 @@ impl<N, D> SortedRecords<N, D> {
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
 
-    #[allow(clippy::type_complexity)]
-    pub fn sign<Octets, Key, ApexName>(
-        &self,
-        apex: &FamilyName<ApexName>,
-        expiration: Timestamp,
-        inception: Timestamp,
-        key: Key,
-    ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
+    /// Update the data of an existing record.
+    ///
+    /// Allowing records to be mutated in-place would not be safe because it
+    /// could invalidate the sort order so no general method to mutate the
+    /// records is provided.
+    ///
+    /// This method offers a limited ability to mutate records in-place
+    /// however because it only permits mutating of the resource record data
+    /// of an existing record which doesn't impact the sort order because the
+    /// data is not part of the sort key.
+    pub fn update_data<F>(&mut self, matcher: F, new_data: D)
     where
-        N: ToName + Clone,
-        D: RecordData + ComposeRecordData,
-        Key: SigningKey,
-        Octets: From<Key::Signature> + AsRef<[u8]>,
-        ApexName: ToName + Clone,
+        F: Fn(&Record<N, D>) -> bool,
     {
-        let mut res = Vec::new();
-        let mut buf = Vec::new();
-
-        // The owner name of a zone cut if we currently are at or below one.
-        let mut cut: Option<FamilyName<N>> = None;
-
-        let mut families = self.families();
-
-        // Since the records are ordered, the first family is the apex --
-        // we can skip everything before that.
-        families.skip_before(apex);
-
-        for family in families {
-            // If the owner is out of zone, we have moved out of our zone and
-            // are done.
-            if !family.is_in_zone(apex) {
-                break;
-            }
-
-            // If the family is below a zone cut, we must ignore it.
-            if let Some(ref cut) = cut {
-                if family.owner().ends_with(cut.owner()) {
-                    continue;
-                }
-            }
-
-            // A copy of the family name. We’ll need it later.
-            let name = family.family_name().cloned();
-
-            // If this family is the parent side of a zone cut, we keep the
-            // family name for later. This also means below that if
-            // `cut.is_some()` we are at the parent side of a zone.
-            cut = if family.is_zone_cut(apex) {
-                Some(name.clone())
-            } else {
-                None
-            };
-
-            for rrset in family.rrsets() {
-                if cut.is_some() {
-                    // If we are at a zone cut, we only sign DS and NSEC
-                    // records. NS records we must not sign and everything
-                    // else shouldn’t be here, really.
-                    if rrset.rtype() != Rtype::DS
-                        && rrset.rtype() != Rtype::NSEC
-                    {
-                        continue;
-                    }
-                } else {
-                    // Otherwise we only ignore RRSIGs.
-                    if rrset.rtype() == Rtype::RRSIG {
-                        continue;
-                    }
-                }
-
-                // Create the signature.
-                buf.clear();
-                let rrsig = ProtoRrsig::new(
-                    rrset.rtype(),
-                    key.algorithm()?,
-                    name.owner().rrsig_label_count(),
-                    rrset.ttl(),
-                    expiration,
-                    inception,
-                    key.key_tag()?,
-                    apex.owner().clone(),
-                );
-                rrsig.compose_canonical(&mut buf).unwrap();
-                for record in rrset.iter() {
-                    record.compose_canonical(&mut buf).unwrap();
-                }
-
-                // Create and push the RRSIG record.
-                res.push(Record::new(
-                    name.owner().clone(),
-                    name.class(),
-                    rrset.ttl(),
-                    rrsig
-                        .into_rrsig(key.sign(&buf)?.into())
-                        .expect("long signature"),
-                ));
-            }
+        if let Some(rr) = self.records.iter_mut().find(|rr| matcher(rr)) {
+            *rr.data_mut() = new_data;
         }
-        Ok(res)
     }
 
-    pub fn nsecs<Octets, ApexName>(
-        &self,
-        apex: &FamilyName<ApexName>,
-        ttl: Ttl,
-    ) -> Vec<Record<N, Nsec<Octets, N>>>
-    where
-        N: ToName + Clone,
-        D: RecordData,
-        Octets: FromBuilder,
-        Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
-        <Octets::Builder as OctetsBuilder>::AppendError: fmt::Debug,
-        ApexName: ToName,
-    {
-        let mut res = Vec::new();
-
-        // The owner name of a zone cut if we currently are at or below one.
-        let mut cut: Option<FamilyName<N>> = None;
-
-        let mut families = self.families();
-
-        // Since the records are ordered, the first family is the apex --
-        // we can skip everything before that.
-        families.skip_before(apex);
-
-        // Because of the next name thing, we need to keep the last NSEC
-        // around.
-        let mut prev: Option<(FamilyName<N>, RtypeBitmap<Octets>)> = None;
-
-        // We also need the apex for the last NSEC.
-        let apex_owner = families.first_owner().clone();
-
-        for family in families {
-            // If the owner is out of zone, we have moved out of our zone and
-            // are done.
-            if !family.is_in_zone(apex) {
-                break;
-            }
-
-            // If the family is below a zone cut, we must ignore it.
-            if let Some(ref cut) = cut {
-                if family.owner().ends_with(cut.owner()) {
-                    continue;
-                }
-            }
-
-            // A copy of the family name. We’ll need it later.
-            let name = family.family_name().cloned();
-
-            // If this family is the parent side of a zone cut, we keep the
-            // family name for later. This also means below that if
-            // `cut.is_some()` we are at the parent side of a zone.
-            cut = if family.is_zone_cut(apex) {
-                Some(name.clone())
-            } else {
-                None
-            };
-
-            if let Some((prev_name, bitmap)) = prev.take() {
-                res.push(prev_name.into_record(
-                    ttl,
-                    Nsec::new(name.owner().clone(), bitmap),
-                ));
-            }
-
-            let mut bitmap = RtypeBitmap::<Octets>::builder();
-            // RFC 4035 section 2.3:
-            //  "The type bitmap of every NSEC resource record in a signed
-            //   zone MUST indicate the presence of both the NSEC record
-            //   itself and its corresponding RRSIG record."
-            bitmap.add(Rtype::RRSIG).unwrap();
-            bitmap.add(Rtype::NSEC).unwrap();
-            for rrset in family.rrsets() {
-                bitmap.add(rrset.rtype()).unwrap()
-            }
-
-            prev = Some((name, bitmap.finalize()));
-        }
-        if let Some((prev_name, bitmap)) = prev {
-            res.push(
-                prev_name.into_record(ttl, Nsec::new(apex_owner, bitmap)),
-            );
-        }
-        res
+    pub fn len(&self) -> usize {
+        self.records.len()
     }
 
-    pub fn write<W>(&self, target: &mut W) -> Result<(), io::Error>
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    pub fn iter(&self) -> Iter<'_, Record<N, D>> {
+        self.records.iter()
+    }
+
+    pub fn into_inner(self) -> Vec<Record<N, D>> {
+        self.records
+    }
+}
+
+impl<N, D, Sort> Deref for SortedRecords<N, D, Sort>
+where
+    N: Send,
+    D: Send,
+    Sort: Sorter,
+{
+    type Target = [Record<N, D>];
+
+    fn deref(&self) -> &Self::Target {
+        &self.records
+    }
+}
+
+impl<N, D, Sort> SortedRecords<N, D, Sort>
+where
+    N: ToName + Send,
+    D: RecordData + CanonicalOrd + Send,
+    Sort: Sorter,
+    SortedRecords<N, D>: From<Vec<Record<N, D>>>,
+{
+    pub fn write<W>(&self, target: &mut W) -> Result<(), fmt::Error>
     where
         N: fmt::Display,
         D: RecordData + fmt::Display,
-        W: io::Write,
+        W: fmt::Write,
     {
-        for record in &self.records {
-            writeln!(target, "{}", record)?;
+        for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
+        {
+            write!(target, "{record}")?;
         }
+
+        for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
+        {
+            write!(target, "{record}")?;
+        }
+
+        Ok(())
+    }
+
+    pub fn write_with_comments<W, F>(
+        &self,
+        target: &mut W,
+        comment_cb: F,
+    ) -> Result<(), fmt::Error>
+    where
+        N: fmt::Display,
+        D: RecordData + fmt::Display,
+        W: fmt::Write,
+        F: Fn(&Record<N, D>, &mut W) -> Result<(), fmt::Error>,
+    {
+        for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
+        {
+            write!(target, "{record}")?;
+            comment_cb(record, target)?;
+            writeln!(target)?;
+        }
+
+        for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
+        {
+            write!(target, "{record}")?;
+            comment_cb(record, target)?;
+            writeln!(target)?;
+        }
+
         Ok(())
     }
 }
 
-impl<N, D> Default for SortedRecords<N, D> {
+impl<N: Send, D: Send> Default for SortedRecords<N, D, DefaultSorter> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<N, D> From<Vec<Record<N, D>>> for SortedRecords<N, D>
+impl<N, D, Sort> From<Vec<Record<N, D>>> for SortedRecords<N, D, Sort>
 where
-    N: ToName,
-    D: RecordData + CanonicalOrd,
+    N: ToName + PartialEq + Send,
+    D: RecordData + CanonicalOrd + PartialEq + Send,
+    Sort: Sorter,
 {
     fn from(mut src: Vec<Record<N, D>>) -> Self {
-        src.sort_by(CanonicalOrd::canonical_cmp);
-        SortedRecords { records: src }
+        Sort::sort_by(&mut src, CanonicalOrd::canonical_cmp);
+        src.dedup();
+        SortedRecords {
+            records: src,
+            _phantom: Default::default(),
+        }
     }
 }
 
-impl<N, D> FromIterator<Record<N, D>> for SortedRecords<N, D>
+impl<N, D, Sort> FromIterator<Record<N, D>> for SortedRecords<N, D, Sort>
 where
     N: ToName,
     D: RecordData + CanonicalOrd,
+    N: Send,
+    D: Send,
+    Sort: Sorter,
+    Self: Extend<Record<N, D>>,
 {
     fn from_iter<T: IntoIterator<Item = Record<N, D>>>(iter: T) -> Self {
         let mut res = Self::new();
-        for item in iter {
-            let _ = res.insert(item);
-        }
+        res.extend(iter);
         res
     }
 }
 
-impl<N, D> Extend<Record<N, D>> for SortedRecords<N, D>
+impl<N, D, Sort> Extend<Record<N, D>> for SortedRecords<N, D, Sort>
 where
-    N: ToName,
-    D: RecordData + CanonicalOrd,
+    N: ToName + PartialEq,
+    D: RecordData + CanonicalOrd + PartialEq,
+    N: Send,
+    D: Send,
+    Sort: Sorter,
 {
     fn extend<T: IntoIterator<Item = Record<N, D>>>(&mut self, iter: T) {
         for item in iter {
-            let _ = self.insert(item);
+            self.records.push(item);
         }
+        Sort::sort_by(&mut self.records, CanonicalOrd::canonical_cmp);
+        self.records.dedup();
     }
 }
 
-//------------ Family --------------------------------------------------------
+//------------ OwnerRrs ------------------------------------------------------
 
-/// A set of records with the same owner name and class.
-pub struct Family<'a, N, D> {
+/// A set of records with the same owner name.
+#[derive(Clone)]
+pub struct OwnerRrs<'a, N, D> {
     slice: &'a [Record<N, D>],
 }
 
-impl<'a, N, D> Family<'a, N, D> {
+impl<'a, N, D> OwnerRrs<'a, N, D> {
     fn new(slice: &'a [Record<N, D>]) -> Self {
-        Family { slice }
+        OwnerRrs { slice }
     }
 
     pub fn owner(&self) -> &N {
@@ -323,108 +382,28 @@ impl<'a, N, D> Family<'a, N, D> {
         self.slice[0].class()
     }
 
-    pub fn family_name(&self) -> FamilyName<&N> {
-        FamilyName::new(self.owner(), self.class())
-    }
-
-    pub fn rrsets(&self) -> FamilyIter<'a, N, D> {
-        FamilyIter::new(self.slice)
+    pub fn rrsets(&self) -> OwnerRrsIter<'a, N, D> {
+        OwnerRrsIter::new(self.slice)
     }
 
     pub fn records(&self) -> slice::Iter<'a, Record<N, D>> {
         self.slice.iter()
     }
 
-    pub fn is_zone_cut<NN>(&self, apex: &FamilyName<NN>) -> bool
+    pub fn is_zone_cut(&self, apex: &N) -> bool
     where
-        N: ToName,
-        NN: ToName,
+        N: ToName + PartialEq,
         D: RecordData,
     {
-        self.family_name().ne(apex)
+        self.owner().ne(apex)
             && self.records().any(|record| record.rtype() == Rtype::NS)
     }
 
-    pub fn is_in_zone<NN: ToName>(&self, apex: &FamilyName<NN>) -> bool
+    pub fn is_in_zone(&self, apex: &N) -> bool
     where
         N: ToName,
     {
-        self.owner().ends_with(&apex.owner) && self.class() == apex.class
-    }
-}
-
-//------------ FamilyName ----------------------------------------------------
-
-/// The identifier for a family, i.e., a owner name and class.
-#[derive(Clone)]
-pub struct FamilyName<N> {
-    owner: N,
-    class: Class,
-}
-
-impl<N> FamilyName<N> {
-    pub fn new(owner: N, class: Class) -> Self {
-        FamilyName { owner, class }
-    }
-
-    pub fn owner(&self) -> &N {
-        &self.owner
-    }
-
-    pub fn class(&self) -> Class {
-        self.class
-    }
-
-    pub fn into_record<D>(self, ttl: Ttl, data: D) -> Record<N, D>
-    where
-        N: Clone,
-    {
-        Record::new(self.owner.clone(), self.class, ttl, data)
-    }
-
-    pub fn dnskey<K: SigningKey, Octets: From<K::Octets>>(
-        &self,
-        ttl: Ttl,
-        key: K,
-    ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
-    where
-        N: Clone,
-    {
-        key.dnskey()
-            .map(|dnskey| self.clone().into_record(ttl, dnskey.convert()))
-    }
-
-    pub fn ds<K: SigningKey>(
-        &self,
-        ttl: Ttl,
-        key: K,
-    ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
-    where
-        N: ToName + Clone,
-    {
-        key.ds(&self.owner)
-            .map(|ds| self.clone().into_record(ttl, ds))
-    }
-}
-
-impl<'a, N: Clone> FamilyName<&'a N> {
-    pub fn cloned(&self) -> FamilyName<N> {
-        FamilyName {
-            owner: (*self.owner).clone(),
-            class: self.class,
-        }
-    }
-}
-
-impl<N: ToName, NN: ToName> PartialEq<FamilyName<NN>> for FamilyName<N> {
-    fn eq(&self, other: &FamilyName<NN>) -> bool {
-        self.owner.name_eq(&other.owner) && self.class == other.class
-    }
-}
-
-impl<N: ToName, NN: ToName, D> PartialEq<Record<NN, D>> for FamilyName<N> {
-    fn eq(&self, other: &Record<NN, D>) -> bool {
-        self.owner.name_eq(other.owner()) && self.class == other.class()
+        self.owner().ends_with(&apex)
     }
 }
 
@@ -436,7 +415,7 @@ pub struct Rrset<'a, N, D> {
 }
 
 impl<'a, N, D> Rrset<'a, N, D> {
-    fn new(slice: &'a [Record<N, D>]) -> Self {
+    pub fn new(slice: &'a [Record<N, D>]) -> Self {
         Rrset { slice }
     }
 
@@ -446,10 +425,6 @@ impl<'a, N, D> Rrset<'a, N, D> {
 
     pub fn class(&self) -> Class {
         self.slice[0].class()
-    }
-
-    pub fn family_name(&self) -> FamilyName<&N> {
-        FamilyName::new(self.owner(), self.class())
     }
 
     pub fn rtype(&self) -> Rtype
@@ -470,33 +445,47 @@ impl<'a, N, D> Rrset<'a, N, D> {
     pub fn iter(&self) -> slice::Iter<'a, Record<N, D>> {
         self.slice.iter()
     }
+
+    pub fn len(&self) -> usize {
+        self.slice.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slice.is_empty()
+    }
+
+    pub fn as_slice(&self) -> &'a [Record<N, D>] {
+        self.slice
+    }
+
+    pub fn into_inner(self) -> &'a [Record<N, D>] {
+        self.slice
+    }
 }
 
 //------------ RecordsIter ---------------------------------------------------
 
-/// An iterator that produces families from sorted records.
+/// An iterator that produces groups of records belonging to the same owner
+/// from sorted records.
 pub struct RecordsIter<'a, N, D> {
     slice: &'a [Record<N, D>],
 }
 
 impl<'a, N, D> RecordsIter<'a, N, D> {
-    fn new(slice: &'a [Record<N, D>]) -> Self {
+    pub fn new(slice: &'a [Record<N, D>]) -> Self {
         RecordsIter { slice }
     }
 
-    pub fn first_owner(&self) -> &'a N {
-        self.slice[0].owner()
+    pub fn first(&self) -> &'a Record<N, D> {
+        &self.slice[0]
     }
 
-    pub fn skip_before<NN: ToName>(&mut self, apex: &FamilyName<NN>)
+    pub fn skip_before(&mut self, apex: &N)
     where
-        N: ToName,
+        N: ToName + PartialEq,
     {
-        while let Some(first) = self.slice.first() {
-            if first.class() != apex.class() {
-                continue;
-            }
-            if apex == first || first.owner().ends_with(apex.owner()) {
+        while let Some(first) = self.slice.first().map(|r| r.owner()) {
+            if apex == first || first.ends_with(apex) {
                 break;
             }
             self.slice = &self.slice[1..]
@@ -509,25 +498,20 @@ where
     N: ToName + 'a,
     D: RecordData + 'a,
 {
-    type Item = Family<'a, N, D>;
+    type Item = OwnerRrs<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
-            if !record.owner().name_eq(first.owner())
-                || record.class() != first.class()
-            {
+            if !record.owner().name_eq(first.owner()) {
                 break;
             }
             end += 1;
         }
         let (res, slice) = self.slice.split_at(end);
         self.slice = slice;
-        Some(Family::new(res))
+        Some(OwnerRrs::new(res))
     }
 }
 
@@ -552,15 +536,11 @@ where
     type Item = Rrset<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if !record.owner().name_eq(first.owner())
                 || record.rtype() != first.rtype()
-                || record.class() != first.class()
             {
                 break;
             }
@@ -572,20 +552,21 @@ where
     }
 }
 
-//------------ FamilyIter ----------------------------------------------------
+//------------ OwnerRrsIter --------------------------------------------------
 
-/// An iterator that produces RRsets from a record family.
-pub struct FamilyIter<'a, N, D> {
+/// An iterator that produces RRsets from a set of records with the same owner
+/// name.
+pub struct OwnerRrsIter<'a, N, D> {
     slice: &'a [Record<N, D>],
 }
 
-impl<'a, N, D> FamilyIter<'a, N, D> {
+impl<'a, N, D> OwnerRrsIter<'a, N, D> {
     fn new(slice: &'a [Record<N, D>]) -> Self {
-        FamilyIter { slice }
+        OwnerRrsIter { slice }
     }
 }
 
-impl<'a, N, D> Iterator for FamilyIter<'a, N, D>
+impl<'a, N, D> Iterator for OwnerRrsIter<'a, N, D>
 where
     N: ToName + 'a,
     D: RecordData + 'a,
@@ -593,10 +574,7 @@ where
     type Item = Rrset<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if record.rtype() != first.rtype() {
