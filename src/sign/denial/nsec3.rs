@@ -620,13 +620,10 @@ where
         let next_hashed_owner_name = if let Ok(hash_octets) =
             base32::decode_hex(&format!("{first_label_of_next_owner_name}"))
         {
-            OwnerHash::<Octs>::from_octets(hash_octets).unwrap()
+            OwnerHash::<Octs>::from_octets(hash_octets)
+                .map_err(|_| Nsec3HashError::OwnerHashError)?
         } else {
-            // TODO: Why would an NSEC3 RR have an unhashed owner name?
-            OwnerHash::<Octs>::from_octets(
-                next_owner_name.as_octets().clone(),
-            )
-            .unwrap()
+            return Err(Nsec3HashError::OwnerHashError)?;
         };
         nsec3.data_mut().set_next_owner(next_hashed_owner_name);
     }
@@ -1411,6 +1408,26 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn test_nsec3_hashing_failure() {
+        let mut cfg = GenerateNsec3Config::<_, _, _, DefaultSorter>::new(
+            Nsec3param::default(),
+            NonHashingHashProvider,
+        );
+
+        let records = SortedRecords::<_, _>::from_iter([
+            mk_soa_rr("a.", "b.", "c."),
+            mk_a_rr("some_a.a."),
+        ]);
+
+        assert!(matches!(
+            generate_nsec3s(records.owner_rrs(), &mut cfg),
+            Err(SigningError::Nsec3HashingError(
+                Nsec3HashError::OwnerHashError
+            ))
+        ));
+    }
+
     //------------ Test helpers ----------------------------------------------
 
     struct CollidingHashProvider;
@@ -1423,6 +1440,19 @@ mod tests {
             _unhashed_owner_name_is_ent: bool,
         ) -> Result<StoredName, Nsec3HashError> {
             Ok(StoredName::root())
+        }
+    }
+
+    struct NonHashingHashProvider;
+
+    impl Nsec3HashProvider<StoredName, Bytes> for NonHashingHashProvider {
+        fn get_or_create(
+            &mut self,
+            _apex_owner: &StoredName,
+            unhashed_owner_name: &StoredName,
+            _unhashed_owner_name_is_ent: bool,
+        ) -> Result<StoredName, Nsec3HashError> {
+            Ok(unhashed_owner_name.clone())
         }
     }
 }
