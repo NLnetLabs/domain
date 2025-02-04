@@ -191,7 +191,7 @@ impl fmt::Debug for EdnsFlags {
 //----------- EdnsOption -----------------------------------------------------
 
 /// An Extended DNS option.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum EdnsOption<'b> {
     /// A client's request for a DNS cookie.
@@ -234,6 +234,7 @@ impl<'b> ParseBytes<'b> for EdnsOption<'b> {
 
 impl<'b> SplitBytes<'b> for EdnsOption<'b> {
     fn split_bytes(bytes: &'b [u8]) -> Result<(Self, &'b [u8]), ParseError> {
+        println!("Got bytes: {bytes:?}");
         let (code, rest) = OptionCode::split_bytes(bytes)?;
         let (data, rest) = <&SizePrefixed<[u8]>>::split_bytes(rest)?;
 

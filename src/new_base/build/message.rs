@@ -19,17 +19,17 @@ use super::{
 /// This is a high-level building interface, offering methods to put together
 /// entire questions and records.  It directly writes into an allocated buffer
 /// (on the stack or the heap).
-pub struct MessageBuilder<'b> {
+pub struct MessageBuilder<'b, 'c> {
     /// The message being constructed.
     pub(super) message: &'b mut Message,
 
     /// Context for building.
-    pub(super) context: &'b mut BuilderContext,
+    pub(super) context: &'c mut BuilderContext,
 }
 
 //--- Initialization
 
-impl<'b> MessageBuilder<'b> {
+impl<'b, 'c> MessageBuilder<'b, 'c> {
     /// Initialize an empty [`MessageBuilder`].
     ///
     /// The message header is left uninitialized.  use [`Self::header_mut()`]
@@ -41,7 +41,7 @@ impl<'b> MessageBuilder<'b> {
     /// possible size for a DNS message).
     pub fn new(
         buffer: &'b mut [u8],
-        context: &'b mut BuilderContext,
+        context: &'c mut BuilderContext,
     ) -> Self {
         let message = Message::parse_bytes_by_mut(buffer)
             .expect("The caller's buffer is at least 12 bytes big");
@@ -52,7 +52,7 @@ impl<'b> MessageBuilder<'b> {
 
 //--- Inspection
 
-impl MessageBuilder<'_> {
+impl MessageBuilder<'_, '_> {
     /// The message header.
     pub fn header(&self) -> &Header {
         &self.message.header
@@ -86,9 +86,14 @@ impl MessageBuilder<'_> {
 
 //--- Interaction
 
-impl MessageBuilder<'_> {
+impl<'b> MessageBuilder<'b, '_> {
+    /// End the builder, returning the built message.
+    pub fn finish(self) -> &'b Message {
+        self.message.slice_to(self.context.size)
+    }
+
     /// Reborrow the builder with a shorter lifetime.
-    pub fn reborrow(&mut self) -> MessageBuilder<'_> {
+    pub fn reborrow(&mut self) -> MessageBuilder<'_, '_> {
         MessageBuilder {
             message: self.message,
             context: self.context,

@@ -195,24 +195,20 @@ impl Hash for RevName {
 
 impl fmt::Debug for RevName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        struct RevLabels<'a>(&'a RevName);
+        f.write_str("RevName(")?;
 
-        impl fmt::Debug for RevLabels<'_> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let mut first = true;
-                self.0.labels().try_for_each(|label| {
-                    if !first {
-                        f.write_str(".")?;
-                    } else {
-                        first = false;
-                    }
-
-                    label.fmt(f)
-                })
+        let mut first = true;
+        self.labels().try_for_each(|label| {
+            if !first {
+                f.write_str(".")?;
+            } else {
+                first = false;
             }
-        }
 
-        f.debug_tuple("RevName").field(&RevLabels(self)).finish()
+            fmt::Display::fmt(&label, f)
+        })?;
+
+        f.write_str(")")
     }
 }
 
@@ -482,7 +478,7 @@ impl AsMut<RevName> for RevNameBuf {
     }
 }
 
-//--- Forwarding equality, comparison, and hashing
+//--- Forwarding equality, comparison, hashing, and formatting
 
 impl PartialEq for RevNameBuf {
     fn eq(&self, that: &Self) -> bool {
@@ -507,5 +503,11 @@ impl Ord for RevNameBuf {
 impl Hash for RevNameBuf {
     fn hash<H: Hasher>(&self, state: &mut H) {
         (**self).hash(state)
+    }
+}
+
+impl fmt::Debug for RevNameBuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
     }
 }

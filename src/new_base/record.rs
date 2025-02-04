@@ -1,6 +1,6 @@
 //! DNS records.
 
-use core::{borrow::Borrow, ops::Deref};
+use core::{borrow::Borrow, fmt, ops::Deref};
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
@@ -15,7 +15,7 @@ use super::{
 //----------- Record ---------------------------------------------------------
 
 /// A DNS record.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Record<N, D> {
     /// The name of the record.
     pub rname: N,
@@ -76,7 +76,7 @@ where
         let (_, rest) =
             <&SizePrefixed<[u8]>>::split_message_bytes(contents, rest)?;
         let rdata =
-            D::parse_record_data(&contents[..rest], rdata_start, rtype)?;
+            D::parse_record_data(&contents[..rest], rdata_start + 2, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
     }
@@ -178,7 +178,6 @@ where
 #[derive(
     Copy,
     Clone,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -240,13 +239,33 @@ impl RType {
     pub const OPT: Self = Self::new(41);
 }
 
+//--- Formatting
+
+impl fmt::Debug for RType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::A => "RType::A",
+            Self::NS => "RType::NS",
+            Self::CNAME => "RType::CNAME",
+            Self::SOA => "RType::SOA",
+            Self::WKS => "RType::WKS",
+            Self::PTR => "RType::PTR",
+            Self::HINFO => "RType::HINFO",
+            Self::MX => "RType::MX",
+            Self::TXT => "RType::TXT",
+            Self::AAAA => "RType::AAAA",
+            Self::OPT => "RType::OPT",
+            _ => return write!(f, "RType({})", self.code),
+        })
+    }
+}
+
 //----------- RClass ---------------------------------------------------------
 
 /// The class of a record.
 #[derive(
     Copy,
     Clone,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -281,13 +300,24 @@ impl RClass {
     pub const CH: Self = Self::new(3);
 }
 
+//--- Formatting
+
+impl fmt::Debug for RClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::IN => "RClass::IN",
+            Self::CH => "RClass::CH",
+            _ => return write!(f, "RClass({})", self.code),
+        })
+    }
+}
+
 //----------- TTL ------------------------------------------------------------
 
 /// How long a record can be cached.
 #[derive(
     Copy,
     Clone,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -319,6 +349,14 @@ impl From<u32> for TTL {
 impl From<TTL> for u32 {
     fn from(value: TTL) -> Self {
         value.value.get()
+    }
+}
+
+//--- Formatting
+
+impl fmt::Debug for TTL {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TTL({})", self.value)
     }
 }
 

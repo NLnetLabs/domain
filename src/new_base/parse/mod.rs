@@ -54,7 +54,7 @@ impl<'a, T: ?Sized + SplitBytesByRef> SplitMessageBytes<'a> for &'a T {
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         T::split_bytes_by_ref(&contents[start..])
-            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
+            .map(|(this, rest)| (this, contents.len() - rest.len()))
     }
 }
 

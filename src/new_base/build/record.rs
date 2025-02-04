@@ -23,7 +23,7 @@ use super::{
 /// cancel (remove) the record.
 pub struct RecordBuilder<'b> {
     /// The underlying message builder.
-    builder: MessageBuilder<'b>,
+    builder: MessageBuilder<'b, 'b>,
 
     /// The offset of the record name.
     name: u16,
@@ -40,7 +40,7 @@ impl<'b> RecordBuilder<'b> {
     /// The provided builder must be empty (i.e. must not have uncommitted
     /// content).
     pub(super) fn build<N, D>(
-        mut builder: MessageBuilder<'b>,
+        mut builder: MessageBuilder<'b, 'b>,
         record: &Record<N, D>,
     ) -> Result<Self, TruncationError>
     where
@@ -97,7 +97,7 @@ impl<'b> RecordBuilder<'b> {
     /// [`Record`] in the wire format.  `contents[data..]` must represent the
     /// record data (i.e. immediately after the record data size field).
     pub unsafe fn from_raw_parts(
-        builder: MessageBuilder<'b>,
+        builder: MessageBuilder<'b, 'b>,
         name: u16,
         data: u16,
     ) -> Self {
@@ -151,7 +151,7 @@ impl<'b> RecordBuilder<'b> {
     }
 
     /// Deconstruct this [`RecordBuilder`] into its raw parts.
-    pub fn into_raw_parts(self) -> (MessageBuilder<'b>, u16, u16) {
+    pub fn into_raw_parts(self) -> (MessageBuilder<'b, 'b>, u16, u16) {
         let (name, data) = (self.name, self.data);
         let this = ManuallyDrop::new(self);
         let this = (&*this) as *const Self;
