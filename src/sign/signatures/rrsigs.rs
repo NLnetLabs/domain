@@ -94,7 +94,7 @@ pub struct RrsigRecords<N, Octs>
 where
     Octs: AsRef<[u8]>,
 {
-    /// The NSEC3 records.
+    /// The RRSIG records.
     pub rrsigs: Vec<Record<N, Rrsig<Octs, N>>>,
 
     /// The DNSKEY records.
