@@ -331,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn rfc_4034_and_9077_compliant() {
+    fn rfc_4034_appendix_a_and_rfc_9077_compliant() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
 
