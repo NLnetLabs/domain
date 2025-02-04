@@ -354,6 +354,8 @@ impl ParsedMessage<'_> {
 /// relevant to the original layer in [`process_outgoing()`], as it does not
 /// have access to the original request.
 ///
+/// [`process_outgoing()`]: super::ServiceLayer::process_outgoing()
+///
 /// # Implementation
 ///
 /// This is an enhanced version of `Box<dyn Any + Send + 'static>` that can
@@ -436,6 +438,8 @@ impl Metadata {
 /// a user could get `&Bump` on one thread, send the [`Allocator`] to another
 /// thread, then get `&Bump` over there.  This is why [`Allocator`] copies
 /// [`Bump`]'s methods instead of implementing [`Deref`] to [`Bump`].
+///
+/// [`Deref`]: core::ops::Deref
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct Allocator<'a> {
