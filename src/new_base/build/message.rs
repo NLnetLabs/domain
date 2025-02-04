@@ -89,7 +89,7 @@ impl MessageBuilder<'_, '_> {
 impl<'b> MessageBuilder<'b, '_> {
     /// End the builder, returning the built message.
     pub fn finish(self) -> &'b Message {
-        self.message
+        self.message.slice_to(self.context.size)
     }
 
     /// Reborrow the builder with a shorter lifetime.

@@ -122,6 +122,12 @@ macro_rules! define_int {
             }
         }
 
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.get().fmt(f)
+            }
+        }
+
         //--- Arithmetic
 
         impl Add for $name {

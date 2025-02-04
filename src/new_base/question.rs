@@ -1,5 +1,7 @@
 //! DNS questions.
 
+use core::fmt;
+
 use domain_macros::*;
 
 use super::{
@@ -36,6 +38,19 @@ impl<N> Question<N> {
             qname,
             qtype,
             qclass,
+        }
+    }
+}
+
+//--- Interaction
+
+impl<N> Question<N> {
+    /// Map the name in this question to another type.
+    pub fn map_name<R, F: FnOnce(N) -> R>(self, f: F) -> Question<R> {
+        Question {
+            qname: (f)(self.qname),
+            qtype: self.qtype,
+            qclass: self.qclass,
         }
     }
 }
@@ -96,7 +111,6 @@ where
 #[derive(
     Copy,
     Clone,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -155,13 +169,32 @@ impl QType {
     pub const AAAA: Self = Self::new(28);
 }
 
+//--- Formatting
+
+impl fmt::Debug for QType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::A => "QType::A",
+            Self::NS => "QType::NS",
+            Self::CNAME => "QType::CNAME",
+            Self::SOA => "QType::SOA",
+            Self::WKS => "QType::WKS",
+            Self::PTR => "QType::PTR",
+            Self::HINFO => "QType::HINFO",
+            Self::MX => "QType::MX",
+            Self::TXT => "QType::TXT",
+            Self::AAAA => "QType::AAAA",
+            _ => return write!(f, "QType({})", self.code),
+        })
+    }
+}
+
 //----------- QClass ---------------------------------------------------------
 
 /// The class of a question.
 #[derive(
     Copy,
     Clone,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -194,4 +227,16 @@ impl QClass {
 
     /// The CHAOS class.
     pub const CH: Self = Self::new(3);
+}
+
+//--- Formatting
+
+impl fmt::Debug for QClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::IN => "QClass::IN",
+            Self::CH => "QClass::CH",
+            _ => return write!(f, "QClass({})", self.code),
+        })
+    }
 }
