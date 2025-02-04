@@ -530,25 +530,9 @@ where
     // RFC 5155 7.1 step 5:
     //   "Sort the set of NSEC3 RRs into hash order."
 
-    // RFC 5155 7.1 step 7:
-    //   "In each NSEC3 RR, insert the next hashed owner name by using the
-    //    value of the next NSEC3 RR in hash order.  The next hashed owner
-    //    name of the last NSEC3 RR in the zone contains the value of the
-    //    hashed owner name of the first NSEC3 RR in the hash order."
     trace!("Sorting NSEC3 RRs");
-    nsec3s.sort_by(CanonicalOrd::canonical_cmp);
+    Sort::sort_by(&mut nsec3s, CanonicalOrd::canonical_cmp);
     nsec3s.dedup();
-
-    let mut iter = nsec3s.iter_mut().peekable();
-
-    while let Some(nsec3) = iter.next() {
-        // Replace the owner name of this NSEC3 RR with the NSEC3 hashed name
-        // of the next NSEC3 RR.
-
-        // Save a mutable reference to the NSEC3 we currently iterated to as
-        // we will move the iterator ahead if subsequent NSEC3s have the same
-        // hashed owner name as this one.
-        let this_nsec3 = nsec3;
 
         // RFC 5155 7.2 step 6:
         //   "Combine NSEC3 RRs with identical hashed owner names by replacing
