@@ -21,7 +21,6 @@ use tokio::time::{sleep_until, timeout};
 use tracing::{debug, error, trace, warn};
 
 use crate::base::message_builder::AdditionalBuilder;
-use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::Request;
@@ -219,11 +218,12 @@ impl Clone for Config {
 //------------ Connection ----------------------------------------------------
 
 /// A handler for a single stream connection between client and server.
-pub struct Connection<Stream, Buf, Svc>
+pub struct Connection<Stream, Buf, Svc, RequestMeta>
 where
+    RequestMeta: Default + Clone + Send + 'static,
     Buf: BufSource,
     Buf::Output: Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Clone,
+    Svc: Service<Buf::Output, RequestMeta> + Clone,
 {
     /// Flag used by the Drop impl to track if the metric count has to be
     /// decreased or not.
@@ -270,12 +270,13 @@ where
 
 /// Creation
 ///
-impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
+impl<Stream, Buf, Svc, RequestMeta> Connection<Stream, Buf, Svc, RequestMeta>
 where
+    RequestMeta: Default + Clone + Send + 'static,
     Stream: AsyncRead + AsyncWrite,
     Buf: BufSource,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Clone,
+    Svc: Service<Buf::Output, RequestMeta> + Clone,
 {
     /// Creates a new handler for an accepted stream connection.
     #[must_use]
@@ -340,14 +341,13 @@ where
 
 /// Control
 ///
-impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
+impl<Stream, Buf, Svc, RequestMeta> Connection<Stream, Buf, Svc, RequestMeta>
 where
+    RequestMeta: Default + Clone + Send + 'static,
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + Clone + 'static,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
-    Svc::Target: Composer + Send,
-    Svc::Stream: Send,
+    Svc: Service<Buf::Output, RequestMeta> + Clone,
 {
     /// Start reading requests and writing responses to the stream.
     ///
@@ -377,15 +377,13 @@ where
 
 //--- Internal details
 
-impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
+impl<Stream, Buf, Svc, RequestMeta> Connection<Stream, Buf, Svc, RequestMeta>
 where
+    RequestMeta: Default + Clone + Send + 'static,
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + Clone + 'static,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
-    Svc::Target: Composer + Send,
-    Svc::Future: Send,
-    Svc::Stream: Send,
+    Svc: Service<Buf::Output, RequestMeta> + Clone,
 {
     /// Connection handler main loop.
     async fn run_until_error(
@@ -685,7 +683,7 @@ where
                             received_at,
                             msg,
                             ctx,
-                            (),
+                            Default::default(),
                         );
 
                         let svc = self.service.clone();
@@ -799,11 +797,13 @@ where
 
 //--- Drop
 
-impl<Stream, Buf, Svc> Drop for Connection<Stream, Buf, Svc>
+impl<Stream, Buf, Svc, RequestMeta> Drop
+    for Connection<Stream, Buf, Svc, RequestMeta>
 where
+    RequestMeta: Default + Clone + Send + 'static,
     Buf: BufSource,
     Buf::Output: Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Clone,
+    Svc: Service<Buf::Output, RequestMeta> + Clone,
 {
     fn drop(&mut self) {
         if self.active {

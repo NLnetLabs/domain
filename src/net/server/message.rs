@@ -166,7 +166,7 @@ impl From<NonUdpTransportContext> for TransportSpecificContext {
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
 #[derive(Debug)]
-pub struct Request<Octs, Metadata = ()>
+pub struct Request<Octs, Metadata>
 where
     Octs: AsRef<[u8]> + Send + Sync,
 {
@@ -191,7 +191,7 @@ where
     /// still possible to generate responses that ignore this value.
     num_reserved_bytes: u16,
 
-    /// user defined metadata to associate with the request.
+    /// User defined metadata to associate with the request.
     ///
     /// For example this could be used to pass data from one [middleware]
     /// [`Service`] impl to another.
@@ -298,12 +298,12 @@ where
 
 //--- TryFrom<Request<Octs>> for RequestMessage<Octs>>
 
-impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
-    for RequestMessage<Octs>
+impl<Octs: Octets + Send + Sync + Debug + Clone, Meta>
+    TryFrom<Request<Octs, Meta>> for RequestMessage<Octs>
 {
     type Error = request::Error;
 
-    fn try_from(req: Request<Octs>) -> Result<Self, Self::Error> {
+    fn try_from(req: Request<Octs, Meta>) -> Result<Self, Self::Error> {
         // Copy the ECS option from the message. This is just an example,
         // there should be a separate plugin that deals with ECS.
 
