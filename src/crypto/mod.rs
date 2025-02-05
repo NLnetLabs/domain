@@ -98,8 +98,18 @@
 //! [`SignRaw`]: crate::sign::traits::SignRaw
 //! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
 //! [`SecretKeyBytes`]: crate::sign::keys::SecretKeyBytes
+
+// common requires ring.
+#[cfg(feature = "ring")]
 pub mod common;
+
+// misc requires ring.
+#[cfg(feature = "ring")]
 pub mod misc;
+
 pub mod openssl;
 pub mod ring;
+
+// validate requires ring.
+#[cfg(feature = "ring")]
 pub mod validate;
