@@ -16,65 +16,25 @@ use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::OctetsFrom;
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::SecAlg;
 use crate::base::name::ToName;
 use crate::base::record::Record;
 use crate::base::Name;
-use crate::rdata::ZoneRecordData;
-use crate::sign::denial::nsec3::Nsec3HashProvider;
-use crate::sign::error::{SignError, SigningError};
-use crate::sign::keys::keymeta::DesignatedSigningKey;
-use crate::sign::records::{
+use crate::crypto::misc::SignRaw;
+use crate::dnssec::sign::denial::nsec3::Nsec3HashProvider;
+use crate::dnssec::sign::error::SigningError;
+use crate::dnssec::sign::keys::keymeta::DesignatedSigningKey;
+use crate::dnssec::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
-use crate::sign::sign_zone;
-use crate::sign::signatures::rrsigs::generate_rrsigs;
-use crate::sign::signatures::rrsigs::GenerateRrsigConfig;
-use crate::sign::signatures::rrsigs::RrsigRecords;
-use crate::sign::signatures::strategy::RrsigValidityPeriodStrategy;
-use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
-use crate::sign::SigningConfig;
-use crate::sign::{PublicKeyBytes, SignableZoneInOut, Signature};
-
-//----------- SignRaw --------------------------------------------------------
-
-/// Low-level signing functionality.
-///
-/// Types that implement this trait own a private key and can sign arbitrary
-/// information (in the form of slices of bytes).
-///
-/// Implementing types should validate keys during construction, so that
-/// signing does not fail due to invalid keys.  If the implementing type
-/// allows [`sign_raw()`] to be called on unvalidated keys, it will have to
-/// check the validity of the key for every signature; this is unnecessary
-/// overhead when many signatures have to be generated.
-///
-/// [`sign_raw()`]: SignRaw::sign_raw()
-pub trait SignRaw {
-    /// The signature algorithm used.
-    ///
-    /// See [RFC 8624, section 3.1] for IETF implementation recommendations.
-    ///
-    /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
-    fn algorithm(&self) -> SecAlg;
-
-    /// The raw public key.
-    ///
-    /// This can be used to verify produced signatures.  It must use the same
-    /// algorithm as returned by [`algorithm()`].
-    ///
-    /// [`algorithm()`]: Self::algorithm()
-    fn raw_public_key(&self) -> PublicKeyBytes;
-
-    /// Sign the given bytes.
-    ///
-    /// # Errors
-    ///
-    /// See [`SignError`] for a discussion of possible failure cases.  To the
-    /// greatest extent possible, the implementation should check for failure
-    /// cases beforehand and prevent them (e.g. when the keypair is created).
-    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError>;
-}
+use crate::dnssec::sign::sign_zone;
+use crate::dnssec::sign::signatures::rrsigs::generate_rrsigs;
+use crate::dnssec::sign::signatures::rrsigs::GenerateRrsigConfig;
+use crate::dnssec::sign::signatures::rrsigs::RrsigRecords;
+use crate::dnssec::sign::signatures::strategy::RrsigValidityPeriodStrategy;
+use crate::dnssec::sign::signatures::strategy::SigningKeyUsageStrategy;
+use crate::dnssec::sign::SignableZoneInOut;
+use crate::dnssec::sign::SigningConfig;
+use crate::rdata::ZoneRecordData;
 
 //------------ SortedExtend --------------------------------------------------
 
@@ -152,21 +112,21 @@ where
 /// ```
 /// # use domain::base::{Name, Record, Serial, Ttl};
 /// # use domain::base::iana::Class;
-/// # use domain::sign::crypto::common;
-/// # use domain::sign::crypto::common::GenerateParams;
-/// # use domain::sign::crypto::common::KeyPair;
-/// # use domain::sign::keys::SigningKey;
+/// # use domain::crypto::common;
+/// # use domain::crypto::common::GenerateParams;
+/// # use domain::crypto::common::KeyPair;
+/// # use domain::dnssec::sign::keys::SigningKey;
 /// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
 /// # let key = SigningKey::new(root.clone(), 257, key_pair);
 /// use domain::rdata::{rfc1035::Soa, ZoneRecordData};
 /// use domain::rdata::dnssec::Timestamp;
-/// use domain::sign::keys::DnssecSigningKey;
-/// use domain::sign::records::SortedRecords;
-/// use domain::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
-/// use domain::sign::traits::SignableZone;
-/// use domain::sign::SigningConfig;
+/// use domain::dnssec::sign::keys::DnssecSigningKey;
+/// use domain::dnssec::sign::records::SortedRecords;
+/// use domain::dnssec::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
+/// use domain::dnssec::sign::traits::SignableZone;
+/// use domain::dnssec::sign::SigningConfig;
 ///
 /// // Create a sorted collection of records.
 /// //
@@ -304,21 +264,21 @@ where
 /// ```
 /// # use domain::base::{Name, Record, Serial, Ttl};
 /// # use domain::base::iana::Class;
-/// # use domain::sign::crypto::common;
-/// # use domain::sign::crypto::common::GenerateParams;
-/// # use domain::sign::crypto::common::KeyPair;
-/// # use domain::sign::keys::SigningKey;
+/// # use domain::crypto::common;
+/// # use domain::crypto::common::GenerateParams;
+/// # use domain::crypto::common::KeyPair;
+/// # use domain::dnssec::sign::keys::SigningKey;
 /// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
 /// # let key = SigningKey::new(root.clone(), 257, key_pair);
 /// use domain::rdata::{rfc1035::Soa, ZoneRecordData};
 /// use domain::rdata::dnssec::Timestamp;
-/// use domain::sign::keys::DnssecSigningKey;
-/// use domain::sign::records::SortedRecords;
-/// use domain::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
-/// use domain::sign::traits::SignableZoneInPlace;
-/// use domain::sign::SigningConfig;
+/// use domain::dnssec::sign::keys::DnssecSigningKey;
+/// use domain::dnssec::sign::records::SortedRecords;
+/// use domain::dnssec::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
+/// use domain::dnssec::sign::traits::SignableZoneInPlace;
+/// use domain::dnssec::sign::SigningConfig;
 ///
 /// // Create a sorted collection of records.
 /// //
@@ -454,20 +414,20 @@ where
 /// ```
 /// # use domain::base::Name;
 /// # use domain::base::iana::Class;
-/// # use domain::sign::crypto::common;
-/// # use domain::sign::crypto::common::GenerateParams;
-/// # use domain::sign::crypto::common::KeyPair;
-/// # use domain::sign::keys::{DnssecSigningKey, SigningKey};
-/// # use domain::sign::records::{Rrset, SortedRecords};
+/// # use domain::crypto::common;
+/// # use domain::crypto::common::GenerateParams;
+/// # use domain::crypto::common::KeyPair;
+/// # use domain::dnssec::sign::keys::{DnssecSigningKey, SigningKey};
+/// # use domain::dnssec::sign::records::{Rrset, SortedRecords};
 /// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
 /// # let key = SigningKey::new(root, 257, key_pair);
 /// # let keys = [DnssecSigningKey::from(key)];
 /// # let mut records = SortedRecords::default();
-/// use domain::sign::traits::Signable;
-/// use domain::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
-/// use domain::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
+/// use domain::dnssec::sign::traits::Signable;
+/// use domain::dnssec::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
+/// use domain::dnssec::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
 /// let apex = Name::<Vec<u8>>::root();
 /// let rrset = Rrset::new(&records);
 /// let validity = FixedRrsigValidityPeriodStrategy::from((0, 0));

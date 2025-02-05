@@ -1,7 +1,6 @@
 use crate::base::iana::SecAlg;
 use crate::base::Name;
-use crate::sign::{PublicKeyBytes, SignRaw};
-use crate::validate::Key;
+use crate::crypto::misc::{Key, PublicKeyBytes, SignRaw};
 
 //----------- SigningKey -----------------------------------------------------
 

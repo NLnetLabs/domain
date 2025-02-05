@@ -694,7 +694,7 @@ pub enum Error {
 
     #[cfg(feature = "unstable-validator")]
     /// An error happened during DNSSEC validation.
-    Validation(crate::validator::context::Error),
+    Validation(crate::dnssec::validator::context::Error),
 }
 
 impl From<LongOptData> for Error {
@@ -722,8 +722,8 @@ impl From<super::dgram::QueryError> for Error {
 }
 
 #[cfg(feature = "unstable-validator")]
-impl From<crate::validator::context::Error> for Error {
-    fn from(err: crate::validator::context::Error) -> Self {
+impl From<crate::dnssec::validator::context::Error> for Error {
+    fn from(err: crate::dnssec::validator::context::Error) -> Self {
         Self::Validation(err)
     }
 }

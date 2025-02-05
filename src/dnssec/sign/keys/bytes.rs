@@ -7,8 +7,8 @@ use std::boxed::Box;
 use std::vec::Vec;
 
 use crate::base::iana::SecAlg;
+use crate::crypto::misc::RsaPublicKeyBytes;
 use crate::utils::base64;
-use crate::validate::RsaPublicKeyBytes;
 
 //----------- SecretKeyBytes -------------------------------------------------
 

@@ -7,7 +7,7 @@ use super::nsec3::{
     GenerateNsec3Config, Nsec3HashProvider, OnDemandNsec3HashProvider,
 };
 use crate::base::{Name, ToName};
-use crate::sign::records::DefaultSorter;
+use crate::dnssec::sign::records::DefaultSorter;
 use octseq::{EmptyBuilder, FromBuilder};
 
 //------------ NsecToNsec3TransitionState ------------------------------------

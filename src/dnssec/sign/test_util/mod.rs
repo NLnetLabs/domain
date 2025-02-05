@@ -10,14 +10,14 @@ use bytes::Bytes;
 use crate::base::iana::{Class, SecAlg};
 use crate::base::name::FlattenInto;
 use crate::base::{Name, Record, Rtype, Serial, ToName, Ttl};
+use crate::crypto::validate::nsec3_hash;
+use crate::dnssec::sign::denial::nsec3::mk_hashed_nsec3_owner_name;
 use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
 use crate::rdata::nsec3::OwnerHash;
 use crate::rdata::{
     Aaaa, Dnskey, Ns, Nsec, Nsec3, Nsec3param, Rrsig, Soa, A,
 };
-use crate::sign::denial::nsec3::mk_hashed_nsec3_owner_name;
 use crate::utils::base32;
-use crate::validate::nsec3_hash;
 use crate::zonefile::inplace::{Entry, Zonefile};
 use crate::zonetree::types::StoredRecordData;
 use crate::zonetree::StoredName;

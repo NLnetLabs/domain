@@ -8,10 +8,10 @@ use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use crate::base::iana::Rtype;
 use crate::base::name::ToName;
 use crate::base::record::Record;
+use crate::dnssec::sign::error::SigningError;
+use crate::dnssec::sign::records::RecordsIter;
 use crate::rdata::dnssec::RtypeBitmap;
 use crate::rdata::{Nsec, ZoneRecordData};
-use crate::sign::error::SigningError;
-use crate::sign::records::RecordsIter;
 
 //----------- GenerateNsec3Config --------------------------------------------
 
@@ -208,8 +208,8 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use crate::base::Ttl;
-    use crate::sign::records::SortedRecords;
-    use crate::sign::test_util::*;
+    use crate::dnssec::sign::records::SortedRecords;
+    use crate::dnssec::sign::test_util::*;
     use crate::zonetree::types::StoredRecordData;
     use crate::zonetree::StoredName;
 
@@ -337,7 +337,7 @@ mod tests {
 
         // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
         let zonefile = include_bytes!(
-            "../../../test-data/zonefiles/rfc4035-appendix-A.zone"
+            "../../../../test-data/zonefiles/rfc4035-appendix-A.zone"
         );
 
         let records = bytes_to_records(&zonefile[..]);

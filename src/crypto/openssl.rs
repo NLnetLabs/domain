@@ -23,11 +23,11 @@ use openssl::{
 };
 use secrecy::ExposeSecret;
 
+use super::common::GenerateParams;
+use super::misc::{PublicKeyBytes, RsaPublicKeyBytes, SignRaw, Signature};
 use crate::base::iana::SecAlg;
-use crate::sign::crypto::common::GenerateParams;
-use crate::sign::error::SignError;
-use crate::sign::{RsaSecretKeyBytes, SecretKeyBytes, SignRaw};
-use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
+use crate::dnssec::sign::error::SignError;
+use crate::dnssec::sign::{RsaSecretKeyBytes, SecretKeyBytes};
 
 //----------- KeyPair --------------------------------------------------------
 
@@ -449,9 +449,9 @@ mod tests {
     use std::{string::ToString, vec::Vec};
 
     use crate::base::iana::SecAlg;
-    use crate::sign::crypto::common::GenerateParams;
-    use crate::sign::{SecretKeyBytes, SignRaw};
-    use crate::validate::Key;
+    use crate::crypto::common::GenerateParams;
+    use crate::crypto::misc::{Key, SignRaw};
+    use crate::dnssec::sign::SecretKeyBytes;
 
     use super::KeyPair;
 

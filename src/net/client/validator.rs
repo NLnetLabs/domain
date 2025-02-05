@@ -46,8 +46,8 @@
 //! # use domain::net::client::protocol::{TcpConnect, UdpConnect};
 //! # use domain::net::client::request::{RequestMessage, SendRequest};
 //! # use domain::net::client::validator;
-//! # use domain::validator::anchor::TrustAnchors;
-//! # use domain::validator::context::ValidationContext;
+//! # use domain::dnssec::validator::anchor::TrustAnchors;
+//! # use domain::dnssec::validator::context::ValidationContext;
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # use std::sync::Arc;
@@ -93,11 +93,11 @@ use crate::base::{
     Message, MessageBuilder, ParsedName, Rtype, StaticCompressor,
 };
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
+use crate::dnssec::validator::context::{ValidationContext, ValidationState};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
 use crate::rdata::AllRecordData;
-use crate::validator::context::{ValidationContext, ValidationState};
 use bytes::Bytes;
 use std::boxed::Box;
 use std::fmt::{Debug, Formatter};

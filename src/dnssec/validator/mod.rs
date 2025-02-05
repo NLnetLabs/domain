@@ -58,8 +58,8 @@
 //! # use domain::net::client::dgram_stream;
 //! # use domain::net::client::protocol::{TcpConnect, UdpConnect};
 //! # use domain::net::client::request::{ComposeRequest, RequestMessage, SendRequest};
-//! # use domain::validator::anchor::TrustAnchors;
-//! # use domain::validator::context::{Config, ValidationContext};
+//! # use domain::dnssec::validator::anchor::TrustAnchors;
+//! # use domain::dnssec::validator::context::{Config, ValidationContext};
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! #

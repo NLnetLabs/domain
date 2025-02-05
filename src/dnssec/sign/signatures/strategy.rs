@@ -1,10 +1,10 @@
 use smallvec::SmallVec;
 
 use crate::base::Rtype;
+use crate::crypto::misc::SignRaw;
+use crate::dnssec::sign::keys::keymeta::DesignatedSigningKey;
+use crate::dnssec::sign::records::Rrset;
 use crate::rdata::dnssec::Timestamp;
-use crate::sign::keys::keymeta::DesignatedSigningKey;
-use crate::sign::records::Rrset;
-use crate::sign::SignRaw;
 
 //------------ SigningKeyUsageStrategy ---------------------------------------
 

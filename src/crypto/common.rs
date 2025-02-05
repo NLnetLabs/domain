@@ -9,16 +9,16 @@ use std::sync::Arc;
 
 use ::ring::rand::SystemRandom;
 
+use super::misc::{PublicKeyBytes, SignRaw, Signature};
 use crate::base::iana::SecAlg;
-use crate::sign::error::{FromBytesError, GenerateError, SignError};
-use crate::sign::{SecretKeyBytes, SignRaw};
-use crate::validate::{PublicKeyBytes, Signature};
+use crate::dnssec::sign::error::{FromBytesError, GenerateError, SignError};
+use crate::dnssec::sign::SecretKeyBytes;
 
 #[cfg(feature = "openssl")]
-use crate::sign::crypto::openssl;
+use super::openssl;
 
 #[cfg(feature = "ring")]
-use crate::sign::crypto::ring;
+use super::ring;
 
 //----------- KeyPair --------------------------------------------------------
 

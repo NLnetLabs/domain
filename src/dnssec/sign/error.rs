@@ -2,13 +2,13 @@
 use core::fmt::{self, Debug, Display};
 
 #[cfg(feature = "openssl")]
-use crate::sign::crypto::openssl;
+use crate::crypto::openssl;
 
 #[cfg(feature = "ring")]
-use crate::sign::crypto::ring;
+use crate::crypto::ring;
 
+use crate::crypto::validate::Nsec3HashError;
 use crate::rdata::dnssec::Timestamp;
-use crate::validate::Nsec3HashError;
 
 //------------ SigningError --------------------------------------------------
 

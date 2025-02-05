@@ -105,7 +105,7 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
 pub mod config;
-pub mod crypto;
+//pub mod crypto;
 pub mod denial;
 pub mod error;
 pub mod keys;
@@ -116,7 +116,7 @@ pub mod traits;
 #[cfg(test)]
 pub mod test_util;
 
-pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
+use crate::crypto::misc::SignRaw;
 
 pub use self::config::SigningConfig;
 pub use self::keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
@@ -149,7 +149,7 @@ use signatures::rrsigs::{
 use signatures::strategy::{
     RrsigValidityPeriodStrategy, SigningKeyUsageStrategy,
 };
-use traits::{SignRaw, SignableZone, SortedExtend};
+use traits::{SignableZone, SortedExtend};
 
 //------------ SignableZoneInOut ---------------------------------------------
 

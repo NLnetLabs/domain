@@ -29,14 +29,15 @@ use crate::base::{
     Message, MessageBuilder, Name, ParsedName, Record, RelativeName, Rtype,
     ToName,
 };
+use crate::crypto::validate::{
+    supported_algorithm, supported_digest, DnskeyExt,
+};
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
 use crate::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,
 };
 use crate::rdata::{AllRecordData, Dnskey, Ds, ZoneRecordData};
 use crate::utils::config::DefMinMax;
-use crate::validate::DnskeyExt;
-use crate::validate::{supported_algorithm, supported_digest};
 use crate::zonefile::inplace;
 use bytes::Bytes;
 use moka::future::Cache;

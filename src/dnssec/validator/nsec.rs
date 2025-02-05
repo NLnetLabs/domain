@@ -12,10 +12,10 @@ use crate::base::iana::{ExtendedErrorCode, Nsec3HashAlg};
 use crate::base::name::{Label, ToName};
 use crate::base::opt::ExtendedError;
 use crate::base::{Name, ParsedName, Rtype};
+use crate::crypto::validate::nsec3_hash;
 use crate::dep::octseq::Octets;
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{AllRecordData, Nsec, Nsec3};
-use crate::validate::nsec3_hash;
 
 use super::context::{Config, ValidationState};
 use super::group::ValidatedGroup;

@@ -27,15 +27,15 @@
 //!
 //! ```
 //! # use domain::base::iana::SecAlg;
-//! # use domain::validate;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::{SecretKeyBytes, SigningKey};
+//! # use domain::crypto::misc;
+//! # use domain::crypto::common::KeyPair;
+//! # use domain::dnssec::sign::keys::{SecretKeyBytes, SigningKey};
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
 //! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
 //! let sec_bytes = SecretKeyBytes::parse_from_bind(&sec_text).unwrap();
 //! let pub_text = std::fs::read_to_string(format!("{base}.key")).unwrap();
-//! let pub_key = validate::Key::<Vec<u8>>::parse_from_bind(&pub_text).unwrap();
+//! let pub_key = misc::Key::<Vec<u8>>::parse_from_bind(&pub_text).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
 //! let key_pair = KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
@@ -55,10 +55,10 @@
 //!
 //! ```
 //! # use domain::base::Name;
-//! # use domain::sign::crypto::common;
-//! # use domain::sign::crypto::common::GenerateParams;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::SigningKey;
+//! # use domain::crypto::common;
+//! # use domain::crypto::common::GenerateParams;
+//! # use domain::crypto::common::KeyPair;
+//! # use domain::dnssec::sign::keys::SigningKey;
 //! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
 //! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
@@ -82,11 +82,11 @@
 //!
 //! ```
 //! # use domain::base::Name;
-//! # use domain::sign::crypto::common;
-//! # use domain::sign::crypto::common::GenerateParams;
-//! # use domain::sign::crypto::common::KeyPair;
-//! # use domain::sign::keys::SigningKey;
-//! # use domain::sign::traits::SignRaw;
+//! # use domain::crypto::common;
+//! # use domain::crypto::common::GenerateParams;
+//! # use domain::crypto::common::KeyPair;
+//! # use domain::dnssec::sign::keys::SigningKey;
+//! # use domain::crypto::misc::SignRaw;
 //! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let key = SigningKey::new(Name::<Vec<u8>>::root(), 257, key_pair);
@@ -99,5 +99,7 @@
 //! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
 //! [`SecretKeyBytes`]: crate::sign::keys::SecretKeyBytes
 pub mod common;
+pub mod misc;
 pub mod openssl;
 pub mod ring;
+pub mod validate;

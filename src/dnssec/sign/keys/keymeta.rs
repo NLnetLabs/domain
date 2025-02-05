@@ -4,8 +4,8 @@ use core::ops::Deref;
 
 use std::fmt::Display;
 
-use crate::sign::keys::signingkey::SigningKey;
-use crate::sign::SignRaw;
+use super::signingkey::SigningKey;
+use crate::crypto::misc::SignRaw;
 
 //------------ DesignatedSigningKey ------------------------------------------
 

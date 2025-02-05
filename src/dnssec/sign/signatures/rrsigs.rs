@@ -19,19 +19,19 @@ use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::Name;
-use crate::rdata::dnssec::{ProtoRrsig, Timestamp};
-use crate::rdata::{Dnskey, Rrsig, ZoneRecordData};
-use crate::sign::error::SigningError;
-use crate::sign::keys::keymeta::DesignatedSigningKey;
-use crate::sign::keys::signingkey::SigningKey;
-use crate::sign::records::{
+use crate::crypto::misc::SignRaw;
+use crate::dnssec::sign::error::SigningError;
+use crate::dnssec::sign::keys::keymeta::DesignatedSigningKey;
+use crate::dnssec::sign::keys::signingkey::SigningKey;
+use crate::dnssec::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
-use crate::sign::signatures::strategy::SigningKeyUsageStrategy;
-use crate::sign::signatures::strategy::{
+use crate::dnssec::sign::signatures::strategy::SigningKeyUsageStrategy;
+use crate::dnssec::sign::signatures::strategy::{
     DefaultSigningKeyUsageStrategy, RrsigValidityPeriodStrategy,
 };
-use crate::sign::traits::SignRaw;
+use crate::rdata::dnssec::{ProtoRrsig, Timestamp};
+use crate::rdata::{Dnskey, Rrsig, ZoneRecordData};
 
 //------------ GenerateRrsigConfig -------------------------------------------
 
@@ -726,17 +726,18 @@ mod tests {
 
     use crate::base::iana::SecAlg;
     use crate::base::Serial;
+    use crate::crypto::common::KeyPair;
+    use crate::crypto::misc::{PublicKeyBytes, Signature};
+    use crate::dnssec::sign::error::SignError;
+    use crate::dnssec::sign::keys::keymeta::IntendedKeyPurpose;
+    use crate::dnssec::sign::keys::DnssecSigningKey;
+    use crate::dnssec::sign::test_util;
+    use crate::dnssec::sign::test_util::*;
     use crate::rdata::dnssec::Timestamp;
-    use crate::sign::crypto::common::KeyPair;
-    use crate::sign::error::SignError;
-    use crate::sign::keys::keymeta::IntendedKeyPurpose;
-    use crate::sign::keys::DnssecSigningKey;
-    use crate::sign::test_util::*;
-    use crate::sign::{test_util, PublicKeyBytes, Signature};
     use crate::zonetree::StoredName;
 
     use super::*;
-    use crate::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
+    use crate::dnssec::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
     use crate::zonetree::types::StoredRecordData;
     use rand::Rng;
 
@@ -1324,7 +1325,7 @@ mod tests {
     {
         // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
         let zonefile = include_bytes!(
-            "../../../test-data/zonefiles/rfc4035-appendix-A.zone"
+            "../../../../test-data/zonefiles/rfc4035-appendix-A.zone"
         );
 
         // Load the zone to generate RRSIGs for.

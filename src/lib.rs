@@ -39,9 +39,6 @@
 #![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
 #![cfg_attr(not(feature = "tsig"), doc = "* tsig:")]
 //!   Support for securing DNS transactions with TSIG records.
-#![cfg_attr(feature = "unstable-validate", doc = "* [validate]:")]
-#![cfg_attr(not(feature = "unstable-validate"), doc = "* validate:")]
-//!   Experimental support for DNSSEC validation.
 #![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
 #![cfg_attr(not(feature = "unstable-validator"), doc = "* validator:")]
 //!   A DNSSEC validator.
@@ -159,9 +156,6 @@
 //!   signing, also enable one or more cryptographic backend modules (`ring`
 //!   and `openssl`).
 //! * `unstable-validate`: basic DNSSEC validation support. This enables the
-#![cfg_attr(feature = "unstable-validate", doc = "  [validate]")]
-#![cfg_attr(not(feature = "unstable-validate"), doc = "  validate")]
-//!   module and currently also enables the `std` and `ring` features.
 //! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
 //!   and the `net::client::validator` modules.
 //! * `unstable-xfr`: zone transfer related functionality..
@@ -188,15 +182,14 @@ extern crate std;
 extern crate core;
 
 pub mod base;
+pub mod crypto;
 pub mod dep;
+pub mod dnssec;
 pub mod net;
 pub mod rdata;
 pub mod resolv;
-pub mod sign;
 pub mod stelline;
 pub mod tsig;
 pub mod utils;
-pub mod validate;
-pub mod validator;
 pub mod zonefile;
 pub mod zonetree;

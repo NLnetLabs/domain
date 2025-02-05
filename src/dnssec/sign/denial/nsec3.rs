@@ -15,13 +15,13 @@ use tracing::{debug, trace};
 use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
 use crate::base::name::{ToLabelIter, ToName};
 use crate::base::{CanonicalOrd, Name, NameBuilder, Record, Ttl};
+use crate::crypto::validate::{nsec3_hash, Nsec3HashError};
+use crate::dnssec::sign::error::SigningError;
+use crate::dnssec::sign::records::{DefaultSorter, RecordsIter, Sorter};
 use crate::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Nsec3, Nsec3param, ZoneRecordData};
-use crate::sign::error::SigningError;
-use crate::sign::records::{DefaultSorter, RecordsIter, Sorter};
 use crate::utils::base32;
-use crate::validate::{nsec3_hash, Nsec3HashError};
 
 //----------- GenerateNsec3Config --------------------------------------------
 
@@ -942,8 +942,8 @@ mod tests {
     use bytes::Bytes;
     use pretty_assertions::assert_eq;
 
-    use crate::sign::records::SortedRecords;
-    use crate::sign::test_util::*;
+    use crate::dnssec::sign::records::SortedRecords;
+    use crate::dnssec::sign::test_util::*;
     use crate::zonetree::StoredName;
 
     use super::*;
@@ -1121,7 +1121,7 @@ mod tests {
 
         // See https://datatracker.ietf.org/doc/html/rfc5155#appendix-A
         let zonefile = include_bytes!(
-            "../../../test-data/zonefiles/rfc5155-appendix-A.zone"
+            "../../../../test-data/zonefiles/rfc5155-appendix-A.zone"
         );
 
         let records = bytes_to_records(&zonefile[..]);
