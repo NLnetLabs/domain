@@ -24,38 +24,36 @@ use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::keymeta::DesignatedSigningKey;
 use crate::dnssec::sign::keys::signingkey::SigningKey;
 use crate::dnssec::sign::records::{
-    DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
+    RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::dnssec::sign::signatures::strategy::SigningKeyUsageStrategy;
-use crate::dnssec::sign::signatures::strategy::{
-    DefaultSigningKeyUsageStrategy, RrsigValidityPeriodStrategy,
-};
 use crate::rdata::dnssec::{ProtoRrsig, Timestamp};
 use crate::rdata::{Dnskey, Rrsig, ZoneRecordData};
 
 //------------ GenerateRrsigConfig -------------------------------------------
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct GenerateRrsigConfig<'a, N, KeyStrat, ValidityStrat, Sort> {
+pub struct GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
     pub add_used_dnskeys: bool,
 
     pub zone_apex: Option<&'a N>,
 
-    pub rrsig_validity_period_strategy: ValidityStrat,
+    pub inception: Timestamp,
+
+    pub expiration: Timestamp,
 
     _phantom: PhantomData<(KeyStrat, Sort)>,
 }
 
-impl<'a, N, KeyStrat, ValidityStrat, Sort>
-    GenerateRrsigConfig<'a, N, KeyStrat, ValidityStrat, Sort>
-{
+impl<'a, N, KeyStrat, Sort> GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
     /// Like [`Self::default()`] but gives control over the SigningKeyStrategy
     /// and Sorter used.
-    pub fn new(rrsig_validity_period_strategy: ValidityStrat) -> Self {
+    pub fn new(inception: Timestamp, expiration: Timestamp) -> Self {
         Self {
             add_used_dnskeys: true,
             zone_apex: None,
-            rrsig_validity_period_strategy,
+            inception,
+            expiration,
             _phantom: Default::default(),
         }
     }
@@ -68,22 +66,6 @@ impl<'a, N, KeyStrat, ValidityStrat, Sort>
     pub fn with_zone_apex(mut self, zone_apex: &'a N) -> Self {
         self.zone_apex = Some(zone_apex);
         self
-    }
-}
-
-impl<N, ValidityStrat>
-    GenerateRrsigConfig<
-        '_,
-        N,
-        DefaultSigningKeyUsageStrategy,
-        ValidityStrat,
-        DefaultSorter,
-    >
-where
-    ValidityStrat: RrsigValidityPeriodStrategy,
-{
-    pub fn default(rrsig_validity_period_strategy: ValidityStrat) -> Self {
-        Self::new(rrsig_validity_period_strategy)
     }
 }
 
@@ -146,16 +128,15 @@ where
 /// subject to change.
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
-pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, ValidityStrat, Sort>(
+pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[DSK],
-    config: &GenerateRrsigConfig<'_, N, KeyStrat, ValidityStrat, Sort>,
+    config: &GenerateRrsigConfig<'_, N, KeyStrat, Sort>,
 ) -> Result<RrsigRecords<N, Octs>, SigningError>
 where
     DSK: DesignatedSigningKey<Octs, Inner>,
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
-    ValidityStrat: RrsigValidityPeriodStrategy,
     N: ToName
         + PartialEq
         + Clone
@@ -323,9 +304,8 @@ where
             for key in
                 non_dnskey_signing_key_idxs.iter().map(|&idx| &keys[idx])
             {
-                let (inception, expiration) = config
-                    .rrsig_validity_period_strategy
-                    .validity_period_for_rrset(&rrset);
+                let inception = config.inception;
+                let expiration = config.expiration;
                 let rrsig_rr = sign_rrset_in(
                     key.signing_key(),
                     &rrset,
@@ -407,9 +387,9 @@ fn log_keys_in_use<Octs, DSK, Inner>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, ValidityStrat, Sort>(
+fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     keys: &[DSK],
-    config: &GenerateRrsigConfig<'_, N, KeyStrat, ValidityStrat, Sort>,
+    config: &GenerateRrsigConfig<'_, N, KeyStrat, Sort>,
     records: &mut core::iter::Peekable<
         RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     >,
@@ -425,7 +405,6 @@ where
     DSK: DesignatedSigningKey<Octs, Inner>,
     Inner: SignRaw,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
-    ValidityStrat: RrsigValidityPeriodStrategy,
     N: ToName
         + PartialEq
         + Clone
@@ -559,9 +538,8 @@ where
         };
 
         for key in signing_key_idxs.iter().map(|&idx| &keys[idx]) {
-            let (inception, expiration) = config
-                .rrsig_validity_period_strategy
-                .validity_period_for_rrset(&rrset);
+            let inception = config.inception;
+            let expiration = config.expiration;
             let rrsig_rr = sign_rrset_in(
                 key.signing_key(),
                 &rrset,

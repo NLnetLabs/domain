@@ -146,9 +146,7 @@ use records::{RecordsIter, Sorter};
 use signatures::rrsigs::{
     generate_rrsigs, GenerateRrsigConfig, RrsigRecords,
 };
-use signatures::strategy::{
-    RrsigValidityPeriodStrategy, SigningKeyUsageStrategy,
-};
+use signatures::strategy::SigningKeyUsageStrategy;
 use traits::{SignableZone, SortedExtend};
 
 //------------ SignableZoneInOut ---------------------------------------------
@@ -364,28 +362,9 @@ where
 /// [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
 /// [`SortedRecords`]: crate::sign::records::SortedRecords
 /// [`Zone`]: crate::zonetree::Zone
-pub fn sign_zone<
-    N,
-    Octs,
-    S,
-    DSK,
-    Inner,
-    KeyStrat,
-    ValidityStrat,
-    Sort,
-    HP,
-    T,
->(
+pub fn sign_zone<N, Octs, S, DSK, Inner, KeyStrat, Sort, HP, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
-    signing_config: &mut SigningConfig<
-        N,
-        Octs,
-        Inner,
-        KeyStrat,
-        ValidityStrat,
-        Sort,
-        HP,
-    >,
+    signing_config: &mut SigningConfig<N, Octs, Sort, HP>,
     signing_keys: &[DSK],
 ) -> Result<(), SigningError>
 where
@@ -404,7 +383,6 @@ where
         Truncate + EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
     KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
-    ValidityStrat: RrsigValidityPeriodStrategy + Clone,
     S: SignableZone<N, Octs, Sort>,
     Sort: Sorter,
     T: SortedExtend<N, Octs, Sort> + ?Sized,
@@ -454,10 +432,10 @@ where
     }
 
     if !signing_keys.is_empty() {
-        let mut rrsig_config =
-            GenerateRrsigConfig::<N, KeyStrat, ValidityStrat, Sort>::new(
-                signing_config.rrsig_validity_period_strategy.clone(),
-            );
+        let mut rrsig_config = GenerateRrsigConfig::<N, KeyStrat, Sort>::new(
+            signing_config.inception,
+            signing_config.expiration,
+        );
         rrsig_config.add_used_dnskeys = signing_config.add_used_dnskeys;
         rrsig_config.zone_apex = Some(&apex_owner);
 

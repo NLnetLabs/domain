@@ -1,34 +1,18 @@
 //! Types for tuning configurable aspects of DNSSEC signing.
 use core::marker::PhantomData;
 
-use octseq::{EmptyBuilder, FromBuilder};
-
 use super::denial::config::DenialConfig;
 use super::denial::nsec3::{Nsec3HashProvider, OnDemandNsec3HashProvider};
-use super::records::{DefaultSorter, Sorter};
-use super::signatures::strategy::DefaultSigningKeyUsageStrategy;
-use super::signatures::strategy::RrsigValidityPeriodStrategy;
-use super::signatures::strategy::SigningKeyUsageStrategy;
-use crate::base::{Name, ToName};
-use crate::crypto::misc::SignRaw;
+use super::records::Sorter;
+use crate::rdata::dnssec::Timestamp;
 
 //------------ SigningConfig -------------------------------------------------
 
 /// Signing configuration for a DNSSEC signed zone.
-pub struct SigningConfig<
-    N,
-    Octs,
-    Inner,
-    KeyStrat,
-    ValidityStrat,
-    Sort,
-    HP = OnDemandNsec3HashProvider<Octs>,
-> where
+pub struct SigningConfig<N, Octs, Sort, HP = OnDemandNsec3HashProvider<Octs>>
+where
     HP: Nsec3HashProvider<N, Octs>,
     Octs: AsRef<[u8]> + From<&'static [u8]>,
-    Inner: SignRaw,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
-    ValidityStrat: RrsigValidityPeriodStrategy,
     Sort: Sorter,
 {
     /// Authenticated denial of existing mechanism configuration.
@@ -37,65 +21,31 @@ pub struct SigningConfig<
     /// Should keys used to sign the zone be added as DNSKEY RRs?
     pub add_used_dnskeys: bool,
 
-    pub rrsig_validity_period_strategy: ValidityStrat,
+    pub inception: Timestamp,
 
-    _phantom: PhantomData<(Inner, KeyStrat, Sort)>,
+    pub expiration: Timestamp,
+
+    _phantom: PhantomData<Sort>,
 }
 
-impl<N, Octs, Inner, KeyStrat, Sort, ValidityStrat, HP>
-    SigningConfig<N, Octs, Inner, KeyStrat, ValidityStrat, Sort, HP>
+impl<N, Octs, Sort, HP> SigningConfig<N, Octs, Sort, HP>
 where
     HP: Nsec3HashProvider<N, Octs>,
     Octs: AsRef<[u8]> + From<&'static [u8]>,
-    Inner: SignRaw,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
-    ValidityStrat: RrsigValidityPeriodStrategy,
     Sort: Sorter,
 {
     pub fn new(
         denial: DenialConfig<N, Octs, HP, Sort>,
         add_used_dnskeys: bool,
-        rrsig_validity_period_strategy: ValidityStrat,
+        inception: Timestamp,
+        expiration: Timestamp,
     ) -> Self {
         Self {
             denial,
             add_used_dnskeys,
-            rrsig_validity_period_strategy,
+            inception,
+            expiration,
             _phantom: PhantomData,
-        }
-    }
-
-    pub fn set_rrsig_validity_period_strategy(
-        &mut self,
-        rrsig_validity_period_strategy: ValidityStrat,
-    ) {
-        self.rrsig_validity_period_strategy = rrsig_validity_period_strategy;
-    }
-}
-
-impl<N, Octs, Inner, ValidityStrat>
-    SigningConfig<
-        N,
-        Octs,
-        Inner,
-        DefaultSigningKeyUsageStrategy,
-        ValidityStrat,
-        DefaultSorter,
-        OnDemandNsec3HashProvider<Octs>,
-    >
-where
-    N: ToName + From<Name<Octs>>,
-    Octs: AsRef<[u8]> + From<&'static [u8]> + FromBuilder,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    Inner: SignRaw,
-    ValidityStrat: RrsigValidityPeriodStrategy,
-{
-    pub fn default(rrsig_validity_period_strategy: ValidityStrat) -> Self {
-        Self {
-            denial: Default::default(),
-            add_used_dnskeys: true,
-            rrsig_validity_period_strategy,
-            _phantom: Default::default(),
         }
     }
 }
