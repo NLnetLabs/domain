@@ -1,6 +1,6 @@
 //! Network transports for DNS servers.
 
-use core::net::SocketAddr;
+use core::net::{IpAddr, SocketAddr};
 use std::{io, sync::Arc, time::SystemTime, vec::Vec};
 
 use bumpalo::Bump;
@@ -11,7 +11,7 @@ use crate::{
         wire::{AsBytes, ParseBytesByRef},
         Message,
     },
-    new_server::exchange::Allocator,
+    new_server::exchange::{Allocator, Metadata},
 };
 
 use super::{exchange::ParsedMessage, Exchange, Service};
@@ -67,18 +67,20 @@ pub async fn serve_udp(
                 reception: SystemTime::now(),
                 request,
                 response: ParsedMessage::default(),
-                metadata: Vec::new(),
+                metadata: vec![Metadata::new(SourceIpAddr(peer.ip()))],
             };
 
             // Generate the appropriate response.
             self.service.respond(&mut exchange).await;
 
             // Build up the response message.
+            println!("Returning response: {:?}", exchange.response);
             let mut buffer = vec![0u8; 65536];
             let message =
                 exchange.response.build(&mut buffer).unwrap_or_else(|_| {
                     todo!("how to handle truncation errors?")
                 });
+            println!("In bytes: {:?}", message.as_bytes());
 
             // Send the response back to the peer.
             let _ = self.socket.send_to(message.as_bytes(), peer).await;
@@ -103,4 +105,33 @@ pub async fn serve_udp(
         // Spawn a Tokio task to respond to the request.
         tokio::task::spawn(state.clone().respond(buffer, peer));
     }
+}
+
+//----------- SourceIpAddr ---------------------------------------------------
+
+/// The IP address a DNS request originated from.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SourceIpAddr(pub IpAddr);
+
+impl From<IpAddr> for SourceIpAddr {
+    fn from(value: IpAddr) -> Self {
+        Self(value)
+    }
+}
+
+impl From<SourceIpAddr> for IpAddr {
+    fn from(value: SourceIpAddr) -> Self {
+        value.0
+    }
+}
+
+//----------- UdpMetadata ----------------------------------------------------
+
+/// Information about a DNS request on a UDP socket.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UdpMetadata {
+    /// The UDP port the request originated from.
+    ///
+    /// Use [`SourceIpAddr`] to determine the associated IP address.
+    pub port: u16,
 }

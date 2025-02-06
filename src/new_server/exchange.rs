@@ -15,10 +15,10 @@ use crate::{
         build::{BuilderContext, MessageBuilder},
         name::{RevName, RevNameBuf},
         parse::SplitMessageBytes,
-        wire::{BuildBytes, ParseError, TruncationError, U16},
-        HeaderFlags, Message, Question, RType, Record,
+        wire::{BuildBytes, ParseError, SizePrefixed, TruncationError, U16},
+        HeaderFlags, Message, Question, RType, Record, SectionCounts,
     },
-    new_edns::EdnsOption,
+    new_edns::{EdnsOption, EdnsRecord},
     new_rdata::{Opt, RecordData},
 };
 
@@ -45,6 +45,13 @@ pub struct Exchange<'a> {
 
     /// Dynamic metadata stored by the DNS server.
     pub metadata: Vec<Metadata>,
+}
+
+impl Exchange<'_> {
+    /// Begin a response with the given code.
+    pub fn respond(&mut self, code: ResponseCode) {
+        self.response.respond_to(&self.request, code);
+    }
 }
 
 //----------- OutgoingResponse -----------------------------------------------
@@ -159,11 +166,8 @@ impl<'a> ParsedMessage<'a> {
                 offset,
             )?;
 
-            this.questions.push(Question {
-                qname: map_name(question.qname, alloc),
-                qtype: question.qtype,
-                qclass: question.qclass,
-            });
+            this.questions
+                .push(question.map_name(|n| map_name(n, alloc)));
             offset = rest;
         }
 
@@ -266,10 +270,7 @@ impl<'a> ParsedMessage<'a> {
         let header = builder.header_mut();
         header.id = self.id;
         header.flags = self.flags;
-        header.counts.questions.set(self.questions.len() as u16);
-        header.counts.answers.set(self.answers.len() as u16);
-        header.counts.authorities.set(self.authorities.len() as u16);
-        header.counts.additional.set(self.additional.len() as u16);
+        header.counts = SectionCounts::default();
 
         // Build the question section.
         for question in &self.questions {
@@ -309,7 +310,7 @@ impl<'a> ParsedMessage<'a> {
                 let uninit_len = uninit.len();
                 let appended = delegate.uninitialized().len() - uninit_len;
                 delegate.mark_appended(appended);
-                core::mem::drop(delegate);
+                delegate.commit();
                 builder.commit();
 
                 edns_built = true;
@@ -329,6 +330,13 @@ impl<'a> ParsedMessage<'a> {
 }
 
 impl ParsedMessage<'_> {
+    /// Whether this message has an EDNS record.
+    pub fn has_edns(&self) -> bool {
+        self.additional.iter().any(|r| r.rtype == RType::OPT)
+    }
+}
+
+impl ParsedMessage<'_> {
     /// Reset this object to a blank message.
     ///
     /// This is helpful in order to reuse the underlying allocations.
@@ -340,6 +348,103 @@ impl ParsedMessage<'_> {
         self.authorities.clear();
         self.additional.clear();
         self.options.clear();
+    }
+
+    /// Begin a new message in response to the given one.
+    ///
+    /// The contents of `self` will be overwritten.  The message ID and flags
+    /// will be copied from the request message, and the given response code
+    /// will be set.  The OPT record, if any, will also be copied (without any
+    /// EDNS options); if an extended response code is used, it will be added.
+    pub fn respond_to(
+        &mut self,
+        request: &ParsedMessage<'_>,
+        code: ResponseCode,
+    ) {
+        self.reset();
+        self.id = request.id;
+        self.flags = request.flags.respond(code.header_bits());
+
+        if let Some(edns) = request
+            .additional
+            .iter()
+            .find_map(|r| EdnsRecord::try_from(r.clone()).ok())
+        {
+            // Copy the EDNS record, without any options.
+            let record = EdnsRecord {
+                max_udp_payload: edns.max_udp_payload,
+                ext_rcode: edns.ext_rcode,
+                version: edns.version,
+                flags: edns.flags,
+                options: SizePrefixed::new(Opt::EMPTY),
+            };
+            self.additional.push(record.into());
+        }
+    }
+}
+
+//----------- ResponseCode ---------------------------------------------------
+
+/// A (possibly extended) DNS response code.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ResponseCode {
+    /// The request was answered successfully.
+    Success,
+
+    /// The request was misformatted.
+    FormatError,
+
+    /// The server encountered an internal error.
+    ServerFailure,
+
+    /// The queried domain name does not exist.
+    NonExistentDomain,
+
+    /// The server does not support the requested kind of query.
+    NotImplemented,
+
+    /// Policy prevents the server from answering the query.
+    Refused,
+
+    /// The TSIG record in the request was invalid.
+    InvalidTSIG,
+
+    /// The server does not support the request's OPT record version.
+    UnsupportedOptVersion,
+
+    /// The request did not contain a valid EDNS server cookie.
+    BadCookie,
+}
+
+impl ResponseCode {
+    /// This code's representation in the DNS message header.
+    pub const fn header_bits(&self) -> u8 {
+        match self {
+            Self::Success => 0,
+            Self::FormatError => 1,
+            Self::ServerFailure => 2,
+            Self::NonExistentDomain => 3,
+            Self::NotImplemented => 4,
+            Self::Refused => 5,
+            Self::InvalidTSIG => 9,
+            Self::UnsupportedOptVersion => 0,
+            Self::BadCookie => 7,
+        }
+    }
+
+    /// This code's representation in the EDNS record header.
+    pub const fn edns_bits(&self) -> u8 {
+        match self {
+            Self::Success => 0,
+            Self::FormatError => 0,
+            Self::ServerFailure => 0,
+            Self::NonExistentDomain => 0,
+            Self::NotImplemented => 0,
+            Self::Refused => 0,
+            Self::InvalidTSIG => 0,
+            Self::UnsupportedOptVersion => 1,
+            Self::BadCookie => 1,
+        }
     }
 }
 

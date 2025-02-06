@@ -24,6 +24,8 @@ use exchange::OutgoingResponse;
 
 pub mod transport;
 
+pub mod layers;
+
 //----------- Service --------------------------------------------------------
 
 /// A (multi-threaded) DNS service, that computes responses for requests.
