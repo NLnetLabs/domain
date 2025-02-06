@@ -718,6 +718,7 @@ where
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
+    use core::str::FromStr;
     use pretty_assertions::assert_eq;
 
     use crate::base::iana::SecAlg;
@@ -758,8 +759,7 @@ mod tests {
         let rrset = Rrset::new(&records);
 
         let rrsig_rr =
-            sign_rrset(&key, &rrset, &apex_owner, inception, expiration)
-                .unwrap();
+            sign_rrset(&key, &rrset, inception, expiration).unwrap();
         let rrsig = rrsig_rr.data();
 
         // RFC 4035
@@ -820,8 +820,7 @@ mod tests {
         let rrset = Rrset::new(&records);
 
         let rrsig_rr =
-            sign_rrset(&key, &rrset, &apex_owner, inception, expiration)
-                .unwrap();
+            sign_rrset(&key, &rrset, inception, expiration).unwrap();
         let rrsig = rrsig_rr.data();
 
         assert_eq!(rrsig.labels(), 2);
@@ -847,8 +846,7 @@ mod tests {
             .unwrap();
         let rrset = Rrset::new(&records);
 
-        let res =
-            sign_rrset(&key, &rrset, &apex_owner, inception, expiration);
+        let res = sign_rrset(&key, &rrset, inception, expiration);
         assert!(matches!(res, Err(SigningError::RrsigRrsMustNotBeSigned)));
     }
 
@@ -890,16 +888,15 @@ mod tests {
 
         // Good: Expiration > Inception.
         let (inception, expiration) = calc_timestamps(5, 5);
-        sign_rrset(&key, &rrset, &apex_owner, inception, expiration).unwrap();
+        sign_rrset(&key, &rrset, inception, expiration).unwrap();
 
         // Good: Expiration == Inception.
         let (inception, expiration) = calc_timestamps(10, 0);
-        sign_rrset(&key, &rrset, &apex_owner, inception, expiration).unwrap();
+        sign_rrset(&key, &rrset, inception, expiration).unwrap();
 
         // Bad: Expiration < Inception.
         let (expiration, inception) = calc_timestamps(5, 10);
-        let res =
-            sign_rrset(&key, &rrset, &apex_owner, inception, expiration);
+        let res = sign_rrset(&key, &rrset, inception, expiration);
         assert!(matches!(
             res,
             Err(SigningError::InvalidSignatureValidityPeriod(_, _))
@@ -908,22 +905,22 @@ mod tests {
         // Good: Expiration > Inception with Expiration near wrap around
         // point.
         let (inception, expiration) = calc_timestamps(u32::MAX - 10, 10);
-        sign_rrset(&key, &rrset, &apex_owner, inception, expiration).unwrap();
+        sign_rrset(&key, &rrset, inception, expiration).unwrap();
 
         // Good: Expiration > Inception with Inception near wrap around point.
         let (inception, expiration) = calc_timestamps(0, 10);
-        sign_rrset(&key, &rrset, &apex_owner, inception, expiration).unwrap();
+        sign_rrset(&key, &rrset, inception, expiration).unwrap();
 
         // Good: Expiration > Inception with Exception crossing the wrap
         // around point.
         let (inception, expiration) = calc_timestamps(u32::MAX - 10, 20);
-        sign_rrset(&key, &rrset, &apex_owner, inception, expiration).unwrap();
+        sign_rrset(&key, &rrset, inception, expiration).unwrap();
 
         // Good: Expiration - Inception == 68 years.
         let sixty_eight_years_in_secs = 68 * 365 * 24 * 60 * 60;
         let (inception, expiration) =
             calc_timestamps(0, sixty_eight_years_in_secs);
-        sign_rrset(&key, &rrset, &apex_owner, inception, expiration).unwrap();
+        sign_rrset(&key, &rrset, inception, expiration).unwrap();
 
         // Bad: Expiration - Inception > 68 years.
         //
@@ -962,8 +959,7 @@ mod tests {
             Timestamp::from(0),
             Timestamp::from(sixty_eight_years_in_secs + one_year_in_secs),
         );
-        let res =
-            sign_rrset(&key, &rrset, &apex_owner, inception, expiration);
+        let res = sign_rrset(&key, &rrset, inception, expiration);
         assert!(matches!(
             res,
             Err(SigningError::InvalidSignatureValidityPeriod(_, _))
@@ -1170,7 +1166,7 @@ mod tests {
                 "out_of_zone.",
                 Rtype::A,
                 1,
-                "out_of_zone.",
+                "example.",
                 &dnskey
             )]
         );
@@ -1754,7 +1750,7 @@ mod tests {
         };
 
         let key = SigningKey::new(
-            StoredName::root_bytes(),
+            Name::from_str("example").unwrap(),
             flags,
             TestKey::default(),
         );
