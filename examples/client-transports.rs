@@ -191,14 +191,12 @@ async fn main() {
     drop(request);
 
     // Create a transport connection for redundant connections.
-    let redun = redundant::Connection::<
-        Box<dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync>,
-    >::new();
+    let redun = redundant::Connection::new();
 
     // Add the previously created transports.
-    redun.add(Box::new(udptcp_conn.clone()) as _);
-    redun.add(Box::new(tcp_conn.clone()) as _);
-    redun.add(Box::new(tls_conn.clone()) as _);
+    redun.add(Box::new(udptcp_conn.clone()));
+    redun.add(Box::new(tcp_conn.clone()));
+    redun.add(Box::new(tls_conn.clone()));
 
     // Start a few queries.
     for i in 1..10 {

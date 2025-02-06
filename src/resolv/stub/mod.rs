@@ -75,16 +75,14 @@ pub mod conf;
 /// [`run_with_conf`]: #method.run_with_conf
 #[derive(Debug)]
 pub struct StubResolver {
-    transport: Mutex<Option<Arc<redundant::Connection<InnerTransport>>>>,
+    transport:
+        Mutex<Option<Arc<redundant::Connection<RequestMessage<Vec<u8>>>>>>,
 
     /// Resolver options.
     options: ResolvOptions,
 
     servers: Vec<ServerConf>,
 }
-
-type InnerTransport =
-    Box<dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync>;
 
 impl StubResolver {
     /// Creates a new resolver using the system’s default configuration.
@@ -136,7 +134,7 @@ impl StubResolver {
         CR: Clone + Debug + ComposeRequest + Send + Sync + 'static,
     >(
         &self,
-    ) -> redundant::Connection<Box<dyn SendRequest<CR> + Send + Sync>> {
+    ) -> redundant::Connection<CR> {
         // Create a redundant transport and fill it with the right transports
         let redun = redundant::Connection::new();
 
@@ -157,7 +155,7 @@ impl StubResolver {
                     multi_stream::Connection::new(TcpConnect::new(s.addr));
                 // Start the run function on a separate task.
                 fut_list_tcp.push(tran.run());
-                redun.add(Box::new(conn) as _);
+                redun.add(Box::new(conn));
             } else {
                 let udp_connect = UdpConnect::new(s.addr);
                 let tcp_connect = TcpConnect::new(s.addr);
@@ -165,7 +163,7 @@ impl StubResolver {
                     dgram_stream::Connection::new(udp_connect, tcp_connect);
                 // Start the run function on a separate task.
                 fut_list_udp_tcp.push(tran.run());
-                redun.add(Box::new(conn) as _);
+                redun.add(Box::new(conn));
             }
         }
 
@@ -178,11 +176,7 @@ impl StubResolver {
 
     async fn get_transport(
         &self,
-    ) -> Arc<
-        redundant::Connection<
-            Box<dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync>,
-        >,
-    > {
+    ) -> Arc<redundant::Connection<RequestMessage<Vec<u8>>>> {
         let mut opt_transport = self.transport.lock().await;
 
         match &*opt_transport {

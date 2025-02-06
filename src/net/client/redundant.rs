@@ -102,7 +102,8 @@ impl Config {
 //------------ Connection ----------------------------------------------------
 
 /// A request multiplexer over redundant transports.
-pub struct Connection<Conn> {
+#[derive(Default, Debug)]
+pub struct Connection<Req> {
     /// Configuration for the transport.
     config: Config,
 
@@ -113,10 +114,10 @@ pub struct Connection<Conn> {
     ///
     /// Within each transport, runtime statistics can be modified without
     /// locking the entire list for mutation.
-    transports: RwLock<Vec<Arc<Transport<Conn>>>>,
+    transports: RwLock<Vec<Arc<Transport<Req>>>>,
 }
 
-impl<Conn> Connection<Conn> {
+impl<Req> Connection<Req> {
     /// Construct a new [`Connection`].
     pub fn new() -> Self {
         Self::with_config(Config::default())
@@ -131,7 +132,7 @@ impl<Conn> Connection<Conn> {
     }
 
     /// Add a new transport.
-    pub fn add(&self, transport: Conn) {
+    pub fn add(&self, transport: Box<dyn SendRequest<Req> + Send + Sync>) {
         // Prepare the new transport.
         let transport = Arc::new(Transport::new(transport));
 
@@ -140,10 +141,8 @@ impl<Conn> Connection<Conn> {
     }
 }
 
-impl<Conn, Req> SendRequest<Req> for Connection<Conn>
-where
-    Conn: SendRequest<Req> + Send + Sync + 'static,
-    Req: Clone + Send + Sync + 'static,
+impl<Req: Clone + Send + Sync + 'static> SendRequest<Req>
+    for Connection<Req>
 {
     fn send_request(
         &self,
@@ -184,21 +183,17 @@ where
     }
 }
 
-impl<Conn> Connection<Conn> {
+impl<Req: Clone> Connection<Req> {
     /// Multiplex a request through known transports.
     ///
     /// The given list of transports will be queried, in order.  If a request
     /// does not finish within the associated timeout (which should be quite
     /// rare), a request for the next transport is started concurrently.
-    async fn request<Req>(
+    async fn request(
         config: Config,
-        transports: Vec<RequestTransport<Conn>>,
+        transports: Vec<RequestTransport<Req>>,
         request: Req,
-    ) -> Result<Message<Bytes>, Error>
-    where
-        Conn: SendRequest<Req>,
-        Req: Clone + Send + Sync + 'static,
-    {
+    ) -> Result<Message<Bytes>, Error> {
         // Ensure at least one transport is available.
         if transports.is_empty() {
             return Err(Error::NoTransportAvailable);
@@ -272,7 +267,7 @@ impl<Conn> Connection<Conn> {
     /// The live set of transports will be snapshotted and sorted by timeout.
     /// Occasionally, a slower transport may be assigned a low timeout so that
     /// information about it can be updated.
-    fn prep_transports(&self) -> Vec<RequestTransport<Conn>> {
+    fn prep_transports(&self) -> Vec<RequestTransport<Req>> {
         // Take a snapshot of the transport list.
         let mut transports = self
             .transports
@@ -309,55 +304,33 @@ impl<Conn> Connection<Conn> {
     }
 }
 
-impl<Conn> Default for Connection<Conn> {
-    fn default() -> Self {
-        Self {
-            config: Default::default(),
-            transports: Default::default(),
-        }
-    }
-}
-
-impl<Conn> fmt::Debug for Connection<Conn> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Connection")
-            .field("config", &self.config)
-            .field("transports", &self.transports)
-            .finish()
-    }
-}
-
 //------------ Transport -----------------------------------------------------
 
 /// A transport known to [`Connection`].
-struct Transport<Conn> {
+struct Transport<Req> {
+    /// The underlying request sender.
+    sender: Box<dyn SendRequest<Req> + Send + Sync>,
+
     /// Statistics about this transport.
     ///
     /// This is updated after every request-response using this transport.
     stats: Mutex<TransportStats>,
-
-    /// The underlying transport.
-    inner: Conn,
 }
 
-impl<Conn> Transport<Conn> {
+impl<Req> Transport<Req> {
     /// Construct a new [`Transport`].
-    pub fn new(inner: Conn) -> Self {
+    pub fn new(sender: Box<dyn SendRequest<Req> + Send + Sync>) -> Self {
         Self {
+            sender,
             stats: Default::default(),
-            inner,
         }
     }
 
     /// Query this transport.
-    async fn request<Req>(
+    async fn request(
         self: Arc<Self>,
         request: Req,
-    ) -> Result<Message<Bytes>, Error>
-    where
-        Conn: SendRequest<Req>,
-        Req: Clone + Send + Sync + 'static,
-    {
+    ) -> Result<Message<Bytes>, Error> {
         /// A drop guard for collecting statistics.
         struct Guard<'a> {
             /// Whether the request actually finished.
@@ -390,7 +363,7 @@ impl<Conn> Transport<Conn> {
         };
 
         // Perform the actual request.
-        let result = self.inner.send_request(request).get_response().await;
+        let result = self.sender.send_request(request).get_response().await;
 
         // Inform the drop guard that the request completed.
         guard.finished = true;
@@ -399,10 +372,10 @@ impl<Conn> Transport<Conn> {
     }
 }
 
-impl<Conn> fmt::Debug for Transport<Conn> {
+impl<Req> fmt::Debug for Transport<Req> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transport")
-            .field("inner", &format_args!("_"))
+            .field("sender", &format_args!("_"))
             .field("stats", &self.stats)
             .finish()
     }
