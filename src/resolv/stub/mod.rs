@@ -68,21 +68,23 @@ pub mod conf;
 /// you can do so simply by using the [`run`] or [`run_with_conf`] associated
 /// functions.
 ///
-/// [`new`]: #method.new
-/// [`from_conf`]: #method.from_conf
-/// [`query`]: #method.query
-/// [`run`]: #method.run
-/// [`run_with_conf`]: #method.run_with_conf
+/// [`new`]: StubResolver::new
+/// [`from_conf`]: StubResolver::from_conf
+/// [`query`]: StubResolver::query
+/// [`run`]: StubResolver::run
+/// [`run_with_conf`]: StubResolver::run_with_conf
 #[derive(Debug)]
 pub struct StubResolver {
-    transport:
-        Mutex<Option<Arc<redundant::Connection<RequestMessage<Vec<u8>>>>>>,
+    transport: Mutex<Option<Arc<InnerTransport>>>,
 
     /// Resolver options.
     options: ResolvOptions,
 
     servers: Vec<ServerConf>,
 }
+
+/// The underlying client connection type.
+type InnerTransport = redundant::Connection<RequestMessage<Vec<u8>>>;
 
 impl StubResolver {
     /// Creates a new resolver using the system’s default configuration.
