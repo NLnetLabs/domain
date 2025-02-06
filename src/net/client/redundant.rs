@@ -102,7 +102,6 @@ impl Config {
 //------------ Connection ----------------------------------------------------
 
 /// A request multiplexer over redundant transports.
-#[derive(Default, Debug)]
 pub struct Connection<Req> {
     /// Configuration for the transport.
     config: Config,
@@ -304,6 +303,23 @@ impl<Req: Clone> Connection<Req> {
     }
 }
 
+impl<Req> Default for Connection<Req> {
+    fn default() -> Self {
+        Self {
+            config: Default::default(),
+            transports: Default::default(),
+        }
+    }
+}
+
+impl<Req> fmt::Debug for Connection<Req> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Connection")
+            .field("config", &self.config)
+            .field("transports", &self.transports)
+            .finish()
+    }
+}
 //------------ Transport -----------------------------------------------------
 
 /// A transport known to [`Connection`].
