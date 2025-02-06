@@ -329,7 +329,6 @@ where
                 let rrsig_rr = sign_rrset_in(
                     key.signing_key(),
                     &rrset,
-                    zone_apex,
                     inception,
                     expiration,
                     &mut reusable_scratch,
@@ -566,7 +565,6 @@ where
             let rrsig_rr = sign_rrset_in(
                 key.signing_key(),
                 &rrset,
-                zone_apex,
                 inception,
                 expiration,
                 reusable_scratch,
@@ -597,17 +595,16 @@ where
 pub fn sign_rrset<N, D, Octs, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset: &Rrset<'_, N, D>,
-    apex_owner: &N,
     inception: Timestamp,
     expiration: Timestamp,
 ) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
 where
-    N: ToName + Clone,
+    N: ToName + Clone + From<Name<Octs>>,
     D: RecordData + ComposeRecordData + CanonicalOrd,
     Inner: SignRaw,
-    Octs: AsRef<[u8]> + OctetsFrom<Vec<u8>>,
+    Octs: AsRef<[u8]> + Clone + OctetsFrom<Vec<u8>>,
 {
-    sign_rrset_in(key, rrset, apex_owner, inception, expiration, &mut vec![])
+    sign_rrset_in(key, rrset, inception, expiration, &mut vec![])
 }
 
 /// Generate `RRSIG` records for a given RRset.
@@ -633,16 +630,15 @@ where
 pub fn sign_rrset_in<N, D, Octs, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset: &Rrset<'_, N, D>,
-    apex_owner: &N,
     inception: Timestamp,
     expiration: Timestamp,
     scratch: &mut Vec<u8>,
 ) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
 where
-    N: ToName + Clone,
+    N: ToName + Clone + From<Name<Octs>>,
     D: RecordData + ComposeRecordData + CanonicalOrd,
     Inner: SignRaw,
-    Octs: AsRef<[u8]> + OctetsFrom<Vec<u8>>,
+    Octs: AsRef<[u8]> + Clone + OctetsFrom<Vec<u8>>,
 {
     // RFC 4035
     // 2.2.  Including RRSIG RRs in a Zone
@@ -685,7 +681,7 @@ where
         // We don't need to make sure here that the signer name is in
         // canonical form as required by RFC 4034 as the call to
         // `compose_canonical()` below will take care of that.
-        apex_owner.clone(),
+        key.owner().clone().into(),
     );
 
     scratch.clear();
