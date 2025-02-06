@@ -438,7 +438,7 @@ where
             in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
         }
 
-        DenialConfig::Nsec3(ref mut cfg, extra) if extra.is_empty() => {
+        DenialConfig::Nsec3(ref mut cfg) => {
             // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
             // order." We store the NSEC3s as we create them and sort them
             // afterwards.
@@ -450,26 +450,6 @@ where
                 std::iter::once(Record::from_record(nsec3param))
                     .chain(nsec3s.into_iter().map(Record::from_record)),
             );
-        }
-
-        DenialConfig::Nsec3(_nsec3_config, _extra) => {
-            todo!();
-        }
-
-        DenialConfig::TransitioningNsecToNsec3(
-            _nsec_config,
-            _nsec3_config,
-            _nsec_to_nsec3_transition_state,
-        ) => {
-            todo!();
-        }
-
-        DenialConfig::TransitioningNsec3ToNsec(
-            _nsec_config,
-            _nsec3_config,
-            _nsec3_to_nsec_transition_state,
-        ) => {
-            todo!();
         }
     }
 

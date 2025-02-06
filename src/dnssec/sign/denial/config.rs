@@ -1,7 +1,5 @@
 use core::convert::From;
 
-use std::vec::Vec;
-
 use super::nsec::GenerateNsecConfig;
 use super::nsec3::{
     GenerateNsec3Config, Nsec3HashProvider, OnDemandNsec3HashProvider,
@@ -9,63 +7,6 @@ use super::nsec3::{
 use crate::base::{Name, ToName};
 use crate::dnssec::sign::records::DefaultSorter;
 use octseq::{EmptyBuilder, FromBuilder};
-
-//------------ NsecToNsec3TransitionState ------------------------------------
-
-/// The current state of an RFC 5155 section 10.4 NSEC to NSEC3 transition.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum NsecToNsec3TransitionState {
-    /// 1.  Transition all DNSKEYs to DNSKEYs using the algorithm aliases
-    ///     described in Section 2.  The actual method for safely and securely
-    ///     changing the DNSKEY RRSet of the zone is outside the scope of this
-    ///     specification.  However, the end result MUST be that all DS RRs in
-    ///     the parent use the specified algorithm aliases.
-    ///
-    ///     After this transition is complete, all NSEC3-unaware clients will
-    ///     treat the zone as insecure.  At this point, the authoritative
-    ///     server still returns negative and wildcard responses that contain
-    ///     NSEC RRs.
-    TransitioningDnskeys,
-
-    /// 2.  Add signed NSEC3 RRs to the zone, either incrementally or all at
-    ///     once.  If adding incrementally, then the last RRSet added MUST be
-    ///     the NSEC3PARAM RRSet.
-    ///
-    /// 3.  Upon the addition of the NSEC3PARAM RRSet, the server switches to
-    ///     serving negative and wildcard responses with NSEC3 RRs according
-    ///     to this specification.
-    AddingNsec3Records,
-
-    /// 4.  Remove the NSEC RRs either incrementally or all at once.
-    RemovingNsecRecords,
-
-    /// 5. Done.
-    Transitioned,
-}
-
-//------------ Nsec3ToNsecTransitionState ------------------------------------
-
-/// The current state of an RFC 5155 section 10.5 NSEC3 to NSEC transition.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Nsec3ToNsecTransitionState {
-    /// 1.  Add NSEC RRs incrementally or all at once.
-    AddingNsecRecords,
-
-    /// 2.  Remove the NSEC3PARAM RRSet.  This will signal the server to use
-    ///     the NSEC RRs for negative and wildcard responses.
-    RemovingNsec3ParamRecord,
-
-    /// 3.  Remove the NSEC3 RRs either incrementally or all at once.
-    RemovingNsec3Records,
-
-    /// 4. Transition all of the DNSKEYs to DNSSEC algorithm identifiers.
-    ///    After this transition is complete, all NSEC3-unaware clients will
-    ///    treat the zone as secure.
-    TransitioningDnskeys,
-
-    /// 5. Done.
-    Transitioned,
-}
 
 //------------ DenialConfig --------------------------------------------------
 
@@ -112,24 +53,7 @@ pub enum DenialConfig<
     ///    the only practical and palatable transition mechanisms may require
     ///    an intermediate transition to an insecure state, or to a state that
     ///    uses NSEC records instead of NSEC3."
-    Nsec3(
-        GenerateNsec3Config<N, O, HP, Sort>,
-        Vec<GenerateNsec3Config<N, O, HP, Sort>>,
-    ),
-
-    /// The zone is transitioning from NSEC to NSEC3.
-    TransitioningNsecToNsec3(
-        GenerateNsecConfig,
-        GenerateNsec3Config<N, O, HP, Sort>,
-        NsecToNsec3TransitionState,
-    ),
-
-    /// The zone is transitioning from NSEC3 to NSEC.
-    TransitioningNsec3ToNsec(
-        GenerateNsecConfig,
-        GenerateNsec3Config<N, O, HP, Sort>,
-        Nsec3ToNsecTransitionState,
-    ),
+    Nsec3(GenerateNsec3Config<N, O, HP, Sort>),
 }
 
 impl<N, O> Default
