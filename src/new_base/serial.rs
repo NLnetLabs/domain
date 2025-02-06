@@ -102,3 +102,25 @@ impl fmt::Display for Serial {
         self.0.get().fmt(f)
     }
 }
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::Serial;
+
+    #[test]
+    fn comparisons() {
+        // TODO: Use property-based testing.
+        assert!(Serial::from(u32::MAX) > Serial::from(u32::MAX / 2 + 1));
+        assert!(Serial::from(0) > Serial::from(u32::MAX));
+        assert!(Serial::from(1) > Serial::from(0));
+    }
+
+    #[test]
+    fn operations() {
+        // TODO: Use property-based testing.
+        assert_eq!(u32::from(Serial::from(1) + 1), 2);
+        assert_eq!(u32::from(Serial::from(u32::MAX) + 1), 0);
+    }
+}

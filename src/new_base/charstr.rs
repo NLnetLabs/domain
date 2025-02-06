@@ -141,3 +141,32 @@ impl fmt::Debug for CharStr {
             .finish()
     }
 }
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::CharStr;
+
+    use crate::new_base::wire::{
+        BuildBytes, ParseBytes, ParseError, SplitBytes,
+    };
+
+    #[test]
+    fn parse_build() {
+        let bytes = b"\x05Hello!";
+        let (charstr, rest) = <&CharStr>::split_bytes(bytes).unwrap();
+        assert_eq!(&charstr.octets, b"Hello");
+        assert_eq!(rest, b"!");
+
+        assert_eq!(<&CharStr>::parse_bytes(bytes), Err(ParseError));
+        assert!(<&CharStr>::parse_bytes(&bytes[..6]).is_ok());
+
+        let mut buffer = [0u8; 6];
+        assert_eq!(
+            charstr.build_bytes(&mut buffer),
+            Ok(&mut [] as &mut [u8])
+        );
+        assert_eq!(buffer, &bytes[..6]);
+    }
+}
