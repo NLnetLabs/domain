@@ -72,8 +72,9 @@ zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
+unstable-crypto = ["bytes"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
-unstable-sign = ["std", "dep:secrecy", "dep:smallvec", "dep:serde", "time/formatting", "tracing"]
+unstable-sign = ["std", "dep:secrecy", "dep:smallvec", "dep:serde", "ring", "time/formatting", "tracing", "unstable-crypto"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
 unstable-validator = ["zonefile", "unstable-client-transport"]
 unstable-xfr = ["net"]
