@@ -14,7 +14,7 @@ use super::{
 //----------- Question -------------------------------------------------------
 
 /// A DNS question.
-#[derive(Clone, Debug, BuildBytes, ParseBytes, SplitBytes)]
+#[derive(Clone, Debug, BuildBytes, ParseBytes, SplitBytes, PartialEq, Eq)]
 pub struct Question<N> {
     /// The domain name being requested.
     pub qname: N,
@@ -238,5 +238,37 @@ impl fmt::Debug for QClass {
             Self::CH => "QClass::CH",
             _ => return write!(f, "QClass({})", self.code),
         })
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::{QClass, QType, Question};
+
+    use crate::new_base::{
+        name::Name,
+        wire::{BuildBytes, ParseBytes, ParseError, SplitBytes},
+    };
+
+    #[test]
+    fn parse_build() {
+        let bytes = b"\x03com\x00\x00\x01\x00\x01\x2A";
+        let (question, rest) = <Question<&Name>>::split_bytes(bytes).unwrap();
+        assert_eq!(question.qname.as_bytes(), b"\x03com\x00");
+        assert_eq!(question.qtype, QType::A);
+        assert_eq!(question.qclass, QClass::IN);
+        assert_eq!(rest, b"\x2A");
+
+        assert_eq!(<Question<&Name>>::parse_bytes(bytes), Err(ParseError));
+        assert!(<Question<&Name>>::parse_bytes(&bytes[..9]).is_ok());
+
+        let mut buffer = [0u8; 9];
+        assert_eq!(
+            question.build_bytes(&mut buffer),
+            Ok(&mut [] as &mut [u8])
+        );
+        assert_eq!(buffer, &bytes[..9]);
     }
 }

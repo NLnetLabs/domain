@@ -15,7 +15,7 @@ use super::{
 //----------- Record ---------------------------------------------------------
 
 /// A DNS record.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record<N, D> {
     /// The name of the record.
     pub rname: N,
@@ -446,5 +446,39 @@ impl Borrow<[u8]> for UnparsedRecordData {
 impl AsRef<[u8]> for UnparsedRecordData {
     fn as_ref(&self) -> &[u8] {
         self
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::{RClass, RType, Record, UnparsedRecordData, TTL};
+
+    use crate::new_base::{
+        name::Name,
+        wire::{AsBytes, BuildBytes, ParseBytes, SplitBytes},
+    };
+
+    #[test]
+    fn parse_build() {
+        type Subject<'a> = Record<&'a Name, &'a UnparsedRecordData>;
+
+        let bytes =
+            b"\x03com\x00\x00\x01\x00\x01\x00\x00\x00\x2A\x00\x00\x54";
+        let (record, rest) = Subject::split_bytes(bytes).unwrap();
+        assert_eq!(record.rname.as_bytes(), b"\x03com\x00");
+        assert_eq!(record.rtype, RType::A);
+        assert_eq!(record.rclass, RClass::IN);
+        assert_eq!(record.ttl, TTL::from(42));
+        assert_eq!(record.rdata.as_bytes(), b"");
+        assert_eq!(rest, b"\x54");
+
+        assert!(Subject::parse_bytes(bytes).is_err());
+        assert!(Subject::parse_bytes(&bytes[..15]).is_ok());
+
+        let mut buffer = [0u8; 15];
+        assert_eq!(record.build_bytes(&mut buffer), Ok(&mut [] as &mut [u8]));
+        assert_eq!(buffer, &bytes[..15]);
     }
 }
