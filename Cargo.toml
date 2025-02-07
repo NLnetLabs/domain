@@ -100,6 +100,7 @@ tokio-rustls       = { version = "0.26", default-features = false, features = [ 
 tokio-test         = "0.4"
 tokio-tfo          = { version = "0.2.0" }
 webpki-roots       = { version = "0.26" }
+env_logger         = { version = "0.11" }
 
 # For the "mysql-zone" example
 #sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
@@ -118,6 +119,10 @@ required-features = ["resolv"]
 [[example]]
 name = "lookup"
 required-features = ["resolv"]
+
+[[example]]
+name = "new-server"
+required-features = ["net", "unstable-server-transport", "unstable-client-transport"]
 
 [[example]]
 name = "resolv-sync"
