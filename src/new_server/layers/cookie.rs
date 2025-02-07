@@ -8,6 +8,7 @@ use core::{
 use std::{sync::Arc, vec::Vec};
 
 use arc_swap::ArcSwap;
+use log::trace;
 use rand::{CryptoRng, Rng, RngCore};
 
 use crate::{
@@ -101,6 +102,10 @@ impl CookieLayer {
 
         // Check if the cookie is actually valid.
         if self.secrets.load().verify(&addr, validity, cookie).is_err() {
+            trace!(target: "CookieLayer",
+                "Ignoring invalid server cookie in request {}",
+                exchange.request.id);
+
             // Simply ignore the server part.
             return self.process_incoming_wo_server_cookie(
                 exchange,
@@ -108,6 +113,10 @@ impl CookieLayer {
                 Some(cookie.request()),
             );
         }
+
+        trace!(target: "CookieLayer",
+            "Validated server cookie in request {}",
+            exchange.request.id);
 
         // Determine whether the cookie needs to be renewed.
         let expiry = now + 1800;
@@ -149,6 +158,9 @@ impl CookieLayer {
             || rand::thread_rng().gen_bool(0.05)
         {
             // The request is allowed to go through.
+            trace!(target: "CookieLayer",
+                "Allowing request {} regardless of missing/invalid server cookie",
+                exchange.request.id);
             let metadata = match cookie {
                 Some(&cookie) => CookieMetadata::ClientCookie(cookie),
                 None => CookieMetadata::None,
@@ -158,6 +170,9 @@ impl CookieLayer {
         }
 
         // Block the request.
+        trace!(target: "CookieLayer",
+            "Blocking request {} due to missing/invalid server cookie",
+            exchange.request.id);
         if exchange.request.has_edns() {
             exchange.respond(ResponseCode::BadCookie);
         } else {
@@ -246,14 +261,23 @@ impl ServiceLayer for CookieLayer {
             // The request had a client cookie (and possibly an invalid server
             // cookie).  Generate a new server cookie and include it.
             Some(CookieMetadata::ClientCookie(cookie)) => {
+                trace!(target: "CookieLayer",
+                    "Generating cookie for response {}",
+                    response.response.id);
                 self.generate_cookie(addr, *cookie)
             }
 
             // The request had a server cookie that may need to be renewed.
             Some(CookieMetadata::ServerCookie { cookie, regenerate }) => {
                 if *regenerate {
+                    trace!(target: "CookieLayer",
+                        "Refreshing cookie for response {}",
+                        response.response.id);
                     self.generate_cookie(addr, *cookie.request())
                 } else {
+                    trace!(target: "CookieLayer",
+                        "Using existing server cookie for response {}",
+                        response.response.id);
                     cookie.clone()
                 }
             }
@@ -367,6 +391,7 @@ impl CookieSecrets {
 //----------- CookieMetadata -------------------------------------------------
 
 /// Information about a DNS request's use of cookies.
+#[derive(Clone, Debug)]
 pub enum CookieMetadata {
     /// The request did not use DNS cookies.
     None,

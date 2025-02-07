@@ -4,6 +4,7 @@ use core::net::{IpAddr, SocketAddr};
 use std::{io, sync::Arc, time::SystemTime, vec::Vec};
 
 use bumpalo::Bump;
+use log::trace;
 use tokio::net::UdpSocket;
 
 use crate::{
@@ -70,17 +71,23 @@ pub async fn serve_udp(
                 metadata: vec![Metadata::new(SourceIpAddr(peer.ip()))],
             };
 
+            trace!(target: "serve_udp",
+                "Received request {} from {peer}",
+                exchange.request.id);
+
             // Generate the appropriate response.
             self.service.respond(&mut exchange).await;
 
+            trace!(target: "serve_udp",
+                "Sending response {} to {peer}",
+                exchange.response.id);
+
             // Build up the response message.
-            println!("Returning response: {:?}", exchange.response);
             let mut buffer = vec![0u8; 65536];
             let message =
                 exchange.response.build(&mut buffer).unwrap_or_else(|_| {
                     todo!("how to handle truncation errors?")
                 });
-            println!("In bytes: {:?}", message.as_bytes());
 
             // Send the response back to the peer.
             let _ = self.socket.send_to(message.as_bytes(), peer).await;
