@@ -124,9 +124,9 @@ where
 /// use domain::rdata::dnssec::Timestamp;
 /// use domain::dnssec::sign::keys::DnssecSigningKey;
 /// use domain::dnssec::sign::records::SortedRecords;
-/// use domain::dnssec::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
 /// use domain::dnssec::sign::traits::SignableZone;
 /// use domain::dnssec::sign::SigningConfig;
+/// use domain::dnssec::sign::signatures::strategy::DefaultSigningKeyUsageStrategy;
 ///
 /// // Create a sorted collection of records.
 /// //
@@ -151,16 +151,15 @@ where
 /// // Generate or import signing keys (see above).
 ///
 /// // Assign signature validity period and operator intent to the keys.
-/// let validity = FixedRrsigValidityPeriodStrategy::from((0, 0));
 /// let keys = [DnssecSigningKey::new_csk(key)];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config = SigningConfig::default(validity);
+/// let mut signing_config = SigningConfig::new(Default::default(), false, 0.into(), 0.into());
 ///
 /// // Then generate the records which when added to the zone make it signed.
 /// let mut signer_generated_records = SortedRecords::default();
 ///
-/// records.sign_zone(
+/// records.sign_zone::<_,_, DefaultSigningKeyUsageStrategy, _, _>(
 ///     &mut signing_config,
 ///     &keys,
 ///     &mut signer_generated_records).unwrap();
@@ -271,9 +270,9 @@ where
 /// use domain::rdata::dnssec::Timestamp;
 /// use domain::dnssec::sign::keys::DnssecSigningKey;
 /// use domain::dnssec::sign::records::SortedRecords;
-/// use domain::dnssec::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
 /// use domain::dnssec::sign::traits::SignableZoneInPlace;
 /// use domain::dnssec::sign::SigningConfig;
+/// use domain::dnssec::sign::records::DefaultSorter;
 ///
 /// // Create a sorted collection of records.
 /// //
@@ -285,7 +284,7 @@ where
 /// let mut records = SortedRecords::default();
 ///
 /// // Insert records into the collection. Just a dummy SOA for this example.
-/// let soa = ZoneRecordData::Soa(Soa::new(
+/// let soa = ZoneRecordData::<Vec<u8>, _>::Soa(Soa::new(
 ///     root.clone(),
 ///     root.clone(),
 ///     Serial::now(),
@@ -298,14 +297,13 @@ where
 /// // Generate or import signing keys (see above).
 ///
 /// // Assign signature validity period and operator intent to the keys.
-/// let validity = FixedRrsigValidityPeriodStrategy::from((0, 0));
 /// let keys = [DnssecSigningKey::new_csk(key)];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config = SigningConfig::default(validity);
+/// let mut signing_config: SigningConfig<Name<Vec<u8>>, Vec<u8>, DefaultSorter> = SigningConfig::new(Default::default(), false, 0.into(), 0.into());
 ///
 /// // Then sign the zone in-place.
-/// records.sign_zone(&mut signing_config, &keys).unwrap();
+//r records.sign_zone::<DefaultSigningKeyUsageStrategy>(&mut signing_config, &keys).unwrap();
 /// ```
 ///
 /// [`sign_zone()`]: SignableZoneInPlace::sign_zone
@@ -417,11 +415,9 @@ where
 /// # let mut records = SortedRecords::default();
 /// use domain::dnssec::sign::traits::Signable;
 /// use domain::dnssec::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
-/// use domain::dnssec::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
 /// let apex = Name::<Vec<u8>>::root();
 /// let rrset = Rrset::new(&records);
-/// let validity = FixedRrsigValidityPeriodStrategy::from((0, 0));
-/// let generated_records = rrset.sign::<KeyStrat, _>(&apex, &keys, validity).unwrap();
+/// let generated_records = rrset.sign::<KeyStrat>(&apex, &keys, 0.into(), 0.into()).unwrap();
 /// ```
 pub trait Signable<N, Octs, DSK, Inner, Sort = DefaultSorter>
 where
@@ -459,12 +455,15 @@ where
         DSK: DesignatedSigningKey<Octs, Inner>,
         KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     {
-        let rrsig_config = GenerateRrsigConfig::<N, KeyStrat, Sort>::new(
-            inception, expiration,
-        )
-        .with_zone_apex(expected_apex);
+        let rrsig_config =
+            GenerateRrsigConfig::<N, Sort>::new(inception, expiration)
+                .with_zone_apex(expected_apex);
 
-        generate_rrsigs(self.owner_rrs(), keys, &rrsig_config)
+        generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
+            self.owner_rrs(),
+            keys,
+            &rrsig_config,
+        )
     }
 }
 

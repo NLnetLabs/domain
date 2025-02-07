@@ -33,7 +33,7 @@ use crate::rdata::{Dnskey, Rrsig, ZoneRecordData};
 //------------ GenerateRrsigConfig -------------------------------------------
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
+pub struct GenerateRrsigConfig<'a, N, Sort> {
     pub add_used_dnskeys: bool,
 
     pub zone_apex: Option<&'a N>,
@@ -42,10 +42,10 @@ pub struct GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
 
     pub expiration: Timestamp,
 
-    _phantom: PhantomData<(KeyStrat, Sort)>,
+    _phantom: PhantomData<Sort>,
 }
 
-impl<'a, N, KeyStrat, Sort> GenerateRrsigConfig<'a, N, KeyStrat, Sort> {
+impl<'a, N, Sort> GenerateRrsigConfig<'a, N, Sort> {
     /// Like [`Self::default()`] but gives control over the SigningKeyStrategy
     /// and Sorter used.
     pub fn new(inception: Timestamp, expiration: Timestamp) -> Self {
@@ -131,7 +131,7 @@ where
 pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[DSK],
-    config: &GenerateRrsigConfig<'_, N, KeyStrat, Sort>,
+    config: &GenerateRrsigConfig<'_, N, Sort>,
 ) -> Result<RrsigRecords<N, Octs>, SigningError>
 where
     DSK: DesignatedSigningKey<Octs, Inner>,
@@ -387,9 +387,9 @@ fn log_keys_in_use<Octs, DSK, Inner>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
+fn generate_apex_rrsigs<N, Octs, DSK, Inner, /*KeyStrat,*/ Sort>(
     keys: &[DSK],
-    config: &GenerateRrsigConfig<'_, N, KeyStrat, Sort>,
+    config: &GenerateRrsigConfig<'_, N, Sort>,
     records: &mut core::iter::Peekable<
         RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     >,
@@ -404,7 +404,7 @@ fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, Sort>(
 where
     DSK: DesignatedSigningKey<Octs, Inner>,
     Inner: SignRaw,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    //KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     N: ToName
         + PartialEq
         + Clone
@@ -706,13 +706,14 @@ mod tests {
     use crate::dnssec::sign::error::SignError;
     use crate::dnssec::sign::keys::keymeta::IntendedKeyPurpose;
     use crate::dnssec::sign::keys::DnssecSigningKey;
+    use crate::dnssec::sign::records::DefaultSorter;
+    use crate::dnssec::sign::signatures::strategy::DefaultSigningKeyUsageStrategy;
     use crate::dnssec::sign::test_util;
     use crate::dnssec::sign::test_util::*;
     use crate::rdata::dnssec::Timestamp;
     use crate::zonetree::StoredName;
 
     use super::*;
-    use crate::dnssec::sign::signatures::strategy::FixedRrsigValidityPeriodStrategy;
     use crate::zonetree::types::StoredRecordData;
     use rand::Rng;
 
@@ -946,38 +947,48 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_without_keys_should_succeed_for_empty_zone() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let records =
             SortedRecords::<StoredName, StoredRecordData>::default();
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
-        generate_rrsigs(
+        generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &no_keys,
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         )
         .unwrap();
     }
 
     #[test]
     fn generate_rrsigs_without_keys_should_fail_for_non_empty_zone() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let mut records = SortedRecords::default();
         records.insert(mk_a_rr("example.")).unwrap();
         let no_keys: [DnssecSigningKey<Bytes, KeyPair>; 0] = [];
 
-        let res = generate_rrsigs(
+        let res = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &no_keys,
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         );
 
         assert!(matches!(res, Err(SigningError::NoKeysProvided)));
@@ -986,32 +997,57 @@ mod tests {
     #[test]
     fn generate_rrsigs_without_suitable_keys_should_fail_for_non_empty_zone()
     {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let mut records = SortedRecords::default();
         records.insert(mk_a_rr("example.")).unwrap();
 
-        let res = generate_rrsigs(
+        let res = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &[mk_dnssec_signing_key(IntendedKeyPurpose::KSK)],
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         );
         assert!(matches!(res, Err(SigningError::NoSuitableKeysFound)));
 
-        let res = generate_rrsigs(
+        let res = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &[mk_dnssec_signing_key(IntendedKeyPurpose::ZSK)],
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         );
         assert!(matches!(res, Err(SigningError::NoSuitableKeysFound)));
 
-        let res = generate_rrsigs(
+        let res = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &[mk_dnssec_signing_key(IntendedKeyPurpose::Inactive)],
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         );
         assert!(matches!(res, Err(SigningError::NoSuitableKeysFound)));
     }
@@ -1027,12 +1063,6 @@ mod tests {
     }
 
     fn generate_rrsigs_for_partial_zone(zone_apex: &str, record_owner: &str) {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
-
         // This is an example of generating RRSIGs for something other than a
         // full zone, in this case just for an A record. This test
         // deliberately does not include a SOA record as the zone is partial.
@@ -1048,11 +1078,21 @@ mod tests {
         // key when selecting a key to use for signing DNSKEY RRs or other
         // zone RRs. We supply the zone apex because we are not supplying an
         // entire zone complete with SOA.
-        let generated_records = generate_rrsigs(
+        let generated_records = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &keys,
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy)
-                .with_zone_apex(&mk_name(zone_apex)),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            )
+            .with_zone_apex(&mk_name(zone_apex)),
         )
         .unwrap();
 
@@ -1074,11 +1114,6 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_ignores_records_outside_the_zone() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let mut records = SortedRecords::default();
         records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
@@ -1090,10 +1125,20 @@ mod tests {
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
         let dnskey = keys[0].public_key().to_dnskey().convert();
 
-        let generated_records = generate_rrsigs(
+        let generated_records = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &keys,
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         )
         .unwrap();
 
@@ -1127,10 +1172,20 @@ mod tests {
         // Repeat but this time passing only the out-of-zone record in and
         // show that it DOES get signed if not passed together with the first
         // zone.
-        let generated_records = generate_rrsigs(
+        let generated_records = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records[2..]),
             &keys,
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         )
         .unwrap();
 
@@ -1152,11 +1207,6 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_fails_with_multiple_soas_at_apex() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let mut records = SortedRecords::default();
         records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
@@ -1167,10 +1217,20 @@ mod tests {
         // Prepare a zone signing key and a key signing key.
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
 
-        let res = generate_rrsigs(
+        let res = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &keys,
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         );
 
         assert!(matches!(
@@ -1181,73 +1241,67 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_for_complete_zone_with_ksk_and_zsk() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let keys = [
             mk_dnssec_signing_key(IntendedKeyPurpose::KSK),
             mk_dnssec_signing_key(IntendedKeyPurpose::ZSK),
         ];
-        let cfg =
-            GenerateRrsigConfig::default(rrsig_validity_period_strategy);
-        generate_rrsigs_for_complete_zone(&keys, 0, 1, &cfg).unwrap();
+        let cfg = GenerateRrsigConfig::new(
+            TEST_INCEPTION.into(),
+            TEST_EXPIRATION.into(),
+        );
+        generate_rrsigs_for_complete_zone::<DefaultSigningKeyUsageStrategy>(
+            &keys, 0, 1, &cfg,
+        )
+        .unwrap();
     }
 
     #[test]
     fn generate_rrsigs_for_complete_zone_with_csk() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
-        let cfg =
-            GenerateRrsigConfig::default(rrsig_validity_period_strategy);
-        generate_rrsigs_for_complete_zone(&keys, 0, 0, &cfg).unwrap();
+        let cfg = GenerateRrsigConfig::new(
+            TEST_INCEPTION.into(),
+            TEST_EXPIRATION.into(),
+        );
+        generate_rrsigs_for_complete_zone::<DefaultSigningKeyUsageStrategy>(
+            &keys, 0, 0, &cfg,
+        )
+        .unwrap();
     }
 
     #[test]
     fn generate_rrsigs_for_complete_zone_with_csk_without_adding_dnskeys() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
-        let cfg =
-            GenerateRrsigConfig::default(rrsig_validity_period_strategy)
-                .without_adding_used_dns_keys();
-        generate_rrsigs_for_complete_zone(&keys, 0, 0, &cfg).unwrap();
+        let cfg = GenerateRrsigConfig::new(
+            TEST_INCEPTION.into(),
+            TEST_EXPIRATION.into(),
+        )
+        .without_adding_used_dns_keys();
+        generate_rrsigs_for_complete_zone::<DefaultSigningKeyUsageStrategy>(
+            &keys, 0, 0, &cfg,
+        )
+        .unwrap();
     }
 
     #[test]
     fn generate_rrsigs_for_complete_zone_with_only_zsk_should_fail_by_default(
     ) {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::ZSK)];
-        let cfg =
-            GenerateRrsigConfig::default(rrsig_validity_period_strategy);
+        let cfg = GenerateRrsigConfig::new(
+            TEST_INCEPTION.into(),
+            TEST_EXPIRATION.into(),
+        );
 
         // This should fail as the DefaultSigningKeyUsageStrategy requires
         // both ZSK and KSK, or a CSK.
-        let res = generate_rrsigs_for_complete_zone(&keys, 0, 0, &cfg);
+        let res = generate_rrsigs_for_complete_zone::<
+            DefaultSigningKeyUsageStrategy,
+        >(&keys, 0, 0, &cfg);
         assert!(matches!(res, Err(SigningError::NoSuitableKeysFound)));
     }
 
     #[test]
     fn generate_rrsigs_for_complete_zone_with_only_zsk_and_fallback_strategy()
     {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::ZSK)];
 
         // Implement a strategy that falls back to the ZSK for signing zone
@@ -1271,27 +1325,27 @@ mod tests {
             }
         }
 
-        let fallback_cfg = GenerateRrsigConfig::<_, FallbackStrat, _, _>::new(
-            rrsig_validity_period_strategy,
+        let fallback_cfg = GenerateRrsigConfig::new(
+            TEST_INCEPTION.into(),
+            TEST_EXPIRATION.into(),
         );
-        generate_rrsigs_for_complete_zone(&keys, 0, 0, &fallback_cfg)
-            .unwrap();
+        generate_rrsigs_for_complete_zone::<FallbackStrat>(
+            &keys,
+            0,
+            0,
+            &fallback_cfg,
+        )
+        .unwrap();
     }
 
-    fn generate_rrsigs_for_complete_zone<KeyStrat, ValidityStrat>(
+    fn generate_rrsigs_for_complete_zone<KeyStrat>(
         keys: &[DnssecSigningKey<Bytes, TestKey>],
         ksk_idx: usize,
         zsk_idx: usize,
-        cfg: &GenerateRrsigConfig<
-            StoredName,
-            KeyStrat,
-            ValidityStrat,
-            DefaultSorter,
-        >,
+        cfg: &GenerateRrsigConfig<StoredName, DefaultSorter>,
     ) -> Result<(), SigningError>
     where
         KeyStrat: SigningKeyUsageStrategy<Bytes, TestKey>,
-        ValidityStrat: RrsigValidityPeriodStrategy,
     {
         // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
         let zonefile = include_bytes!(
@@ -1303,7 +1357,11 @@ mod tests {
 
         // Generate DNSKEYs and RRSIGs.
         let generated_records =
-            generate_rrsigs(RecordsIter::new(&records), keys, cfg)?;
+            generate_rrsigs::<_, _, _, _, KeyStrat, DefaultSorter>(
+                RecordsIter::new(&records),
+                keys,
+                cfg,
+            )?;
 
         let dnskeys = keys
             .iter()
@@ -1525,11 +1583,6 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_for_complete_zone_with_multiple_ksks_and_zsks() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let apex = "example.";
 
         let mut records = SortedRecords::default();
@@ -1551,10 +1604,20 @@ mod tests {
         let zsk1 = keys[2].public_key().to_dnskey().convert();
         let zsk2 = keys[3].public_key().to_dnskey().convert();
 
-        let generated_records = generate_rrsigs(
+        let generated_records = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &keys,
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         )
         .unwrap();
 
@@ -1620,11 +1683,6 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_for_already_signed_zone() {
-        let rrsig_validity_period_strategy =
-            FixedRrsigValidityPeriodStrategy::from((
-                TEST_INCEPTION,
-                TEST_EXPIRATION,
-            ));
         let keys = [mk_dnssec_signing_key(IntendedKeyPurpose::CSK)];
 
         let dnskey = keys[0].public_key().to_dnskey().convert();
@@ -1647,10 +1705,20 @@ mod tests {
             mk_rrsig_rr("ns.example.", Rtype::NSEC, 1, "example.", &dnskey),
         ]);
 
-        let generated_records = generate_rrsigs(
+        let generated_records = generate_rrsigs::<
+            _,
+            _,
+            _,
+            _,
+            DefaultSigningKeyUsageStrategy,
+            DefaultSorter,
+        >(
             RecordsIter::new(&records),
             &keys,
-            &GenerateRrsigConfig::default(rrsig_validity_period_strategy),
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
         )
         .unwrap();
 

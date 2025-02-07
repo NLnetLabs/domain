@@ -432,7 +432,7 @@ where
     }
 
     if !signing_keys.is_empty() {
-        let mut rrsig_config = GenerateRrsigConfig::<N, KeyStrat, Sort>::new(
+        let mut rrsig_config = GenerateRrsigConfig::<N, Sort>::new(
             signing_config.inception,
             signing_config.expiration,
         );
@@ -443,7 +443,11 @@ where
         let owner_rrs = RecordsIter::new(in_out.as_out_slice());
 
         let RrsigRecords { rrsigs, dnskeys } =
-            generate_rrsigs(owner_rrs, signing_keys, &rrsig_config)?;
+            generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
+                owner_rrs,
+                signing_keys,
+                &rrsig_config,
+            )?;
 
         // Sorting may not be strictly needed, but we don't have the option to
         // extend without sort at the moment.
@@ -458,7 +462,11 @@ where
         let owner_rrs = RecordsIter::new(in_out.as_slice());
 
         let RrsigRecords { rrsigs, dnskeys } =
-            generate_rrsigs(owner_rrs, signing_keys, &rrsig_config)?;
+            generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
+                owner_rrs,
+                signing_keys,
+                &rrsig_config,
+            )?;
 
         // Sorting may not be strictly needed, but we don't have the option to
         // extend without sort at the moment.
