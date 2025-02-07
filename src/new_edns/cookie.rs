@@ -17,10 +17,10 @@ use core::{net::IpAddr, ops::Range};
 
 use domain_macros::*;
 
-use crate::new_base::{wire::ParseBytesByRef, Serial};
-
-#[cfg(feature = "siphasher")]
-use crate::new_base::wire::AsBytes;
+use crate::new_base::{
+    wire::{AsBytes, ParseBytesByRef},
+    Serial,
+};
 
 //----------- ClientCookie ---------------------------------------------------
 
