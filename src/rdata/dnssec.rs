@@ -1734,7 +1734,7 @@ pub struct Ds<Octs> {
     digest_type: DigestAlg,
     #[cfg_attr(
         feature = "serde",
-        serde(with = "crate::utils::base64::serde")
+        serde(with = "crate::utils::base16::serde")
     )]
     digest: Octs,
 }
