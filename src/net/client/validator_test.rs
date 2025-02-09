@@ -108,7 +108,7 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                         ta.add_u8(a.trim_matches('"').as_bytes()).unwrap();
                     }
                     _ => {
-                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
+                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value:?}");
                     }
                 }
             }
