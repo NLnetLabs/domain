@@ -71,11 +71,7 @@ async fn test_transport_error() {
     let stelline = parse_file(&file, TEST_FILE_TRANSPORT_ERROR);
 
     let step_value = Arc::new(CurrStepValue::new());
-    let (redun, redun_tran) = redundant::Connection::new();
-    tokio::spawn(async move {
-        redun_tran.run().await;
-        println!("redundant conn run terminated");
-    });
+    let redun = Arc::new(redundant::Connection::new());
     // let clock = FakeClock::new();
     let cached = cache::Connection::new(redun.clone()); //_with_time(redun.clone(), clock.clone());
 
@@ -103,7 +99,7 @@ async fn test_transport_error() {
         ms_tran.run().await;
         println!("multi conn run terminated");
     });
-    redun.add(Box::new(ms)).await.unwrap();
+    redun.add(Box::new(ms));
 
     let mut request = cached.send_request(req);
     let reply = request.get_response().await;
