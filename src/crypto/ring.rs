@@ -28,6 +28,8 @@ use crate::dnssec::sign::SecretKeyBytes;
 //----------- KeyPair --------------------------------------------------------
 
 /// A key pair backed by `ring`.
+// Note: ring does not implement Clone for *KeyPair.
+#[derive(Debug)]
 pub enum KeyPair {
     /// An RSA/SHA-256 keypair.
     RsaSha256 {

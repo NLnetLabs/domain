@@ -1,13 +1,18 @@
 use crate::base::iana::SecAlg;
 use crate::base::Name;
 use crate::crypto::misc::{Key, PublicKeyBytes, SignRaw};
+use std::fmt::Debug;
 
 //----------- SigningKey -----------------------------------------------------
 
 /// A signing key.
 ///
 /// This associates important metadata with a raw cryptographic secret key.
-pub struct SigningKey<Octs, Inner: SignRaw> {
+#[derive(Debug)]
+pub struct SigningKey<Octs, Inner: SignRaw>
+where
+    Octs: AsRef<[u8]> + Debug,
+{
     /// The owner of the key.
     owner: Name<Octs>,
 
@@ -22,7 +27,10 @@ pub struct SigningKey<Octs, Inner: SignRaw> {
 
 //--- Construction
 
-impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
+impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner>
+where
+    Octs: AsRef<[u8]> + Debug,
+{
     /// Construct a new signing key manually.
     pub fn new(owner: Name<Octs>, flags: u16, inner: Inner) -> Self {
         Self {
@@ -35,7 +43,10 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
 
 //--- Inspection
 
-impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
+impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner>
+where
+    Octs: AsRef<[u8]> + Debug,
+{
     /// The owner name attached to the key.
     pub fn owner(&self) -> &Name<Octs> {
         &self.owner

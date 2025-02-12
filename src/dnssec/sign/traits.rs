@@ -22,19 +22,17 @@ use crate::base::Name;
 use crate::crypto::misc::SignRaw;
 use crate::dnssec::sign::denial::nsec3::Nsec3HashProvider;
 use crate::dnssec::sign::error::SigningError;
-use crate::dnssec::sign::keys::keymeta::DesignatedSigningKey;
+use crate::dnssec::sign::keys::SigningKey;
 use crate::dnssec::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::dnssec::sign::sign_zone;
-use crate::dnssec::sign::signatures::rrsigs::generate_rrsigs;
+use crate::dnssec::sign::signatures::rrsigs::sign_sorted_zone_records;
 use crate::dnssec::sign::signatures::rrsigs::GenerateRrsigConfig;
-use crate::dnssec::sign::signatures::rrsigs::RrsigRecords;
-use crate::dnssec::sign::signatures::strategy::SigningKeyUsageStrategy;
 use crate::dnssec::sign::SignableZoneInOut;
 use crate::dnssec::sign::SigningConfig;
 use crate::rdata::dnssec::Timestamp;
-use crate::rdata::ZoneRecordData;
+use crate::rdata::{Rrsig, ZoneRecordData};
 
 //------------ SortedExtend --------------------------------------------------
 
@@ -122,11 +120,9 @@ where
 /// # let key = SigningKey::new(root.clone(), 257, key_pair);
 /// use domain::rdata::{rfc1035::Soa, ZoneRecordData};
 /// use domain::rdata::dnssec::Timestamp;
-/// use domain::dnssec::sign::keys::DnssecSigningKey;
 /// use domain::dnssec::sign::records::SortedRecords;
 /// use domain::dnssec::sign::traits::SignableZone;
 /// use domain::dnssec::sign::SigningConfig;
-/// use domain::dnssec::sign::signatures::strategy::DefaultSigningKeyUsageStrategy;
 ///
 /// // Create a sorted collection of records.
 /// //
@@ -151,15 +147,15 @@ where
 /// // Generate or import signing keys (see above).
 ///
 /// // Assign signature validity period and operator intent to the keys.
-/// let keys = [DnssecSigningKey::new_csk(key)];
+/// let keys = [&key];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config = SigningConfig::new(Default::default(), false, 0.into(), 0.into());
+/// let mut signing_config = SigningConfig::new(Default::default(), 0.into(), 0.into());
 ///
 /// // Then generate the records which when added to the zone make it signed.
 /// let mut signer_generated_records = SortedRecords::default();
 ///
-/// records.sign_zone::<_,_, DefaultSigningKeyUsageStrategy, _, _>(
+/// records.sign_zone(
 ///     &mut signing_config,
 ///     &keys,
 ///     &mut signer_generated_records).unwrap();
@@ -169,8 +165,9 @@ where
 pub trait SignableZone<N, Octs, Sort>:
     Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
 where
-    N: Clone + ToName + From<Name<Octs>> + PartialEq + Ord + Hash,
+    N: Clone + Debug + ToName + From<Name<Octs>> + PartialEq + Ord + Hash,
     Octs: Clone
+        + Debug
         + FromBuilder
         + From<&'static [u8]>
         + Send
@@ -188,27 +185,25 @@ where
     /// This function is a convenience wrapper around calling
     /// [`crate::sign::sign_zone()`] function with enum variant
     /// [`SignableZoneInOut::SignInto`].
-    fn sign_zone<DSK, Inner, KeyStrat, HP, T>(
+    fn sign_zone<Inner, HP, T>(
         &self,
         signing_config: &mut SigningConfig<N, Octs, Sort, HP>,
-        signing_keys: &[DSK],
+        signing_keys: &[&SigningKey<Octs, Inner>],
         out: &mut T,
     ) -> Result<(), SigningError>
     where
-        DSK: DesignatedSigningKey<Octs, Inner>,
         HP: Nsec3HashProvider<N, Octs>,
-        Inner: SignRaw,
+        Inner: Debug + SignRaw,
         N: Display + Send + CanonicalOrd,
         <Octs as FromBuilder>::Builder: Truncate,
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
-        KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
         T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>
             + SortedExtend<N, Octs, Sort>
             + ?Sized,
         Self: Sized,
     {
         let in_out = SignableZoneInOut::new_into(self, out);
-        sign_zone::<N, Octs, _, DSK, Inner, KeyStrat, Sort, HP, T>(
+        sign_zone::<N, Octs, _, Inner, Sort, HP, T>(
             in_out,
             signing_config,
             signing_keys,
@@ -223,6 +218,7 @@ where
 impl<N, Octs, Sort, T> SignableZone<N, Octs, Sort> for T
 where
     N: Clone
+        + Debug
         + ToName
         + From<Name<Octs>>
         + PartialEq
@@ -231,6 +227,7 @@ where
         + Ord
         + Hash,
     Octs: Clone
+        + Debug
         + FromBuilder
         + From<&'static [u8]>
         + Send
@@ -268,7 +265,6 @@ where
 /// # let key = SigningKey::new(root.clone(), 257, key_pair);
 /// use domain::rdata::{rfc1035::Soa, ZoneRecordData};
 /// use domain::rdata::dnssec::Timestamp;
-/// use domain::dnssec::sign::keys::DnssecSigningKey;
 /// use domain::dnssec::sign::records::SortedRecords;
 /// use domain::dnssec::sign::traits::SignableZoneInPlace;
 /// use domain::dnssec::sign::SigningConfig;
@@ -297,10 +293,10 @@ where
 /// // Generate or import signing keys (see above).
 ///
 /// // Assign signature validity period and operator intent to the keys.
-/// let keys = [DnssecSigningKey::new_csk(key)];
+/// let keys = [&key];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config: SigningConfig<Name<Vec<u8>>, Vec<u8>, DefaultSorter> = SigningConfig::new(Default::default(), false, 0.into(), 0.into());
+/// let mut signing_config: SigningConfig<Name<Vec<u8>>, Vec<u8>, DefaultSorter> = SigningConfig::new(Default::default(), 0.into(), 0.into());
 ///
 /// // Then sign the zone in-place.
 //r records.sign_zone::<DefaultSigningKeyUsageStrategy>(&mut signing_config, &keys).unwrap();
@@ -310,8 +306,9 @@ where
 pub trait SignableZoneInPlace<N, Octs, Sort>:
     SignableZone<N, Octs, Sort> + SortedExtend<N, Octs, Sort>
 where
-    N: Clone + ToName + From<Name<Octs>> + PartialEq + Ord + Hash,
+    N: Clone + Debug + ToName + From<Name<Octs>> + PartialEq + Ord + Hash,
     Octs: Clone
+        + Debug
         + FromBuilder
         + From<&'static [u8]>
         + Send
@@ -328,23 +325,21 @@ where
     /// This function is a convenience wrapper around calling
     /// [`crate::sign::sign_zone()`] function with enum variant
     /// [`SignableZoneInOut::SignInPlace`].
-    fn sign_zone<DSK, Inner, KeyStrat, HP>(
+    fn sign_zone<Inner, HP>(
         &mut self,
         signing_config: &mut SigningConfig<N, Octs, Sort, HP>,
-        signing_keys: &[DSK],
+        signing_keys: &[&SigningKey<Octs, Inner>],
     ) -> Result<(), SigningError>
     where
-        DSK: DesignatedSigningKey<Octs, Inner>,
         HP: Nsec3HashProvider<N, Octs>,
-        Inner: SignRaw,
+        Inner: Debug + SignRaw,
         N: Display + Send + CanonicalOrd,
         <Octs as FromBuilder>::Builder: Truncate,
         <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
-        KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     {
         let in_out =
             SignableZoneInOut::<_, _, Self, _, _>::new_in_place(self);
-        sign_zone::<N, Octs, _, DSK, Inner, KeyStrat, Sort, HP, _>(
+        sign_zone::<N, Octs, _, Inner, Sort, HP, _>(
             in_out,
             signing_config,
             signing_keys,
@@ -363,6 +358,7 @@ where
 impl<N, Octs, Sort, T> SignableZoneInPlace<N, Octs, Sort> for T
 where
     N: Clone
+        + Debug
         + ToName
         + From<Name<Octs>>
         + PartialEq
@@ -371,6 +367,7 @@ where
         + Hash
         + Ord,
     Octs: Clone
+        + Debug
         + FromBuilder
         + From<&'static [u8]>
         + Send
@@ -405,34 +402,35 @@ where
 /// # use domain::crypto::common;
 /// # use domain::crypto::common::GenerateParams;
 /// # use domain::crypto::common::KeyPair;
-/// # use domain::dnssec::sign::keys::{DnssecSigningKey, SigningKey};
+/// # use domain::dnssec::sign::keys::{SigningKey};
 /// # use domain::dnssec::sign::records::{Rrset, SortedRecords};
 /// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
 /// # let key = SigningKey::new(root, 257, key_pair);
-/// # let keys = [DnssecSigningKey::from(key)];
+/// # let keys = [&key];
 /// # let mut records = SortedRecords::default();
 /// use domain::dnssec::sign::traits::Signable;
-/// use domain::dnssec::sign::signatures::strategy::DefaultSigningKeyUsageStrategy as KeyStrat;
 /// let apex = Name::<Vec<u8>>::root();
 /// let rrset = Rrset::new(&records);
-/// let generated_records = rrset.sign::<KeyStrat>(&apex, &keys, 0.into(), 0.into()).unwrap();
+/// let generated_records = rrset.sign(&apex, &keys, 0.into(), 0.into()).unwrap();
 /// ```
-pub trait Signable<N, Octs, DSK, Inner, Sort = DefaultSorter>
+pub trait Signable<N, Octs, Inner, Sort = DefaultSorter>
 where
     N: ToName
         + CanonicalOrd
         + Send
+        + Debug
         + Display
         + Clone
         + PartialEq
         + From<Name<Octs>>,
-    Inner: SignRaw,
+    Inner: Debug + SignRaw,
     Octs: From<Box<[u8]>>
         + From<&'static [u8]>
         + FromBuilder
         + Clone
+        + Debug
         + OctetsFrom<std::vec::Vec<u8>>
         + Send,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
@@ -444,38 +442,30 @@ where
     ///
     /// This function is a thin wrapper around [`generate_rrsigs()`].
     #[allow(clippy::type_complexity)]
-    fn sign<KeyStrat>(
+    fn sign(
         &self,
         expected_apex: &N,
-        keys: &[DSK],
+        keys: &[&SigningKey<Octs, Inner>],
         inception: Timestamp,
         expiration: Timestamp,
-    ) -> Result<RrsigRecords<N, Octs>, SigningError>
-    where
-        DSK: DesignatedSigningKey<Octs, Inner>,
-        KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
-    {
-        let rrsig_config =
-            GenerateRrsigConfig::<N, Sort>::new(inception, expiration)
-                .with_zone_apex(expected_apex);
+    ) -> Result<Vec<Record<N, Rrsig<Octs, N>>>, SigningError> {
+        let rrsig_config = GenerateRrsigConfig::new(inception, expiration)
+            .with_zone_apex(expected_apex);
 
-        generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
-            self.owner_rrs(),
-            keys,
-            &rrsig_config,
-        )
+        sign_sorted_zone_records(self.owner_rrs(), keys, &rrsig_config)
     }
 }
 
 //--- impl Signable for Rrset
 
-impl<N, Octs, DSK, Inner> Signable<N, Octs, DSK, Inner>
+impl<N, Octs, Inner> Signable<N, Octs, Inner>
     for Rrset<'_, N, ZoneRecordData<Octs, N>>
 where
-    Inner: SignRaw,
+    Inner: Debug + SignRaw,
     N: From<Name<Octs>>
         + PartialEq
         + Clone
+        + Debug
         + Display
         + Send
         + CanonicalOrd
@@ -484,6 +474,7 @@ where
         + Send
         + OctetsFrom<Vec<u8>>
         + Clone
+        + Debug
         + From<&'static [u8]>
         + From<Box<[u8]>>,
     <Octs as FromBuilder>::Builder: AsRef<[u8]> + AsMut<[u8]> + EmptyBuilder,

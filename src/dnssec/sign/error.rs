@@ -30,6 +30,9 @@ pub enum SigningError {
     // The zone either lacks a SOA record or has more than one SOA record.
     SoaRecordCouldNotBeDetermined,
 
+    /// Cannot create an Rrset from an empty slice.
+    EmptyRecordSlice,
+
     // TODO
     Nsec3HashingError(Nsec3HashError),
 
@@ -64,6 +67,9 @@ impl Display for SigningError {
             SigningError::SoaRecordCouldNotBeDetermined => {
                 f.write_str("No apex SOA or too many apex SOA records found")
             }
+	    SigningError::EmptyRecordSlice => {
+                f.write_str("Empty slice of Record")
+	    }
             SigningError::Nsec3HashingError(err) => {
                 f.write_fmt(format_args!("NSEC3 hashing error: {err}"))
             }

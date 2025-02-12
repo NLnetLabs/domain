@@ -28,6 +28,8 @@ use super::ring;
 /// if their respective feature flags are enabled).  Wherever possible, it
 /// will prefer the Ring backend over OpenSSL -- but for more uncommon or
 /// insecure algorithms, that Ring does not support, OpenSSL must be used.
+#[derive(Debug)]
+// Note: ring does not implement Clone for KeyPair.
 pub enum KeyPair {
     /// A key backed by Ring.
     #[cfg(feature = "ring")]

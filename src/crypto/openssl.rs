@@ -32,6 +32,7 @@ use crate::dnssec::sign::{RsaSecretKeyBytes, SecretKeyBytes};
 //----------- KeyPair --------------------------------------------------------
 
 /// A key pair backed by OpenSSL.
+#[derive(Clone, Debug)]
 pub struct KeyPair {
     /// The algorithm used by the key.
     algorithm: SecAlg,

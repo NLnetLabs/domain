@@ -16,6 +16,8 @@ use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::base::Ttl;
 
+use super::error::SigningError;
+
 //------------ Sorter --------------------------------------------------------
 
 /// A DNS resource record sorter.
@@ -200,6 +202,17 @@ where
         D: RecordData,
     {
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
+    }
+
+    pub fn find_apex_dnskey(&self, name: &N) -> Option<Rrset<N, D>>
+    where
+        N: CanonicalOrd + ToName,
+        D: RecordData,
+    {
+        self.rrsets().find(|rrset| {
+            rrset.rtype() == Rtype::DNSKEY
+                && rrset.owner().canonical_cmp(name) == Ordering::Equal
+        })
     }
 
     /// Update the data of an existing record.
@@ -410,13 +423,18 @@ impl<'a, N, D> OwnerRrs<'a, N, D> {
 //------------ Rrset ---------------------------------------------------------
 
 /// A set of records with the same owner name, class, and record type.
+#[derive(Debug)]
 pub struct Rrset<'a, N, D> {
     slice: &'a [Record<N, D>],
 }
 
 impl<'a, N, D> Rrset<'a, N, D> {
-    pub fn new(slice: &'a [Record<N, D>]) -> Self {
-        Rrset { slice }
+    pub fn new(slice: &'a [Record<N, D>]) -> Result<Self, SigningError> {
+        if slice.is_empty() {
+            Err(SigningError::EmptyRecordSlice)
+        } else {
+            Ok(Rrset { slice })
+        }
     }
 
     pub fn owner(&self) -> &N {
@@ -446,12 +464,9 @@ impl<'a, N, D> Rrset<'a, N, D> {
         self.slice.iter()
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.slice.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.slice.is_empty()
     }
 
     pub fn as_slice(&self) -> &'a [Record<N, D>] {
@@ -548,7 +563,9 @@ where
         }
         let (res, slice) = self.slice.split_at(end);
         self.slice = slice;
-        Some(Rrset::new(res))
+        Some(
+            Rrset::new(res).expect("res is not empty so new should not fail"),
+        )
     }
 }
 
@@ -584,6 +601,8 @@ where
         }
         let (res, slice) = self.slice.split_at(end);
         self.slice = slice;
-        Some(Rrset::new(res))
+        Some(
+            Rrset::new(res).expect("res is not empty so new should not fail"),
+        )
     }
 }

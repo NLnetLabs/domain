@@ -18,9 +18,6 @@ where
     /// Authenticated denial of existing mechanism configuration.
     pub denial: DenialConfig<N, Octs, HP, Sort>,
 
-    /// Should keys used to sign the zone be added as DNSKEY RRs?
-    pub add_used_dnskeys: bool,
-
     pub inception: Timestamp,
 
     pub expiration: Timestamp,
@@ -36,13 +33,11 @@ where
 {
     pub fn new(
         denial: DenialConfig<N, Octs, HP, Sort>,
-        add_used_dnskeys: bool,
         inception: Timestamp,
         expiration: Timestamp,
     ) -> Self {
         Self {
             denial,
-            add_used_dnskeys,
             inception,
             expiration,
             _phantom: PhantomData,

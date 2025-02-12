@@ -138,15 +138,12 @@ use denial::config::DenialConfig;
 use denial::nsec::generate_nsecs;
 use denial::nsec3::{generate_nsec3s, Nsec3HashProvider, Nsec3Records};
 use error::SigningError;
-use keys::keymeta::DesignatedSigningKey;
+use keys::SigningKey;
 use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
 use records::{RecordsIter, Sorter};
-use signatures::rrsigs::{
-    generate_rrsigs, GenerateRrsigConfig, RrsigRecords,
-};
-use signatures::strategy::SigningKeyUsageStrategy;
+use signatures::rrsigs::{sign_sorted_zone_records, GenerateRrsigConfig};
 use traits::{SignableZone, SortedExtend};
 
 //------------ SignableZoneInOut ---------------------------------------------
@@ -220,8 +217,9 @@ where
 
 impl<N, Octs, S, T, Sort> SignableZoneInOut<'_, '_, N, Octs, S, T, Sort>
 where
-    N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
+    N: Clone + Debug + ToName + From<Name<Octs>> + Ord + Hash,
     Octs: Clone
+        + Debug
         + FromBuilder
         + From<&'static [u8]>
         + Send
@@ -362,19 +360,19 @@ where
 /// [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
 /// [`SortedRecords`]: crate::sign::records::SortedRecords
 /// [`Zone`]: crate::zonetree::Zone
-pub fn sign_zone<N, Octs, S, DSK, Inner, KeyStrat, Sort, HP, T>(
+pub fn sign_zone<N, Octs, S, Inner, Sort, HP, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
     signing_config: &mut SigningConfig<N, Octs, Sort, HP>,
-    signing_keys: &[DSK],
+    signing_keys: &[&SigningKey<Octs, Inner>],
 ) -> Result<(), SigningError>
 where
-    DSK: DesignatedSigningKey<Octs, Inner>,
     HP: Nsec3HashProvider<N, Octs>,
-    Inner: SignRaw,
+    Inner: Debug + SignRaw,
     N: Display
         + Send
         + CanonicalOrd
         + Clone
+        + Debug
         + ToName
         + From<Name<Octs>>
         + Ord
@@ -382,12 +380,12 @@ where
     <Octs as FromBuilder>::Builder:
         Truncate + EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     <<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Debug,
-    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
     S: SignableZone<N, Octs, Sort>,
     Sort: Sorter,
     T: SortedExtend<N, Octs, Sort> + ?Sized,
     Octs: FromBuilder
         + Clone
+        + Debug
         + From<&'static [u8]>
         + Send
         + OctetsFrom<Vec<u8>>
@@ -432,50 +430,21 @@ where
     }
 
     if !signing_keys.is_empty() {
-        let mut rrsig_config = GenerateRrsigConfig::<N, Sort>::new(
+        let mut rrsig_config = GenerateRrsigConfig::new(
             signing_config.inception,
             signing_config.expiration,
         );
-        rrsig_config.add_used_dnskeys = signing_config.add_used_dnskeys;
         rrsig_config.zone_apex = Some(&apex_owner);
 
         // Sign the NSEC(3)s.
         let owner_rrs = RecordsIter::new(in_out.as_out_slice());
 
-        let RrsigRecords { rrsigs, dnskeys } =
-            generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
-                owner_rrs,
-                signing_keys,
-                &rrsig_config,
-            )?;
+        let rrsigs =
+            sign_sorted_zone_records(owner_rrs, signing_keys, &rrsig_config)?;
 
         // Sorting may not be strictly needed, but we don't have the option to
         // extend without sort at the moment.
-        in_out.sorted_extend(
-            dnskeys
-                .into_iter()
-                .map(Record::from_record)
-                .chain(rrsigs.into_iter().map(Record::from_record)),
-        );
-
-        // Sign the original unsigned records.
-        let owner_rrs = RecordsIter::new(in_out.as_slice());
-
-        let RrsigRecords { rrsigs, dnskeys } =
-            generate_rrsigs::<N, Octs, DSK, Inner, KeyStrat, Sort>(
-                owner_rrs,
-                signing_keys,
-                &rrsig_config,
-            )?;
-
-        // Sorting may not be strictly needed, but we don't have the option to
-        // extend without sort at the moment.
-        in_out.sorted_extend(
-            dnskeys
-                .into_iter()
-                .map(Record::from_record)
-                .chain(rrsigs.into_iter().map(Record::from_record)),
-        );
+        in_out.sorted_extend(rrsigs.into_iter().map(Record::from_record));
     }
 
     Ok(())
