@@ -397,22 +397,28 @@ where
 /// # Example
 ///
 /// ```
-/// # use domain::base::Name;
+/// # use domain::base::{Name, Record, Ttl};
 /// # use domain::base::iana::Class;
 /// # use domain::crypto::common;
 /// # use domain::crypto::common::GenerateParams;
 /// # use domain::crypto::common::KeyPair;
 /// # use domain::dnssec::sign::keys::{SigningKey};
 /// # use domain::dnssec::sign::records::{Rrset, SortedRecords};
+/// # use domain::rdata::{A, ZoneRecordData};
+/// # use domain::zonetree::StoredName;
+/// # use std::str::FromStr;
 /// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
 /// # let key = SigningKey::new(root, 257, key_pair);
 /// # let keys = [&key];
 /// # let mut records = SortedRecords::default();
+/// # records.insert(Record::new(Name::from_str("www.example.com.")
+///       .unwrap(), Class::IN, Ttl::from_secs(3600),
+///       ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()))).unwrap();
 /// use domain::dnssec::sign::traits::Signable;
 /// let apex = Name::<Vec<u8>>::root();
-/// let rrset = Rrset::new(&records);
+/// let rrset = Rrset::new(&records).expect("records is not empty");
 /// let generated_records = rrset.sign(&apex, &keys, 0.into(), 0.into()).unwrap();
 /// ```
 pub trait Signable<N, Octs, Inner, Sort = DefaultSorter>
