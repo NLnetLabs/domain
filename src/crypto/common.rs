@@ -231,12 +231,12 @@ pub enum DigestContext {
 }
 
 impl DigestContext {
+    #[allow(unreachable_code)]
     pub fn new(digest_type: DigestType) -> Self {
         #[cfg(feature = "ring")]
         return Self::Ring(ring::DigestContext::new(digest_type));
 
         #[cfg(feature = "openssl")]
-        #[allow(unreachable_code)]
         return Self::Openssl(openssl::DigestContext::new(digest_type));
 
         #[cfg(not(any(feature = "ring", feature = "openssl")))]
