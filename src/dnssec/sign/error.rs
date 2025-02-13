@@ -7,7 +7,7 @@ use crate::crypto::openssl;
 #[cfg(feature = "ring")]
 use crate::crypto::ring;
 
-use crate::crypto::validate::Nsec3HashError;
+use crate::dnssec::common::Nsec3HashError;
 use crate::rdata::dnssec::Timestamp;
 
 //------------ SigningError --------------------------------------------------

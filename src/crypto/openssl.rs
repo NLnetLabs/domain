@@ -15,6 +15,7 @@ use core::fmt;
 
 use std::{boxed::Box, vec::Vec};
 
+use openssl::hash::{DigestBytes, Hasher, MessageDigest};
 use openssl::{
     bn::BigNum,
     ecdsa::EcdsaSig,
@@ -26,6 +27,7 @@ use secrecy::ExposeSecret;
 use super::common::GenerateParams;
 use super::misc::{PublicKeyBytes, RsaPublicKeyBytes, SignRaw, Signature};
 use crate::base::iana::SecAlg;
+use crate::crypto::common::DigestType;
 use crate::dnssec::sign::error::SignError;
 use crate::dnssec::sign::{RsaSecretKeyBytes, SecretKeyBytes};
 
@@ -442,6 +444,39 @@ impl fmt::Display for GenerateError {
 //--- Error
 
 impl std::error::Error for GenerateError {}
+
+//----------- DigestContext --------------------------------------------------
+
+pub struct DigestContext(Hasher);
+
+impl DigestContext {
+    pub fn new(digest_type: DigestType) -> Self {
+        Self(match digest_type {
+            DigestType::Sha1 => Hasher::new(MessageDigest::sha1())
+                .expect("assume that new cannot fail"),
+        })
+    }
+
+    pub fn update(&mut self, data: &[u8]) {
+        self.0
+            .update(data)
+            .expect("assume that update does not fail")
+    }
+
+    pub fn finish(mut self) -> Digest {
+        Digest(self.0.finish().expect("assume that finish does not fail"))
+    }
+}
+
+//----------- Digest ---------------------------------------------------------
+
+pub struct Digest(DigestBytes);
+
+impl AsRef<[u8]> for Digest {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
 
 //============ Tests =========================================================
 

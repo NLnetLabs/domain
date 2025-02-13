@@ -15,7 +15,7 @@ use tracing::{debug, trace};
 use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
 use crate::base::name::{ToLabelIter, ToName};
 use crate::base::{CanonicalOrd, Name, NameBuilder, Record, Ttl};
-use crate::crypto::validate::{nsec3_hash, Nsec3HashError};
+use crate::dnssec::common::{nsec3_hash, Nsec3HashError};
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::records::{DefaultSorter, RecordsIter, Sorter};
 use crate::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};

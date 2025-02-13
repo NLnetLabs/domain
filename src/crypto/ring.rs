@@ -14,12 +14,14 @@ use core::fmt;
 
 use std::{boxed::Box, sync::Arc, vec::Vec};
 
+use ring::digest::SHA1_FOR_LEGACY_USE_ONLY;
+use ring::digest::{Context, Digest as RingDigest};
 use ring::signature::{
     EcdsaKeyPair, Ed25519KeyPair, KeyPair as _, RsaKeyPair,
 };
 use secrecy::ExposeSecret;
 
-use super::common::GenerateParams;
+use super::common::{DigestType, GenerateParams};
 use super::misc::{PublicKeyBytes, RsaPublicKeyBytes, SignRaw, Signature};
 use crate::base::iana::SecAlg;
 use crate::dnssec::sign::error::SignError;
@@ -360,6 +362,36 @@ impl fmt::Display for GenerateError {
 //--- Error
 
 impl std::error::Error for GenerateError {}
+
+//----------- DigestContext --------------------------------------------------
+
+pub struct DigestContext(Context);
+
+impl DigestContext {
+    pub fn new(digest_type: DigestType) -> Self {
+        Self(match digest_type {
+            DigestType::Sha1 => Context::new(&SHA1_FOR_LEGACY_USE_ONLY),
+        })
+    }
+
+    pub fn update(&mut self, data: &[u8]) {
+        self.0.update(data)
+    }
+
+    pub fn finish(self) -> Digest {
+        Digest(self.0.finish())
+    }
+}
+
+//----------- Digest ---------------------------------------------------------
+
+pub struct Digest(RingDigest);
+
+impl AsRef<[u8]> for Digest {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
 
 //============ Tests =========================================================
 

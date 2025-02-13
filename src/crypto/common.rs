@@ -213,3 +213,78 @@ impl fmt::Display for GenerateError {
 //--- Error
 
 impl std::error::Error for GenerateError {}
+
+//----------- DigestType -----------------------------------------------------
+
+pub enum DigestType {
+    Sha1,
+}
+
+//----------- DigestContext --------------------------------------------------
+
+pub enum DigestContext {
+    #[cfg(feature = "ring")]
+    Ring(ring::DigestContext),
+    #[cfg(feature = "openssl")]
+    Openssl(openssl::DigestContext),
+}
+
+impl DigestContext {
+    pub fn new(digest_type: DigestType) -> Self {
+        #[cfg(feature = "ring")]
+        return Self::Ring(ring::DigestContext::new(digest_type));
+
+        #[cfg(feature = "openssl")]
+        #[allow(unreachable_code)]
+        return Self::Openssl(openssl::DigestContext::new(digest_type));
+
+        #[cfg(not(any(feature = "ring", feature = "openssl")))]
+        compile_error!("Either feature \"ring\" or \"openssl\" must be enabled for this crate.");
+    }
+
+    pub fn update(&mut self, data: &[u8]) {
+        match self {
+            #[cfg(feature = "ring")]
+            DigestContext::Ring(digest_context) => {
+                digest_context.update(data)
+            }
+            #[cfg(feature = "openssl")]
+            DigestContext::Openssl(digest_context) => {
+                digest_context.update(data)
+            }
+        }
+    }
+
+    pub fn finish(self) -> Digest {
+        match self {
+            #[cfg(feature = "ring")]
+            DigestContext::Ring(digest_context) => {
+                Digest::Ring(digest_context.finish())
+            }
+            #[cfg(feature = "openssl")]
+            DigestContext::Openssl(digest_context) => {
+                Digest::Openssl(digest_context.finish())
+            }
+        }
+    }
+}
+
+//----------- Digest ---------------------------------------------------------
+
+pub enum Digest {
+    #[cfg(feature = "ring")]
+    Ring(ring::Digest),
+    #[cfg(feature = "openssl")]
+    Openssl(openssl::Digest),
+}
+
+impl AsRef<[u8]> for Digest {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            #[cfg(feature = "ring")]
+            Digest::Ring(digest) => digest.as_ref(),
+            #[cfg(feature = "openssl")]
+            Digest::Openssl(digest) => digest.as_ref(),
+        }
+    }
+}
