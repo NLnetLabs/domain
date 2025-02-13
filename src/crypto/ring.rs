@@ -14,6 +14,7 @@ use core::fmt;
 
 use std::{boxed::Box, sync::Arc, vec::Vec};
 
+use ring::digest;
 use ring::digest::SHA1_FOR_LEGACY_USE_ONLY;
 use ring::digest::{Context, Digest as RingDigest};
 use ring::signature::{
@@ -371,6 +372,7 @@ impl DigestContext {
     pub fn new(digest_type: DigestType) -> Self {
         Self(match digest_type {
             DigestType::Sha1 => Context::new(&SHA1_FOR_LEGACY_USE_ONLY),
+            DigestType::Sha256 => Context::new(&digest::SHA256),
         })
     }
 

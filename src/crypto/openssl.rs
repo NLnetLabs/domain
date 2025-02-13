@@ -451,10 +451,13 @@ pub struct DigestContext(Hasher);
 
 impl DigestContext {
     pub fn new(digest_type: DigestType) -> Self {
-        Self(match digest_type {
-            DigestType::Sha1 => Hasher::new(MessageDigest::sha1())
-                .expect("assume that new cannot fail"),
-        })
+        Self(
+            match digest_type {
+                DigestType::Sha1 => Hasher::new(MessageDigest::sha1()),
+                DigestType::Sha256 => Hasher::new(MessageDigest::sha256()),
+            }
+            .expect("assume that new cannot fail"),
+        )
     }
 
     pub fn update(&mut self, data: &[u8]) {

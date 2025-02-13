@@ -218,6 +218,7 @@ impl std::error::Error for GenerateError {}
 
 pub enum DigestType {
     Sha1,
+    Sha256,
 }
 
 //----------- DigestContext --------------------------------------------------
