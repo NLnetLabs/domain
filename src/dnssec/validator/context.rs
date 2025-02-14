@@ -5,6 +5,7 @@
 //! or evaluated results.
 
 use super::anchor::{TrustAnchor, TrustAnchors};
+use super::base::{supported_digest, DnskeyExt};
 use super::group::{Group, GroupSet, SigCache, ValidatedGroup};
 use super::nsec::{
     cached_nsec3_hash, nsec3_for_nodata, nsec3_for_nodata_wildcard,
@@ -29,9 +30,7 @@ use crate::base::{
     Message, MessageBuilder, Name, ParsedName, Record, RelativeName, Rtype,
     ToName,
 };
-use crate::crypto::validate::{
-    supported_algorithm, supported_digest, DnskeyExt,
-};
+use crate::crypto::validate::supported_algorithm;
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
 use crate::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,

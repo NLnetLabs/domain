@@ -106,6 +106,7 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 pub mod anchor;
+pub mod base;
 pub mod context;
 mod group;
 mod nsec;

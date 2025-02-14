@@ -373,6 +373,7 @@ impl DigestContext {
         Self(match digest_type {
             DigestType::Sha1 => Context::new(&SHA1_FOR_LEGACY_USE_ONLY),
             DigestType::Sha256 => Context::new(&digest::SHA256),
+            DigestType::Sha384 => Context::new(&digest::SHA384),
         })
     }
 

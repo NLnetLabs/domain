@@ -3,104 +3,18 @@
 //! There are direct references to the ring crate that need to be replaced
 //! with references to common.
 
-use crate::base::iana::{DigestAlg, SecAlg};
+use crate::base::iana::SecAlg;
 use crate::base::rdata::ComposeRecordData;
 use crate::base::wire::{Compose, Composer};
 use crate::base::{CanonicalOrd, Name, Record, RecordData, ToName};
-use crate::dep::octseq::builder::with_infallible;
 use crate::rdata::{Dnskey, Rrsig};
 
 use bytes::Bytes;
 
-use ring::{digest, signature};
+use ring::signature;
 
 use std::vec::Vec;
 use std::{error, fmt};
-
-//------------ Dnskey --------------------------------------------------------
-
-/// Extensions for DNSKEY record type.
-pub trait DnskeyExt {
-    /// Calculates a digest from DNSKEY.
-    ///
-    /// See [RFC 4034, Section 5.1.4]:
-    ///
-    /// ```text
-    /// 5.1.4.  The Digest Field
-    ///   The digest is calculated by concatenating the canonical form of the
-    ///   fully qualified owner name of the DNSKEY RR with the DNSKEY RDATA,
-    ///   and then applying the digest algorithm.
-    ///
-    ///     digest = digest_algorithm( DNSKEY owner name | DNSKEY RDATA);
-    ///
-    ///      "|" denotes concatenation
-    ///
-    ///     DNSKEY RDATA = Flags | Protocol | Algorithm | Public Key.
-    /// ```
-    ///
-    /// [RFC 4034, Section 5.1.4]: https://tools.ietf.org/html/rfc4034#section-5.1.4
-    fn digest<N: ToName>(
-        &self,
-        name: &N,
-        algorithm: DigestAlg,
-    ) -> Result<digest::Digest, AlgorithmError>;
-}
-
-impl<Octets> DnskeyExt for Dnskey<Octets>
-where
-    Octets: AsRef<[u8]>,
-{
-    /// Calculates a digest from DNSKEY.
-    ///
-    /// See [RFC 4034, Section 5.1.4]:
-    ///
-    /// ```text
-    /// 5.1.4.  The Digest Field
-    ///   The digest is calculated by concatenating the canonical form of the
-    ///   fully qualified owner name of the DNSKEY RR with the DNSKEY RDATA,
-    ///   and then applying the digest algorithm.
-    ///
-    ///     digest = digest_algorithm( DNSKEY owner name | DNSKEY RDATA);
-    ///
-    ///      "|" denotes concatenation
-    ///
-    ///     DNSKEY RDATA = Flags | Protocol | Algorithm | Public Key.
-    /// ```
-    ///
-    /// [RFC 4034, Section 5.1.4]: https://tools.ietf.org/html/rfc4034#section-5.1.4
-    fn digest<N: ToName>(
-        &self,
-        name: &N,
-        algorithm: DigestAlg,
-    ) -> Result<digest::Digest, AlgorithmError> {
-        let mut buf: Vec<u8> = Vec::new();
-        with_infallible(|| {
-            name.compose_canonical(&mut buf)?;
-            self.compose_canonical_rdata(&mut buf)
-        });
-
-        let mut ctx = match algorithm {
-            DigestAlg::SHA1 => {
-                digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
-            }
-            DigestAlg::SHA256 => digest::Context::new(&digest::SHA256),
-            DigestAlg::SHA384 => digest::Context::new(&digest::SHA384),
-            _ => {
-                return Err(AlgorithmError::Unsupported);
-            }
-        };
-
-        ctx.update(&buf);
-        Ok(ctx.finish())
-    }
-}
-
-// This needs to match the digests supported in digest.
-pub fn supported_digest(d: &DigestAlg) -> bool {
-    *d == DigestAlg::SHA1
-        || *d == DigestAlg::SHA256
-        || *d == DigestAlg::SHA384
-}
 
 //------------ Rrsig ---------------------------------------------------------
 
@@ -415,7 +329,6 @@ mod test {
     use std::str::FromStr;
 
     type Name = crate::base::name::Name<Vec<u8>>;
-    type Ds = crate::rdata::Ds<Vec<u8>>;
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Rrsig = crate::rdata::Rrsig<Vec<u8>, Name>;
 
@@ -461,33 +374,6 @@ mod test {
             Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
             Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
         )
-    }
-
-    #[test]
-    fn dnskey_digest() {
-        let (dnskey, _) = root_pubkey();
-        let owner = Name::root();
-        let expected = Ds::new(
-            20326,
-            SecAlg::RSASHA256,
-            DigestAlg::SHA256,
-            base64::decode::<Vec<u8>>(
-                "4G1EuAuPHTmpXAsNfGXQhFjogECbvGg0VxBCN8f47I0=",
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            dnskey.digest(&owner, DigestAlg::SHA256).unwrap().as_ref(),
-            expected.digest()
-        );
-    }
-
-    #[test]
-    fn dnskey_digest_unsupported() {
-        let (dnskey, _) = root_pubkey();
-        let owner = Name::root();
-        assert!(dnskey.digest(&owner, DigestAlg::GOST).is_err());
     }
 
     fn rrsig_verify_dnskey(ksk: Dnskey, zsk: Dnskey, rrsig: Rrsig) {

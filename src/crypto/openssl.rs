@@ -455,6 +455,7 @@ impl DigestContext {
             match digest_type {
                 DigestType::Sha1 => Hasher::new(MessageDigest::sha1()),
                 DigestType::Sha256 => Hasher::new(MessageDigest::sha256()),
+                DigestType::Sha384 => Hasher::new(MessageDigest::sha384()),
             }
             .expect("assume that new cannot fail"),
         )
