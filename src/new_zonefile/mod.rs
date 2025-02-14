@@ -99,7 +99,10 @@
 //! # the file is malformed.
 //! name = (label ".")+ label?
 //!   # Must contain at most 63 bytes (after escapes are processed).
-//!   label = ([a-zA-Z0-9-] | "\\" .)+
+//!   label = ([a-zA-Z0-9-] | "\\" ascii-printable)+
+//!
+//! # All printable / graphic ASCII characters.
+//! ascii-printable = '!'..='~'
 //!
 //! # An integer number of seconds.
 //! ttl = [0-9]+
@@ -122,9 +125,9 @@
 //! known-data = type ws+ d-data
 //!   d-data = "(" ws* (d-word (ws+ d-word)*)? ws* ")"
 //!          | (d-word (ws+ d-word)*)?
-//!   d-word = ([^"\\\(\)] | "\\" .)* | quoted-string
+//!   d-word = ([^"\\\(\)] | "\\" ascii-printable)* | quoted-string
 //!
-//! quoted-string = "\"" ([^"\\\n] | "\\" .)* "\""
+//! quoted-string = "\"" ([^"\\\n] | "\\" ascii-printable)* "\""
 //!
 //! # A directive changes how the file is parsed.
 //! directive = include-dir | origin-dir | ttl-dir
