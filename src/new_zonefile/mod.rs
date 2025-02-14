@@ -152,3 +152,5 @@
 
 #![cfg(feature = "zonefile")]
 #![cfg_attr(docsrs, doc(cfg(feature = "zonefile")))]
+
+pub mod entries;
