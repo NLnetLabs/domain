@@ -8,19 +8,21 @@ use domain_macros::*;
 
 use crate::{
     new_base::{
+        name::RevName,
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
             SizePrefixed, SplitBytes, TruncationError, U16,
         },
+        RClass, RType, Record,
     },
-    new_rdata::Opt,
+    new_rdata::{Opt, RecordData},
 };
 
 //----------- EDNS option modules --------------------------------------------
 
 mod cookie;
-pub use cookie::{ClientCookie, Cookie};
+pub use cookie::{ClientCookie, Cookie, CookieBuf, CookieError};
 
 mod ext_err;
 pub use ext_err::{ExtError, ExtErrorCode};
@@ -44,6 +46,51 @@ pub struct EdnsRecord<'a> {
 
     /// Extended DNS options.
     pub options: SizePrefixed<&'a Opt>,
+}
+
+//--- Converting to and from 'Record'
+
+impl<'n, 'a, DN> TryFrom<Record<&'n RevName, RecordData<'a, DN>>>
+    for EdnsRecord<'a>
+{
+    type Error = ParseError;
+
+    fn try_from(
+        value: Record<&'n RevName, RecordData<'a, DN>>,
+    ) -> Result<Self, Self::Error> {
+        if !value.rname.is_root() || value.rtype != RType::OPT {
+            return Err(ParseError);
+        }
+
+        let RecordData::Opt(opt) = value.rdata else {
+            return Err(ParseError);
+        };
+
+        let ttl = value.ttl.value.get().to_be_bytes();
+        Ok(Self {
+            max_udp_payload: value.rclass.code,
+            ext_rcode: ttl[0],
+            version: ttl[1],
+            flags: u16::from_be_bytes([ttl[2], ttl[3]]).into(),
+            options: SizePrefixed::new(opt),
+        })
+    }
+}
+
+impl<'a, DN> From<EdnsRecord<'a>> for Record<&RevName, RecordData<'a, DN>> {
+    fn from(value: EdnsRecord<'a>) -> Self {
+        let flags = value.flags.bits().to_be_bytes();
+        let ttl = [value.ext_rcode, value.version, flags[0], flags[1]];
+        Record {
+            rname: RevName::ROOT,
+            rtype: RType::OPT,
+            rclass: RClass {
+                code: value.max_udp_payload,
+            },
+            ttl: u32::from_be_bytes(ttl).into(),
+            rdata: RecordData::Opt(*value.options),
+        }
+    }
 }
 
 //--- Parsing from DNS messages
@@ -174,6 +221,22 @@ impl EdnsFlags {
     /// See [RFC 3225](https://datatracker.ietf.org/doc/html/rfc3225).
     pub fn set_dnssec_ok(self, value: bool) -> Self {
         self.set_flag(15, value)
+    }
+}
+
+//--- Conversion to and from integers
+
+impl From<u16> for EdnsFlags {
+    fn from(value: u16) -> Self {
+        Self {
+            inner: U16::new(value),
+        }
+    }
+}
+
+impl From<EdnsFlags> for u16 {
+    fn from(value: EdnsFlags) -> Self {
+        value.inner.get()
     }
 }
 
