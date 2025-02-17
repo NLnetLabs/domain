@@ -17,16 +17,21 @@ use std::{boxed::Box, sync::Arc, vec::Vec};
 use ring::digest;
 use ring::digest::SHA1_FOR_LEGACY_USE_ONLY;
 use ring::digest::{Context, Digest as RingDigest};
+use ring::rsa::PublicKeyComponents;
 use ring::signature::{
-    EcdsaKeyPair, Ed25519KeyPair, KeyPair as _, RsaKeyPair,
+    self, EcdsaKeyPair, Ed25519KeyPair, KeyPair as _, RsaKeyPair,
+    RsaParameters, UnparsedPublicKey,
 };
 use secrecy::ExposeSecret;
 
-use super::common::{DigestType, GenerateParams};
+use super::common::{
+    rsa_exponent_modulus, AlgorithmError, DigestType, GenerateParams,
+};
 use super::misc::{PublicKeyBytes, RsaPublicKeyBytes, SignRaw, Signature};
 use crate::base::iana::SecAlg;
 use crate::dnssec::sign::error::SignError;
 use crate::dnssec::sign::SecretKeyBytes;
+use crate::rdata::Dnskey;
 
 //----------- KeyPair --------------------------------------------------------
 
@@ -393,6 +398,95 @@ pub struct Digest(RingDigest);
 impl AsRef<[u8]> for Digest {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
+    }
+}
+
+//----------- PublicKey ------------------------------------------------------
+
+pub enum PublicKey {
+    Rsa((&'static RsaParameters, PublicKeyComponents<Vec<u8>>)),
+    Unparsed(UnparsedPublicKey<Vec<u8>>),
+}
+
+impl PublicKey {
+    pub fn from_dnskey(
+        dnskey: &Dnskey<impl AsRef<[u8]>>,
+    ) -> Result<Self, AlgorithmError> {
+        let sec_alg = dnskey.algorithm();
+        match sec_alg {
+            SecAlg::RSASHA1
+            | SecAlg::RSASHA1_NSEC3_SHA1
+            | SecAlg::RSASHA256
+            | SecAlg::RSASHA512 => {
+                let (algorithm, min_bytes) = match sec_alg {
+                    SecAlg::RSASHA1 | SecAlg::RSASHA1_NSEC3_SHA1 => (
+                        &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
+                        1024 / 8,
+                    ),
+                    SecAlg::RSASHA256 => (
+                        &signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
+                        1024 / 8,
+                    ),
+                    SecAlg::RSASHA512 => (
+                        &signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY,
+                        1024 / 8,
+                    ),
+                    _ => unreachable!(),
+                };
+
+                // The key isn't available in either PEM or DER, so use the
+                // direct RSA verifier.
+                let (e, n) = rsa_exponent_modulus(dnskey, min_bytes)?;
+                let public_key = signature::RsaPublicKeyComponents { n, e };
+                Ok(PublicKey::Rsa((algorithm, public_key)))
+            }
+            SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+                let algorithm = match sec_alg {
+                    SecAlg::ECDSAP256SHA256 => {
+                        &signature::ECDSA_P256_SHA256_FIXED
+                    }
+                    SecAlg::ECDSAP384SHA384 => {
+                        &signature::ECDSA_P384_SHA384_FIXED
+                    }
+                    _ => unreachable!(),
+                };
+
+                // Add 0x4 identifier to the ECDSA pubkey as expected by ring.
+                let public_key = dnskey.public_key().as_ref();
+                let mut key = Vec::with_capacity(public_key.len() + 1);
+                key.push(0x4);
+                key.extend_from_slice(public_key);
+
+                Ok(PublicKey::Unparsed(signature::UnparsedPublicKey::new(
+                    algorithm, key,
+                )))
+            }
+            SecAlg::ED25519 => {
+                let key = dnskey.public_key().as_ref().to_vec();
+                Ok(PublicKey::Unparsed(signature::UnparsedPublicKey::new(
+                    &signature::ED25519,
+                    key,
+                )))
+            }
+            _ => Err(AlgorithmError::Unsupported),
+        }
+    }
+
+    pub fn verify(
+        &self,
+        signed_data: &[u8],
+        signature: &[u8],
+    ) -> Result<(), AlgorithmError> {
+        match self {
+            PublicKey::Rsa((algorithm, public_key)) => {
+                public_key.verify(algorithm, signed_data, signature)
+            }
+            PublicKey::Unparsed(public_key) => {
+                public_key.verify(signed_data, signature)
+            }
+        }
+        .map_err(|_| AlgorithmError::BadSig)
+        .map_err(|_| AlgorithmError::BadSig)
     }
 }
 

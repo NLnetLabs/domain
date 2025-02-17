@@ -109,7 +109,3 @@ pub mod misc;
 
 pub mod openssl;
 pub mod ring;
-
-// validate requires ring.
-#[cfg(feature = "ring")]
-pub mod validate;

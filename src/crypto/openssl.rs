@@ -15,21 +15,25 @@ use core::fmt;
 
 use std::{boxed::Box, vec::Vec};
 
+use openssl::bn::{BigNum, BigNumContext};
+use openssl::ec::{EcGroup, EcKey, EcPoint};
+use openssl::ecdsa::EcdsaSig;
+use openssl::error::ErrorStack;
 use openssl::hash::{DigestBytes, Hasher, MessageDigest};
-use openssl::{
-    bn::BigNum,
-    ecdsa::EcdsaSig,
-    error::ErrorStack,
-    pkey::{self, PKey, Private},
-};
+use openssl::nid::Nid;
+use openssl::pkey::{self, Id, PKey, Private, Public};
+use openssl::rsa::Rsa;
+use openssl::sign::Verifier;
 use secrecy::ExposeSecret;
 
-use super::common::GenerateParams;
+use super::common::rsa_exponent_modulus;
+use super::common::{AlgorithmError, GenerateParams};
 use super::misc::{PublicKeyBytes, RsaPublicKeyBytes, SignRaw, Signature};
 use crate::base::iana::SecAlg;
 use crate::crypto::common::DigestType;
 use crate::dnssec::sign::error::SignError;
 use crate::dnssec::sign::{RsaSecretKeyBytes, SecretKeyBytes};
+use crate::rdata::Dnskey;
 
 //----------- KeyPair --------------------------------------------------------
 
@@ -479,6 +483,138 @@ pub struct Digest(DigestBytes);
 impl AsRef<[u8]> for Digest {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
+    }
+}
+
+//----------- PublicKey ------------------------------------------------------
+
+pub enum PublicKey {
+    Default(MessageDigest, PKey<Public>),
+    NoDigest(PKey<Public>),
+    EcDsa(MessageDigest, EcKey<Public>),
+}
+
+impl PublicKey {
+    pub fn from_dnskey(
+        dnskey: &Dnskey<impl AsRef<[u8]>>,
+    ) -> Result<Self, AlgorithmError> {
+        let sec_alg = dnskey.algorithm();
+        match sec_alg {
+            SecAlg::RSASHA1
+            | SecAlg::RSASHA1_NSEC3_SHA1
+            | SecAlg::RSASHA256
+            | SecAlg::RSASHA512 => {
+                let (digest_algorithm, min_bytes) = match sec_alg {
+                    SecAlg::RSASHA1 | SecAlg::RSASHA1_NSEC3_SHA1 => {
+                        (MessageDigest::sha1(), 1024 / 8)
+                    }
+                    SecAlg::RSASHA256 => (MessageDigest::sha256(), 1024 / 8),
+                    SecAlg::RSASHA512 => (MessageDigest::sha512(), 1024 / 8),
+                    _ => unreachable!(),
+                };
+
+                // The key isn't available in either PEM or DER, so use the
+                // direct RSA verifier.
+                let (e, n) = rsa_exponent_modulus(dnskey, min_bytes)?;
+                let e = BigNum::from_slice(&e)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                let n = BigNum::from_slice(&n)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                let public_key = Rsa::from_public_components(n, e)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                let public_key = PKey::from_rsa(public_key)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                Ok(PublicKey::Default(digest_algorithm, public_key))
+            }
+            SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+                let (digest_algorithm, group_id) = match sec_alg {
+                    SecAlg::ECDSAP256SHA256 => {
+                        (MessageDigest::sha256(), Nid::X9_62_PRIME256V1)
+                    }
+                    SecAlg::ECDSAP384SHA384 => {
+                        (MessageDigest::sha384(), Nid::SECP384R1)
+                    }
+                    _ => unreachable!(),
+                };
+
+                let group = EcGroup::from_curve_name(group_id)
+                    .expect("should not fail");
+                let mut ctx = BigNumContext::new().expect("should not fail");
+
+                // Add 0x4 identifier to the ECDSA pubkey as expected by openssl.
+                let public_key = dnskey.public_key().as_ref();
+                let mut key = Vec::with_capacity(public_key.len() + 1);
+                key.push(0x4);
+                key.extend_from_slice(public_key);
+                let point = EcPoint::from_bytes(&group, &key, &mut ctx)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                let public_key = EcKey::from_public_key(&group, &point)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                public_key
+                    .check_key()
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+
+                Ok(PublicKey::EcDsa(digest_algorithm, public_key))
+            }
+            SecAlg::ED25519 => {
+                let public_key = PKey::public_key_from_raw_bytes(
+                    dnskey.public_key().as_ref(),
+                    Id::ED25519,
+                )
+                .map_err(|_| AlgorithmError::InvalidData)?;
+                Ok(PublicKey::NoDigest(public_key))
+            }
+            _ => Err(AlgorithmError::Unsupported),
+        }
+    }
+    pub fn verify(
+        &self,
+        signed_data: &[u8],
+        signature: &[u8],
+    ) -> Result<(), AlgorithmError> {
+        let valid = match self {
+            PublicKey::Default(digest_algorithm, public_key) => {
+                let mut verifier =
+                    Verifier::new(*digest_algorithm, public_key.as_ref())
+                        .map_err(|_| AlgorithmError::InvalidData)?;
+                verifier
+                    .verify_oneshot(signature, signed_data)
+                    .map_err(|_| AlgorithmError::InvalidData)?
+            }
+            PublicKey::NoDigest(public_key) => {
+                let mut verifier =
+                    Verifier::new_without_digest(public_key.as_ref())
+                        .map_err(|_| AlgorithmError::InvalidData)?;
+                verifier
+                    .verify_oneshot(signature, signed_data)
+                    .map_err(|_| AlgorithmError::InvalidData)?
+            }
+            PublicKey::EcDsa(digest_algorithm, public_key) => {
+                let half_len = signature.len() / 2;
+                let mut hasher = Hasher::new(*digest_algorithm)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                hasher
+                    .update(signed_data)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                let hash = hasher
+                    .finish()
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                let r = BigNum::from_slice(&signature[0..half_len])
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                let s = BigNum::from_slice(&signature[half_len..])
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                let ecdsa_sig = EcdsaSig::from_private_components(r, s)
+                    .map_err(|_| AlgorithmError::InvalidData)?;
+                ecdsa_sig
+                    .verify(hash.as_ref(), public_key)
+                    .map_err(|_| AlgorithmError::InvalidData)?
+            }
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(AlgorithmError::BadSig)
+        }
     }
 }
 
