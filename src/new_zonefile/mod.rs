@@ -94,12 +94,12 @@
 //! record = name? (ws+ (ttl (ws+ class)? | class (ws+ ttl)?) )? ws+ data
 //!
 //! # If it does not end with a period, a period and the origin name are
-//! # appended.  When the full domain name is encoded in the wire format, it
-//! # must fit within 255 bytes.  If an origin name is necessary but unknown,
-//! # the file is malformed.
-//! name = (label ".")+ label?
+//! # appended.  The special name "@" means the origin name.  When the full
+//! # domain name is encoded in the wire format, it must fit within 255 bytes.
+//! # If an origin name is necessary but unknown, an error occurs.
+//! name = (label ".")* label "."? | "@"
 //!   # Must contain at most 63 bytes (after escapes are processed).
-//!   label = ([a-zA-Z0-9-] | "\\" ascii-printable)+
+//!   label = ([a-zA-Z0-9-] | "\\" ascii-printable)+ | quoted-string
 //!
 //! # All printable / graphic ASCII characters.
 //! ascii-printable = '!'..='~'
@@ -118,16 +118,14 @@
 //!   ud-type = "TYPE" [0-9]+
 //!   # The size of the record data, in bytes.
 //!   ud-size = [0-9]+
-//!   ud-data = "(" ws* (hex-word (ws+ hex-word)*)? ws* ")"
-//!           | (hex-word (ws+ hex-word)*)?
-//!   hex-word = ([0-9a-fA-F] [0-9a-fA-F])+
+//!   ud-data = (ud-word (ws+ ud-word)*)?
+//!   ud-word = ([0-9a-fA-F] [0-9a-fA-F])+
 //!
 //! known-data = type ws+ d-data
-//!   d-data = "(" ws* (d-word (ws+ d-word)*)? ws* ")"
-//!          | (d-word (ws+ d-word)*)?
-//!   d-word = ([^"\\\(\)] | "\\" ascii-printable)* | quoted-string
+//!   d-data = (d-word (ws+ d-word)*)?
+//!   d-word = ([^"\\\(\); \t\r\n] | "\\" ascii-printable | quoted-string)+
 //!
-//! quoted-string = "\"" ([^"\\\n] | "\\" ascii-printable)* "\""
+//! quoted-string = "\"" ([^"\\\n] | "\\" (ascii-printable | ws))* "\""
 //!
 //! # A directive changes how the file is parsed.
 //! directive = include-dir | origin-dir | ttl-dir
@@ -135,7 +133,7 @@
 //! # Like '#include' in C, process the referenced file in place here.
 //! # 'name' (or this file's origin) is used as the origin for that file.
 //! include-dir = "$INCLUDE" ws+ file-path (ws+ name)?
-//! file-path = [^ \t\r\n";]* | quoted-string
+//! file-path = ([^ \\\t\r\n\(\)";] | "\\" ascii-printable | quoted-string)*
 //!
 //! # Set the origin name for all future entries in this file.
 //! origin-dir = "$ORIGIN" ws+ name
@@ -154,3 +152,4 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "zonefile")))]
 
 pub mod entries;
+pub mod scanner;
