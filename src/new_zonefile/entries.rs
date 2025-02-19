@@ -22,7 +22,7 @@
 //! let zonefile = b"Hello World!; (hi!)\nThis (entry\nspans\nlines)\n".as_slice();
 //! let mut expected = [
 //!     b"Hello World!".as_slice(),
-//!     b"This (entry\nspans\nlines)".as_slice(),
+//!     b"This entry\nspans\nlines".as_slice(),
 //! ].into_iter();
 //! let mut entries = Entries::new(zonefile);
 //! while let Some(entry) = entries.next_entry().unwrap() {
@@ -321,6 +321,7 @@ impl<R: io::BufRead> Entries<R> {
                 b'(' => {
                     // Make sure we're already outside parentheses.
                     if let Some(line_number) = paren_line_number {
+                        self.source.consume(pos);
                         return Err(EntriesError::NestedOpeningParen {
                             first_line_number: line_number,
                             second_line_number: self.line_number,
@@ -328,7 +329,7 @@ impl<R: io::BufRead> Entries<R> {
                     }
 
                     // Begin parentheses.
-                    self.entry.extend_from_slice(&buffer[..pos + 1]);
+                    self.entry.extend_from_slice(&buffer[..pos]);
                     self.source.consume(pos + 1);
                     paren_line_number = Some(self.line_number);
                 }
@@ -336,14 +337,14 @@ impl<R: io::BufRead> Entries<R> {
                 b')' => {
                     // Make sure we're already inside parentheses.
                     if paren_line_number.is_none() {
-                        self.source.consume(pos + 1);
+                        self.source.consume(pos);
                         return Err(EntriesError::UnmatchedRightParen {
                             line_number: self.line_number,
                         });
                     }
 
                     // End parentheses.
-                    self.entry.extend_from_slice(&buffer[..pos + 1]);
+                    self.entry.extend_from_slice(&buffer[..pos]);
                     self.source.consume(pos + 1);
                     paren_line_number = None;
                 }
@@ -393,6 +394,9 @@ pub enum EntriesError {
     },
 
     /// A nested opening parenthesis was found.
+    ///
+    /// Everything up to the parenthesis (except the parenthesis itself) is
+    /// consumed from the zonefile source.
     NestedOpeningParen {
         /// The line number of the first opening parenthesis.
         first_line_number: usize,
@@ -452,12 +456,12 @@ $INCLUDE <SUBSYS>ISI-MAILBOXES.TXT
         let expected: [(&str, Range<usize>); 12] = [
             (
                 "\
-@   IN  SOA     VENERA      Action\\.domains (
+@   IN  SOA     VENERA      Action\\.domains 
                                  20     
                                  7200   
                                  600    
                                  3600000
-                                 60)    ",
+                                 60    ",
                 1..7,
             ),
             ("        NS      A.ISI.EDU.", 8..9),
