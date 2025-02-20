@@ -41,6 +41,10 @@ pub trait DnskeyExt {
         name: &N,
         algorithm: DigestAlg,
     ) -> Result<Digest, AlgorithmError>;
+
+    /// Return the key size in bits or an error if the algorithm is not
+    /// supported.
+    fn key_size(&self) -> Result<usize, AlgorithmError>;
 }
 
 impl<Octets> DnskeyExt for Dnskey<Octets>
@@ -87,6 +91,42 @@ where
 
         ctx.update(&buf);
         Ok(ctx.finish())
+    }
+
+    /// The size of this key, in bits.
+    ///
+    /// For RSA keys, this measures the size of the public modulus.  For all
+    /// other algorithms, it is the size of the fixed-width public key.
+    fn key_size(&self) -> Result<usize, AlgorithmError> {
+        match self.algorithm() {
+            SecAlg::RSASHA1
+            | SecAlg::RSASHA1_NSEC3_SHA1
+            | SecAlg::RSASHA256
+            | SecAlg::RSASHA512 => {
+                let data = self.public_key().as_ref();
+                // The exponent length is encoded as 1 or 3 bytes.
+                let (exp_len, off) = if data[0] != 0 {
+                    (data[0] as usize, 1)
+                } else {
+                    // NOTE: Even though this is the extended encoding of the length,
+                    // a user could choose to put a length less than 256 over here.
+                    let exp_len =
+                        u16::from_be_bytes(data[1..3].try_into().unwrap());
+                    (exp_len as usize, 3)
+                };
+                let n = &data[off + exp_len..];
+                Ok(n.len() * 8 - n[0].leading_zeros() as usize)
+            }
+            SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+                // ECDSA public keys have two points.
+                Ok(self.public_key().as_ref().len() / 2 * 8)
+            }
+            SecAlg::ED25519 | SecAlg::ED448 => {
+                // EdDSA public key sizes are measured in encoded form.
+                Ok(self.public_key().as_ref().len() * 8)
+            }
+            _ => Err(AlgorithmError::Unsupported),
+        }
     }
 }
 
@@ -287,9 +327,10 @@ pub fn supported_algorithm(a: &SecAlg) -> bool {
 #[cfg(feature = "std")]
 mod test {
     use super::*;
-    use crate::base::iana::SecAlg;
-    use crate::base::iana::{Class, Rtype};
+    use crate::base::iana::{Class, Rtype, SecAlg};
+    use crate::base::scan::{IterScanner, Scanner};
     use crate::base::Ttl;
+    use crate::dnssec::common::parse_from_bind;
     use crate::rdata::dnssec::Timestamp;
     use crate::rdata::{Mx, ZoneRecordData};
     use crate::utils::base64;
@@ -643,5 +684,63 @@ mod test {
         let (dnskey, _) = root_pubkey();
         let owner = Name::root();
         assert!(dnskey.digest(&owner, DigestAlg::GOST).is_err());
+    }
+
+    const KEYS: &[(SecAlg, u16, usize)] = &[
+        (SecAlg::RSASHA1, 439, 2048),
+        (SecAlg::RSASHA1_NSEC3_SHA1, 22204, 2048),
+        (SecAlg::RSASHA256, 60616, 2048),
+        (SecAlg::ECDSAP256SHA256, 42253, 256),
+        (SecAlg::ECDSAP384SHA384, 33566, 384),
+        (SecAlg::ED25519, 56037, 256),
+        (SecAlg::ED448, 7379, 456),
+    ];
+
+    #[test]
+    fn key_size() {
+        for &(algorithm, key_tag, key_size) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+            assert_eq!(key.data().key_size(), Ok(key_size));
+        }
+    }
+
+    #[test]
+    fn digest() {
+        for &(algorithm, key_tag, _) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+
+            // Scan the DS record from the file.
+            let path = format!("test-data/dnssec-keys/K{}.ds", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let mut scanner = IterScanner::new(data.split_ascii_whitespace());
+            let _ = scanner.scan_name().unwrap();
+            let _ = Class::scan(&mut scanner).unwrap();
+            assert_eq!(Rtype::scan(&mut scanner).unwrap(), Rtype::DS);
+            let ds = Ds::scan(&mut scanner).unwrap();
+
+            let key_ds = Ds::new(
+                key.data().key_tag(),
+                key.data().algorithm(),
+                ds.digest_type(),
+                key.data()
+                    .digest(key.owner(), ds.digest_type())
+                    .unwrap()
+                    .as_ref()
+                    .to_vec(),
+            )
+            .unwrap();
+
+            assert_eq!(key_ds, ds);
+        }
     }
 }

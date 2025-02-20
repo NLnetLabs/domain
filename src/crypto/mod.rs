@@ -30,23 +30,27 @@
 //! # use domain::crypto::misc;
 //! # use domain::crypto::common::KeyPair;
 //! # use domain::dnssec::sign::keys::{SecretKeyBytes, SigningKey};
+//! # use domain::dnssec::common::parse_from_bind;
+//! # use domain::crypto::misc::PublicKeyBytes;
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
 //! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
 //! let sec_bytes = SecretKeyBytes::parse_from_bind(&sec_text).unwrap();
 //! let pub_text = std::fs::read_to_string(format!("{base}.key")).unwrap();
-//! let pub_key = misc::Key::<Vec<u8>>::parse_from_bind(&pub_text).unwrap();
+//! let pub_key = parse_from_bind::<Vec<u8>>(&pub_text).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
-//! let key_pair = KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
+//! let key_pair = KeyPair::from_bytes(&sec_bytes,
+//!     &PublicKeyBytes::from_dnskey_format(pub_key.data().algorithm(),
+//!     pub_key.data().public_key()).unwrap()).unwrap();
 //!
 //! // Associate the key with important metadata.
-//! let key = SigningKey::new(pub_key.owner().clone(), pub_key.flags(), key_pair);
+//! let key = SigningKey::new(pub_key.owner().clone(), pub_key.data().flags(), key_pair);
 //!
 //! // Check that the owner, algorithm, and key tag matched expectations.
 //! assert_eq!(key.owner().to_string(), "test");
 //! assert_eq!(key.algorithm(), SecAlg::ED25519);
-//! assert_eq!(key.public_key().key_tag(), 56037);
+//! assert_eq!(key.dnskey().key_tag(), 56037);
 //! ```
 //!
 //! # Generating keys
@@ -72,7 +76,7 @@
 //! let key = SigningKey::new(owner, flags, key_pair);
 //!
 //! // Access the public key (with metadata).
-//! let pub_key = key.public_key();
+//! let pub_key = key.dnskey();
 //! println!("{:?}", pub_key);
 //! ```
 //!

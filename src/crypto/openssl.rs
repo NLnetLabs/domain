@@ -622,14 +622,17 @@ impl PublicKey {
 
 #[cfg(test)]
 mod tests {
-    use std::{string::ToString, vec::Vec};
-
     use crate::base::iana::SecAlg;
     use crate::crypto::common::GenerateParams;
-    use crate::crypto::misc::{Key, SignRaw};
+    use crate::crypto::misc::SignRaw;
+    use crate::crypto::openssl::PublicKeyBytes;
+    use crate::dnssec::common::parse_from_bind;
     use crate::dnssec::sign::SecretKeyBytes;
 
     use super::KeyPair;
+
+    use std::string::ToString;
+    use std::vec::Vec;
 
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 60616),
@@ -683,14 +686,18 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
-            let pub_key = pub_key.raw_public_key();
+            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+            let pub_key = PublicKeyBytes::from_dnskey_format(
+                pub_key.data().algorithm(),
+                pub_key.data().public_key(),
+            )
+            .unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
             let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
             let same = key.to_bytes().display_as_bind().to_string();
 
             let data = data.lines().collect::<Vec<_>>();
@@ -711,12 +718,16 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
-            let pub_key = pub_key.raw_public_key();
+            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+            let pub_key = PublicKeyBytes::from_dnskey_format(
+                pub_key.data().algorithm(),
+                pub_key.data().public_key(),
+            )
+            .unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
 
-            assert_eq!(key.raw_public_key(), *pub_key);
+            assert_eq!(key.raw_public_key(), pub_key);
         }
     }
 
@@ -732,10 +743,14 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
-            let pub_key = pub_key.raw_public_key();
+            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+            let pub_key = PublicKeyBytes::from_dnskey_format(
+                pub_key.data().algorithm(),
+                pub_key.data().public_key(),
+            )
+            .unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!").unwrap();
         }

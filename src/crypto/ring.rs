@@ -494,11 +494,14 @@ impl PublicKey {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, vec::Vec};
+    use std::sync::Arc;
+    use std::vec::Vec;
 
     use crate::base::iana::SecAlg;
     use crate::crypto::common::GenerateParams;
-    use crate::crypto::misc::{Key, SignRaw};
+    use crate::crypto::misc::SignRaw;
+    use crate::crypto::ring::PublicKeyBytes;
+    use crate::dnssec::common::parse_from_bind;
     use crate::dnssec::sign::SecretKeyBytes;
 
     use super::KeyPair;
@@ -529,13 +532,17 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
-            let pub_key = pub_key.raw_public_key();
+            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+            let pub_key = PublicKeyBytes::from_dnskey_format(
+                pub_key.data().algorithm(),
+                pub_key.data().public_key(),
+            )
+            .unwrap();
 
             let key =
-                KeyPair::from_bytes(&gen_key, pub_key, rng.clone()).unwrap();
+                KeyPair::from_bytes(&gen_key, &pub_key, rng.clone()).unwrap();
 
-            assert_eq!(key.raw_public_key(), *pub_key);
+            assert_eq!(key.raw_public_key(), pub_key);
         }
     }
 
@@ -562,10 +569,14 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
-            let pub_key = pub_key.raw_public_key();
+            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+            let pub_key = PublicKeyBytes::from_dnskey_format(
+                pub_key.data().algorithm(),
+                pub_key.data().public_key(),
+            )
+            .unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, pub_key, rng).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, &pub_key, rng).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!").unwrap();
         }
