@@ -17,6 +17,9 @@ use crate::new_base::{
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Label ----------------------------------------------------------
 
 /// A label in a domain name.
@@ -355,6 +358,81 @@ impl BuildBytes for LabelBuf {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for LabelBuf {
+    /// Scan a domain name label.
+    ///
+    /// This parses a domain name label, following the [specification].
+    ///
+    /// [specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Allow the buffer to have previous content.
+        let start = buffer.len();
+
+        // Try parsing a quoted label string.
+        if scanner.remaining().starts_with(b"\"") {
+            scanner.consume(1);
+            let _ = scanner.scan_quoted(buffer)?;
+            if scanner.remaining().first().is_some_and(|&c| {
+                c.is_ascii_alphanumeric() || c == b'-' || c == b'\\'
+            }) {
+                return Err(ScanError::Custom(
+                    "a domain label was only partially quoted",
+                ));
+            }
+        } else {
+            // Loop through non-special chunks and special sequences.
+            loop {
+                let (chunk, first) = scanner.scan_unquoted_chunk(|&c| {
+                    !c.is_ascii_alphanumeric() && c != b'-'
+                });
+
+                // Copy the non-special chunk into the buffer.
+                buffer.extend_from_slice(chunk);
+
+                // Determine the nature of the special sequence.
+                match first {
+                    Some(b'"') => {
+                        return Err(ScanError::Custom(
+                            "a domain label was only partially quoted",
+                        ))
+                    }
+
+                    Some(b'\\') => {
+                        // An escape sequence.
+                        scanner.consume(1);
+                        buffer.push(scanner.scan_escape()?);
+                    }
+
+                    _ => break,
+                }
+            }
+        }
+
+        // Parse the result as a label.
+        let label = &buffer[start..];
+        if label.len() > 63 {
+            return Err(ScanError::Custom(
+                "a domain label exceeded 63 bytes",
+            ));
+        } else if label.is_empty() {
+            return Err(ScanError::Custom(
+                "a domain label was explicitly empty",
+            ));
+        }
+        // SAFETY: The label is a valid length.
+        let label = unsafe { Label::from_bytes_unchecked(label) };
+        let label = Self::copy_from(label);
+        buffer.truncate(start);
+        Ok(label)
+    }
+}
+
 //--- Access to the underlying 'Label'
 
 impl Deref for LabelBuf {
@@ -493,5 +571,57 @@ impl fmt::Debug for LabelIter<'_> {
         }
 
         f.debug_tuple("LabelIter").field(&Labels(self)).finish()
+    }
+}
+
+//============ Unit tests ====================================================
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use std::vec::Vec;
+
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::LabelBuf;
+
+        let cases = [
+            (
+                b"" as &[u8],
+                Err(ScanError::Custom("a domain label was explicitly empty")),
+            ),
+            (b"a", Ok(b"a" as &[u8])),
+            (b"xn--hello", Ok(b"xn--hello")),
+            (b"a\\010b", Ok(b"a\nb")),
+            (b"a\\000", Ok(b"a\0")),
+            (b"a\\", Err(ScanError::IncompleteEscape)),
+            (b"a\\00", Err(ScanError::IncompleteEscape)),
+            (b"a\\256", Err(ScanError::InvalidDecimalEscape)),
+            (b"\\065", Ok(b"A")),
+            (b"a ", Ok(b"a")),
+            (b"\"hello\"", Ok(b"hello")),
+            (b"\"hello \"", Ok(b"hello ")),
+            (
+                b"\"\"",
+                Err(ScanError::Custom("a domain label was explicitly empty")),
+            ),
+            (
+                b"a\"b\"c",
+                Err(ScanError::Custom(
+                    "a domain label was only partially quoted",
+                )),
+            ),
+        ];
+
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut buffer = Vec::new();
+            let mut label_buf = None;
+            let actual = LabelBuf::scan(&mut scanner, &mut buffer)
+                .map(|label| label_buf.insert(label).as_bytes());
+            assert_eq!(actual, expected, "input {:?}", input);
+        }
     }
 }

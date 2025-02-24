@@ -274,9 +274,6 @@ impl<'a> Scanner<'a> {
 
 /// A type that can be scanned from a zonefile entry.
 pub trait Scan<'a>: Sized {
-    /// A scan error.
-    type Error;
-
     /// Scan a value from a zonefile entry.
     ///
     /// The buffer should be used to store temporary allocations on the heap,
@@ -284,7 +281,7 @@ pub trait Scan<'a>: Sized {
     fn scan(
         scanner: &mut Scanner<'a>,
         buffer: &mut Vec<u8>,
-    ) -> Result<Self, Self::Error>;
+    ) -> Result<Self, ScanError>;
 }
 
 //----------- ScanError ------------------------------------------------------
@@ -303,6 +300,9 @@ pub enum ScanError {
 
     /// An unescaped non-ASCII character or ASCII control code was found.
     InvalidCharacter,
+
+    /// A custom record scanning error occurred.
+    Custom(&'static str),
 }
 
 #[cfg(feature = "std")]
@@ -319,6 +319,7 @@ impl fmt::Display for ScanError {
                 "an invalid decimal escape was found"
             }
             Self::InvalidCharacter => "an unprintable character was found",
+            Self::Custom(s) => s,
         })
     }
 }
