@@ -14,7 +14,13 @@ use crate::new_base::{
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
 };
 
-use super::LabelIter;
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+#[cfg(feature = "zonefile")]
+use super::LabelBuf;
+
+use super::{Label, LabelIter};
 
 //----------- RevName --------------------------------------------------------
 
@@ -341,7 +347,7 @@ fn parse_segment<'a>(
         match *bytes {
             [0, ref rest @ ..] => {
                 // Found the root, stop.
-                buffer.prepend(&[0u8]);
+                buffer.prepend_bytes(&[0u8]);
                 return Ok((None, rest));
             }
 
@@ -358,7 +364,7 @@ fn parse_segment<'a>(
                 }
 
                 let (label, rest) = bytes.split_at(1 + l as usize);
-                buffer.prepend(label);
+                buffer.prepend_bytes(label);
                 bytes = rest;
             }
 
@@ -427,10 +433,109 @@ impl RevNameBuf {
     /// Prepend bytes to this buffer.
     ///
     /// This is an internal convenience function used while building buffers.
-    fn prepend(&mut self, label: &[u8]) {
+    fn prepend_bytes(&mut self, bytes: &[u8]) {
+        self.offset -= bytes.len() as u8;
+        self.buffer[self.offset as usize..][..bytes.len()]
+            .copy_from_slice(bytes);
+    }
+
+    /// Prepend a label to this buffer.
+    ///
+    /// This is an internal convenience function used while building buffers.
+    fn prepend_label(&mut self, label: &Label) {
         self.offset -= label.len() as u8;
         self.buffer[self.offset as usize..][..label.len()]
-            .copy_from_slice(label);
+            .copy_from_slice(label.as_bytes());
+        self.offset -= 1;
+        self.buffer[self.offset as usize] = label.len() as u8;
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RevNameBuf {
+    /// Scan a domain name token.
+    ///
+    /// This parses a domain name, following the [specification].
+    ///
+    /// [specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Try parsing '@', indicating the origin name.
+        if let [b'@', b' ' | b'\t' | b'\r' | b'\n', ..] | [b'@'] =
+            scanner.remaining()
+        {
+            scanner.consume(1);
+            let origin = scanner
+                .origin()
+                .ok_or(ScanError::Custom("Unknown origin name"))?;
+            return Ok(RevNameBuf::copy_from(origin));
+        }
+
+        // Build up a 'RevName'.
+        let mut this = Self::empty();
+
+        while let Some(&c) = scanner.remaining().first() {
+            if c.is_ascii_whitespace() {
+                break;
+            }
+
+            if !c.is_ascii_alphanumeric() && !b"\\-\"".contains(&c) {
+                return Err(ScanError::Custom(
+                    "Irregular character in domain name",
+                ));
+            }
+
+            // Parse a label and prepend it to the buffer.
+            let label = LabelBuf::scan(scanner, buffer)?;
+            if this.offset < 2 + label.len() as u8 {
+                return Err(ScanError::Custom(
+                    "Domain name exceeds 255 bytes",
+                ));
+            }
+            this.prepend_label(&label);
+
+            // Check if this is the end of the domain name.
+            match scanner.remaining() {
+                &[b' ' | b'\t' | b'\r' | b'\n', ..] | &[] => {
+                    // This is a relative domain name.
+                    let origin = scanner
+                        .origin()
+                        .ok_or(ScanError::Custom("Unknown origin name"))?;
+                    if this.offset < origin.len() as u8 {
+                        return Err(ScanError::Custom(
+                            "Relative domain name exceeds 255 bytes",
+                        ));
+                    }
+
+                    // Prepend the origin to this name.
+                    this.prepend_bytes(&origin.as_bytes()[1..]);
+                    break;
+                }
+
+                &[b'.', ..] => {
+                    scanner.consume(1);
+                }
+
+                _ => {
+                    return Err(ScanError::Custom(
+                        "Irregular character in domain name",
+                    ));
+                }
+            }
+        }
+
+        if this.offset == 255 {
+            return Err(ScanError::Custom("No domain name was found"));
+        }
+
+        // Add a root label and stop.
+        this.offset -= 1;
+        this.buffer[this.offset as usize] = 0;
+        Ok(this)
     }
 }
 
@@ -509,5 +614,69 @@ impl Hash for RevNameBuf {
 impl fmt::Debug for RevNameBuf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+//============ Unit tests ====================================================
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use std::vec::Vec;
+
+        use crate::{
+            new_base::name::RevName,
+            new_zonefile::scanner::{Scan, ScanError, Scanner},
+        };
+
+        use super::RevNameBuf;
+
+        let cases = [
+            (
+                b"".as_slice(),
+                Err(ScanError::Custom("No domain name was found")),
+            ),
+            (
+                b" ".as_slice(),
+                Err(ScanError::Custom("No domain name was found")),
+            ),
+            (b"a", Ok(&[b"" as &[u8], b"org", b"a"] as &[&[u8]])),
+            (b"xn--hello.", Ok(&[b"", b"xn--hello"])),
+            (
+                b"hello\\.world.sld",
+                Ok(&[b"", b"org", b"sld", b"hello.world"]),
+            ),
+            (b"a\\046b.c.", Ok(&[b"", b"c", b"a.b"])),
+            (b"a.\"b c\".d", Ok(&[b"", b"org", b"d", b"b c", b"a"])),
+        ];
+
+        for (input, expected) in cases {
+            let origin =
+                unsafe { RevName::from_bytes_unchecked(b"\x00\x03org") };
+            let mut scanner = Scanner::new(input, Some(origin));
+            let mut buffer = Vec::new();
+            let mut name_buf = None;
+            let actual = RevNameBuf::scan(&mut scanner, &mut buffer)
+                .map(|name| name_buf.insert(name).labels());
+            match expected {
+                Ok(labels) => {
+                    assert!(
+                        actual.clone().is_ok_and(|actual| actual
+                            .map(|l| l.as_bytes())
+                            .eq(labels.iter().copied())),
+                        "{actual:?} == Ok({labels:?})"
+                    );
+                }
+
+                Err(err) => {
+                    assert!(
+                        actual.clone().is_err_and(|e| e == err),
+                        "{actual:?} == Err({err:?})"
+                    );
+                }
+            }
+        }
     }
 }
