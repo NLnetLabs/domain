@@ -1,6 +1,6 @@
 //! DNS records.
 
-use core::{borrow::Borrow, fmt, ops::Deref};
+use core::{borrow::Borrow, fmt, num::IntErrorKind, ops::Deref};
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
@@ -11,6 +11,9 @@ use super::{
         SizePrefixed, SplitBytes, SplitBytesByRef, TruncationError, U16, U32,
     },
 };
+
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
 //----------- Record ---------------------------------------------------------
 
@@ -260,6 +263,45 @@ impl fmt::Debug for RType {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RType {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let variants = [
+            (Self::A, b"A" as &[u8]),
+            (Self::NS, b"NS"),
+            (Self::CNAME, b"CNAME"),
+            (Self::SOA, b"SOA"),
+            (Self::WKS, b"WKS"),
+            (Self::PTR, b"PTR"),
+            (Self::HINFO, b"HINFO"),
+            (Self::MX, b"MX"),
+            (Self::TXT, b"TXT"),
+            (Self::AAAA, b"AAAA"),
+            (Self::OPT, b"OPT"),
+        ];
+
+        for (value, name) in variants {
+            if scanner.remaining().strip_prefix(name).is_some_and(
+                |remaining| {
+                    remaining
+                        .first()
+                        .map_or(true, |c| c.is_ascii_whitespace())
+                },
+            ) {
+                scanner.consume(name.len());
+                return Ok(value);
+            }
+        }
+
+        Err(ScanError::Custom("Unrecognized record type"))
+    }
+}
+
 //----------- RClass ---------------------------------------------------------
 
 /// The class of a record.
@@ -312,6 +354,33 @@ impl fmt::Debug for RClass {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RClass {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let variants = [(Self::IN, b"IN" as &[u8]), (Self::CH, b"CH")];
+
+        for (value, name) in variants {
+            if scanner.remaining().strip_prefix(name).is_some_and(
+                |remaining| {
+                    remaining
+                        .first()
+                        .map_or(true, |c| c.is_ascii_whitespace())
+                },
+            ) {
+                scanner.consume(name.len());
+                return Ok(value);
+            }
+        }
+
+        Err(ScanError::Custom("Unrecognized record type"))
+    }
+}
+
 //----------- TTL ------------------------------------------------------------
 
 /// How long a record can be cached.
@@ -357,6 +426,40 @@ impl From<TTL> for u32 {
 impl fmt::Debug for TTL {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TTL({})", self.value)
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for TTL {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let input = scanner.remaining();
+        let (len, next) = input
+            .iter()
+            .position(|&c| !c.is_ascii_digit())
+            .map_or((input.len(), b' '), |pos| (pos, input[pos]));
+        if len == 0 {
+            return Err(ScanError::Custom("A TTL was not found"));
+        } else if !next.is_ascii_whitespace() {
+            return Err(ScanError::Custom("TTLs cannot have suffixes"));
+        }
+
+        let input = core::str::from_utf8(&input[..len])
+            .expect("ASCII digits are always valid UTF-8");
+        let value = input.parse::<u32>().map_err(|err| {
+            ScanError::Custom(match err.kind() {
+                IntErrorKind::PosOverflow => "Specified TTL will overflow",
+                // We have already checked for other kinds of errors.
+                _ => unreachable!(),
+            })
+        })?;
+
+        scanner.consume(len);
+        Ok(Self::from(value))
     }
 }
 
