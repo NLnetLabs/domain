@@ -64,7 +64,7 @@ where
         None => {
             trace!("No matching reply found");
             println!("do_server: no reply at step value {step}");
-            todo!();
+            None
         }
     }
 }
