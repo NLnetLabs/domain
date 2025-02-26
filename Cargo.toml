@@ -87,7 +87,7 @@ arbitrary = ["dep:arbitrary"]
 itertools         = "0.13.0"
 lazy_static       = { version = "1.4.0" }
 pretty_assertions = "1.4.1"
-rstest            = "0.19.0"
+rstest             = "0.23.0"
 rustls-pemfile    = { version = "2.1.2" }
 serde_test        = "1.0.130"
 serde_json        = "1.0.113"
