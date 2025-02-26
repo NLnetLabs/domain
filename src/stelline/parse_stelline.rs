@@ -424,7 +424,9 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                     reply.ra |= new_reply.ra;
                     reply.rd |= new_reply.rd;
                     reply.tc |= new_reply.tc;
-                    reply.rcode = new_reply.rcode;
+                    if new_reply.rcode.is_some() {
+                        reply.rcode = new_reply.rcode;
+                    }
                     reply.noerror |= new_reply.noerror;
                     reply.notimp |= new_reply.notimp;
                     reply.nxdomain |= new_reply.nxdomain;
