@@ -131,7 +131,7 @@ impl KeyPair {
                 };
                 let p = eckey.public_key();
 
-                let k = ec::EcKey::from_private_components(&group, &n, &p)?;
+                let k = ec::EcKey::from_private_components(&group, &n, p)?;
                 k.check_key().map_err(|_| FromBytesError::InvalidKey)?;
                 PKey::from_ec_key(k)?
             }
@@ -150,7 +150,7 @@ impl KeyPair {
                 };
                 let p = eckey.public_key();
 
-                let k = ec::EcKey::from_private_components(&group, &n, &p)?;
+                let k = ec::EcKey::from_private_components(&group, &n, p)?;
                 k.check_key().map_err(|_| FromBytesError::InvalidKey)?;
                 PKey::from_ec_key(k)?
             }
