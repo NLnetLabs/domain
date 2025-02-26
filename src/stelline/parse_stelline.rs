@@ -402,11 +402,39 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
             continue;
         }
         if token == ADJUST {
-            entry.adjust = Some(parse_adjust(tokens));
+            let new_adjust = parse_adjust(tokens);
+            match &mut entry.adjust {
+                Some(adjust) => {
+                    adjust.copy_id |= new_adjust.copy_id;
+                    adjust.copy_query |= new_adjust.copy_query;
+                }
+                None => entry.adjust = Some(new_adjust),
+            }
             continue;
         }
         if token == REPLY {
-            entry.reply = Some(parse_reply(tokens));
+            let new_reply = parse_reply(tokens);
+            match &mut entry.reply {
+                Some(reply) => {
+                    reply.aa |= new_reply.aa;
+                    reply.ad |= new_reply.ad;
+                    reply.cd |= new_reply.cd;
+                    reply.fl_do |= new_reply.fl_do;
+                    reply.qr |= new_reply.qr;
+                    reply.ra |= new_reply.ra;
+                    reply.rd |= new_reply.rd;
+                    reply.tc |= new_reply.tc;
+                    reply.rcode = new_reply.rcode;
+                    reply.noerror |= new_reply.noerror;
+                    reply.notimp |= new_reply.notimp;
+                    reply.nxdomain |= new_reply.nxdomain;
+                    reply.refused |= new_reply.refused;
+                    reply.servfail |= new_reply.servfail;
+                    reply.yxdomain |= new_reply.yxdomain;
+                    reply.notify |= new_reply.notify;
+                }
+                None => entry.reply = Some(new_reply),
+            }
             continue;
         }
         if token == SECTION {
