@@ -16,7 +16,7 @@ use core::fmt;
 use std::{boxed::Box, vec::Vec};
 
 use openssl::bn::{BigNum, BigNumContext};
-use openssl::ec::{PointConversionForm, EcGroup, EcKey, EcPoint};
+use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
 use openssl::ecdsa::EcdsaSig;
 use openssl::error::ErrorStack;
 use openssl::hash::{DigestBytes, Hasher, MessageDigest};
