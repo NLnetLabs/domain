@@ -666,7 +666,7 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
             matches.any_answer = true;
         } else {
             println!("should handle match {token:?}");
-            //todo!();
+            todo!();
         }
     }
 }
@@ -748,7 +748,7 @@ fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
             reply.notify = true;
         } else {
             println!("should handle reply {token:?}");
-            //todo!();
+            todo!();
         }
     }
 }
