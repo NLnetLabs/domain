@@ -49,7 +49,7 @@ where
             continue;
         }
         for entry in &range.entry {
-            if match_msg(entry, req, false) {
+            if match_msg(entry, req, true) {
                 trace!("Match found");
                 opt_entry = Some(entry);
             }
