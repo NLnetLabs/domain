@@ -268,7 +268,11 @@ where
         }
     }
     if matches.opcode {
-        let expected_opcode = if reply.notify {
+        // Test against default matches as that is what is used on mock queries
+        // and we don't want to require opcode NOTIFY on a reply. This first if
+        // check probably shoudln't even be here but instead the tests using 
+        // REPLY NOTIFY should actually be using OPCODE NOTIFY.
+        let expected_opcode = if reply.notify && matches != Matches::default() {
             Opcode::NOTIFY
         } else if let Some(opcode) = entry.opcode {
             opcode
