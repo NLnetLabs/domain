@@ -365,14 +365,7 @@ pub fn make_ede(
     code: ExtendedErrorCode,
     reason: &str,
 ) -> Option<ExtendedError<Vec<u8>>> {
-    match ExtendedError::new_with_str(code, reason) {
-        Ok(ede) => Some(ede),
-        Err(_) => {
-            // Assume that the only reason this case fail is a string that
-            // is way too long. Just return None.
-            None
-        }
-    }
+    ExtendedError::new_with_str(code, reason).ok()
 }
 
 /// Create a new DNS message based on the original message that fixes any

@@ -61,11 +61,7 @@ fn main() {
     socket.recv_from(&mut buffer).unwrap();
 
     // Parse and print the response
-    let response = match Message::from_octets(buffer) {
-        Ok(response) => Some(response),
-        Err(_) => None,
-    }
-    .unwrap();
+    let response = Message::from_octets(buffer).ok().unwrap();
 
     for question in response.question() {
         println!("{}", question.unwrap());
