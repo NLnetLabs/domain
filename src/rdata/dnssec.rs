@@ -2633,7 +2633,7 @@ impl Iterator for RtypeBitmapIter<'_> {
             return None;
         }
         let res =
-            Rtype::from_int(self.block | (self.octet as u16) << 3 | self.bit);
+            Rtype::from_int(self.block | ((self.octet as u16) << 3) | self.bit);
         self.advance();
         Some(res)
     }
