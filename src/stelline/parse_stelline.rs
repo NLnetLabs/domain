@@ -369,7 +369,36 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
             continue;
         }
         if token == MATCH {
-            entry.matches = Some(parse_match(tokens));
+            let new_matches = parse_match(tokens);
+            match &mut entry.matches {
+                Some(matches) => {
+                    matches.additional |= new_matches.additional;
+                    matches.all |= new_matches.all;
+                    matches.answer |= new_matches.answer;
+                    matches.authority |= new_matches.authority;
+                    matches.ad |= new_matches.ad;
+                    matches.cd |= new_matches.cd;
+                    matches.fl_do |= new_matches.fl_do;
+                    matches.rd |= new_matches.rd;
+                    matches.flags |= new_matches.flags;
+                    matches.opcode |= new_matches.opcode;
+                    matches.qname |= new_matches.qname;
+                    matches.qtype |= new_matches.qtype;
+                    matches.question |= new_matches.question;
+                    matches.rcode |= new_matches.rcode;
+                    matches.subdomain |= new_matches.subdomain;
+                    matches.tcp |= new_matches.tcp;
+                    matches.ttl |= new_matches.ttl;
+                    matches.udp |= new_matches.udp;
+                    matches.server_cookie |= new_matches.server_cookie;
+                    matches.edns_data |= new_matches.edns_data;
+                    matches.mock_client |= new_matches.mock_client;
+                    matches.conn_closed |= new_matches.conn_closed;
+                    matches.extra_packets |= new_matches.extra_packets;
+                    matches.any_answer |= new_matches.any_answer;
+                }
+                None => entry.matches = Some(new_matches),
+            }
             continue;
         }
         if token == ADJUST {

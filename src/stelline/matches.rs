@@ -1,15 +1,18 @@
-use super::parse_stelline::{Entry, Matches, Question, Reply};
+use std::vec::Vec;
+
 use crate::base::iana::{Opcode, OptRcode, Rtype};
 use crate::base::opt::{Opt, OptRecord};
 use crate::base::{Message, ParsedName, QuestionSection, RecordSection};
 use crate::dep::octseq::Octets;
+use crate::net::server::message::Request;
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
-use std::vec::Vec;
 
-pub fn match_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
+use super::parse_stelline::{Entry, Matches, Question, Reply};
+
+pub fn match_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a + Send + Sync>(
     entry: &Entry,
-    msg: &'a Message<Octs>,
+    msg: &'a Request<Octs>,
     verbose: bool,
 ) -> bool
 where
@@ -18,16 +21,20 @@ where
     match_multi_msg(entry, 0, msg, verbose, &mut None)
 }
 
-pub fn match_multi_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
+pub fn match_multi_msg<
+    'a,
+    Octs: AsRef<[u8]> + Clone + Octets + 'a + Send + Sync,
+>(
     entry: &Entry,
     idx: usize,
-    msg: &'a Message<Octs>,
+    req: &'a Request<Octs>,
     verbose: bool,
     out_answer: &mut Option<Vec<ZonefileEntry>>,
 ) -> bool
 where
     <Octs as Octets>::Range<'a>: Clone,
 {
+    let msg = req.message();
     let sections = entry.sections.as_ref().unwrap();
 
     let mut matches: Matches = match &entry.matches {
@@ -308,16 +315,20 @@ where
             _ => { /* Okay */ }
         }
     }
-    if matches.tcp {
-        // Note: Creation of a TCP client is handled by the client factory passed to do_client().
-        // TODO: Verify that the client is actually a TCP client.
-    }
     if matches.ttl {
         // Nothing to do. TTLs are checked in the relevant sections.
     }
-    if matches.udp {
-        // Note: Creation of a UDP client is handled by the client factory passed to do_client().
-        // TODO: Verify that the client is actually a UDP client.
+    if matches.tcp && req.transport_ctx().is_udp() {
+        if verbose {
+            println!("Wrong transport type, expected TCP, got UDP");
+        }
+        return false;
+    }
+    if matches.udp && req.transport_ctx().is_non_udp() {
+        if verbose {
+            println!("Wrong transport type, expected UDP, got non-UDP");
+        }
+        return false;
     }
 
     // All checks passed!

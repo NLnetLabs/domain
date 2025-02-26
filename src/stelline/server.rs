@@ -8,6 +8,7 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, MessageBuilder};
 use crate::dep::octseq::Octets;
+use crate::net::server::message::Request;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 
 use super::client::CurrStepValue;
@@ -16,19 +17,20 @@ use super::parse_stelline;
 use super::parse_stelline::{Adjust, Reply, Stelline};
 
 pub fn do_server<'a, Oct, Target>(
-    msg: &'a Message<Oct>,
+    req: &'a Request<Oct>,
     stelline: &Stelline,
     step_value: &CurrStepValue,
 ) -> Option<AdditionalBuilder<Target>>
 where
     <Oct as Octets>::Range<'a>: Clone,
-    Oct: Clone + Octets + 'a,
+    Oct: Clone + Octets + 'a + Send + Sync,
     Target: Composer + Default + OctetsBuilder + Truncate,
     <Target as OctetsBuilder>::AppendError: Debug,
 {
     let ranges = &stelline.scenario.ranges;
     let step = step_value.get();
     let mut opt_entry = None;
+    let msg = req.message();
 
     // Take the last entry. That works better if the RPL is written with
     // a recursive resolver in mind.
@@ -47,7 +49,7 @@ where
             continue;
         }
         for entry in &range.entry {
-            if match_msg(entry, msg, false) {
+            if match_msg(entry, req, false) {
                 trace!("Match found");
                 opt_entry = Some(entry);
             }
