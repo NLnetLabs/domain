@@ -715,6 +715,7 @@ pub struct Reply {
     pub servfail: bool,
     pub yxdomain: bool,
     pub notify: bool,
+    pub query: bool,
 }
 
 fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
@@ -746,6 +747,10 @@ fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
             reply.rcode = Some(rcode);
         } else if token == "NOTIFY" {
             reply.notify = true;
+        } else if token == "QUERY" {
+            // We don't currently handle this anywhere yet as it's not clear
+            // what to do when this is specified.
+            reply.query = true;
         } else {
             println!("should handle reply {token:?}");
             todo!();
