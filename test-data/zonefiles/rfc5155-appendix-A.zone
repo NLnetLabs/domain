@@ -1,0 +1,42 @@
+; Extracted using ldns-readzone -s from the signed zone defined at
+;   https://datatracker.ietf.org/doc/html/rfc5155#appendix-A
+; Specifically from the errata concerning that example zone, available at:
+;   https://www.rfc-editor.org/errata/eid4993
+; And with the NSEC3 salt corrected from 'aabbccdd:1' to 'aabbccdd'.
+; DNSSEC RRs have been removed, e.g. DNSKEY, NSEC3, NSE3PARAM and RRSIG.
+; The SOA MINIMUM has been changed from 3600 to 1800 for RFC 9077 testing.
+; H(example)       = 0p9mhaveqvm6t7vbl5lop2u3t2rp3tom
+; H(a.example)     = 35mthgpgcu1qg68fab165klnsnk3dpvl
+; H(ai.example)    = gjeqe526plbf1g8mklp59enfd789njgi
+; H(ns1.example)   = 2t7b4g4vsa5smi47k61mv5bv1a22bojr
+; H(ns2.example)   = q04jkcevqvmu85r014c7dkba38o0ji5r
+; H(w.example)     = k8udemvp1j2f7eg6jebps17vp3n8i58h
+; H(*.w.example)   = r53bq7cc2uvmubfu5ocmm6pers9tk9en
+; H(x.w.example)   = b4um86eghhds6nea196smvmlo4ors995
+; H(y.w.example)   = ji6neoaepv8b5o6k4ev33abha8ht9fgc
+; H(x.y.w.example) = 2vptu5timamqttgl4luu9kg21e0aor3s
+; H(xx.example)    = t644ebqk9bibcna874givr6joj62mlhv
+example.        3600    IN      SOA     ns1.example. bugs.x.w.example. 1 3600 300 3600000 1800
+example.        3600    IN      NS      ns1.example.
+example.        3600    IN      NS      ns2.example.
+example.        3600    IN      MX      1 xx.example.
+a.example.      3600    IN      NS      ns1.a.example.
+a.example.      3600    IN      NS      ns2.a.example.
+a.example.      3600    IN      DS      58470 5 1 3079f1593ebad6dc121e202a8b766a6a4837206c
+ns1.a.example.  3600    IN      A       192.0.2.5
+ns2.a.example.  3600    IN      A       192.0.2.6
+ai.example.     3600    IN      A       192.0.2.9
+ai.example.     3600    IN      HINFO   "KLH-10" "ITS"
+ai.example.     3600    IN      AAAA    2001:db8::f00:baa9
+c.example.      3600    IN      NS      ns1.c.example.
+c.example.      3600    IN      NS      ns2.c.example.
+ns1.c.example.  3600    IN      A       192.0.2.7
+ns2.c.example.  3600    IN      A       192.0.2.8
+ns1.example.    3600    IN      A       192.0.2.1
+ns2.example.    3600    IN      A       192.0.2.2
+*.w.example.    3600    IN      MX      1 ai.example.
+x.w.example.    3600    IN      MX      1 xx.example.
+x.y.w.example.  3600    IN      MX      1 xx.example.
+xx.example.     3600    IN      A       192.0.2.10
+xx.example.     3600    IN      HINFO   "KLH-10" "TOPS-20"
+xx.example.     3600    IN      AAAA    2001:db8::f00:baaa
