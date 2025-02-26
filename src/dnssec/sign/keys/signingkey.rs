@@ -1,9 +1,9 @@
 use crate::base::iana::SecAlg;
 use crate::base::Name;
-use crate::crypto::misc::{PublicKeyBytes, SignRaw};
+use crate::crypto::misc::SignRaw;
 use crate::rdata::Dnskey;
-use std::boxed::Box;
 use std::fmt::Debug;
+use std::vec::Vec;
 
 //----------- SigningKey -----------------------------------------------------
 
@@ -121,14 +121,7 @@ where
         self.inner.algorithm()
     }
 
-    pub fn dnskey(&self) -> Dnskey<Box<[u8]>> {
-        let raw = self.raw_public_key();
-        Dnskey::new(self.flags, 3, raw.algorithm(), raw.to_dnskey_format())
-            .expect("long public key")
-    }
-
-    /// The associated raw public key.
-    pub fn raw_public_key(&self) -> PublicKeyBytes {
-        self.inner.raw_public_key()
+    pub fn dnskey(&self) -> Dnskey<Vec<u8>> {
+        self.inner.dnskey()
     }
 }

@@ -11,7 +11,7 @@ use std::vec::Vec;
 
 use ::ring::rand::SystemRandom;
 
-use super::misc::{PublicKeyBytes, SignRaw, Signature};
+use super::misc::{SignRaw, Signature};
 use crate::base::iana::SecAlg;
 use crate::dnssec::sign::error::{FromBytesError, GenerateError, SignError};
 use crate::dnssec::sign::SecretKeyBytes;
@@ -47,38 +47,32 @@ pub enum KeyPair {
 
 impl KeyPair {
     /// Import a key pair from bytes.
-    pub fn from_bytes(
+    pub fn from_bytes<Octs>(
         secret: &SecretKeyBytes,
-        public: &PublicKeyBytes,
-    ) -> Result<Self, FromBytesError> {
+        public: &Dnskey<Octs>,
+    ) -> Result<Self, FromBytesError>
+    where
+        Octs: AsRef<[u8]>,
+    {
         // Prefer Ring if it is available.
         #[cfg(feature = "ring")]
-        match public {
-            PublicKeyBytes::RsaSha1(k)
-            | PublicKeyBytes::RsaSha1Nsec3Sha1(k)
-            | PublicKeyBytes::RsaSha256(k)
-            | PublicKeyBytes::RsaSha512(k)
-                if k.n.len() >= 2048 / 8 =>
-            {
-                let rng = Arc::new(SystemRandom::new());
-                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
-                return Ok(Self::Ring(key));
+        let fallback_to_openssl = match public.algorithm() {
+            SecAlg::RSASHA1
+            | SecAlg::RSASHA1_NSEC3_SHA1
+            | SecAlg::RSASHA256
+            | SecAlg::RSASHA512 => {
+                ring::PublicKey::from_dnskey(public)
+                    .map_err(|_| FromBytesError::InvalidKey)?
+                    .key_size()
+                    < 2048
             }
+            _ => false,
+        };
 
-            PublicKeyBytes::EcdsaP256Sha256(_)
-            | PublicKeyBytes::EcdsaP384Sha384(_) => {
-                let rng = Arc::new(SystemRandom::new());
-                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
-                return Ok(Self::Ring(key));
-            }
-
-            PublicKeyBytes::Ed25519(_) => {
-                let rng = Arc::new(SystemRandom::new());
-                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
-                return Ok(Self::Ring(key));
-            }
-
-            _ => {}
+        if !fallback_to_openssl {
+            let rng = Arc::new(SystemRandom::new());
+            let key = ring::KeyPair::from_bytes(secret, public, rng)?;
+            return Ok(Self::Ring(key));
         }
 
         // Fall back to OpenSSL.
@@ -105,12 +99,12 @@ impl SignRaw for KeyPair {
         }
     }
 
-    fn raw_public_key(&self) -> PublicKeyBytes {
+    fn dnskey(&self) -> Dnskey<Vec<u8>> {
         match self {
             #[cfg(feature = "ring")]
-            Self::Ring(key) => key.raw_public_key(),
+            Self::Ring(key) => key.dnskey(),
             #[cfg(feature = "openssl")]
-            Self::OpenSSL(key) => key.raw_public_key(),
+            Self::OpenSSL(key) => key.dnskey(),
         }
     }
 
@@ -177,7 +171,8 @@ impl GenerateParams {
 /// Generate a new secret key for the given algorithm.
 pub fn generate(
     params: GenerateParams,
-) -> Result<(SecretKeyBytes, PublicKeyBytes), GenerateError> {
+    flags: u16,
+) -> Result<(SecretKeyBytes, Dnskey<Vec<u8>>), GenerateError> {
     // Use Ring if it is available.
     #[cfg(feature = "ring")]
     if matches!(
@@ -187,14 +182,14 @@ pub fn generate(
             | GenerateParams::Ed25519
     ) {
         let rng = ::ring::rand::SystemRandom::new();
-        return Ok(ring::generate(params, &rng)?);
+        return Ok(ring::generate(params, flags, &rng)?);
     }
 
     // Fall back to OpenSSL.
     #[cfg(feature = "openssl")]
     {
-        let key = openssl::generate(params)?;
-        return Ok((key.to_bytes(), key.raw_public_key()));
+        let key = openssl::generate(params, flags)?;
+        return Ok((key.to_bytes(), key.dnskey()));
     }
 
     // Otherwise fail.

@@ -31,7 +31,6 @@
 //! # use domain::crypto::common::KeyPair;
 //! # use domain::dnssec::sign::keys::{SecretKeyBytes, SigningKey};
 //! # use domain::dnssec::common::parse_from_bind;
-//! # use domain::crypto::misc::PublicKeyBytes;
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
 //! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
@@ -40,9 +39,8 @@
 //! let pub_key = parse_from_bind::<Vec<u8>>(&pub_text).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
-//! let key_pair = KeyPair::from_bytes(&sec_bytes,
-//!     &PublicKeyBytes::from_dnskey_format(pub_key.data().algorithm(),
-//!     pub_key.data().public_key()).unwrap()).unwrap();
+//! let key_pair = KeyPair::from_bytes(&sec_bytes, pub_key.data())
+//!     .unwrap();
 //!
 //! // Associate the key with important metadata.
 //! let key = SigningKey::new(pub_key.owner().clone(), pub_key.data().flags(), key_pair);
@@ -65,7 +63,7 @@
 //! # use domain::dnssec::sign::keys::SigningKey;
 //! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
+//! let (sec_bytes, pub_bytes) = common::generate(params, 256).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
 //! let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
@@ -91,7 +89,8 @@
 //! # use domain::crypto::common::KeyPair;
 //! # use domain::dnssec::sign::keys::SigningKey;
 //! # use domain::crypto::misc::SignRaw;
-//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519,
+//!        256).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! # let key = SigningKey::new(Name::<Vec<u8>>::root(), 257, key_pair);
 //! // Sign arbitrary byte sequences with the key.

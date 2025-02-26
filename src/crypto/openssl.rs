@@ -16,7 +16,7 @@ use core::fmt;
 use std::{boxed::Box, vec::Vec};
 
 use openssl::bn::{BigNum, BigNumContext};
-use openssl::ec::{EcGroup, EcKey, EcPoint};
+use openssl::ec::{PointConversionForm, EcGroup, EcKey, EcPoint};
 use openssl::ecdsa::EcdsaSig;
 use openssl::error::ErrorStack;
 use openssl::hash::{DigestBytes, Hasher, MessageDigest};
@@ -28,7 +28,7 @@ use secrecy::ExposeSecret;
 
 use super::common::rsa_exponent_modulus;
 use super::common::{AlgorithmError, GenerateParams};
-use super::misc::{PublicKeyBytes, RsaPublicKeyBytes, SignRaw, Signature};
+use super::misc::{SignRaw, Signature};
 use crate::base::iana::SecAlg;
 use crate::crypto::common::DigestType;
 use crate::dnssec::sign::error::SignError;
@@ -43,6 +43,8 @@ pub struct KeyPair {
     /// The algorithm used by the key.
     algorithm: SecAlg,
 
+    flags: u16,
+
     /// The private key.
     pkey: PKey<Private>,
 }
@@ -51,10 +53,13 @@ pub struct KeyPair {
 
 impl KeyPair {
     /// Import a key pair from bytes into OpenSSL.
-    pub fn from_bytes(
+    pub fn from_bytes<Octs>(
         secret: &SecretKeyBytes,
-        public: &PublicKeyBytes,
-    ) -> Result<Self, FromBytesError> {
+        public: &Dnskey<Octs>,
+    ) -> Result<Self, FromBytesError>
+    where
+        Octs: AsRef<[u8]>,
+    {
         fn num(slice: &[u8]) -> Result<BigNum, FromBytesError> {
             let mut v = BigNum::new()?;
             v.copy_from_slice(slice)?;
@@ -67,15 +72,29 @@ impl KeyPair {
             Ok(v)
         }
 
-        let pkey = match (secret, public) {
-            (SecretKeyBytes::RsaSha256(s), PublicKeyBytes::RsaSha256(p)) => {
+        let pkey = match secret {
+            SecretKeyBytes::RsaSha256(s) => {
+                let n = num(&s.n)?;
+                let e = num(&s.e)?;
+
                 // Ensure that the public and private key match.
-                if p != &RsaPublicKeyBytes::from(s) {
+                let rsa_public = Rsa::from_public_components(
+                    n.to_owned().expect("should not fail"),
+                    e.to_owned().expect("should not fail"),
+                )
+                .expect("should not fail");
+                let rsa_public =
+                    PKey::from_rsa(rsa_public).expect("should not fail");
+                let p = PublicKey::Default(
+                    MessageDigest::sha256(),
+                    rsa_public,
+                    public.flags(),
+                )
+                .dnskey();
+                if p != *public {
                     return Err(FromBytesError::InvalidKey);
                 }
 
-                let n = num(&s.n)?;
-                let e = num(&s.e)?;
                 let d = secure_num(s.d.expose_secret())?;
                 let p = secure_num(s.p.expose_secret())?;
                 let q = secure_num(s.q.expose_secret())?;
@@ -98,70 +117,80 @@ impl KeyPair {
                 PKey::from_rsa(key)?
             }
 
-            (
-                SecretKeyBytes::EcdsaP256Sha256(s),
-                PublicKeyBytes::EcdsaP256Sha256(p),
-            ) => {
-                use openssl::{bn, ec, nid};
+            SecretKeyBytes::EcdsaP256Sha256(s) => {
+                use openssl::{ec, nid};
 
-                let mut ctx = bn::BigNumContext::new_secure()?;
                 let group = nid::Nid::X9_62_PRIME256V1;
                 let group = ec::EcGroup::from_curve_name(group)?;
                 let n = secure_num(s.expose_secret().as_slice())?;
-                let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)?;
+
+                let public_key = PublicKey::from_dnskey(public)
+                    .map_err(|_| FromBytesError::InvalidKey)?;
+                let PublicKey::EcDsa(_, eckey, _) = public_key else {
+                    return Err(FromBytesError::InvalidKey);
+                };
+                let p = eckey.public_key();
+
                 let k = ec::EcKey::from_private_components(&group, &n, &p)?;
                 k.check_key().map_err(|_| FromBytesError::InvalidKey)?;
                 PKey::from_ec_key(k)?
             }
 
-            (
-                SecretKeyBytes::EcdsaP384Sha384(s),
-                PublicKeyBytes::EcdsaP384Sha384(p),
-            ) => {
-                use openssl::{bn, ec, nid};
+            SecretKeyBytes::EcdsaP384Sha384(s) => {
+                use openssl::{ec, nid};
 
-                let mut ctx = bn::BigNumContext::new_secure()?;
                 let group = nid::Nid::SECP384R1;
                 let group = ec::EcGroup::from_curve_name(group)?;
                 let n = secure_num(s.expose_secret().as_slice())?;
-                let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)?;
+
+                let public_key = PublicKey::from_dnskey(public)
+                    .map_err(|_| FromBytesError::InvalidKey)?;
+                let PublicKey::EcDsa(_, eckey, _) = public_key else {
+                    return Err(FromBytesError::InvalidKey);
+                };
+                let p = eckey.public_key();
+
                 let k = ec::EcKey::from_private_components(&group, &n, &p)?;
                 k.check_key().map_err(|_| FromBytesError::InvalidKey)?;
                 PKey::from_ec_key(k)?
             }
 
-            (SecretKeyBytes::Ed25519(s), PublicKeyBytes::Ed25519(p)) => {
+            SecretKeyBytes::Ed25519(s) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED25519;
                 let s = s.expose_secret();
                 let k = PKey::private_key_from_raw_bytes(s, id)?;
-                if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
+                if memcmp::eq(
+                    &k.raw_public_key().expect("should not fail"),
+                    public.public_key().as_ref(),
+                ) {
                     k
                 } else {
                     return Err(FromBytesError::InvalidKey);
                 }
             }
 
-            (SecretKeyBytes::Ed448(s), PublicKeyBytes::Ed448(p)) => {
+            SecretKeyBytes::Ed448(s) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED448;
                 let s = s.expose_secret();
                 let k = PKey::private_key_from_raw_bytes(s, id)?;
-                if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
+                if memcmp::eq(
+                    &k.raw_public_key().expect("should not fail"),
+                    public.public_key().as_ref(),
+                ) {
                     k
                 } else {
                     return Err(FromBytesError::InvalidKey);
                 }
             }
-
-            // The public and private key types did not match.
-            _ => return Err(FromBytesError::InvalidKey),
         };
 
         Ok(Self {
             algorithm: secret.algorithm(),
+            flags: public.flags(),
             pkey,
         })
     }
@@ -270,42 +299,60 @@ impl SignRaw for KeyPair {
         self.algorithm
     }
 
-    fn raw_public_key(&self) -> PublicKeyBytes {
+    fn dnskey(&self) -> Dnskey<Vec<u8>> {
         match self.algorithm {
             SecAlg::RSASHA256 => {
-                let key = self.pkey.rsa().unwrap();
-                PublicKeyBytes::RsaSha256(RsaPublicKeyBytes {
-                    n: key.n().to_vec().into(),
-                    e: key.e().to_vec().into(),
-                })
+                let key = self.pkey.rsa().expect("should not fail");
+                let n = key.n().to_owned().expect("should not fail");
+                let e = key.e().to_owned().expect("should not fail");
+                let key = Rsa::from_public_components(n, e)
+                    .expect("should not fail");
+                let key = PKey::from_rsa(key).expect("should not fail");
+                let public = PublicKey::Default(
+                    MessageDigest::sha256(),
+                    key,
+                    self.flags,
+                );
+                public.dnskey()
             }
-            SecAlg::ECDSAP256SHA256 => {
-                let key = self.pkey.ec_key().unwrap();
-                let form = openssl::ec::PointConversionForm::UNCOMPRESSED;
-                let mut ctx = openssl::bn::BigNumContext::new().unwrap();
-                let key = key
-                    .public_key()
-                    .to_bytes(key.group(), form, &mut ctx)
-                    .unwrap();
-                PublicKeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
+            SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+                let (digest_algorithm, group_id) = match self.algorithm {
+                    SecAlg::ECDSAP256SHA256 => {
+                        (MessageDigest::sha256(), Nid::X9_62_PRIME256V1)
+                    }
+                    SecAlg::ECDSAP384SHA384 => {
+                        (MessageDigest::sha384(), Nid::SECP384R1)
+                    }
+                    _ => unreachable!(),
+                };
+
+                let key = self.pkey.ec_key().expect("should not fail");
+                let key = key.public_key();
+                let group = EcGroup::from_curve_name(group_id)
+                    .expect("should not fail");
+                let public_key = EcKey::from_public_key(&group, key)
+                    .expect("should not fail");
+                public_key.check_key().expect("should not fail");
+                let public = PublicKey::EcDsa(
+                    digest_algorithm,
+                    public_key,
+                    self.flags,
+                );
+                public.dnskey()
             }
-            SecAlg::ECDSAP384SHA384 => {
-                let key = self.pkey.ec_key().unwrap();
-                let form = openssl::ec::PointConversionForm::UNCOMPRESSED;
-                let mut ctx = openssl::bn::BigNumContext::new().unwrap();
-                let key = key
-                    .public_key()
-                    .to_bytes(key.group(), form, &mut ctx)
-                    .unwrap();
-                PublicKeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
-            }
-            SecAlg::ED25519 => {
-                let key = self.pkey.raw_public_key().unwrap();
-                PublicKeyBytes::Ed25519(key.try_into().unwrap())
-            }
-            SecAlg::ED448 => {
-                let key = self.pkey.raw_public_key().unwrap();
-                PublicKeyBytes::Ed448(key.try_into().unwrap())
+            SecAlg::ED25519 | SecAlg::ED448 => {
+                let id = match self.algorithm {
+                    SecAlg::ED25519 => Id::ED25519,
+                    SecAlg::ED448 => Id::ED448,
+                    _ => unreachable!(),
+                };
+
+                let key =
+                    self.pkey.raw_public_key().expect("should not fail");
+                let key = PKey::public_key_from_raw_bytes(&key, id)
+                    .expect("shoul not fail");
+                let public = PublicKey::NoDigest(key, self.flags);
+                public.dnskey()
             }
             _ => unreachable!(),
         }
@@ -346,7 +393,10 @@ impl SignRaw for KeyPair {
 //----------- generate() -----------------------------------------------------
 
 /// Generate a new secret key for the given algorithm.
-pub fn generate(params: GenerateParams) -> Result<KeyPair, GenerateError> {
+pub fn generate(
+    params: GenerateParams,
+    flags: u16,
+) -> Result<KeyPair, GenerateError> {
     let algorithm = params.algorithm();
     let pkey = match params {
         GenerateParams::RsaSha256 { bits } => {
@@ -366,7 +416,11 @@ pub fn generate(params: GenerateParams) -> Result<KeyPair, GenerateError> {
         GenerateParams::Ed448 => PKey::generate_ed448()?,
     };
 
-    Ok(KeyPair { algorithm, pkey })
+    Ok(KeyPair {
+        algorithm,
+        flags,
+        pkey,
+    })
 }
 
 //============ Error Types ===================================================
@@ -489,9 +543,9 @@ impl AsRef<[u8]> for Digest {
 //----------- PublicKey ------------------------------------------------------
 
 pub enum PublicKey {
-    Default(MessageDigest, PKey<Public>),
-    NoDigest(PKey<Public>),
-    EcDsa(MessageDigest, EcKey<Public>),
+    Default(MessageDigest, PKey<Public>, u16),
+    NoDigest(PKey<Public>, u16),
+    EcDsa(MessageDigest, EcKey<Public>, u16),
 }
 
 impl PublicKey {
@@ -524,7 +578,11 @@ impl PublicKey {
                     .map_err(|_| AlgorithmError::InvalidData)?;
                 let public_key = PKey::from_rsa(public_key)
                     .map_err(|_| AlgorithmError::InvalidData)?;
-                Ok(PublicKey::Default(digest_algorithm, public_key))
+                Ok(PublicKey::Default(
+                    digest_algorithm,
+                    public_key,
+                    dnskey.flags(),
+                ))
             }
             SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
                 let (digest_algorithm, group_id) = match sec_alg {
@@ -554,7 +612,11 @@ impl PublicKey {
                     .check_key()
                     .map_err(|_| AlgorithmError::InvalidData)?;
 
-                Ok(PublicKey::EcDsa(digest_algorithm, public_key))
+                Ok(PublicKey::EcDsa(
+                    digest_algorithm,
+                    public_key,
+                    dnskey.flags(),
+                ))
             }
             SecAlg::ED25519 => {
                 let public_key = PKey::public_key_from_raw_bytes(
@@ -562,7 +624,7 @@ impl PublicKey {
                     Id::ED25519,
                 )
                 .map_err(|_| AlgorithmError::InvalidData)?;
-                Ok(PublicKey::NoDigest(public_key))
+                Ok(PublicKey::NoDigest(public_key, dnskey.flags()))
             }
             _ => Err(AlgorithmError::Unsupported),
         }
@@ -573,7 +635,7 @@ impl PublicKey {
         signature: &[u8],
     ) -> Result<(), AlgorithmError> {
         let valid = match self {
-            PublicKey::Default(digest_algorithm, public_key) => {
+            PublicKey::Default(digest_algorithm, public_key, _) => {
                 let mut verifier =
                     Verifier::new(*digest_algorithm, public_key.as_ref())
                         .map_err(|_| AlgorithmError::InvalidData)?;
@@ -581,7 +643,7 @@ impl PublicKey {
                     .verify_oneshot(signature, signed_data)
                     .map_err(|_| AlgorithmError::InvalidData)?
             }
-            PublicKey::NoDigest(public_key) => {
+            PublicKey::NoDigest(public_key, _) => {
                 let mut verifier =
                     Verifier::new_without_digest(public_key.as_ref())
                         .map_err(|_| AlgorithmError::InvalidData)?;
@@ -589,7 +651,7 @@ impl PublicKey {
                     .verify_oneshot(signature, signed_data)
                     .map_err(|_| AlgorithmError::InvalidData)?
             }
-            PublicKey::EcDsa(digest_algorithm, public_key) => {
+            PublicKey::EcDsa(digest_algorithm, public_key, _) => {
                 let half_len = signature.len() / 2;
                 let mut hasher = Hasher::new(*digest_algorithm)
                     .map_err(|_| AlgorithmError::InvalidData)?;
@@ -616,6 +678,77 @@ impl PublicKey {
             Err(AlgorithmError::BadSig)
         }
     }
+    pub fn dnskey(&self) -> Dnskey<Vec<u8>> {
+        match self {
+            PublicKey::Default(message_digest, public_key, flags) => {
+                let alg = if *message_digest == MessageDigest::sha256() {
+                    SecAlg::RSASHA256
+                } else {
+                    unreachable!();
+                };
+                let rsa = public_key.rsa().expect("should not fail");
+                let e = rsa.e().to_vec();
+                let n = rsa.n().to_vec();
+
+                let mut key = Vec::new();
+
+                // Encode the exponent length.
+                if let Ok(exp_len) = u8::try_from(e.len()) {
+                    key.reserve_exact(1 + e.len() + n.len());
+                    key.push(exp_len);
+                } else if let Ok(exp_len) = u16::try_from(e.len()) {
+                    key.reserve_exact(3 + e.len() + n.len());
+                    key.push(0u8);
+                    key.extend(&exp_len.to_be_bytes());
+                } else {
+                    unreachable!(
+                        "RSA exponents are (much) shorter than 64KiB"
+                    )
+                }
+
+                key.extend(&*e);
+                key.extend(&*n);
+
+                Dnskey::new(*flags, 3, alg, key).expect("should not fail")
+            }
+            PublicKey::NoDigest(public_key, flags) => {
+                let alg = match public_key.id() {
+                    Id::ED25519 => SecAlg::ED25519,
+                    Id::ED448 => SecAlg::ED448,
+                    _ => todo!(),
+                };
+
+                let key =
+                    public_key.raw_public_key().expect("should not fail");
+                Dnskey::new(*flags, 3, alg, key).expect("should not fail")
+            }
+            PublicKey::EcDsa(message_digest, public_key, flags) => {
+                let alg = if *message_digest == MessageDigest::sha256() {
+                    SecAlg::ECDSAP256SHA256
+                } else if *message_digest == MessageDigest::sha384() {
+                    SecAlg::ECDSAP384SHA384
+                } else {
+                    unreachable!();
+                };
+
+                let key = public_key.public_key();
+                let group = public_key.group();
+                let mut ctx = BigNumContext::new().expect("should not fail");
+                let key = key
+                    .to_bytes(
+                        group,
+                        PointConversionForm::UNCOMPRESSED,
+                        &mut ctx,
+                    )
+                    .expect("should not fail");
+
+                // Openssl has an extra byte with the value 4 in front.
+                let key = key[1..].to_vec();
+
+                Dnskey::new(*flags, 3, alg, key).expect("should not fail")
+            }
+        }
+    }
 }
 
 //============ Tests =========================================================
@@ -625,7 +758,6 @@ mod tests {
     use crate::base::iana::SecAlg;
     use crate::crypto::common::GenerateParams;
     use crate::crypto::misc::SignRaw;
-    use crate::crypto::openssl::PublicKeyBytes;
     use crate::dnssec::common::parse_from_bind;
     use crate::dnssec::sign::SecretKeyBytes;
 
@@ -654,7 +786,7 @@ mod tests {
                 _ => unreachable!(),
             };
 
-            let _ = super::generate(params).unwrap();
+            let _ = super::generate(params, 0).unwrap();
         }
     }
 
@@ -670,9 +802,9 @@ mod tests {
                 _ => unreachable!(),
             };
 
-            let key = super::generate(params).unwrap();
+            let key = super::generate(params, 256).unwrap();
             let gen_key = key.to_bytes();
-            let pub_key = key.raw_public_key();
+            let pub_key = key.dnskey();
             let equiv = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
             assert!(key.pkey.public_eq(&equiv.pkey));
         }
@@ -687,17 +819,12 @@ mod tests {
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
-            let pub_key = PublicKeyBytes::from_dnskey_format(
-                pub_key.data().algorithm(),
-                pub_key.data().public_key(),
-            )
-            .unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
             let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
             let same = key.to_bytes().display_as_bind().to_string();
 
             let data = data.lines().collect::<Vec<_>>();
@@ -719,15 +846,10 @@ mod tests {
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
-            let pub_key = PublicKeyBytes::from_dnskey_format(
-                pub_key.data().algorithm(),
-                pub_key.data().public_key(),
-            )
-            .unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
-            assert_eq!(key.raw_public_key(), pub_key);
+            assert_eq!(key.dnskey(), *pub_key.data());
         }
     }
 
@@ -744,13 +866,8 @@ mod tests {
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
-            let pub_key = PublicKeyBytes::from_dnskey_format(
-                pub_key.data().algorithm(),
-                pub_key.data().public_key(),
-            )
-            .unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!").unwrap();
         }

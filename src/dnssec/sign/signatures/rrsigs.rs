@@ -355,7 +355,7 @@ mod tests {
     use crate::base::iana::SecAlg;
     use crate::base::Serial;
     use crate::crypto::common::KeyPair;
-    use crate::crypto::misc::{PublicKeyBytes, Signature};
+    use crate::crypto::misc::Signature;
     use crate::dnssec::sign::error::SignError;
     use crate::dnssec::sign::records::SortedRecords;
     use crate::dnssec::sign::test_util;
@@ -1173,8 +1173,9 @@ mod tests {
             SecAlg::ED25519
         }
 
-        fn raw_public_key(&self) -> PublicKeyBytes {
-            PublicKeyBytes::Ed25519(self.0.into())
+        fn dnskey(&self) -> Dnskey<Vec<u8>> {
+            let flags = 0;
+            Dnskey::new(flags, 3, SecAlg::ED25519, self.0.to_vec()).unwrap()
         }
 
         fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {

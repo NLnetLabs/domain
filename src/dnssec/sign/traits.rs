@@ -114,7 +114,8 @@ where
 /// # use domain::crypto::common::GenerateParams;
 /// # use domain::crypto::common::KeyPair;
 /// # use domain::dnssec::sign::keys::SigningKey;
-/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519,
+/// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
 /// # let key = SigningKey::new(root.clone(), 257, key_pair);
@@ -259,7 +260,8 @@ where
 /// # use domain::crypto::common::GenerateParams;
 /// # use domain::crypto::common::KeyPair;
 /// # use domain::dnssec::sign::keys::SigningKey;
-/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519,
+/// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
 /// # let key = SigningKey::new(root.clone(), 257, key_pair);
@@ -407,7 +409,8 @@ where
 /// # use domain::rdata::{A, ZoneRecordData};
 /// # use domain::zonetree::StoredName;
 /// # use std::str::FromStr;
-/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519).unwrap();
+/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519,
+/// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
 /// # let key = SigningKey::new(root, 257, key_pair);

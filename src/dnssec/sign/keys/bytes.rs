@@ -7,7 +7,6 @@ use std::boxed::Box;
 use std::vec::Vec;
 
 use crate::base::iana::SecAlg;
-use crate::crypto::misc::RsaPublicKeyBytes;
 use crate::utils::base64;
 
 //----------- SecretKeyBytes -------------------------------------------------
@@ -83,6 +82,7 @@ use crate::utils::base64;
 ///   interpreted as a big-endian integer.
 ///
 /// - For EdDSA, the private scalar of the key, as a fixed-width byte string.
+#[derive(Debug)]
 pub enum SecretKeyBytes {
     /// An RSA/SHA-256 keypair.
     RsaSha256(RsaSecretKeyBytes),
@@ -261,6 +261,7 @@ impl SecretKeyBytes {
 /// All fields here are arbitrary-precision integers in big-endian format.
 /// The public values, `n` and `e`, must not have leading zeros; the remaining
 /// values may be padded with leading zeros.
+#[derive(Debug)]
 pub struct RsaSecretKeyBytes {
     /// The public modulus.
     pub n: Box<[u8]>,
@@ -390,17 +391,6 @@ impl RsaSecretKeyBytes {
             d_q: d_q.unwrap().into(),
             q_i: q_i.unwrap().into(),
         })
-    }
-}
-
-//--- Into<RsaPublicKeyBytes>
-
-impl<'a> From<&'a RsaSecretKeyBytes> for RsaPublicKeyBytes {
-    fn from(value: &'a RsaSecretKeyBytes) -> Self {
-        RsaPublicKeyBytes {
-            n: value.n.clone(),
-            e: value.e.clone(),
-        }
     }
 }
 
