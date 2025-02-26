@@ -365,6 +365,8 @@ pub fn make_ede(
     code: ExtendedErrorCode,
     reason: &str,
 ) -> Option<ExtendedError<Vec<u8>>> {
+    // Assume that the only reason this case fail is a string that
+    // is way too long. Just return None.
     ExtendedError::new_with_str(code, reason).ok()
 }
 
