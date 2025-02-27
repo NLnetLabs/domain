@@ -331,6 +331,44 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for RecordData<'a, N> {
+    /// Scan record data.
+    ///
+    /// Parses the `data` syntax from [the specification].
+    ///
+    /// [the specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let rtype = RType::scan(scanner, alloc, buffer)?;
+
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+
+        if scanner.remaining().starts_with(b"\\#") {
+            // Parse from the unknown record data format.
+            return <&'a UnknownRecordData>::scan(scanner, alloc, buffer)
+                .map(|data| Self::Unknown(rtype, data));
+        }
+
+        // Try all concrete parsers.
+        match rtype {
+            RType::A => {
+                A::scan(scanner, alloc, buffer)
+                    .map(|data| Self::A(alloc.alloc(data)))
+            }
+
+            _ => Err(ScanError::Custom("The concrete format for this record type is currently unsupported")),
+        }
+    }
+}
+
 //----------- UnknownRecordData ----------------------------------------------
 
 /// Data for an unknown DNS record type.
