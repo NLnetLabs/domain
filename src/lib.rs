@@ -184,7 +184,12 @@ extern crate core;
 pub mod base;
 pub mod crypto;
 pub mod dep;
+
+// A working crypto library requires either ring or openssl. The dnssec module
+// needs crypto.
+#[cfg(any(feature = "ring", feature = "openssl"))]
 pub mod dnssec;
+
 pub mod net;
 pub mod rdata;
 pub mod resolv;
