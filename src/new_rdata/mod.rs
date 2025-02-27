@@ -66,6 +66,28 @@ pub enum RecordData<'a, N> {
     Unknown(RType, &'a UnknownRecordData),
 }
 
+//--- Inspection
+
+impl<N> RecordData<'_, N> {
+    /// The type of this record data.
+    pub const fn rtype(&self) -> RType {
+        match self {
+            Self::A(..) => RType::A,
+            Self::Ns(..) => RType::NS,
+            Self::CName(..) => RType::CNAME,
+            Self::Soa(..) => RType::SOA,
+            Self::Wks(..) => RType::WKS,
+            Self::Ptr(..) => RType::PTR,
+            Self::HInfo(..) => RType::HINFO,
+            Self::Mx(..) => RType::MX,
+            Self::Txt(..) => RType::TXT,
+            Self::Aaaa(..) => RType::AAAA,
+            Self::Opt(..) => RType::OPT,
+            Self::Unknown(rtype, _) => *rtype,
+        }
+    }
+}
+
 //--- Parsing record data
 
 impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>
@@ -177,6 +199,44 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
             Self::Aaaa(r) => r.build_bytes(bytes),
             Self::Opt(r) => r.build_bytes(bytes),
             Self::Unknown(_, r) => r.build_bytes(bytes),
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for RecordData<'a, N> {
+    /// Scan record data.
+    ///
+    /// Parses the `data` syntax from [the specification].
+    ///
+    /// [the specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let rtype = RType::scan(scanner, alloc, buffer)?;
+
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+
+        if scanner.remaining().starts_with(b"\\#") {
+            // Parse from the unknown record data format.
+            return <&'a UnknownRecordData>::scan(scanner, alloc, buffer)
+                .map(|data| Self::Unknown(rtype, data));
+        }
+
+        // Try all concrete parsers.
+        match rtype {
+            RType::A => {
+                A::scan(scanner, alloc, buffer)
+                    .map(|data| Self::A(alloc.alloc(data)))
+            }
+
+            _ => Err(ScanError::Custom("The concrete format for this record type is currently unsupported")),
         }
     }
 }
