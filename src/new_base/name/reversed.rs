@@ -149,6 +149,26 @@ impl BuildBytes for RevName {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a RevName {
+    /// Scan a domain name token.
+    ///
+    /// This parses a domain name, following the [specification].
+    ///
+    /// [specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let name = RevNameBuf::scan(scanner, alloc, buffer)?;
+        let bytes = alloc.alloc_slice_copy(name.as_bytes());
+        Ok(unsafe { RevName::from_bytes_unchecked(bytes) })
+    }
+}
+
 //--- Equality
 
 impl PartialEq for RevName {
@@ -462,6 +482,7 @@ impl Scan<'_> for RevNameBuf {
     /// [specification]: crate::new_zonefile#specification
     fn scan(
         scanner: &mut Scanner<'_>,
+        alloc: &'_ bumpalo::Bump,
         buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
         // Try parsing '@', indicating the origin name.
@@ -490,7 +511,7 @@ impl Scan<'_> for RevNameBuf {
             }
 
             // Parse a label and prepend it to the buffer.
-            let label = LabelBuf::scan(scanner, buffer)?;
+            let label = LabelBuf::scan(scanner, alloc, buffer)?;
             if this.offset < 2 + label.len() as u8 {
                 return Err(ScanError::Custom(
                     "Domain name exceeds 255 bytes",
@@ -652,13 +673,14 @@ mod test {
             (b"a.\"b c\".d", Ok(&[b"", b"org", b"d", b"b c", b"a"])),
         ];
 
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = Vec::new();
         for (input, expected) in cases {
             let origin =
                 unsafe { RevName::from_bytes_unchecked(b"\x00\x03org") };
             let mut scanner = Scanner::new(input, Some(origin));
-            let mut buffer = Vec::new();
             let mut name_buf = None;
-            let actual = RevNameBuf::scan(&mut scanner, &mut buffer)
+            let actual = RevNameBuf::scan(&mut scanner, &alloc, &mut buffer)
                 .map(|name| name_buf.insert(name).labels());
             match expected {
                 Ok(labels) => {

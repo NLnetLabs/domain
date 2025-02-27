@@ -16,6 +16,8 @@
 use core::fmt;
 use std::vec::Vec;
 
+use bumpalo::Bump;
+
 use crate::new_base::name::RevName;
 
 //----------- Scanner --------------------------------------------------------
@@ -76,14 +78,41 @@ impl<'a> Scanner<'a> {
 //--- Interaction
 
 impl<'a> Scanner<'a> {
+    /// Parse a plain token, without quotes and escapes.
+    ///
+    /// The following grammar is parsed:
+    ///
+    /// ```text
+    /// plain-token = [^"\\\(\); \t\r\n]+
+    /// ```
+    pub fn scan_plain_token(&mut self) -> Result<&'a str, ScanError> {
+        let (chunk, first) = self.scan_unquoted_chunk(|_| false);
+
+        match first {
+            Some(b' ' | b'\t' | b'\r' | b'\n') | None => {}
+            Some(b'"') => return Err(ScanError::ProhibitedQuote),
+            Some(b'\\') => return Err(ScanError::ProhibitedEscape),
+            Some(_) => return Err(ScanError::InvalidCharacter),
+        }
+
+        if chunk.is_empty() {
+            return Err(ScanError::Incomplete);
+        }
+
+        // SAFETY: Only ASCII characters were allowed in the string.
+        Ok(unsafe { core::str::from_utf8_unchecked(chunk) })
+    }
+
     /// Parse a conventional token into the given buffer.
     ///
-    /// A token may contain quoted strings, or be a single quoted string.  It
-    /// will be parsed, unescaped, and appended to the given buffer.  There is
-    /// no support for custom processing of special characters.
+    /// The following grammar is parsed:
     ///
-    /// Whitespace at the end of the token will not be consumed.
-    pub fn scan_token_into<'b>(
+    /// ```text
+    /// token = ([^"\\\(\); \t\r\n] | "\\" escape | quoted-string)+
+    /// escape = (ascii-printable & [^0-9]) | [0-9][0-9][0-9]
+    /// quoted-string = '"' ([^"\\] | "\\" escape)* '"'
+    /// ```
+    pub fn scan_token<'b>(
         &mut self,
         buffer: &'b mut Vec<u8>,
     ) -> Result<Option<&'b [u8]>, ScanError> {
@@ -276,10 +305,13 @@ impl<'a> Scanner<'a> {
 pub trait Scan<'a>: Sized {
     /// Scan a value from a zonefile entry.
     ///
-    /// The buffer should be used to store temporary allocations on the heap,
-    /// instead of allocating directly.  This reduces the
+    /// Data to be stored indirectly can be allocated on the given [`Bump`].
+    /// Temporary allocations (e.g. when building byte strings) can be built
+    /// on the provided [`Vec`] (which may have existing content that should
+    /// not be removed).
     fn scan(
-        scanner: &mut Scanner<'a>,
+        scanner: &mut Scanner<'_>,
+        alloc: &'a Bump,
         buffer: &mut Vec<u8>,
     ) -> Result<Self, ScanError>;
 }
@@ -292,6 +324,12 @@ pub enum ScanError {
     /// A quoted string was not terminated.
     UnterminatedQuote,
 
+    /// This token is not allowed to contain a quoted string.
+    ProhibitedQuote,
+
+    /// This token is not allowed to contain escapes.
+    ProhibitedEscape,
+
     /// An incomplete escape sequence was found.
     IncompleteEscape,
 
@@ -300,6 +338,9 @@ pub enum ScanError {
 
     /// An unescaped non-ASCII character or ASCII control code was found.
     InvalidCharacter,
+
+    /// The input was incomplete.
+    Incomplete,
 
     /// A custom record scanning error occurred.
     Custom(&'static str),
@@ -314,11 +355,14 @@ impl fmt::Display for ScanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::UnterminatedQuote => "a quoted string was not terminated",
+            Self::ProhibitedQuote => "a token incorrectly uses quotes",
+            Self::ProhibitedEscape => "a token incorrectly uses escapes",
             Self::IncompleteEscape => "the entry ended on a partial escape",
             Self::InvalidDecimalEscape => {
                 "an invalid decimal escape was found"
             }
             Self::InvalidCharacter => "an unprintable character was found",
+            Self::Incomplete => "the input was incomplete",
             Self::Custom(s) => s,
         })
     }
@@ -424,11 +468,11 @@ mod tests {
         for (input, expected) in cases {
             let mut scanner = Scanner::new(input.as_bytes(), None);
             for &expected in expected {
-                let token = scanner.scan_token_into(&mut buffer).unwrap();
+                let token = scanner.scan_token(&mut buffer).unwrap();
                 assert_eq!(token, expected.map(|s| s.as_bytes()));
                 scanner.skip_ws();
             }
-            assert_eq!(scanner.scan_token_into(&mut buffer), Ok(None));
+            assert_eq!(scanner.scan_token(&mut buffer), Ok(None));
         }
     }
 }
