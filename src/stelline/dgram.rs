@@ -114,12 +114,11 @@ impl AsyncDgramSend for DgramConnection {
             mock_transport_ctx.clone(),
             (),
         );
-        let opt_reply = do_server(&req, &self.stelline, &self.step_value);
         let len = buf.len();
-        if opt_reply.is_some() {
+        if let Some((opt_reply, _indices)) = do_server(&req, &self.stelline, &self.step_value) {
             // Do we need to support more than one reply?
             let mut reply = self.reply.lock().unwrap();
-            *reply = opt_reply;
+            *reply = Some(opt_reply);
             drop(reply);
             let mut waker = self.waker.lock().unwrap();
             let opt_waker = (*waker).take();

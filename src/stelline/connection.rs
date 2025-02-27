@@ -104,10 +104,9 @@ impl AsyncWrite for Connection {
             (),
         );
 
-        let opt_reply = do_server(&req, &self.stelline, &self.step_value);
-        if opt_reply.is_some() {
+        if let Some((opt_reply, _indices)) = do_server(&req, &self.stelline, &self.step_value) {
             // Do we need to support more than one reply?
-            self.reply = opt_reply;
+            self.reply = Some(opt_reply);
             let opt_waker = self.waker.take();
             if let Some(waker) = opt_waker {
                 waker.wake();

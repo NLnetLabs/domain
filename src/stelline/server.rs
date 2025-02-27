@@ -16,11 +16,20 @@ use super::matches::match_msg;
 use super::parse_stelline;
 use super::parse_stelline::{Adjust, Reply, Stelline};
 
+/// Gets a matching Stelline range entry.
+/// 
+/// Entries inside a RANGE_BEGIN/RANGE_END block within a Stelline file define
+/// queries to match and if matched the response to serve to that query.
+/// 
+/// The _last_ matching entry is returned, as apparently that "works better if
+/// the (Stelline) RPL is written with a recursive resolver in mind", along
+/// with the zero based index of the range the entry was found in, and the
+/// zero based index of the entry within that range.
 pub fn do_server<'a, Oct, Target>(
     req: &'a Request<Oct>,
     stelline: &Stelline,
     step_value: &CurrStepValue,
-) -> Option<AdditionalBuilder<Target>>
+) -> Option<(AdditionalBuilder<Target>, (usize, usize))>
 where
     <Oct as Octets>::Range<'a>: Clone,
     Oct: Clone + Octets + 'a + Send + Sync,
@@ -30,6 +39,7 @@ where
     let ranges = &stelline.scenario.ranges;
     let step = step_value.get();
     let mut opt_entry = None;
+    let mut last_found_indices: Option<(usize, usize)> = None;
     let msg = req.message();
 
     // Take the last entry. That works better if the RPL is written with
@@ -39,7 +49,7 @@ where
         msg.header().opcode(),
         msg.first_question().unwrap().qtype()
     );
-    for range in ranges {
+    for (range_idx, range) in ranges.iter().enumerate() {
         trace!(
             "Checking against range {} <= {}",
             range.start_value,
@@ -48,10 +58,11 @@ where
         if step < range.start_value || step > range.end_value {
             continue;
         }
-        for entry in &range.entry {
+        for (entry_idx, entry) in range.entry.iter().enumerate() {
             if match_msg(entry, req, true) {
                 trace!("Match found");
                 opt_entry = Some(entry);
+                last_found_indices = Some((range_idx, entry_idx))
             }
         }
     }
@@ -59,7 +70,7 @@ where
     match opt_entry {
         Some(entry) => {
             let reply = do_adjust(entry, msg);
-            Some(reply)
+            Some((reply, last_found_indices.unwrap()))
         }
         None => {
             trace!("No matching reply found");
