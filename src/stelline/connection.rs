@@ -1,17 +1,23 @@
+use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Waker;
 use std::task::{Context, Poll};
 use std::vec::Vec;
 
-use super::client::CurrStepValue;
-use super::parse_stelline::Stelline;
-use super::server::do_server;
-
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::time::Instant;
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::Message;
+use crate::net::server::message::{
+    NonUdpTransportContext, Request, TransportSpecificContext,
+};
+
+use super::client::CurrStepValue;
+use super::parse_stelline::Stelline;
+use super::server::do_server;
 
 #[derive(Debug)]
 pub struct Connection {
@@ -20,7 +26,6 @@ pub struct Connection {
     waker: Option<Waker>,
     reply: Option<AdditionalBuilder<Vec<u8>>>,
     send_body: bool,
-
     tmpbuf: Vec<u8>,
 }
 
@@ -85,10 +90,23 @@ impl AsyncWrite for Connection {
         }
         let msg = Message::from_octets(self.tmpbuf[2..].to_vec()).unwrap();
         self.tmpbuf = Vec::new();
-        let opt_reply = do_server(&msg, &self.stelline, &self.step_value);
-        if opt_reply.is_some() {
+
+        let mock_client_addr =
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0));
+        let mock_transport_ctx = TransportSpecificContext::NonUdp(
+            NonUdpTransportContext::new(None),
+        );
+        let req = Request::new(
+            mock_client_addr,
+            Instant::now(),
+            msg,
+            mock_transport_ctx.clone(),
+            (),
+        );
+
+        if let Some((opt_reply, _indices)) = do_server(&req, &self.stelline, &self.step_value) {
             // Do we need to support more than one reply?
-            self.reply = opt_reply;
+            self.reply = Some(opt_reply);
             let opt_waker = self.waker.take();
             if let Some(waker) = opt_waker {
                 waker.wake();

@@ -1,4 +1,6 @@
 //! Provide server-side of datagram protocols
+use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
@@ -8,11 +10,15 @@ use std::task::{Context, Poll, Waker};
 use std::vec::Vec;
 
 use tokio::io::ReadBuf;
+use tokio::time::Instant;
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::Message;
 use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
+};
+use crate::net::server::message::{
+    Request, TransportSpecificContext, UdpTransportContext,
 };
 
 use super::client::CurrStepValue;
@@ -97,12 +103,22 @@ impl AsyncDgramSend for DgramConnection {
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
         let msg = Message::from_octets(buf).unwrap();
-        let opt_reply = do_server(&msg, &self.stelline, &self.step_value);
+        let mock_client_addr =
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0));
+        let mock_transport_ctx =
+            TransportSpecificContext::Udp(UdpTransportContext::new(None));
+        let req = Request::new(
+            mock_client_addr,
+            Instant::now(),
+            msg,
+            mock_transport_ctx.clone(),
+            (),
+        );
         let len = buf.len();
-        if opt_reply.is_some() {
+        if let Some((opt_reply, _indices)) = do_server(&req, &self.stelline, &self.step_value) {
             // Do we need to support more than one reply?
             let mut reply = self.reply.lock().unwrap();
-            *reply = opt_reply;
+            *reply = Some(opt_reply);
             drop(reply);
             let mut waker = self.waker.lock().unwrap();
             let opt_waker = (*waker).take();

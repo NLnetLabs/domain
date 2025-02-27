@@ -369,15 +369,74 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
             continue;
         }
         if token == MATCH {
-            entry.matches = Some(parse_match(tokens));
+            let new_matches = parse_match(tokens);
+            match &mut entry.matches {
+                Some(matches) => {
+                    matches.additional |= new_matches.additional;
+                    matches.all |= new_matches.all;
+                    matches.answer |= new_matches.answer;
+                    matches.authority |= new_matches.authority;
+                    matches.ad |= new_matches.ad;
+                    matches.cd |= new_matches.cd;
+                    matches.fl_do |= new_matches.fl_do;
+                    matches.rd |= new_matches.rd;
+                    matches.flags |= new_matches.flags;
+                    matches.opcode |= new_matches.opcode;
+                    matches.qname |= new_matches.qname;
+                    matches.qtype |= new_matches.qtype;
+                    matches.question |= new_matches.question;
+                    matches.rcode |= new_matches.rcode;
+                    matches.subdomain |= new_matches.subdomain;
+                    matches.tcp |= new_matches.tcp;
+                    matches.ttl |= new_matches.ttl;
+                    matches.udp |= new_matches.udp;
+                    matches.server_cookie |= new_matches.server_cookie;
+                    matches.edns_data |= new_matches.edns_data;
+                    matches.mock_client |= new_matches.mock_client;
+                    matches.conn_closed |= new_matches.conn_closed;
+                    matches.extra_packets |= new_matches.extra_packets;
+                    matches.any_answer |= new_matches.any_answer;
+                }
+                None => entry.matches = Some(new_matches),
+            }
             continue;
         }
         if token == ADJUST {
-            entry.adjust = Some(parse_adjust(tokens));
+            let new_adjust = parse_adjust(tokens);
+            match &mut entry.adjust {
+                Some(adjust) => {
+                    adjust.copy_id |= new_adjust.copy_id;
+                    adjust.copy_query |= new_adjust.copy_query;
+                }
+                None => entry.adjust = Some(new_adjust),
+            }
             continue;
         }
         if token == REPLY {
-            entry.reply = Some(parse_reply(tokens));
+            let new_reply = parse_reply(tokens);
+            match &mut entry.reply {
+                Some(reply) => {
+                    reply.aa |= new_reply.aa;
+                    reply.ad |= new_reply.ad;
+                    reply.cd |= new_reply.cd;
+                    reply.fl_do |= new_reply.fl_do;
+                    reply.qr |= new_reply.qr;
+                    reply.ra |= new_reply.ra;
+                    reply.rd |= new_reply.rd;
+                    reply.tc |= new_reply.tc;
+                    if new_reply.rcode.is_some() {
+                        reply.rcode = new_reply.rcode;
+                    }
+                    reply.noerror |= new_reply.noerror;
+                    reply.notimp |= new_reply.notimp;
+                    reply.nxdomain |= new_reply.nxdomain;
+                    reply.refused |= new_reply.refused;
+                    reply.servfail |= new_reply.servfail;
+                    reply.yxdomain |= new_reply.yxdomain;
+                    reply.notify |= new_reply.notify;
+                }
+                None => entry.reply = Some(new_reply),
+            }
             continue;
         }
         if token == SECTION {
@@ -550,7 +609,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Matches {
     pub additional: bool,
     pub all: bool,
@@ -717,6 +776,11 @@ fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
             reply.rcode = Some(rcode);
         } else if token == "NOTIFY" {
             reply.notify = true;
+        } else if token == "QUERY" {
+            // We don't currently handle this anywhere yet as it's not clear
+            // what to do when this is specified.
+        } else if token == "NOTIMPL" {
+            reply.rcode = Some(OptRcode::NOTIMP);
         } else {
             println!("should handle reply {token:?}");
             todo!();
