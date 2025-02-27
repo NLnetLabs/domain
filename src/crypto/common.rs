@@ -303,11 +303,15 @@ pub mod sign {
     };
     use crate::rdata::Dnskey;
 
-    use super::openssl;
-    use super::ring;
     use super::GenerateParams;
 
     use ::ring::rand::SystemRandom;
+
+    #[cfg(feature = "openssl")]
+    use super::openssl;
+
+    #[cfg(feature = "ring")]
+    use super::ring;
 
     //----------- KeyPair ----------------------------------------------------
 
