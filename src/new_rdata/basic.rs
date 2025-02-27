@@ -558,3 +558,36 @@ impl fmt::Debug for Txt {
         f.debug_tuple("Txt").field(&Content(self)).finish()
     }
 }
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::A;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_a() {
+        use core::net::Ipv4Addr;
+
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (
+                b"127.0.0.1" as &[u8],
+                Ok(A::from(Ipv4Addr::new(127, 0, 0, 1))),
+            ),
+            (
+                b"a" as &[u8],
+                Err(ScanError::Custom("Invalid IPv4 address")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(A::scan(&mut scanner, &alloc, &mut buffer), expected);
+        }
+    }
+}
