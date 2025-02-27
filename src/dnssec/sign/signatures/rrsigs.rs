@@ -354,9 +354,8 @@ mod tests {
 
     use crate::base::iana::SecAlg;
     use crate::base::Serial;
-    use crate::crypto::common::KeyPair;
-    use crate::crypto::misc::Signature;
-    use crate::dnssec::sign::error::SignError;
+    use crate::crypto::common::sign::KeyPair;
+    use crate::crypto::misc::{SignError, Signature};
     use crate::dnssec::sign::records::SortedRecords;
     use crate::dnssec::sign::test_util;
     use crate::dnssec::sign::test_util::*;

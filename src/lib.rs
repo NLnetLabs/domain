@@ -182,11 +182,7 @@ extern crate std;
 extern crate core;
 
 pub mod base;
-
-// Unfortuantely, crypto depends on sign way too much.
-#[cfg(feature = "unstable-sign")]
 pub mod crypto;
-
 pub mod dep;
 pub mod dnssec;
 pub mod net;

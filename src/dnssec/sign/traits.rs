@@ -112,9 +112,9 @@ where
 /// # use domain::base::iana::Class;
 /// # use domain::crypto::common;
 /// # use domain::crypto::common::GenerateParams;
-/// # use domain::crypto::common::KeyPair;
+/// # use domain::crypto::common::sign::KeyPair;
 /// # use domain::dnssec::sign::keys::SigningKey;
-/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519,
+/// # let (sec_bytes, pub_bytes) = common::sign::generate(GenerateParams::Ed25519,
 /// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
@@ -258,9 +258,10 @@ where
 /// # use domain::base::iana::Class;
 /// # use domain::crypto::common;
 /// # use domain::crypto::common::GenerateParams;
-/// # use domain::crypto::common::KeyPair;
+/// # use domain::crypto::common::sign::KeyPair;
 /// # use domain::dnssec::sign::keys::SigningKey;
-/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519,
+/// # let (sec_bytes, pub_bytes) = common::sign::generate(
+/// #      GenerateParams::Ed25519,
 /// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
@@ -403,13 +404,14 @@ where
 /// # use domain::base::iana::Class;
 /// # use domain::crypto::common;
 /// # use domain::crypto::common::GenerateParams;
-/// # use domain::crypto::common::KeyPair;
+/// # use domain::crypto::common::sign::KeyPair;
 /// # use domain::dnssec::sign::keys::{SigningKey};
 /// # use domain::dnssec::sign::records::{Rrset, SortedRecords};
 /// # use domain::rdata::{A, ZoneRecordData};
 /// # use domain::zonetree::StoredName;
 /// # use std::str::FromStr;
-/// # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519,
+/// # let (sec_bytes, pub_bytes) = common::sign::generate(
+/// #      GenerateParams::Ed25519,
 /// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();

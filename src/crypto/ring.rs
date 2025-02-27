@@ -14,349 +14,20 @@ use core::fmt;
 
 use std::ptr;
 use std::ptr::addr_eq;
-use std::{boxed::Box, sync::Arc, vec::Vec};
+use std::vec::Vec;
 
 use ring::digest;
 use ring::digest::SHA1_FOR_LEGACY_USE_ONLY;
 use ring::digest::{Context, Digest as RingDigest};
 use ring::rsa::PublicKeyComponents;
 use ring::signature::{
-    self, EcdsaKeyPair, Ed25519KeyPair, KeyPair as _, RsaKeyPair,
-    RsaParameters, UnparsedPublicKey, VerificationAlgorithm,
+    self, RsaParameters, UnparsedPublicKey, VerificationAlgorithm,
 };
-use secrecy::ExposeSecret;
 
-use super::common::{
-    rsa_exponent_modulus, AlgorithmError, DigestType, GenerateParams,
-};
-use super::misc::{SignRaw, Signature};
+use super::common::{rsa_exponent_modulus, AlgorithmError, DigestType};
+
 use crate::base::iana::SecAlg;
-use crate::dnssec::sign::error::SignError;
-use crate::dnssec::sign::SecretKeyBytes;
 use crate::rdata::Dnskey;
-
-//----------- KeyPair --------------------------------------------------------
-
-/// A key pair backed by `ring`.
-// Note: ring does not implement Clone for *KeyPair.
-#[derive(Debug)]
-pub enum KeyPair {
-    /// An RSA/SHA-256 keypair.
-    RsaSha256 {
-        key: RsaKeyPair,
-        flags: u16,
-        rng: Arc<dyn ring::rand::SecureRandom>,
-    },
-
-    /// An ECDSA P-256/SHA-256 keypair.
-    EcdsaP256Sha256 {
-        key: EcdsaKeyPair,
-        flags: u16,
-        rng: Arc<dyn ring::rand::SecureRandom>,
-    },
-
-    /// An ECDSA P-384/SHA-384 keypair.
-    EcdsaP384Sha384 {
-        key: EcdsaKeyPair,
-        flags: u16,
-        rng: Arc<dyn ring::rand::SecureRandom>,
-    },
-
-    /// An Ed25519 keypair.
-    Ed25519(Ed25519KeyPair, u16),
-}
-
-//--- Conversion from bytes
-
-impl KeyPair {
-    /// Import a key pair from bytes into OpenSSL.
-    pub fn from_bytes<Octs>(
-        secret: &SecretKeyBytes,
-        public: &Dnskey<Octs>,
-        rng: Arc<dyn ring::rand::SecureRandom>,
-    ) -> Result<Self, FromBytesError>
-    where
-        Octs: AsRef<[u8]>,
-    {
-        match secret {
-            SecretKeyBytes::RsaSha256(s) => {
-                let rsa_public = signature::RsaPublicKeyComponents {
-                    n: s.n.to_vec(),
-                    e: s.e.to_vec(),
-                };
-                let p = PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, rsa_public).dnskey(public.flags());
-                // Ensure that the public and private key match.
-                if p != *public {
-                    return Err(FromBytesError::InvalidKey);
-                }
-
-                // Ensure that the key is strong enough.
-                if s.n.len() < 2048 / 8 {
-                    return Err(FromBytesError::WeakKey);
-                }
-
-                let components = ring::rsa::KeyPairComponents {
-                    public_key: ring::rsa::PublicKeyComponents {
-                        n: s.n.as_ref(),
-                        e: s.e.as_ref(),
-                    },
-                    d: s.d.expose_secret(),
-                    p: s.p.expose_secret(),
-                    q: s.q.expose_secret(),
-                    dP: s.d_p.expose_secret(),
-                    dQ: s.d_q.expose_secret(),
-                    qInv: s.q_i.expose_secret(),
-                };
-                ring::signature::RsaKeyPair::from_components(&components)
-                    .map_err(|_| FromBytesError::InvalidKey)
-                    .map(|key| Self::RsaSha256 {
-                        key,
-                        flags: public.flags(),
-                        rng,
-                    })
-            }
-
-            SecretKeyBytes::EcdsaP256Sha256(s) => {
-                let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
-
-                let public_key = PublicKey::from_dnskey(public)
-                    .map_err(|_| FromBytesError::InvalidKey)?;
-                let PublicKey::Unparsed(_, unparsed) = public_key else {
-                    return Err(FromBytesError::InvalidKey);
-                };
-
-                EcdsaKeyPair::from_private_key_and_public_key(
-                    alg,
-                    s.expose_secret(),
-                    unparsed.as_ref(),
-                    &*rng,
-                )
-                .map_err(|_| FromBytesError::InvalidKey)
-                .map(|key| Self::EcdsaP256Sha256 {
-                    key,
-                    flags: public.flags(),
-                    rng,
-                })
-            }
-
-            SecretKeyBytes::EcdsaP384Sha384(s) => {
-                let alg = &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
-
-                let public_key = PublicKey::from_dnskey(public)
-                    .map_err(|_| FromBytesError::InvalidKey)?;
-                let PublicKey::Unparsed(_, unparsed) = public_key else {
-                    return Err(FromBytesError::InvalidKey);
-                };
-
-                EcdsaKeyPair::from_private_key_and_public_key(
-                    alg,
-                    s.expose_secret(),
-                    unparsed.as_ref(),
-                    &*rng,
-                )
-                .map_err(|_| FromBytesError::InvalidKey)
-                .map(|key| Self::EcdsaP384Sha384 {
-                    key,
-                    flags: public.flags(),
-                    rng,
-                })
-            }
-
-            SecretKeyBytes::Ed25519(s) => {
-                Ed25519KeyPair::from_seed_and_public_key(
-                    s.expose_secret(),
-                    public.public_key().as_ref(),
-                )
-                .map_err(|_| FromBytesError::InvalidKey)
-                .map(|k| Self::Ed25519(k, public.flags()))
-            }
-
-            SecretKeyBytes::Ed448(_) => {
-                Err(FromBytesError::UnsupportedAlgorithm)
-            }
-        }
-    }
-}
-
-//--- SignRaw
-
-impl SignRaw for KeyPair {
-    fn algorithm(&self) -> SecAlg {
-        match self {
-            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256 { .. } => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384 { .. } => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519(_, _) => SecAlg::ED25519,
-        }
-    }
-
-    fn dnskey(&self) -> Dnskey<Vec<u8>> {
-        match self {
-            Self::RsaSha256 { key, flags, rng: _ } => {
-                let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
-                    key.public().into();
-                let n = components.n;
-                let e = components.e;
-                let public_key = signature::RsaPublicKeyComponents { n, e };
-                let public = PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, public_key);
-                public.dnskey(*flags)
-            }
-
-            Self::EcdsaP256Sha256 { key, flags, rng: _ }
-            | Self::EcdsaP384Sha384 { key, flags, rng: _ } => {
-                let algorithm = match self {
-                    Self::EcdsaP256Sha256 {
-                        key: _,
-                        flags: _,
-                        rng: _,
-                    } => &signature::ECDSA_P256_SHA256_FIXED,
-                    Self::EcdsaP384Sha384 {
-                        key: _,
-                        flags: _,
-                        rng: _,
-                    } => &signature::ECDSA_P384_SHA384_FIXED,
-                    _ => unreachable!(),
-                };
-                let key = key.public_key().as_ref();
-                let public = PublicKey::Unparsed(
-                    algorithm,
-                    signature::UnparsedPublicKey::new(
-                        algorithm,
-                        key.to_vec(),
-                    ),
-                );
-                public.dnskey(*flags)
-            }
-            Self::Ed25519(key, flags) => {
-                let algorithm = match self {
-                    Self::Ed25519(_, _) => &signature::ED25519,
-                    _ => unreachable!(),
-                };
-                let key = key.public_key().as_ref();
-                let public = PublicKey::Unparsed(
-                    algorithm,
-                    signature::UnparsedPublicKey::new(
-                        algorithm,
-                        key.to_vec(),
-                    ),
-                );
-                public.dnskey(*flags)
-            }
-        }
-    }
-
-    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
-        match self {
-            Self::RsaSha256 { key, flags: _, rng } => {
-                let mut buf = vec![0u8; key.public().modulus_len()];
-                let pad = &ring::signature::RSA_PKCS1_SHA256;
-                key.sign(pad, &**rng, data, &mut buf)
-                    .map(|()| Signature::RsaSha256(buf.into_boxed_slice()))
-                    .map_err(|_| SignError)
-            }
-
-            Self::EcdsaP256Sha256 { key, flags: _, rng } => key
-                .sign(&**rng, data)
-                .map(|sig| Box::<[u8]>::from(sig.as_ref()))
-                .map_err(|_| SignError)
-                .and_then(|buf| {
-                    buf.try_into()
-                        .map(Signature::EcdsaP256Sha256)
-                        .map_err(|_| SignError)
-                }),
-
-            Self::EcdsaP384Sha384 { key, flags: _, rng } => key
-                .sign(&**rng, data)
-                .map(|sig| Box::<[u8]>::from(sig.as_ref()))
-                .map_err(|_| SignError)
-                .and_then(|buf| {
-                    buf.try_into()
-                        .map(Signature::EcdsaP384Sha384)
-                        .map_err(|_| SignError)
-                }),
-
-            Self::Ed25519(key, _) => {
-                let sig = key.sign(data);
-                let buf: Box<[u8]> = sig.as_ref().into();
-                buf.try_into()
-                    .map(Signature::Ed25519)
-                    .map_err(|_| SignError)
-            }
-        }
-    }
-}
-
-//----------- generate() -----------------------------------------------------
-
-/// Generate a new key pair for the given algorithm.
-///
-/// While this uses Ring internally, the opaque nature of Ring means that it
-/// is not possible to export a secret key from [`KeyPair`].  Thus, the bytes
-/// of the secret key are returned directly.
-pub fn generate(
-    params: GenerateParams,
-    flags: u16,
-    rng: &dyn ring::rand::SecureRandom,
-) -> Result<(SecretKeyBytes, Dnskey<Vec<u8>>), GenerateError> {
-    match params {
-        GenerateParams::EcdsaP256Sha256 => {
-            // Generate a key and a PKCS#8 document out of Ring.
-            let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
-            let doc = EcdsaKeyPair::generate_pkcs8(alg, rng)?;
-
-            // Manually parse the PKCS#8 document for the private key.
-            let sk: Box<[u8]> = Box::from(&doc.as_ref()[36..68]);
-            let sk: Box<[u8; 32]> = sk.try_into().unwrap();
-            let sk = SecretKeyBytes::EcdsaP256Sha256(sk.into());
-
-            // Manually parse the PKCS#8 document for the public key.
-            let pk = doc.as_ref()[73..138].to_vec();
-            let algorithm = &signature::ECDSA_P256_SHA256_FIXED;
-            let pk = signature::UnparsedPublicKey::new(algorithm, pk);
-            let pk = PublicKey::Unparsed(algorithm, pk);
-
-            Ok((sk, pk.dnskey(flags)))
-        }
-
-        GenerateParams::EcdsaP384Sha384 => {
-            // Generate a key and a PKCS#8 document out of Ring.
-            let alg = &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
-            let doc = EcdsaKeyPair::generate_pkcs8(alg, rng)?;
-
-            // Manually parse the PKCS#8 document for the private key.
-            let sk: Box<[u8]> = Box::from(&doc.as_ref()[35..83]);
-            let sk: Box<[u8; 48]> = sk.try_into().unwrap();
-            let sk = SecretKeyBytes::EcdsaP384Sha384(sk.into());
-
-            // Manually parse the PKCS#8 document for the public key.
-            let pk = doc.as_ref()[88..185].to_vec();
-            let algorithm = &signature::ECDSA_P384_SHA384_FIXED;
-            let pk = signature::UnparsedPublicKey::new(algorithm, pk);
-            let pk = PublicKey::Unparsed(algorithm, pk);
-            Ok((sk, pk.dnskey(flags)))
-        }
-
-        GenerateParams::Ed25519 => {
-            // Generate a key and a PKCS#8 document out of Ring.
-            let doc = Ed25519KeyPair::generate_pkcs8(rng)?;
-
-            // Manually parse the PKCS#8 document for the private key.
-            let sk: Box<[u8]> = Box::from(&doc.as_ref()[16..48]);
-            let sk: Box<[u8; 32]> = sk.try_into().unwrap();
-            let sk = SecretKeyBytes::Ed25519(sk.into());
-
-            // Manually parse the PKCS#8 document for the public key.
-            let pk = doc.as_ref()[51..83].to_vec();
-            let algorithm = &signature::ED25519;
-            let pk = signature::UnparsedPublicKey::new(algorithm, pk);
-            let pk = PublicKey::Unparsed(algorithm, pk);
-
-            Ok((sk, pk.dnskey(flags)))
-        }
-
-        _ => Err(GenerateError::UnsupportedAlgorithm),
-    }
-}
 
 //============ Error Types ===================================================
 
@@ -643,6 +314,7 @@ impl PublicKey {
 
     // key_size should only be called for RSA keys to see if the key is long
     // enough to be supported by ring.
+    #[cfg(feature = "unstable-crypto-sign")]
     pub(super) fn key_size(&self) -> usize {
         match self {
             PublicKey::Rsa(_, components) => {
@@ -654,21 +326,379 @@ impl PublicKey {
     }
 }
 
+#[cfg(feature = "unstable-crypto-sign")]
+pub(crate) mod sign {
+    use std::boxed::Box;
+    use std::sync::Arc;
+    use std::vec::Vec;
+
+    use secrecy::ExposeSecret;
+
+    use crate::base::iana::SecAlg;
+    use crate::crypto::common::GenerateParams;
+    use crate::crypto::misc::{FromBytesError, SecretKeyBytes, SignError};
+    use crate::crypto::misc::{SignRaw, Signature};
+    use crate::rdata::Dnskey;
+
+    use super::{GenerateError, PublicKey};
+
+    use ring::signature::{
+        self, EcdsaKeyPair, Ed25519KeyPair, KeyPair as _, RsaKeyPair,
+    };
+
+    //----------- KeyPair ----------------------------------------------------
+
+    /// A key pair backed by `ring`.
+    // Note: ring does not implement Clone for *KeyPair.
+    #[derive(Debug)]
+    pub enum KeyPair {
+        /// An RSA/SHA-256 keypair.
+        RsaSha256 {
+            key: RsaKeyPair,
+            flags: u16,
+            rng: Arc<dyn ring::rand::SecureRandom>,
+        },
+
+        /// An ECDSA P-256/SHA-256 keypair.
+        EcdsaP256Sha256 {
+            key: EcdsaKeyPair,
+            flags: u16,
+            rng: Arc<dyn ring::rand::SecureRandom>,
+        },
+
+        /// An ECDSA P-384/SHA-384 keypair.
+        EcdsaP384Sha384 {
+            key: EcdsaKeyPair,
+            flags: u16,
+            rng: Arc<dyn ring::rand::SecureRandom>,
+        },
+
+        /// An Ed25519 keypair.
+        Ed25519(Ed25519KeyPair, u16),
+    }
+
+    //--- Conversion from bytes
+
+    impl KeyPair {
+        /// Import a key pair from bytes into OpenSSL.
+        pub fn from_bytes<Octs>(
+            secret: &SecretKeyBytes,
+            public: &Dnskey<Octs>,
+            rng: Arc<dyn ring::rand::SecureRandom>,
+        ) -> Result<Self, FromBytesError>
+        where
+            Octs: AsRef<[u8]>,
+        {
+            match secret {
+                SecretKeyBytes::RsaSha256(s) => {
+                    let rsa_public = signature::RsaPublicKeyComponents {
+                        n: s.n.to_vec(),
+                        e: s.e.to_vec(),
+                    };
+                    let p = PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, rsa_public).dnskey(public.flags());
+                    // Ensure that the public and private key match.
+                    if p != *public {
+                        return Err(FromBytesError::InvalidKey);
+                    }
+
+                    // Ensure that the key is strong enough.
+                    if s.n.len() < 2048 / 8 {
+                        return Err(FromBytesError::WeakKey);
+                    }
+
+                    let components = ring::rsa::KeyPairComponents {
+                        public_key: ring::rsa::PublicKeyComponents {
+                            n: s.n.as_ref(),
+                            e: s.e.as_ref(),
+                        },
+                        d: s.d.expose_secret(),
+                        p: s.p.expose_secret(),
+                        q: s.q.expose_secret(),
+                        dP: s.d_p.expose_secret(),
+                        dQ: s.d_q.expose_secret(),
+                        qInv: s.q_i.expose_secret(),
+                    };
+                    ring::signature::RsaKeyPair::from_components(&components)
+                        .map_err(|_| FromBytesError::InvalidKey)
+                        .map(|key| Self::RsaSha256 {
+                            key,
+                            flags: public.flags(),
+                            rng,
+                        })
+                }
+
+                SecretKeyBytes::EcdsaP256Sha256(s) => {
+                    let alg =
+                        &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+
+                    let public_key = PublicKey::from_dnskey(public)
+                        .map_err(|_| FromBytesError::InvalidKey)?;
+                    let PublicKey::Unparsed(_, unparsed) = public_key else {
+                        return Err(FromBytesError::InvalidKey);
+                    };
+
+                    EcdsaKeyPair::from_private_key_and_public_key(
+                        alg,
+                        s.expose_secret(),
+                        unparsed.as_ref(),
+                        &*rng,
+                    )
+                    .map_err(|_| FromBytesError::InvalidKey)
+                    .map(|key| Self::EcdsaP256Sha256 {
+                        key,
+                        flags: public.flags(),
+                        rng,
+                    })
+                }
+
+                SecretKeyBytes::EcdsaP384Sha384(s) => {
+                    let alg =
+                        &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
+
+                    let public_key = PublicKey::from_dnskey(public)
+                        .map_err(|_| FromBytesError::InvalidKey)?;
+                    let PublicKey::Unparsed(_, unparsed) = public_key else {
+                        return Err(FromBytesError::InvalidKey);
+                    };
+
+                    EcdsaKeyPair::from_private_key_and_public_key(
+                        alg,
+                        s.expose_secret(),
+                        unparsed.as_ref(),
+                        &*rng,
+                    )
+                    .map_err(|_| FromBytesError::InvalidKey)
+                    .map(|key| Self::EcdsaP384Sha384 {
+                        key,
+                        flags: public.flags(),
+                        rng,
+                    })
+                }
+
+                SecretKeyBytes::Ed25519(s) => {
+                    Ed25519KeyPair::from_seed_and_public_key(
+                        s.expose_secret(),
+                        public.public_key().as_ref(),
+                    )
+                    .map_err(|_| FromBytesError::InvalidKey)
+                    .map(|k| Self::Ed25519(k, public.flags()))
+                }
+
+                SecretKeyBytes::Ed448(_) => {
+                    Err(FromBytesError::UnsupportedAlgorithm)
+                }
+            }
+        }
+    }
+
+    //--- SignRaw
+
+    impl SignRaw for KeyPair {
+        fn algorithm(&self) -> SecAlg {
+            match self {
+                Self::RsaSha256 { .. } => SecAlg::RSASHA256,
+                Self::EcdsaP256Sha256 { .. } => SecAlg::ECDSAP256SHA256,
+                Self::EcdsaP384Sha384 { .. } => SecAlg::ECDSAP384SHA384,
+                Self::Ed25519(_, _) => SecAlg::ED25519,
+            }
+        }
+
+        fn dnskey(&self) -> Dnskey<Vec<u8>> {
+            match self {
+                Self::RsaSha256 { key, flags, rng: _ } => {
+                    let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
+                        key.public().into();
+                    let n = components.n;
+                    let e = components.e;
+                    let public_key =
+                        signature::RsaPublicKeyComponents { n, e };
+                    let public = PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, public_key);
+                    public.dnskey(*flags)
+                }
+
+                Self::EcdsaP256Sha256 { key, flags, rng: _ }
+                | Self::EcdsaP384Sha384 { key, flags, rng: _ } => {
+                    let algorithm = match self {
+                        Self::EcdsaP256Sha256 {
+                            key: _,
+                            flags: _,
+                            rng: _,
+                        } => &signature::ECDSA_P256_SHA256_FIXED,
+                        Self::EcdsaP384Sha384 {
+                            key: _,
+                            flags: _,
+                            rng: _,
+                        } => &signature::ECDSA_P384_SHA384_FIXED,
+                        _ => unreachable!(),
+                    };
+                    let key = key.public_key().as_ref();
+                    let public = PublicKey::Unparsed(
+                        algorithm,
+                        signature::UnparsedPublicKey::new(
+                            algorithm,
+                            key.to_vec(),
+                        ),
+                    );
+                    public.dnskey(*flags)
+                }
+                Self::Ed25519(key, flags) => {
+                    let algorithm = match self {
+                        Self::Ed25519(_, _) => &signature::ED25519,
+                        _ => unreachable!(),
+                    };
+                    let key = key.public_key().as_ref();
+                    let public = PublicKey::Unparsed(
+                        algorithm,
+                        signature::UnparsedPublicKey::new(
+                            algorithm,
+                            key.to_vec(),
+                        ),
+                    );
+                    public.dnskey(*flags)
+                }
+            }
+        }
+
+        fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
+            match self {
+                Self::RsaSha256 { key, flags: _, rng } => {
+                    let mut buf = vec![0u8; key.public().modulus_len()];
+                    let pad = &ring::signature::RSA_PKCS1_SHA256;
+                    key.sign(pad, &**rng, data, &mut buf)
+                        .map(|()| {
+                            Signature::RsaSha256(buf.into_boxed_slice())
+                        })
+                        .map_err(|_| SignError)
+                }
+
+                Self::EcdsaP256Sha256 { key, flags: _, rng } => key
+                    .sign(&**rng, data)
+                    .map(|sig| Box::<[u8]>::from(sig.as_ref()))
+                    .map_err(|_| SignError)
+                    .and_then(|buf| {
+                        buf.try_into()
+                            .map(Signature::EcdsaP256Sha256)
+                            .map_err(|_| SignError)
+                    }),
+
+                Self::EcdsaP384Sha384 { key, flags: _, rng } => key
+                    .sign(&**rng, data)
+                    .map(|sig| Box::<[u8]>::from(sig.as_ref()))
+                    .map_err(|_| SignError)
+                    .and_then(|buf| {
+                        buf.try_into()
+                            .map(Signature::EcdsaP384Sha384)
+                            .map_err(|_| SignError)
+                    }),
+
+                Self::Ed25519(key, _) => {
+                    let sig = key.sign(data);
+                    let buf: Box<[u8]> = sig.as_ref().into();
+                    buf.try_into()
+                        .map(Signature::Ed25519)
+                        .map_err(|_| SignError)
+                }
+            }
+        }
+    }
+
+    //----------- generate() -------------------------------------------------
+
+    /// Generate a new key pair for the given algorithm.
+    ///
+    /// While this uses Ring internally, the opaque nature of Ring means that it
+    /// is not possible to export a secret key from [`KeyPair`].  Thus, the bytes
+    /// of the secret key are returned directly.
+    pub fn generate(
+        params: GenerateParams,
+        flags: u16,
+        rng: &dyn ring::rand::SecureRandom,
+    ) -> Result<(SecretKeyBytes, Dnskey<Vec<u8>>), GenerateError> {
+        match params {
+            GenerateParams::EcdsaP256Sha256 => {
+                // Generate a key and a PKCS#8 document out of Ring.
+                let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+                let doc = EcdsaKeyPair::generate_pkcs8(alg, rng)?;
+
+                // Manually parse the PKCS#8 document for the private key.
+                let sk: Box<[u8]> = Box::from(&doc.as_ref()[36..68]);
+                let sk: Box<[u8; 32]> = sk.try_into().unwrap();
+                let sk = SecretKeyBytes::EcdsaP256Sha256(sk.into());
+
+                // Manually parse the PKCS#8 document for the public key.
+                let pk = doc.as_ref()[73..138].to_vec();
+                let algorithm = &signature::ECDSA_P256_SHA256_FIXED;
+                let pk = signature::UnparsedPublicKey::new(algorithm, pk);
+                let pk = PublicKey::Unparsed(algorithm, pk);
+
+                Ok((sk, pk.dnskey(flags)))
+            }
+
+            GenerateParams::EcdsaP384Sha384 => {
+                // Generate a key and a PKCS#8 document out of Ring.
+                let alg = &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
+                let doc = EcdsaKeyPair::generate_pkcs8(alg, rng)?;
+
+                // Manually parse the PKCS#8 document for the private key.
+                let sk: Box<[u8]> = Box::from(&doc.as_ref()[35..83]);
+                let sk: Box<[u8; 48]> = sk.try_into().unwrap();
+                let sk = SecretKeyBytes::EcdsaP384Sha384(sk.into());
+
+                // Manually parse the PKCS#8 document for the public key.
+                let pk = doc.as_ref()[88..185].to_vec();
+                let algorithm = &signature::ECDSA_P384_SHA384_FIXED;
+                let pk = signature::UnparsedPublicKey::new(algorithm, pk);
+                let pk = PublicKey::Unparsed(algorithm, pk);
+                Ok((sk, pk.dnskey(flags)))
+            }
+
+            GenerateParams::Ed25519 => {
+                // Generate a key and a PKCS#8 document out of Ring.
+                let doc = Ed25519KeyPair::generate_pkcs8(rng)?;
+
+                // Manually parse the PKCS#8 document for the private key.
+                let sk: Box<[u8]> = Box::from(&doc.as_ref()[16..48]);
+                let sk: Box<[u8; 32]> = sk.try_into().unwrap();
+                let sk = SecretKeyBytes::Ed25519(sk.into());
+
+                // Manually parse the PKCS#8 document for the public key.
+                let pk = doc.as_ref()[51..83].to_vec();
+                let algorithm = &signature::ED25519;
+                let pk = signature::UnparsedPublicKey::new(algorithm, pk);
+                let pk = PublicKey::Unparsed(algorithm, pk);
+
+                Ok((sk, pk.dnskey(flags)))
+            }
+
+            _ => Err(GenerateError::UnsupportedAlgorithm),
+        }
+    }
+}
+
 //============ Tests =========================================================
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::vec::Vec;
 
-    use crate::base::iana::SecAlg;
     use crate::crypto::common::GenerateParams;
     use crate::crypto::misc::SignRaw;
+
+    use crate::crypto::ring::sign::KeyPair;
+
+    #[cfg(feature = "unstable-validator")]
+    use std::vec::Vec;
+
+    #[cfg(feature = "unstable-validator")]
+    use crate::base::iana::SecAlg;
+
+    #[cfg(feature = "unstable-validator")]
+    use crate::crypto::misc::SecretKeyBytes;
+
+    #[cfg(feature = "unstable-validator")]
     use crate::dnssec::common::parse_from_bind;
-    use crate::dnssec::sign::SecretKeyBytes;
 
-    use super::KeyPair;
-
+    #[cfg(feature = "unstable-validator")]
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 60616),
         (SecAlg::ECDSAP256SHA256, 42253),
@@ -683,6 +713,7 @@ mod tests {
     ];
 
     #[test]
+    #[cfg(feature = "unstable-validator")]
     fn public_key() {
         let rng = Arc::new(ring::rand::SystemRandom::new());
         for &(algorithm, key_tag) in KEYS {
@@ -710,13 +741,14 @@ mod tests {
         let rng = Arc::new(ring::rand::SystemRandom::new());
         for params in GENERATE_PARAMS {
             let (sk, pk) =
-                super::generate(params.clone(), 256, &*rng).unwrap();
+                super::sign::generate(params.clone(), 256, &*rng).unwrap();
             let key = KeyPair::from_bytes(&sk, &pk, rng.clone()).unwrap();
             assert_eq!(key.dnskey(), pk);
         }
     }
 
     #[test]
+    #[cfg(feature = "unstable-validator")]
     fn sign() {
         for &(algorithm, key_tag) in KEYS {
             let name =

@@ -30,9 +30,7 @@
 //!
 //!
 
-pub mod bytes;
 pub mod keyset;
 pub mod signingkey;
 
-pub use self::bytes::SecretKeyBytes;
 pub use self::signingkey::SigningKey;

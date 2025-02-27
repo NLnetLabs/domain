@@ -6,15 +6,9 @@
 
 use core::fmt;
 use std::error;
-use std::sync::Arc;
 use std::vec::Vec;
 
-use ::ring::rand::SystemRandom;
-
-use super::misc::{SignRaw, Signature};
 use crate::base::iana::SecAlg;
-use crate::dnssec::sign::error::{FromBytesError, GenerateError, SignError};
-use crate::dnssec::sign::SecretKeyBytes;
 use crate::rdata::Dnskey;
 
 #[cfg(feature = "openssl")]
@@ -22,101 +16,6 @@ use super::openssl;
 
 #[cfg(feature = "ring")]
 use super::ring;
-
-//----------- KeyPair --------------------------------------------------------
-
-/// A key pair based on a built-in backend.
-///
-/// This supports any built-in backend (currently, that is OpenSSL and Ring,
-/// if their respective feature flags are enabled).  Wherever possible, it
-/// will prefer the Ring backend over OpenSSL -- but for more uncommon or
-/// insecure algorithms, that Ring does not support, OpenSSL must be used.
-#[derive(Debug)]
-// Note: ring does not implement Clone for KeyPair.
-pub enum KeyPair {
-    /// A key backed by Ring.
-    #[cfg(feature = "ring")]
-    Ring(ring::KeyPair),
-
-    /// A key backed by OpenSSL.
-    #[cfg(feature = "openssl")]
-    OpenSSL(openssl::KeyPair),
-}
-
-//--- Conversion to and from bytes
-
-impl KeyPair {
-    /// Import a key pair from bytes.
-    pub fn from_bytes<Octs>(
-        secret: &SecretKeyBytes,
-        public: &Dnskey<Octs>,
-    ) -> Result<Self, FromBytesError>
-    where
-        Octs: AsRef<[u8]>,
-    {
-        // Prefer Ring if it is available.
-        #[cfg(feature = "ring")]
-        let fallback_to_openssl = match public.algorithm() {
-            SecAlg::RSASHA1
-            | SecAlg::RSASHA1_NSEC3_SHA1
-            | SecAlg::RSASHA256
-            | SecAlg::RSASHA512 => {
-                ring::PublicKey::from_dnskey(public)
-                    .map_err(|_| FromBytesError::InvalidKey)?
-                    .key_size()
-                    < 2048
-            }
-            _ => false,
-        };
-
-        if !fallback_to_openssl {
-            let rng = Arc::new(SystemRandom::new());
-            let key = ring::KeyPair::from_bytes(secret, public, rng)?;
-            return Ok(Self::Ring(key));
-        }
-
-        // Fall back to OpenSSL.
-        #[cfg(feature = "openssl")]
-        return Ok(Self::OpenSSL(openssl::KeyPair::from_bytes(
-            secret, public,
-        )?));
-
-        // Otherwise fail.
-        #[allow(unreachable_code)]
-        Err(FromBytesError::UnsupportedAlgorithm)
-    }
-}
-
-//--- SignRaw
-
-impl SignRaw for KeyPair {
-    fn algorithm(&self) -> SecAlg {
-        match self {
-            #[cfg(feature = "ring")]
-            Self::Ring(key) => key.algorithm(),
-            #[cfg(feature = "openssl")]
-            Self::OpenSSL(key) => key.algorithm(),
-        }
-    }
-
-    fn dnskey(&self) -> Dnskey<Vec<u8>> {
-        match self {
-            #[cfg(feature = "ring")]
-            Self::Ring(key) => key.dnskey(),
-            #[cfg(feature = "openssl")]
-            Self::OpenSSL(key) => key.dnskey(),
-        }
-    }
-
-    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
-        match self {
-            #[cfg(feature = "ring")]
-            Self::Ring(key) => key.sign_raw(data),
-            #[cfg(feature = "openssl")]
-            Self::OpenSSL(key) => key.sign_raw(data),
-        }
-    }
-}
 
 //----------- GenerateParams -------------------------------------------------
 
@@ -165,52 +64,6 @@ impl GenerateParams {
         }
     }
 }
-
-//----------- generate() -----------------------------------------------------
-
-/// Generate a new secret key for the given algorithm.
-pub fn generate(
-    params: GenerateParams,
-    flags: u16,
-) -> Result<(SecretKeyBytes, Dnskey<Vec<u8>>), GenerateError> {
-    // Use Ring if it is available.
-    #[cfg(feature = "ring")]
-    if matches!(
-        &params,
-        GenerateParams::EcdsaP256Sha256
-            | GenerateParams::EcdsaP384Sha384
-            | GenerateParams::Ed25519
-    ) {
-        let rng = ::ring::rand::SystemRandom::new();
-        return Ok(ring::generate(params, flags, &rng)?);
-    }
-
-    // Fall back to OpenSSL.
-    #[cfg(feature = "openssl")]
-    {
-        let key = openssl::generate(params, flags)?;
-        return Ok((key.to_bytes(), key.dnskey()));
-    }
-
-    // Otherwise fail.
-    #[allow(unreachable_code)]
-    Err(GenerateError::UnsupportedAlgorithm)
-}
-
-//--- Formatting
-
-impl fmt::Display for GenerateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedAlgorithm => "algorithm not supported",
-            Self::Implementation => "an internal error occurred",
-        })
-    }
-}
-
-//--- Error
-
-impl std::error::Error for GenerateError {}
 
 //----------- DigestType -----------------------------------------------------
 
@@ -392,3 +245,194 @@ impl fmt::Display for AlgorithmError {
 }
 
 impl error::Error for AlgorithmError {}
+
+//----------- FromDnskeyError ------------------------------------------------
+
+/// An error in reading a DNSKEY record.
+#[derive(Clone, Debug)]
+pub enum FromDnskeyError {
+    UnsupportedAlgorithm,
+    UnsupportedProtocol,
+    InvalidKey,
+}
+
+//--- Display, Error
+
+impl fmt::Display for FromDnskeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "unsupported algorithm",
+            Self::UnsupportedProtocol => "unsupported protocol",
+            Self::InvalidKey => "malformed key",
+        })
+    }
+}
+
+impl error::Error for FromDnskeyError {}
+
+//----------- ParseDnskeyTextError -------------------------------------------
+
+#[derive(Clone, Debug)]
+pub enum ParseDnskeyTextError {
+    Misformatted,
+    FromDnskey(FromDnskeyError),
+}
+
+//--- Display, Error
+
+impl fmt::Display for ParseDnskeyTextError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Misformatted => "misformatted DNSKEY record",
+            Self::FromDnskey(e) => return e.fmt(f),
+        })
+    }
+}
+
+impl error::Error for ParseDnskeyTextError {}
+
+#[cfg(feature = "unstable-crypto-sign")]
+pub mod sign {
+    use std::sync::Arc;
+    use std::vec::Vec;
+
+    use crate::base::iana::SecAlg;
+    use crate::crypto::misc::{
+        FromBytesError, GenerateError, SecretKeyBytes, SignError, SignRaw,
+        Signature,
+    };
+    use crate::rdata::Dnskey;
+
+    use super::openssl;
+    use super::ring;
+    use super::GenerateParams;
+
+    use ::ring::rand::SystemRandom;
+
+    //----------- KeyPair ----------------------------------------------------
+
+    /// A key pair based on a built-in backend.
+    ///
+    /// This supports any built-in backend (currently, that is OpenSSL and Ring,
+    /// if their respective feature flags are enabled).  Wherever possible, it
+    /// will prefer the Ring backend over OpenSSL -- but for more uncommon or
+    /// insecure algorithms, that Ring does not support, OpenSSL must be used.
+    #[derive(Debug)]
+    // Note: ring does not implement Clone for KeyPair.
+    pub enum KeyPair {
+        /// A key backed by Ring.
+        #[cfg(feature = "ring")]
+        Ring(ring::sign::KeyPair),
+
+        /// A key backed by OpenSSL.
+        #[cfg(feature = "openssl")]
+        OpenSSL(openssl::sign::KeyPair),
+    }
+
+    //--- Conversion to and from bytes
+
+    impl KeyPair {
+        /// Import a key pair from bytes.
+        pub fn from_bytes<Octs>(
+            secret: &SecretKeyBytes,
+            public: &Dnskey<Octs>,
+        ) -> Result<Self, FromBytesError>
+        where
+            Octs: AsRef<[u8]>,
+        {
+            // Prefer Ring if it is available.
+            #[cfg(feature = "ring")]
+            let fallback_to_openssl = match public.algorithm() {
+                SecAlg::RSASHA1
+                | SecAlg::RSASHA1_NSEC3_SHA1
+                | SecAlg::RSASHA256
+                | SecAlg::RSASHA512 => {
+                    ring::PublicKey::from_dnskey(public)
+                        .map_err(|_| FromBytesError::InvalidKey)?
+                        .key_size()
+                        < 2048
+                }
+                _ => false,
+            };
+
+            if !fallback_to_openssl {
+                let rng = Arc::new(SystemRandom::new());
+                let key =
+                    ring::sign::KeyPair::from_bytes(secret, public, rng)?;
+                return Ok(Self::Ring(key));
+            }
+
+            // Fall back to OpenSSL.
+            #[cfg(feature = "openssl")]
+            return Ok(Self::OpenSSL(openssl::sign::KeyPair::from_bytes(
+                secret, public,
+            )?));
+
+            // Otherwise fail.
+            #[allow(unreachable_code)]
+            Err(FromBytesError::UnsupportedAlgorithm)
+        }
+    }
+
+    //--- SignRaw
+
+    impl SignRaw for KeyPair {
+        fn algorithm(&self) -> SecAlg {
+            match self {
+                #[cfg(feature = "ring")]
+                Self::Ring(key) => key.algorithm(),
+                #[cfg(feature = "openssl")]
+                Self::OpenSSL(key) => key.algorithm(),
+            }
+        }
+
+        fn dnskey(&self) -> Dnskey<Vec<u8>> {
+            match self {
+                #[cfg(feature = "ring")]
+                Self::Ring(key) => key.dnskey(),
+                #[cfg(feature = "openssl")]
+                Self::OpenSSL(key) => key.dnskey(),
+            }
+        }
+
+        fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
+            match self {
+                #[cfg(feature = "ring")]
+                Self::Ring(key) => key.sign_raw(data),
+                #[cfg(feature = "openssl")]
+                Self::OpenSSL(key) => key.sign_raw(data),
+            }
+        }
+    }
+
+    //----------- generate() -------------------------------------------------
+
+    /// Generate a new secret key for the given algorithm.
+    pub fn generate(
+        params: GenerateParams,
+        flags: u16,
+    ) -> Result<(SecretKeyBytes, Dnskey<Vec<u8>>), GenerateError> {
+        // Use Ring if it is available.
+        #[cfg(feature = "ring")]
+        if matches!(
+            &params,
+            GenerateParams::EcdsaP256Sha256
+                | GenerateParams::EcdsaP384Sha384
+                | GenerateParams::Ed25519
+        ) {
+            let rng = ::ring::rand::SystemRandom::new();
+            return Ok(ring::sign::generate(params, flags, &rng)?);
+        }
+
+        // Fall back to OpenSSL.
+        #[cfg(feature = "openssl")]
+        {
+            let key = openssl::sign::generate(params, flags)?;
+            return Ok((key.to_bytes(), key.dnskey()));
+        }
+
+        // Otherwise fail.
+        #[allow(unreachable_code)]
+        Err(GenerateError::UnsupportedAlgorithm)
+    }
+}

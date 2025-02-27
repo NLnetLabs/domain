@@ -119,7 +119,6 @@ pub mod test_util;
 use crate::crypto::misc::SignRaw;
 
 pub use self::config::SigningConfig;
-pub use self::keys::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
 use core::fmt::Display;
 use core::hash::Hash;

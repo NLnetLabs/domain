@@ -27,10 +27,10 @@
 //!
 //! ```
 //! # use domain::base::iana::SecAlg;
-//! # use domain::crypto::misc;
-//! # use domain::crypto::common::KeyPair;
-//! # use domain::dnssec::sign::keys::{SecretKeyBytes, SigningKey};
+//! # use domain::crypto::misc::{self, SecretKeyBytes};
+//! # use domain::crypto::common::sign::KeyPair;
 //! # use domain::dnssec::common::parse_from_bind;
+//! # use domain::crypto::misc::SignRaw;
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
 //! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
@@ -42,13 +42,9 @@
 //! let key_pair = KeyPair::from_bytes(&sec_bytes, pub_key.data())
 //!     .unwrap();
 //!
-//! // Associate the key with important metadata.
-//! let key = SigningKey::new(pub_key.owner().clone(), pub_key.data().flags(), key_pair);
-//!
 //! // Check that the owner, algorithm, and key tag matched expectations.
-//! assert_eq!(key.owner().to_string(), "test");
-//! assert_eq!(key.algorithm(), SecAlg::ED25519);
-//! assert_eq!(key.dnskey().key_tag(), 56037);
+//! assert_eq!(key_pair.algorithm(), SecAlg::ED25519);
+//! assert_eq!(key_pair.dnskey().key_tag(), 56037);
 //! ```
 //!
 //! # Generating keys
@@ -59,22 +55,15 @@
 //! # use domain::base::Name;
 //! # use domain::crypto::common;
 //! # use domain::crypto::common::GenerateParams;
-//! # use domain::crypto::common::KeyPair;
-//! # use domain::dnssec::sign::keys::SigningKey;
+//! # use domain::crypto::common::sign::KeyPair;
 //! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_bytes) = common::generate(params, 256).unwrap();
+//! let (sec_bytes, pub_key) = common::sign::generate(params, 257).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
-//! let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//!
-//! // Associate the key with important metadata.
-//! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
-//! let flags = 257; // key signing key
-//! let key = SigningKey::new(owner, flags, key_pair);
+//! let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_key).unwrap();
 //!
 //! // Access the public key (with metadata).
-//! let pub_key = key.dnskey();
 //! println!("{:?}", pub_key);
 //! ```
 //!
@@ -86,15 +75,14 @@
 //! # use domain::base::Name;
 //! # use domain::crypto::common;
 //! # use domain::crypto::common::GenerateParams;
-//! # use domain::crypto::common::KeyPair;
-//! # use domain::dnssec::sign::keys::SigningKey;
+//! # use domain::crypto::common::sign::KeyPair;
 //! # use domain::crypto::misc::SignRaw;
-//! # let (sec_bytes, pub_bytes) = common::generate(GenerateParams::Ed25519,
+//! # let (sec_bytes, pub_bytes) = common::sign::generate(
+//!        GenerateParams::Ed25519,
 //!        256).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//! # let key = SigningKey::new(Name::<Vec<u8>>::root(), 257, key_pair);
 //! // Sign arbitrary byte sequences with the key.
-//! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
+//! let sig = key_pair.sign_raw(b"Hello, World!").unwrap();
 //! println!("{:?}", sig);
 //! ```
 //!
@@ -106,8 +94,8 @@
 #[cfg(feature = "ring")]
 pub mod common;
 
-// misc requires ring.
-#[cfg(feature = "ring")]
+// misc requires ring and unstable-crypto-sign.
+#[cfg(all(feature = "ring", feature = "unstable-crypto-sign"))]
 pub mod misc;
 
 pub mod openssl;

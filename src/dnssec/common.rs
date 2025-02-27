@@ -5,8 +5,9 @@ use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::Composer;
 use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
 use crate::base::{Name, Record, Rtype, ToName, Ttl};
-use crate::crypto::common::{DigestContext, DigestType};
-use crate::crypto::misc::ParseDnskeyTextError;
+use crate::crypto::common::{
+    DigestContext, DigestType, ParseDnskeyTextError,
+};
 use crate::dep::octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
