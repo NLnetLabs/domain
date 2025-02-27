@@ -9,6 +9,9 @@ use crate::new_base::{
     ParseRecordData, RType,
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Concrete record data types -------------------------------------
 
 mod basic;
@@ -186,4 +189,126 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
 pub struct UnknownRecordData {
     /// The unparsed option data.
     pub octets: [u8],
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a UnknownRecordData {
+    /// Scan record data from the generic format.
+    ///
+    /// Parses the `unknown-data` syntax from [the specification].
+    ///
+    /// [the specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Allow the buffer to have previous content.
+        let start = buffer.len();
+
+        // Parse the special unknown data marker.
+        if !scanner
+            .remaining()
+            .strip_prefix(b"\\#")
+            .is_some_and(|r| r.first().map_or(true, u8::is_ascii_whitespace))
+        {
+            return Err(ScanError::Custom(
+                "missing marker for the unknown record data format",
+            ));
+        }
+        scanner.consume(2);
+
+        if !scanner.skip_ws() {
+            return Err(ScanError::Custom("missing data size field"));
+        }
+
+        // Parse the record data size.
+        let size: usize = scanner
+            .scan_plain_token()?
+            .parse::<u16>()
+            .map_err(|_| ScanError::Custom("invalid data size field"))?
+            .into();
+
+        // NOTE: We explicitly choose not to preallocate the expected size of
+        // the record, in case it's wrong and we end up over-allocating.
+
+        // Fill the buffer with the record data in bytes.
+        while buffer.len() < start + size {
+            if !scanner.skip_ws() {
+                return Err(ScanError::Custom("missing record data bytes"));
+            }
+
+            let token = scanner.scan_plain_token()?;
+
+            if buffer.len() > start + size + token.len() / 2 {
+                return Err(ScanError::Custom(
+                    "overlong unknown record data bytes",
+                ));
+            }
+
+            for chunk in token.as_bytes().chunks(2) {
+                let &[hi, lo] = chunk else {
+                    return Err(ScanError::Custom(
+                        "partial byte in unknown record data",
+                    ));
+                };
+
+                fn decode_hex(c: u8) -> Result<u8, ScanError> {
+                    match c {
+                        b'0'..=b'9' => Ok(c - b'0'),
+                        b'A'..=b'F' => Ok(c - b'A' + 10),
+                        b'a'..=b'f' => Ok(c - b'a' + 10),
+                        _ => Err(ScanError::Custom("unknown record data contained a non-hexadecimal value")),
+                    }
+                }
+
+                buffer.push((decode_hex(hi)? << 4) | decode_hex(lo)?);
+            }
+        }
+
+        debug_assert_eq!(buffer.len(), start + size);
+        let bytes = alloc.alloc_slice_copy(&buffer[start..]);
+        Ok(Self::parse_bytes(bytes)
+            .expect("Up to 64K of arbitrary bytes is always valid 'UnknownRecordData'"))
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::UnknownRecordData;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_unknown() {
+        use crate::{
+            new_base::wire::AsBytes,
+            new_zonefile::scanner::{Scan, ScanError, Scanner},
+        };
+
+        let cases = [
+            (b"\\# 0" as &[u8], Ok(&[] as &[u8])),
+            (b"\\# 1 5A", Ok(&[0x5A])),
+            (b"\\# 4 41 52 5a 4B", Ok(&[0x41, 0x52, 0x5a, 0x4B])),
+            (b"\\# 4 4152 5a4B", Ok(&[0x41, 0x52, 0x5a, 0x4B])),
+            (
+                b"\\# 4 415 25 a4B",
+                Err(ScanError::Custom("partial byte in unknown record data")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                <&UnknownRecordData>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|d| d.as_bytes()),
+                expected
+            );
+        }
+    }
 }
