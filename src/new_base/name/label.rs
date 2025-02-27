@@ -140,6 +140,26 @@ impl BuildBytes for Label {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a Label {
+    /// Scan a domain name label.
+    ///
+    /// This parses a domain name label, following the [specification].
+    ///
+    /// [specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let label = LabelBuf::scan(scanner, alloc, buffer)?;
+        let bytes = alloc.alloc_slice_copy(label.as_bytes());
+        Ok(unsafe { Label::from_bytes_unchecked(bytes) })
+    }
+}
+
 //--- Inspection
 
 impl Label {
@@ -369,6 +389,7 @@ impl Scan<'_> for LabelBuf {
     /// [specification]: crate::new_zonefile#specification
     fn scan(
         scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
         buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
         // Allow the buffer to have previous content.
@@ -581,8 +602,6 @@ mod test {
     #[cfg(feature = "zonefile")]
     #[test]
     fn scan() {
-        use std::vec::Vec;
-
         use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
         use super::LabelBuf;
@@ -615,11 +634,12 @@ mod test {
             ),
         ];
 
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
         for (input, expected) in cases {
             let mut scanner = Scanner::new(input, None);
-            let mut buffer = Vec::new();
             let mut label_buf = None;
-            let actual = LabelBuf::scan(&mut scanner, &mut buffer)
+            let actual = LabelBuf::scan(&mut scanner, &alloc, &mut buffer)
                 .map(|label| label_buf.insert(label).as_bytes());
             assert_eq!(actual, expected, "input {:?}", input);
         }

@@ -15,6 +15,9 @@ use crate::new_base::{
     CharStr, Serial,
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- A --------------------------------------------------------------
 
 /// The IPv4 address of a host responsible for this domain.
@@ -79,6 +82,45 @@ impl fmt::Display for A {
 impl BuildIntoMessage for A {
     fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.as_bytes().build_into_message(builder)
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for A {
+    /// Scan the data for an A record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// # Parsing from a sequence of 'd-word's.
+    /// rdata-a = ipv4-addr
+    ///   ipv4-addr = ipv4-octet "." ipv4-octet "." ipv4-octet "." ipv4-octet
+    ///   # A decimal number between 0 and 255, inclusive.
+    ///   ipv4-octet = [0-9]+
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        buffer.clear();
+        let token = scanner
+            .scan_token(buffer)?
+            .ok_or(ScanError::Custom("Missing IPv4 address"))?;
+        let addr = core::str::from_utf8(token)
+            .map_err(|_| ScanError::Custom("Invalid UTF-8 in IPv4 address"))?
+            .parse::<Ipv4Addr>()
+            .map_err(|_| ScanError::Custom("Invalid IPv4 address"))?;
+        buffer.clear();
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self::from(addr))
+        } else {
+            Err(ScanError::Custom("Unexpected data following IPv4 address"))
+        }
     }
 }
 

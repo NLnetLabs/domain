@@ -263,42 +263,51 @@ impl fmt::Debug for RType {
     }
 }
 
+//--- Conversion to and from 'u16'
+
+impl From<u16> for RType {
+    fn from(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+}
+
+impl From<RType> for u16 {
+    fn from(value: RType) -> Self {
+        value.code.get()
+    }
+}
+
 //--- Parsing from the zonefile format
 
 #[cfg(feature = "zonefile")]
 impl Scan<'_> for RType {
     fn scan(
         scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
         _buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
-        let variants = [
-            (Self::A, b"A" as &[u8]),
-            (Self::NS, b"NS"),
-            (Self::CNAME, b"CNAME"),
-            (Self::SOA, b"SOA"),
-            (Self::WKS, b"WKS"),
-            (Self::PTR, b"PTR"),
-            (Self::HINFO, b"HINFO"),
-            (Self::MX, b"MX"),
-            (Self::TXT, b"TXT"),
-            (Self::AAAA, b"AAAA"),
-            (Self::OPT, b"OPT"),
-        ];
+        match scanner.scan_plain_token()? {
+            "A" => Ok(Self::A),
+            "NS" => Ok(Self::NS),
+            "CNAME" => Ok(Self::CNAME),
+            "SOA" => Ok(Self::SOA),
+            "WKS" => Ok(Self::WKS),
+            "PTR" => Ok(Self::PTR),
+            "HINFO" => Ok(Self::HINFO),
+            "MX" => Ok(Self::MX),
+            "TXT" => Ok(Self::TXT),
+            "AAAA" => Ok(Self::AAAA),
+            "OPT" => Ok(Self::OPT),
 
-        for (value, name) in variants {
-            if scanner.remaining().strip_prefix(name).is_some_and(
-                |remaining| {
-                    remaining
-                        .first()
-                        .map_or(true, |c| c.is_ascii_whitespace())
-                },
-            ) {
-                scanner.consume(name.len());
-                return Ok(value);
-            }
+            rtype if rtype.starts_with("TYPE") => rtype[4..]
+                .parse::<u16>()
+                .map_err(|_| ScanError::Custom("Invalid type value"))
+                .map(Self::from),
+
+            _ => Err(ScanError::Custom("Unrecognized record type")),
         }
-
-        Err(ScanError::Custom("Unrecognized record type"))
     }
 }
 
@@ -354,30 +363,42 @@ impl fmt::Debug for RClass {
     }
 }
 
+//--- Conversion to and from 'u16'
+
+impl From<u16> for RClass {
+    fn from(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+}
+
+impl From<RClass> for u16 {
+    fn from(value: RClass) -> Self {
+        value.code.get()
+    }
+}
+
 //--- Parsing from the zonefile format
 
 #[cfg(feature = "zonefile")]
 impl Scan<'_> for RClass {
     fn scan(
         scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
         _buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
-        let variants = [(Self::IN, b"IN" as &[u8]), (Self::CH, b"CH")];
+        match scanner.scan_plain_token()? {
+            "IN" => Ok(Self::IN),
+            "CH" => Ok(Self::CH),
 
-        for (value, name) in variants {
-            if scanner.remaining().strip_prefix(name).is_some_and(
-                |remaining| {
-                    remaining
-                        .first()
-                        .map_or(true, |c| c.is_ascii_whitespace())
-                },
-            ) {
-                scanner.consume(name.len());
-                return Ok(value);
-            }
+            class if class.starts_with("CLASS") => class[5..]
+                .parse::<u16>()
+                .map_err(|_| ScanError::Custom("Invalid class value"))
+                .map(Self::from),
+
+            _ => Err(ScanError::Custom("Unrecognized record class")),
         }
-
-        Err(ScanError::Custom("Unrecognized record type"))
     }
 }
 
@@ -435,6 +456,7 @@ impl fmt::Debug for TTL {
 impl Scan<'_> for TTL {
     fn scan(
         scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
         _buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
         let input = scanner.remaining();
@@ -583,5 +605,72 @@ mod test {
         let mut buffer = [0u8; 15];
         assert_eq!(record.build_bytes(&mut buffer), Ok(&mut [] as &mut [u8]));
         assert_eq!(buffer, &bytes[..15]);
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_rtype() {
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"A" as &[u8], Ok(RType::A)),
+            (b"TYPE1", Ok(RType::A)),
+            (b"TXT", Ok(RType::TXT)),
+            (b"TYPE65536", Err(ScanError::Custom("Invalid type value"))),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                RType::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_rclass() {
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"IN" as &[u8], Ok(RClass::IN)),
+            (b"CLASS1", Ok(RClass::IN)),
+            (b"CLASS65536", Err(ScanError::Custom("Invalid class value"))),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                RClass::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_ttl() {
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"0" as &[u8], Ok(TTL::from(0))),
+            (b"65536", Ok(TTL::from(65536))),
+            (b"42W", Err(ScanError::Custom("TTLs cannot have suffixes"))),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                TTL::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
     }
 }
