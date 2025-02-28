@@ -88,10 +88,33 @@ impl<N> RecordData<'_, N> {
     }
 }
 
+//--- Interaction
+
+impl<'a, N> RecordData<'a, N> {
+    /// Map the domain names within to another type.
+    pub fn map_names<R, F: FnMut(N) -> R>(self, f: F) -> RecordData<'a, R> {
+        match self {
+            Self::A(r) => RecordData::A(r),
+            Self::Ns(r) => RecordData::Ns(r.map_name(f)),
+            Self::CName(r) => RecordData::CName(r.map_name(f)),
+            Self::Soa(r) => RecordData::Soa(r.map_names(f)),
+            Self::Wks(r) => RecordData::Wks(r),
+            Self::Ptr(r) => RecordData::Ptr(r.map_name(f)),
+            Self::HInfo(r) => RecordData::HInfo(r),
+            Self::Mx(r) => RecordData::Mx(r.map_name(f)),
+            Self::Txt(r) => RecordData::Txt(r),
+            Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::Opt(r) => RecordData::Opt(r),
+            Self::Unknown(rt, rd) => RecordData::Unknown(rt, rd),
+        }
+    }
+}
+
 //--- Parsing record data
 
 impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>
 where
+    // TODO: Remove 'SplitMessageBytes' bound when parsing from bytes.
     N: SplitBytes<'a> + SplitMessageBytes<'a>,
 {
     fn parse_record_data(
@@ -206,7 +229,10 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
 //--- Parsing from the zonefile format
 
 #[cfg(feature = "zonefile")]
-impl<'a, N: Scan<'a>> Scan<'a> for RecordData<'a, N> {
+impl<'a, N> Scan<'a> for RecordData<'a, N>
+where
+    N: Scan<'a> + SplitBytes<'a> + SplitMessageBytes<'a>,
+{
     /// Scan record data.
     ///
     /// Parses the `data` syntax from [the specification].
@@ -225,8 +251,9 @@ impl<'a, N: Scan<'a>> Scan<'a> for RecordData<'a, N> {
 
         if scanner.remaining().starts_with(b"\\#") {
             // Parse from the unknown record data format.
-            return <&'a UnknownRecordData>::scan(scanner, alloc, buffer)
-                .map(|data| Self::Unknown(rtype, data));
+            let data = <&'a UnknownRecordData>::scan(scanner, alloc, buffer)?;
+            return Self::parse_record_data_bytes(&data.octets, rtype)
+                .map_err(|_| ScanError::Custom("Invalid unknown-data content for a known record data type"));
         }
 
         // Try all concrete parsers.
@@ -234,6 +261,41 @@ impl<'a, N: Scan<'a>> Scan<'a> for RecordData<'a, N> {
             RType::A => {
                 A::scan(scanner, alloc, buffer)
                     .map(|data| Self::A(alloc.alloc(data)))
+            }
+
+            RType::NS => {
+                <Ns<N>>::scan(scanner, alloc, buffer)
+                    .map(Self::Ns)
+            }
+
+            RType::CNAME => {
+                <CName<N>>::scan(scanner, alloc, buffer)
+                    .map(Self::CName)
+            }
+
+            RType::SOA => {
+                <Soa<N>>::scan(scanner, alloc, buffer)
+                    .map(Self::Soa)
+            }
+
+            RType::PTR => {
+                <Ptr<N>>::scan(scanner, alloc, buffer)
+                    .map(Self::Ptr)
+            }
+
+            RType::HINFO => {
+                <HInfo<'a>>::scan(scanner, alloc, buffer)
+                    .map(Self::HInfo)
+            }
+
+            RType::MX => {
+                <Mx<N>>::scan(scanner, alloc, buffer)
+                    .map(Self::Mx)
+            }
+
+            RType::TXT => {
+                <&'a Txt>::scan(scanner, alloc, buffer)
+                    .map(Self::Txt)
             }
 
             _ => Err(ScanError::Custom("The concrete format for this record type is currently unsupported")),

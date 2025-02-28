@@ -35,6 +35,17 @@ pub struct Ptr<N: ?Sized> {
     pub name: N,
 }
 
+//--- Interaction
+
+impl<N> Ptr<N> {
+    /// Map the domain name within to another type.
+    pub fn map_name<R, F: FnOnce(N) -> R>(self, f: F) -> Ptr<R> {
+        Ptr {
+            name: (f)(self.name),
+        }
+    }
+}
+
 //--- Parsing from DNS messages
 
 impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Ptr<N> {
