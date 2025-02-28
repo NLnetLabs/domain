@@ -7,6 +7,9 @@ use crate::new_base::{
     Serial,
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Soa ------------------------------------------------------------
 
 /// The start of a zone of authority.
@@ -119,5 +122,66 @@ impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
         builder.append_bytes(self.expire.as_bytes())?;
         builder.append_bytes(self.minimum.as_bytes())?;
         Ok(builder.commit())
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for Soa<N> {
+    /// Scan the data for a SOA record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-soa = name ws+ name ws+ u32 ws+ u32 ws+ u32 ws+ u32 ws+ u32 ws*
+    /// # An unsigned 32-bit integer.
+    /// u32 = [0-9]+
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let mname = N::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let rname = N::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let serial = Serial::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let refresh = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let retry = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let expire = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let minimum = u32::scan(scanner, alloc, buffer)?.into();
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self {
+                rname,
+                mname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            })
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of SOA record"))
+        }
     }
 }

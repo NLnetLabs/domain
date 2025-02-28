@@ -77,8 +77,7 @@ impl Scan<'_> for A {
     /// This parses the following syntax:
     ///
     /// ```text
-    /// # Parsing from a sequence of 'd-word's.
-    /// rdata-a = ipv4-addr
+    /// rdata-a = ipv4-addr ws*
     ///   ipv4-addr = ipv4-octet "." ipv4-octet "." ipv4-octet "." ipv4-octet
     ///   # A decimal number between 0 and 255, inclusive.
     ///   ipv4-octet = [0-9]+
@@ -102,7 +101,40 @@ impl Scan<'_> for A {
         if scanner.is_empty() {
             Ok(Self::from(addr))
         } else {
-            Err(ScanError::Custom("Unexpected data following IPv4 address"))
+            Err(ScanError::Custom("Unexpected data at end of A record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::A;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_a() {
+        use core::net::Ipv4Addr;
+
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (
+                b"127.0.0.1" as &[u8],
+                Ok(A::from(Ipv4Addr::new(127, 0, 0, 1))),
+            ),
+            (
+                b"a" as &[u8],
+                Err(ScanError::Custom("Invalid IPv4 address")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(A::scan(&mut scanner, &alloc, &mut buffer), expected);
         }
     }
 }

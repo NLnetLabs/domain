@@ -6,6 +6,9 @@ use crate::new_base::{
     wire::{AsBytes, ParseError, U16},
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Mx -------------------------------------------------------------
 
 /// A host that can exchange mail for this domain.
@@ -81,5 +84,41 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
         builder.append_bytes(self.preference.as_bytes())?;
         self.exchange.build_into_message(builder.delegate())?;
         Ok(builder.commit())
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for Mx<N> {
+    /// Scan the data for an MX record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-mx = u16 ws+ name ws*
+    /// # An unsigned 16-bit integer.
+    /// u16 = [0-9]+
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let preference = u16::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let exchange = N::scan(scanner, alloc, buffer)?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self {
+                preference,
+                exchange,
+            })
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of MX record"))
+        }
     }
 }

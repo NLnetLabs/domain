@@ -9,6 +9,9 @@ use crate::new_base::{
     CharStr,
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Txt ------------------------------------------------------------
 
 /// Free-form text strings about this domain.
@@ -97,3 +100,65 @@ impl PartialEq for Txt {
 }
 
 impl Eq for Txt {}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a Txt {
+    /// Scan the data for a TXT record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-txt = char-str (ws+ char-str)* ws*
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let start = buffer.len();
+
+        loop {
+            if start < buffer.len() && !scanner.skip_ws() {
+                break;
+            }
+
+            let cur = buffer.len();
+            buffer.push(0u8);
+            match scanner.scan_token(buffer)? {
+                Some(token) if token.len() > 255 => {
+                    buffer.truncate(start);
+                    return Err(ScanError::Custom(
+                        "Overlong character string",
+                    ));
+                }
+
+                Some(token) => {
+                    buffer[cur] = token.len() as u8;
+                    if buffer.len() - start >= 65536 {
+                        return Err(ScanError::Custom(
+                            "TXT record has overflowed 64K bytes",
+                        ));
+                    }
+                }
+
+                None => {
+                    buffer.truncate(cur);
+                    break;
+                }
+            }
+        }
+
+        if start < buffer.len() && scanner.is_empty() {
+            let bytes = alloc.alloc_slice_copy(&buffer[start..]);
+            buffer.truncate(start);
+            // SAFETY: 'buffer' contains a sequence of character strings.
+            Ok(unsafe { core::mem::transmute::<&[u8], Self>(bytes) })
+        } else if start == buffer.len() {
+            Err(ScanError::Incomplete)
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of TXT record"))
+        }
+    }
+}
