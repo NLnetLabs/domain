@@ -1,6 +1,4 @@
-use core::fmt;
-use core::net::Ipv4Addr;
-use core::str::FromStr;
+use core::{fmt, net::Ipv4Addr, str::FromStr};
 
 use domain_macros::*;
 
@@ -85,17 +83,12 @@ impl Scan<'_> for A {
     fn scan(
         scanner: &mut Scanner<'_>,
         _alloc: &'_ bumpalo::Bump,
-        buffer: &mut std::vec::Vec<u8>,
+        _buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
-        buffer.clear();
-        let token = scanner
-            .scan_token(buffer)?
-            .ok_or(ScanError::Custom("Missing IPv4 address"))?;
-        let addr = core::str::from_utf8(token)
-            .map_err(|_| ScanError::Custom("Invalid UTF-8 in IPv4 address"))?
+        let addr = scanner
+            .scan_plain_token()?
             .parse::<Ipv4Addr>()
             .map_err(|_| ScanError::Custom("Invalid IPv4 address"))?;
-        buffer.clear();
 
         scanner.skip_ws();
         if scanner.is_empty() {
