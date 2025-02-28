@@ -1,0 +1,62 @@
+use core::fmt;
+
+use domain_macros::*;
+
+use crate::new_base::{
+    build::{self, BuildIntoMessage, BuildResult},
+    wire::AsBytes,
+};
+
+use super::A;
+
+//----------- Wks ------------------------------------------------------------
+
+/// Well-known services supported on this domain.
+#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
+#[repr(C, packed)]
+pub struct Wks {
+    /// The address of the host providing these services.
+    pub address: A,
+
+    /// The IP protocol number for the services (e.g. TCP).
+    pub protocol: u8,
+
+    /// A bitset of supported well-known ports.
+    pub ports: [u8],
+}
+
+//--- Formatting
+
+impl fmt::Debug for Wks {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct Ports<'a>(&'a [u8]);
+
+        impl fmt::Debug for Ports<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let entries = self
+                    .0
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(i, &b)| (0..8).map(move |j| (i, j, b)))
+                    .filter(|(_, j, b)| b & (1 << j) != 0)
+                    .map(|(i, j, _)| i * 8 + j);
+
+                f.debug_set().entries(entries).finish()
+            }
+        }
+
+        f.debug_struct("Wks")
+            .field("address", &format_args!("{}", self.address))
+            .field("protocol", &self.protocol)
+            .field("ports", &Ports(&self.ports))
+            .finish()
+    }
+}
+
+//--- Building into DNS messages
+
+impl BuildIntoMessage for Wks {
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
+        self.as_bytes().build_into_message(builder)
+    }
+}
