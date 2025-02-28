@@ -1,6 +1,6 @@
 //! DNS records.
 
-use core::{borrow::Borrow, fmt, num::IntErrorKind, ops::Deref};
+use core::{borrow::Borrow, fmt, ops::Deref};
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
@@ -484,29 +484,25 @@ impl Scan<'_> for TTL {
         _alloc: &'_ bumpalo::Bump,
         _buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
-        let input = scanner.remaining();
-        let (len, next) = input
-            .iter()
-            .position(|&c| !c.is_ascii_digit())
-            .map_or((input.len(), b' '), |pos| (pos, input[pos]));
-        if len == 0 {
-            return Err(ScanError::Custom("A TTL was not found"));
-        } else if !next.is_ascii_whitespace() {
-            return Err(ScanError::Custom("TTLs cannot have suffixes"));
-        }
+        use core::num::IntErrorKind;
 
-        let input = core::str::from_utf8(&input[..len])
-            .expect("ASCII digits are always valid UTF-8");
-        let value = input.parse::<u32>().map_err(|err| {
-            ScanError::Custom(match err.kind() {
-                IntErrorKind::PosOverflow => "Specified TTL will overflow",
-                // We have already checked for other kinds of errors.
-                _ => unreachable!(),
+        scanner
+            .scan_plain_token()?
+            .parse::<u32>()
+            .map_err(|err| {
+                ScanError::Custom(match err.kind() {
+                    IntErrorKind::PosOverflow => {
+                        "Specified TTL will overflow"
+                    }
+                    IntErrorKind::InvalidDigit => {
+                        "TTLs can only contain digits"
+                    }
+                    IntErrorKind::NegOverflow => "TTLs must be non-negative",
+                    // We have already checked for other kinds of errors.
+                    _ => unreachable!(),
+                })
             })
-        })?;
-
-        scanner.consume(len);
-        Ok(Self::from(value))
+            .map(Self::from)
     }
 }
 
@@ -685,7 +681,10 @@ mod test {
         let cases = [
             (b"0" as &[u8], Ok(TTL::from(0))),
             (b"65536", Ok(TTL::from(65536))),
-            (b"42W", Err(ScanError::Custom("TTLs cannot have suffixes"))),
+            (
+                b"42W",
+                Err(ScanError::Custom("TTLs can only contain digits")),
+            ),
         ];
 
         let alloc = bumpalo::Bump::new();
