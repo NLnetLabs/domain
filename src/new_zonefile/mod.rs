@@ -112,17 +112,18 @@
 //! class = "IN" | "CH" | "CLASS" [0-9]+
 //!
 //! # If the format of the record type is unknown, 'unknown-data' is used.
-//! data = unknown-data | known-data
+//! data = type ws+ (unknown-data | known-data)
 //!
-//! unknown-data = ud-type ws+ "\\#" ws+ ud-size ws+ ud-data
-//!   ud-type = "TYPE" [0-9]+
+//! # Includes the identifiers for supported record types.
+//! type = (...) | "TYPE" [0-9]+
+//!
+//! unknown-data = "\\#" ws+ ud-size ws+ ud-data
 //!   # The size of the record data, in bytes.
 //!   ud-size = [0-9]+
 //!   ud-data = (ud-word (ws+ ud-word)*)?
 //!   ud-word = ([0-9a-fA-F] [0-9a-fA-F])+
 //!
-//! known-data = type ws+ d-data
-//!   d-data = (d-word (ws+ d-word)*)?
+//! known-data = (d-word (ws+ d-word)*)?
 //!   d-word = ([^"\\\(\); \t\r\n] | "\\" ascii-printable | quoted-string)+
 //!
 //! quoted-string = "\"" ([^"\\\n] | "\\" (ascii-printable | ws))* "\""
