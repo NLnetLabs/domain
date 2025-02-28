@@ -76,3 +76,37 @@ impl<'a, N: Scan<'a>> Scan<'a> for CName<N> {
         }
     }
 }
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::CName;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_base::name::RevNameBuf;
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (
+                b"example.org." as &[u8],
+                Ok(b"\x00\x03org\x07example" as &[u8]),
+            ),
+            (b"", Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut tmp = None;
+            assert_eq!(
+                <CName<RevNameBuf>>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|s| tmp.insert(s.name).as_bytes()),
+                expected
+            );
+        }
+    }
+}

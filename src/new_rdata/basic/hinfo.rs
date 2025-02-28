@@ -76,3 +76,32 @@ impl<'a> Scan<'a> for HInfo<'a> {
         }
     }
 }
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::HInfo;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"cpu os" as &[u8], Ok((b"cpu" as &[u8], b"os" as &[u8]))),
+            (b"cpu" as &[u8], Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                <HInfo<'_>>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|hinfo| (&hinfo.cpu.octets, &hinfo.os.octets)),
+                expected
+            );
+        }
+    }
+}

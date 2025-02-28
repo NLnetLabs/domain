@@ -1,3 +1,5 @@
+use core::fmt;
+
 use domain_macros::*;
 
 use crate::new_base::{
@@ -24,6 +26,8 @@ use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
     BuildBytes,
     ParseBytes,
     SplitBytes,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct Ns<N: ?Sized> {
@@ -50,6 +54,14 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ns<N> {
     }
 }
 
+//--- Formatting
+
+impl<N: ?Sized + fmt::Display> fmt::Display for Ns<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
 //--- Parsing from the zonefile format
 
 #[cfg(feature = "zonefile")]
@@ -73,6 +85,40 @@ impl<'a, N: Scan<'a>> Scan<'a> for Ns<N> {
             Ok(Self { name })
         } else {
             Err(ScanError::Custom("Unexpected data at end of NS record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::Ns;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_base::name::RevNameBuf;
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (
+                b"example.org." as &[u8],
+                Ok(b"\x00\x03org\x07example" as &[u8]),
+            ),
+            (b"", Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut tmp = None;
+            assert_eq!(
+                <Ns<RevNameBuf>>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|s| tmp.insert(s.name).as_bytes()),
+                expected
+            );
         }
     }
 }

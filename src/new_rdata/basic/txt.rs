@@ -36,6 +36,7 @@ impl Txt {
         core::iter::successors(Some(first), |prev| {
             prev.as_ref()
                 .ok()
+                .filter(|(_elem, rest)| !rest.is_empty())
                 .map(|(_elem, rest)| <&CharStr>::split_bytes(rest))
         })
         .map(|result| result.map(|(elem, _rest)| elem))
@@ -157,6 +158,45 @@ impl<'a> Scan<'a> for &'a Txt {
             Err(ScanError::Incomplete)
         } else {
             Err(ScanError::Custom("Unexpected data at end of TXT record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::Txt;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"a b" as &[u8], Ok(&[b"a" as &[u8], b"b"] as &[_])),
+            (b"a \"b c\" d", Ok(&[b"a" as &[u8], b"b c", b"d"])),
+            (b"" as &[u8], Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let result = <&Txt>::scan(&mut scanner, &alloc, &mut buffer);
+            assert!(
+                result.as_ref().err() == expected.as_ref().err(),
+                "{result:?} == {expected:?}"
+            );
+            if let (Ok(result), Ok(expected)) = (result, expected) {
+                assert!(
+                    result
+                        .iter()
+                        .map(|s| s.map(|s| &s.octets))
+                        .eq(expected.iter().map(|&s| Ok(s))),
+                    "{result:?} == {expected:?}"
+                );
+            }
         }
     }
 }
