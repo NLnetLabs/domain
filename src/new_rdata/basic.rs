@@ -94,8 +94,7 @@ impl Scan<'_> for A {
     /// This parses the following syntax:
     ///
     /// ```text
-    /// # Parsing from a sequence of 'd-word's.
-    /// rdata-a = ipv4-addr
+    /// rdata-a = ipv4-addr ws*
     ///   ipv4-addr = ipv4-octet "." ipv4-octet "." ipv4-octet "." ipv4-octet
     ///   # A decimal number between 0 and 255, inclusive.
     ///   ipv4-octet = [0-9]+
@@ -119,7 +118,7 @@ impl Scan<'_> for A {
         if scanner.is_empty() {
             Ok(Self::from(addr))
         } else {
-            Err(ScanError::Custom("Unexpected data following IPv4 address"))
+            Err(ScanError::Custom("Unexpected data at end of A record"))
         }
     }
 }
@@ -165,6 +164,33 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ns<N> {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for Ns<N> {
+    /// Scan the data for an NS record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-ns = name ws*
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let name = N::scan(scanner, alloc, buffer)?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self { name })
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of NS record"))
+        }
+    }
+}
+
 //----------- Cname ----------------------------------------------------------
 
 /// The canonical name for this domain.
@@ -203,6 +229,33 @@ impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for CName<N> {
 impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for CName<N> {
     fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
         self.name.build_into_message(builder)
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for CName<N> {
+    /// Scan the data for a CNAME record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-cname = name ws*
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let name = N::scan(scanner, alloc, buffer)?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self { name })
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of CNAME record"))
+        }
     }
 }
 
@@ -285,6 +338,67 @@ impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
         builder.append_bytes(self.expire.as_bytes())?;
         builder.append_bytes(self.minimum.as_bytes())?;
         Ok(builder.commit())
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for Soa<N> {
+    /// Scan the data for a SOA record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-soa = name ws+ name ws+ u32 ws+ u32 ws+ u32 ws+ u32 ws+ u32 ws*
+    /// # An unsigned 32-bit integer.
+    /// u32 = [0-9]+
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let mname = N::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let rname = N::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let serial = Serial::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let refresh = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let retry = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let expire = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let minimum = u32::scan(scanner, alloc, buffer)?.into();
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self {
+                rname,
+                mname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            })
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of SOA record"))
+        }
     }
 }
 
@@ -381,6 +495,33 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ptr<N> {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for Ptr<N> {
+    /// Scan the data for a PTR record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-ptr = name ws*
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let name = N::scan(scanner, alloc, buffer)?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self { name })
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of PTR record"))
+        }
+    }
+}
+
 //----------- HInfo ----------------------------------------------------------
 
 /// Information about the host computer.
@@ -414,6 +555,37 @@ impl BuildIntoMessage for HInfo<'_> {
         self.cpu.build_into_message(builder.delegate())?;
         self.os.build_into_message(builder.delegate())?;
         Ok(builder.commit())
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for HInfo<'a> {
+    /// Scan the data for an HINFO record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-hinfo = char-str ws+ char-str ws*
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let cpu = <&CharStr>::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let os = <&CharStr>::scan(scanner, alloc, buffer)?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self { cpu, os })
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of HINFO record"))
+        }
     }
 }
 
@@ -469,6 +641,42 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
         builder.append_bytes(self.preference.as_bytes())?;
         self.exchange.build_into_message(builder.delegate())?;
         Ok(builder.commit())
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for Mx<N> {
+    /// Scan the data for an MX record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-mx = u16 ws+ name ws*
+    /// # An unsigned 16-bit integer.
+    /// u16 = [0-9]+
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let preference = u16::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let exchange = N::scan(scanner, alloc, buffer)?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self {
+                preference,
+                exchange,
+            })
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of MX record"))
+        }
     }
 }
 
@@ -556,6 +764,68 @@ impl fmt::Debug for Txt {
         }
 
         f.debug_tuple("Txt").field(&Content(self)).finish()
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a Txt {
+    /// Scan the data for a TXT record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-txt = char-str (ws+ char-str)* ws*
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let start = buffer.len();
+
+        loop {
+            if start < buffer.len() && !scanner.skip_ws() {
+                break;
+            }
+
+            let cur = buffer.len();
+            buffer.push(0u8);
+            match scanner.scan_token(buffer)? {
+                Some(token) if token.len() > 255 => {
+                    buffer.truncate(start);
+                    return Err(ScanError::Custom(
+                        "Overlong character string",
+                    ));
+                }
+
+                Some(token) => {
+                    buffer[cur] = token.len() as u8;
+                    if buffer.len() - start >= 65536 {
+                        return Err(ScanError::Custom(
+                            "TXT record has overflowed 64K bytes",
+                        ));
+                    }
+                }
+
+                None => {
+                    buffer.truncate(cur);
+                    break;
+                }
+            }
+        }
+
+        if start < buffer.len() && scanner.is_empty() {
+            let bytes = alloc.alloc_slice_copy(&buffer[start..]);
+            buffer.truncate(start);
+            // SAFETY: 'buffer' contains a sequence of character strings.
+            Ok(unsafe { core::mem::transmute::<&[u8], Self>(bytes) })
+        } else if start == buffer.len() {
+            Err(ScanError::Incomplete)
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of TXT record"))
+        }
     }
 }
 
