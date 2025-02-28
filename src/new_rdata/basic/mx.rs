@@ -24,6 +24,8 @@ use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
     BuildBytes,
     ParseBytes,
     SplitBytes,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(C)]
 pub struct Mx<N: ?Sized> {
@@ -119,6 +121,43 @@ impl<'a, N: Scan<'a>> Scan<'a> for Mx<N> {
             })
         } else {
             Err(ScanError::Custom("Unexpected data at end of MX record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::Mx;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_base::name::RevNameBuf;
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (
+                b"20 example.org." as &[u8],
+                Ok((20, b"\x00\x03org\x07example" as &[u8])),
+            ),
+            (b"20" as &[u8], Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut tmp = None;
+            assert_eq!(
+                <Mx<RevNameBuf>>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|s| (
+                        s.preference.get(),
+                        tmp.insert(s.exchange).as_bytes()
+                    )),
+                expected
+            );
         }
     }
 }

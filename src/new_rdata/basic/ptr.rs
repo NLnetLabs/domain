@@ -1,3 +1,5 @@
+use core::fmt;
+
 use domain_macros::*;
 
 use crate::new_base::{
@@ -24,6 +26,8 @@ use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
     BuildBytes,
     ParseBytes,
     SplitBytes,
+    ParseBytesByRef,
+    SplitBytesByRef,
 )]
 #[repr(transparent)]
 pub struct Ptr<N: ?Sized> {
@@ -71,6 +75,14 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Ptr<N> {
     }
 }
 
+//--- Formatting
+
+impl<N: ?Sized + fmt::Display> fmt::Display for Ptr<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
 //--- Parsing from the zonefile format
 
 #[cfg(feature = "zonefile")]
@@ -94,6 +106,40 @@ impl<'a, N: Scan<'a>> Scan<'a> for Ptr<N> {
             Ok(Self { name })
         } else {
             Err(ScanError::Custom("Unexpected data at end of PTR record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::Ptr;
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_base::name::RevNameBuf;
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (
+                b"example.org." as &[u8],
+                Ok(b"\x00\x03org\x07example" as &[u8]),
+            ),
+            (b"", Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut tmp = None;
+            assert_eq!(
+                <Ptr<RevNameBuf>>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|s| tmp.insert(s.name).as_bytes()),
+                expected
+            );
         }
     }
 }

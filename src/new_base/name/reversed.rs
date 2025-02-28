@@ -550,7 +550,7 @@ impl Scan<'_> for RevNameBuf {
         }
 
         if this.offset == 255 {
-            return Err(ScanError::Custom("No domain name was found"));
+            return Err(ScanError::Incomplete);
         }
 
         // Add a root label and stop.
@@ -655,14 +655,8 @@ mod test {
         use super::RevNameBuf;
 
         let cases = [
-            (
-                b"".as_slice(),
-                Err(ScanError::Custom("No domain name was found")),
-            ),
-            (
-                b" ".as_slice(),
-                Err(ScanError::Custom("No domain name was found")),
-            ),
+            (b"".as_slice(), Err(ScanError::Incomplete)),
+            (b" ".as_slice(), Err(ScanError::Incomplete)),
             (b"a", Ok(&[b"" as &[u8], b"org", b"a"] as &[&[u8]])),
             (b"xn--hello.", Ok(&[b"", b"xn--hello"])),
             (

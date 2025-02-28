@@ -107,7 +107,7 @@ mod tests {
 
     #[cfg(feature = "zonefile")]
     #[test]
-    fn scan_a() {
+    fn scan() {
         use core::net::Ipv4Addr;
 
         use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
