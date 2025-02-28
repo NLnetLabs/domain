@@ -13,7 +13,7 @@
 // TODO
 //!
 
-use core::fmt;
+use core::{fmt, num::IntErrorKind};
 use std::vec::Vec;
 
 use bumpalo::Bump;
@@ -315,6 +315,46 @@ pub trait Scan<'a>: Sized {
         buffer: &mut Vec<u8>,
     ) -> Result<Self, ScanError>;
 }
+
+macro_rules! impl_scan_int {
+    ($type:ty) => {
+        impl Scan<'_> for $type {
+            fn scan(
+                scanner: &mut Scanner<'_>,
+                _alloc: &'_ Bump,
+                _buffer: &mut Vec<u8>,
+            ) -> Result<Self, ScanError> {
+                scanner.scan_plain_token()?.parse::<$type>().map_err(|err| {
+                    ScanError::Custom(match err.kind() {
+                        IntErrorKind::PosOverflow => {
+                            "Integer value too large for field"
+                        }
+                        IntErrorKind::InvalidDigit => {
+                            "Invalid decimal integer"
+                        }
+                        IntErrorKind::NegOverflow => {
+                            "A non-negative integer was expected"
+                        }
+                        // We have already checked for other kinds of errors.
+                        _ => unreachable!(),
+                    })
+                })
+            }
+        }
+    };
+}
+
+impl_scan_int!(u8);
+impl_scan_int!(u16);
+impl_scan_int!(u32);
+impl_scan_int!(u64);
+impl_scan_int!(usize);
+
+impl_scan_int!(i8);
+impl_scan_int!(i16);
+impl_scan_int!(i32);
+impl_scan_int!(i64);
+impl_scan_int!(isize);
 
 //----------- ScanError ------------------------------------------------------
 
