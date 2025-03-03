@@ -60,3 +60,28 @@ impl BuildIntoMessage for Wks {
         self.as_bytes().build_into_message(builder)
     }
 }
+
+//--- Equality
+
+impl PartialEq for Wks {
+    fn eq(&self, other: &Self) -> bool {
+        if self.address != other.address || self.protocol != other.protocol {
+            return false;
+        }
+
+        // Iterate through the ports, ignoring trailing zero bytes.
+        let mut lp = self.ports.iter();
+        let mut rp = other.ports.iter();
+        while lp.len() > 0 || rp.len() > 0 {
+            match (lp.next(), rp.next()) {
+                (Some(l), Some(r)) if l != r => return false,
+                (Some(l), None) if *l != 0 => return false,
+                (None, Some(r)) if *r != 0 => return false,
+                _ => {}
+            }
+        }
+        true
+    }
+}
+
+impl Eq for Wks {}
