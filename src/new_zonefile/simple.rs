@@ -166,13 +166,13 @@ impl<R: io::BufRead> ZonefileScanner<R> {
     }
 
     /// Scan a directive.
-    fn scan_directive(
+    fn scan_directive<'a>(
         entry: &[u8],
         origin: &mut Option<RevNameBuf>,
         last_ttl: &mut Option<TTL>,
-        alloc: &bumpalo::Bump,
+        alloc: &'a bumpalo::Bump,
         buffer: &mut Vec<u8>,
-    ) -> Result<Option<Entry<'static>>, DirectiveError> {
+    ) -> Result<Option<Entry<'a>>, DirectiveError> {
         // Extract the directive.
         let pos = entry
             .iter()
@@ -200,12 +200,12 @@ impl<R: io::BufRead> ZonefileScanner<R> {
     }
 
     /// Scan an include directive.
-    fn scan_include_directive(
+    fn scan_include_directive<'a>(
         mut scanner: Scanner<'_>,
         origin: &Option<RevNameBuf>,
-        alloc: &bumpalo::Bump,
+        alloc: &'a bumpalo::Bump,
         buffer: &mut Vec<u8>,
-    ) -> Result<Entry<'static>, DirectiveError> {
+    ) -> Result<Entry<'a>, DirectiveError> {
         let file_name: PathBuf = scanner
             .scan_token(buffer)
             .transpose()
@@ -222,6 +222,11 @@ impl<R: io::BufRead> ZonefileScanner<R> {
                     .map_err(|_| DirectiveError::InvalidOrigin)?,
             );
         }
+        let origin = origin.map(|origin| {
+            let bytes = alloc.alloc_slice_copy(origin.as_bytes());
+            // SAFETY: 'RevName::as_bytes()' is always valid.
+            unsafe { RevName::from_bytes_unchecked(bytes) }
+        });
 
         Ok(Entry::Include { file_name, origin })
     }
@@ -389,7 +394,7 @@ pub enum Entry<'a> {
         file_name: PathBuf,
 
         /// The origin domain name to use.
-        origin: Option<RevNameBuf>,
+        origin: Option<&'a RevName>,
     },
 }
 
@@ -665,7 +670,7 @@ $INCLUDE <SUBSYS>ISI-MAILBOXES.TXT
             })
             .chain([Entry::Include {
                 file_name: PathBuf::from("<SUBSYS>ISI-MAILBOXES.TXT"),
-                origin: Some(origin.clone()),
+                origin: Some(&origin),
             }]);
 
         let mut scanner = ZonefileScanner::new(source, Some(&origin));
