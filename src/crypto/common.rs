@@ -293,7 +293,6 @@ impl error::Error for ParseDnskeyTextError {}
 
 #[cfg(feature = "unstable-crypto-sign")]
 pub mod sign {
-    use std::sync::Arc;
     use std::vec::Vec;
 
     use crate::base::iana::SecAlg;
@@ -304,8 +303,6 @@ pub mod sign {
     use crate::rdata::Dnskey;
 
     use super::GenerateParams;
-
-    use ::ring::rand::SystemRandom;
 
     #[cfg(feature = "openssl")]
     use super::openssl;
@@ -346,24 +343,25 @@ pub mod sign {
         {
             // Prefer Ring if it is available.
             #[cfg(feature = "ring")]
-            let fallback_to_openssl = match public.algorithm() {
-                SecAlg::RSASHA1
-                | SecAlg::RSASHA1_NSEC3_SHA1
-                | SecAlg::RSASHA256
-                | SecAlg::RSASHA512 => {
-                    ring::PublicKey::from_dnskey(public)
-                        .map_err(|_| FromBytesError::InvalidKey)?
-                        .key_size()
-                        < 2048
-                }
-                _ => false,
-            };
+            {
+                let fallback_to_openssl = match public.algorithm() {
+                    SecAlg::RSASHA1
+                    | SecAlg::RSASHA1_NSEC3_SHA1
+                    | SecAlg::RSASHA256
+                    | SecAlg::RSASHA512 => {
+                        ring::PublicKey::from_dnskey(public)
+                            .map_err(|_| FromBytesError::InvalidKey)?
+                            .key_size()
+                            < 2048
+                    }
+                    _ => false,
+                };
 
-            if !fallback_to_openssl {
-                let rng = Arc::new(SystemRandom::new());
-                let key =
-                    ring::sign::KeyPair::from_bytes(secret, public, rng)?;
-                return Ok(Self::Ring(key));
+                if !fallback_to_openssl {
+                    let key =
+                        ring::sign::KeyPair::from_bytes(secret, public)?;
+                    return Ok(Self::Ring(key));
+                }
             }
 
             // Fall back to OpenSSL.

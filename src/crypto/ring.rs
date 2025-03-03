@@ -342,6 +342,7 @@ pub(crate) mod sign {
 
     use super::{GenerateError, PublicKey};
 
+    use ring::rand::SystemRandom;
     use ring::signature::{
         self, EcdsaKeyPair, Ed25519KeyPair, KeyPair as _, RsaKeyPair,
     };
@@ -384,11 +385,11 @@ pub(crate) mod sign {
         pub fn from_bytes<Octs>(
             secret: &SecretKeyBytes,
             public: &Dnskey<Octs>,
-            rng: Arc<dyn ring::rand::SecureRandom>,
         ) -> Result<Self, FromBytesError>
         where
             Octs: AsRef<[u8]>,
         {
+            let rng = Arc::new(SystemRandom::new());
             match secret {
                 SecretKeyBytes::RsaSha256(s) => {
                     let rsa_public = signature::RsaPublicKeyComponents {
@@ -715,7 +716,6 @@ mod tests {
     #[test]
     #[cfg(feature = "unstable-validator")]
     fn public_key() {
-        let rng = Arc::new(ring::rand::SystemRandom::new());
         for &(algorithm, key_tag) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
@@ -728,9 +728,7 @@ mod tests {
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
 
-            let key =
-                KeyPair::from_bytes(&gen_key, pub_key.data(), rng.clone())
-                    .unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
             assert_eq!(key.dnskey(), *pub_key.data());
         }
@@ -742,7 +740,7 @@ mod tests {
         for params in GENERATE_PARAMS {
             let (sk, pk) =
                 super::sign::generate(params.clone(), 256, &*rng).unwrap();
-            let key = KeyPair::from_bytes(&sk, &pk, rng.clone()).unwrap();
+            let key = KeyPair::from_bytes(&sk, &pk).unwrap();
             assert_eq!(key.dnskey(), pk);
         }
     }
@@ -753,7 +751,6 @@ mod tests {
         for &(algorithm, key_tag) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
-            let rng = Arc::new(ring::rand::SystemRandom::new());
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
@@ -763,8 +760,7 @@ mod tests {
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
 
-            let key =
-                KeyPair::from_bytes(&gen_key, pub_key.data(), rng).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!").unwrap();
         }

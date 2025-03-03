@@ -90,8 +90,8 @@
 //! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
 //! [`SecretKeyBytes`]: crate::sign::keys::SecretKeyBytes
 
-// misc requires ring and unstable-crypto-sign.
-#[cfg(all(feature = "ring", feature = "unstable-crypto-sign"))]
+// misc requires unstable-crypto-sign.
+#[cfg(feature = "unstable-crypto-sign")]
 pub mod misc;
 
 // common requires either ring or openssl.
