@@ -156,7 +156,9 @@ required-features = ["net", "unstable-client-transport", "unstable-server-transp
 
 [[example]]
 name = "keyset"
-required-features = ["serde", "unstable-sign"]
+# Note that we have to pick a crypto backend eventhough the example doesn't
+# need one.
+required-features = ["serde", "unstable-sign", "ring"]
 
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible
