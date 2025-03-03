@@ -44,6 +44,16 @@ impl<N> Ptr<N> {
             name: (f)(self.name),
         }
     }
+
+    /// Map a reference to the domain name within to another type.
+    pub fn map_name_by_ref<'r, R, F: FnOnce(&'r N) -> R>(
+        &'r self,
+        f: F,
+    ) -> Ptr<R> {
+        Ptr {
+            name: (f)(&self.name),
+        }
+    }
 }
 
 //--- Parsing from DNS messages

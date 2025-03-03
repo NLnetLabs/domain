@@ -46,6 +46,17 @@ impl<N> Mx<N> {
             exchange: (f)(self.exchange),
         }
     }
+
+    /// Map a reference to the domain name within to another type.
+    pub fn map_name_by_ref<'r, R, F: FnOnce(&'r N) -> R>(
+        &'r self,
+        f: F,
+    ) -> Mx<R> {
+        Mx {
+            preference: self.preference,
+            exchange: (f)(&self.exchange),
+        }
+    }
 }
 
 //--- Parsing from DNS messages

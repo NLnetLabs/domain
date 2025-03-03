@@ -108,6 +108,27 @@ impl<'a, N> RecordData<'a, N> {
             Self::Unknown(rt, rd) => RecordData::Unknown(rt, rd),
         }
     }
+
+    /// Map references to the domain names within to another type.
+    pub fn map_names_by_ref<'r, R, F: FnMut(&'r N) -> R>(
+        &'r self,
+        f: F,
+    ) -> RecordData<'r, R> {
+        match self {
+            Self::A(r) => RecordData::A(r),
+            Self::Ns(r) => RecordData::Ns(r.map_name_by_ref(f)),
+            Self::CName(r) => RecordData::CName(r.map_name_by_ref(f)),
+            Self::Soa(r) => RecordData::Soa(r.map_names_by_ref(f)),
+            Self::Wks(r) => RecordData::Wks(r),
+            Self::Ptr(r) => RecordData::Ptr(r.map_name_by_ref(f)),
+            Self::HInfo(r) => RecordData::HInfo(r.clone()),
+            Self::Mx(r) => RecordData::Mx(r.map_name_by_ref(f)),
+            Self::Txt(r) => RecordData::Txt(r),
+            Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::Opt(r) => RecordData::Opt(r),
+            Self::Unknown(rt, rd) => RecordData::Unknown(*rt, rd),
+        }
+    }
 }
 
 //--- Parsing record data
