@@ -331,13 +331,15 @@ where
 {
     // Create a validating transport
     let anchor_file = std::fs::File::open("examples/root.key").unwrap();
-    let ta =
-        domain::validator::anchor::TrustAnchors::from_reader(anchor_file)
-            .unwrap();
-    let vc = Arc::new(domain::validator::context::ValidationContext::new(
-        ta,
-        conn.clone(),
-    ));
+    let ta = domain::dnssec::validator::anchor::TrustAnchors::from_reader(
+        anchor_file,
+    )
+    .unwrap();
+    let vc =
+        Arc::new(domain::dnssec::validator::context::ValidationContext::new(
+            ta,
+            conn.clone(),
+        ));
     let val_conn = domain::net::client::validator::Connection::new(conn, vc);
 
     // Send a query message.
