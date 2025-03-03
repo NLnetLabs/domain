@@ -25,17 +25,17 @@ pub struct Txt {
 
 impl Txt {
     /// Iterate over the [`CharStr`]s in this record.
-    pub fn iter(
-        &self,
-    ) -> impl Iterator<Item = Result<&CharStr, ParseError>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = &CharStr> + '_ {
         // NOTE: A TXT record always has at least one 'CharStr' within.
-        let first = <&CharStr>::split_bytes(&self.content);
-        core::iter::successors(Some(first), |prev| {
-            prev.as_ref()
-                .ok()
-                .map(|(_elem, rest)| <&CharStr>::split_bytes(rest))
+        let first = <&CharStr>::split_bytes(&self.content)
+            .expect("'Txt' records always contain valid 'CharStr's");
+        core::iter::successors(Some(first), |(_, rest)| {
+            (!rest.is_empty()).then(|| {
+                <&CharStr>::split_bytes(rest)
+                    .expect("'Txt' records always contain valid 'CharStr's")
+            })
         })
-        .map(|result| result.map(|(elem, _rest)| elem))
+        .map(|(elem, _rest)| elem)
     }
 }
 
@@ -80,18 +80,20 @@ impl fmt::Debug for Txt {
         struct Content<'a>(&'a Txt);
         impl fmt::Debug for Content<'_> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let mut list = f.debug_list();
-                for elem in self.0.iter() {
-                    if let Ok(elem) = elem {
-                        list.entry(&elem);
-                    } else {
-                        list.entry(&ParseError);
-                    }
-                }
-                list.finish()
+                f.debug_list().entries(self.0.iter()).finish()
             }
         }
 
         f.debug_tuple("Txt").field(&Content(self)).finish()
     }
 }
+
+//--- Equality
+
+impl PartialEq for Txt {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+impl Eq for Txt {}

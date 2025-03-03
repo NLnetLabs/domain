@@ -23,7 +23,7 @@ pub use edns::{EdnsOptionsIter, Opt};
 //----------- RecordData -----------------------------------------------------
 
 /// DNS record data.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RecordData<'a, N> {
     /// The IPv4 address of a host responsible for this domain.
@@ -181,7 +181,7 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
 //----------- UnknownRecordData ----------------------------------------------
 
 /// Data for an unknown DNS record type.
-#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct UnknownRecordData {
     /// The unparsed option data.
