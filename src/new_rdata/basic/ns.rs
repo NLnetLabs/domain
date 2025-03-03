@@ -28,6 +28,27 @@ pub struct Ns<N: ?Sized> {
     pub name: N,
 }
 
+//--- Interaction
+
+impl<N> Ns<N> {
+    /// Map the domain name within to another type.
+    pub fn map_name<R, F: FnOnce(N) -> R>(self, f: F) -> Ns<R> {
+        Ns {
+            name: (f)(self.name),
+        }
+    }
+
+    /// Map a reference to the domain name within to another type.
+    pub fn map_name_by_ref<'r, R, F: FnOnce(&'r N) -> R>(
+        &'r self,
+        f: F,
+    ) -> Ns<R> {
+        Ns {
+            name: (f)(&self.name),
+        }
+    }
+}
+
 //--- Parsing from DNS messages
 
 impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Ns<N> {

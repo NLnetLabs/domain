@@ -44,6 +44,39 @@ pub struct Soa<N> {
     pub minimum: U32,
 }
 
+//--- Interaction
+
+impl<N> Soa<N> {
+    /// Map the domain names within to another type.
+    pub fn map_names<R, F: FnMut(N) -> R>(self, mut f: F) -> Soa<R> {
+        Soa {
+            mname: (f)(self.mname),
+            rname: (f)(self.rname),
+            serial: self.serial,
+            refresh: self.refresh,
+            retry: self.retry,
+            expire: self.expire,
+            minimum: self.minimum,
+        }
+    }
+
+    /// Map references to the domain names within to another type.
+    pub fn map_names_by_ref<'r, R, F: FnMut(&'r N) -> R>(
+        &'r self,
+        mut f: F,
+    ) -> Soa<R> {
+        Soa {
+            mname: (f)(&self.mname),
+            rname: (f)(&self.rname),
+            serial: self.serial,
+            refresh: self.refresh,
+            retry: self.retry,
+            expire: self.expire,
+            minimum: self.minimum,
+        }
+    }
+}
+
 //--- Parsing from DNS messages
 
 impl<'a, N: SplitMessageBytes<'a>> ParseMessageBytes<'a> for Soa<N> {

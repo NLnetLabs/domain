@@ -63,6 +63,71 @@ pub enum RecordData<'a, N> {
     Unknown(RType, &'a UnknownRecordData),
 }
 
+//--- Inspection
+
+impl<N> RecordData<'_, N> {
+    /// The type of this record data.
+    pub const fn rtype(&self) -> RType {
+        match self {
+            Self::A(..) => RType::A,
+            Self::Ns(..) => RType::NS,
+            Self::CName(..) => RType::CNAME,
+            Self::Soa(..) => RType::SOA,
+            Self::Wks(..) => RType::WKS,
+            Self::Ptr(..) => RType::PTR,
+            Self::HInfo(..) => RType::HINFO,
+            Self::Mx(..) => RType::MX,
+            Self::Txt(..) => RType::TXT,
+            Self::Aaaa(..) => RType::AAAA,
+            Self::Opt(..) => RType::OPT,
+            Self::Unknown(rtype, _) => *rtype,
+        }
+    }
+}
+
+//--- Interaction
+
+impl<'a, N> RecordData<'a, N> {
+    /// Map the domain names within to another type.
+    pub fn map_names<R, F: FnMut(N) -> R>(self, f: F) -> RecordData<'a, R> {
+        match self {
+            Self::A(r) => RecordData::A(r),
+            Self::Ns(r) => RecordData::Ns(r.map_name(f)),
+            Self::CName(r) => RecordData::CName(r.map_name(f)),
+            Self::Soa(r) => RecordData::Soa(r.map_names(f)),
+            Self::Wks(r) => RecordData::Wks(r),
+            Self::Ptr(r) => RecordData::Ptr(r.map_name(f)),
+            Self::HInfo(r) => RecordData::HInfo(r),
+            Self::Mx(r) => RecordData::Mx(r.map_name(f)),
+            Self::Txt(r) => RecordData::Txt(r),
+            Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::Opt(r) => RecordData::Opt(r),
+            Self::Unknown(rt, rd) => RecordData::Unknown(rt, rd),
+        }
+    }
+
+    /// Map references to the domain names within to another type.
+    pub fn map_names_by_ref<'r, R, F: FnMut(&'r N) -> R>(
+        &'r self,
+        f: F,
+    ) -> RecordData<'r, R> {
+        match self {
+            Self::A(r) => RecordData::A(r),
+            Self::Ns(r) => RecordData::Ns(r.map_name_by_ref(f)),
+            Self::CName(r) => RecordData::CName(r.map_name_by_ref(f)),
+            Self::Soa(r) => RecordData::Soa(r.map_names_by_ref(f)),
+            Self::Wks(r) => RecordData::Wks(r),
+            Self::Ptr(r) => RecordData::Ptr(r.map_name_by_ref(f)),
+            Self::HInfo(r) => RecordData::HInfo(r.clone()),
+            Self::Mx(r) => RecordData::Mx(r.map_name_by_ref(f)),
+            Self::Txt(r) => RecordData::Txt(r),
+            Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::Opt(r) => RecordData::Opt(r),
+            Self::Unknown(rt, rd) => RecordData::Unknown(*rt, rd),
+        }
+    }
+}
+
 //--- Parsing record data
 
 impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>
