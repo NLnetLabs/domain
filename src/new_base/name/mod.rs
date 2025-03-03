@@ -21,7 +21,7 @@ mod absolute;
 pub use absolute::Name;
 
 mod reversed;
-pub use reversed::{RevName, RevNameBuf};
+pub use reversed::{RevName, RevNameBuf, RevNameParseError};
 
 mod unparsed;
 pub use unparsed::UnparsedName;
