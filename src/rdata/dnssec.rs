@@ -1734,7 +1734,7 @@ pub struct Ds<Octs> {
     digest_type: DigestAlg,
     #[cfg_attr(
         feature = "serde",
-        serde(with = "crate::utils::base64::serde")
+        serde(with = "crate::utils::base16::serde")
     )]
     digest: Octs,
 }
@@ -2633,7 +2633,7 @@ impl Iterator for RtypeBitmapIter<'_> {
             return None;
         }
         let res =
-            Rtype::from_int(self.block | (self.octet as u16) << 3 | self.bit);
+            Rtype::from_int(self.block | ((self.octet as u16) << 3) | self.bit);
         self.advance();
         Some(res)
     }
