@@ -7,6 +7,7 @@ use core::{
     hash::{Hash, Hasher},
     iter::FusedIterator,
     ops::{Deref, DerefMut},
+    str::FromStr,
 };
 
 use domain_macros::AsBytes;
@@ -16,6 +17,9 @@ use crate::new_base::{
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
 };
+
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
 //----------- Label ----------------------------------------------------------
 
@@ -134,6 +138,26 @@ impl BuildBytes for Label {
         let rest = self.as_bytes().build_bytes(data)?;
         *size = self.len() as u8;
         Ok(rest)
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a Label {
+    /// Scan a domain name label.
+    ///
+    /// This parses a domain name label, following the [specification].
+    ///
+    /// [specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let label = LabelBuf::scan(scanner, alloc, buffer)?;
+        let bytes = alloc.alloc_slice_copy(label.as_bytes());
+        Ok(unsafe { Label::from_bytes_unchecked(bytes) })
     }
 }
 
@@ -355,6 +379,111 @@ impl BuildBytes for LabelBuf {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for LabelBuf {
+    /// Scan a domain name label.
+    ///
+    /// This parses a domain name label, following the [specification].
+    ///
+    /// [specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Allow the buffer to have previous content.
+        let start = buffer.len();
+
+        // Try parsing a quoted label string.
+        if scanner.remaining().starts_with(b"\"") {
+            scanner.consume(1);
+            let _ = scanner.scan_quoted(buffer)?;
+            if scanner.remaining().first().is_some_and(|&c| {
+                c.is_ascii_alphanumeric() || c == b'-' || c == b'\\'
+            }) {
+                return Err(ScanError::Custom(
+                    "a domain label was only partially quoted",
+                ));
+            }
+        } else {
+            // Loop through non-special chunks and special sequences.
+            loop {
+                let (chunk, first) = scanner.scan_unquoted_chunk(|&c| {
+                    !c.is_ascii_alphanumeric() && c != b'-'
+                });
+
+                // Copy the non-special chunk into the buffer.
+                buffer.extend_from_slice(chunk);
+
+                // Determine the nature of the special sequence.
+                match first {
+                    Some(b'"') => {
+                        return Err(ScanError::Custom(
+                            "a domain label was only partially quoted",
+                        ))
+                    }
+
+                    Some(b'\\') => {
+                        // An escape sequence.
+                        scanner.consume(1);
+                        buffer.push(scanner.scan_escape()?);
+                    }
+
+                    _ => break,
+                }
+            }
+        }
+
+        // Parse the result as a label.
+        let label = &buffer[start..];
+        if label.len() > 63 {
+            return Err(ScanError::Custom(
+                "a domain label exceeded 63 bytes",
+            ));
+        } else if label.is_empty() {
+            return Err(ScanError::Custom(
+                "a domain label was explicitly empty",
+            ));
+        }
+        // SAFETY: The label is a valid length.
+        let label = unsafe { Label::from_bytes_unchecked(label) };
+        let label = Self::copy_from(label);
+        buffer.truncate(start);
+        Ok(label)
+    }
+}
+
+//--- Parsing from strings
+
+impl FromStr for LabelBuf {
+    type Err = LabelParseError;
+
+    /// Parse a label from a string.
+    ///
+    /// This is intended for easily constructing hard-coded labels.  The input
+    /// is not expected to be in the zonefile format; it should simply contain
+    /// 1 to 63 characters, each being a plain ASCII alphanumeric or a hyphen.
+    /// To construct a label containing bytes outside this range, use
+    /// [`Label::from_bytes_unchecked()`].  To construct a root label, use
+    /// [`Label::ROOT`].
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            Err(LabelParseError::InvalidChar)
+        } else if s.is_empty() {
+            Err(LabelParseError::Empty)
+        } else if s.len() > 63 {
+            Err(LabelParseError::Overlong)
+        } else {
+            let bytes = s.as_bytes();
+            // SAFETY: 'bytes' is 63 bytes in size or smaller.
+            let label = unsafe { Label::from_bytes_unchecked(bytes) };
+            Ok(Self::copy_from(label))
+        }
+    }
+}
+
 //--- Access to the underlying 'Label'
 
 impl Deref for LabelBuf {
@@ -493,5 +622,83 @@ impl fmt::Debug for LabelIter<'_> {
         }
 
         f.debug_tuple("LabelIter").field(&Labels(self)).finish()
+    }
+}
+
+//------------ LabelParseError -----------------------------------------------
+
+/// An error in parsing a [`Label`] from a string.
+///
+/// This can be returned by [`LabelBuf::from_str()`].  It is not used when
+/// parsing labels from the zonefile format, which uses a different mechanism.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LabelParseError {
+    /// The label was too large.
+    ///
+    /// Valid labels are between 1 and 63 bytes, inclusive.
+    Overlong,
+
+    /// The label was empty.
+    ///
+    /// While root labels do exist, they can only be found at the end of a
+    /// domain name, and cannot be parsed using [`LabelBuf::from_str()`].
+    Empty,
+
+    /// An invalid character was used.
+    ///
+    /// Only alphanumeric characters and hyphens are allowed in labels.  This
+    /// prevents the encoding of perfectly valid labels containing non-ASCII
+    /// bytes, but they're fairly rare anyway.
+    InvalidChar,
+}
+
+//============ Unit tests ====================================================
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::LabelBuf;
+
+        let cases = [
+            (
+                b"" as &[u8],
+                Err(ScanError::Custom("a domain label was explicitly empty")),
+            ),
+            (b"a", Ok(b"a" as &[u8])),
+            (b"xn--hello", Ok(b"xn--hello")),
+            (b"a\\010b", Ok(b"a\nb")),
+            (b"a\\000", Ok(b"a\0")),
+            (b"a\\", Err(ScanError::IncompleteEscape)),
+            (b"a\\00", Err(ScanError::IncompleteEscape)),
+            (b"a\\256", Err(ScanError::InvalidDecimalEscape)),
+            (b"\\065", Ok(b"A")),
+            (b"a ", Ok(b"a")),
+            (b"\"hello\"", Ok(b"hello")),
+            (b"\"hello \"", Ok(b"hello ")),
+            (
+                b"\"\"",
+                Err(ScanError::Custom("a domain label was explicitly empty")),
+            ),
+            (
+                b"a\"b\"c",
+                Err(ScanError::Custom(
+                    "a domain label was only partially quoted",
+                )),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut label_buf = None;
+            let actual = LabelBuf::scan(&mut scanner, &alloc, &mut buffer)
+                .map(|label| label_buf.insert(label).as_bytes());
+            assert_eq!(actual, expected, "input {:?}", input);
+        }
     }
 }

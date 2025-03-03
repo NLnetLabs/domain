@@ -15,13 +15,13 @@
 //! is expressed can sometimes be confusing.
 
 mod label;
-pub use label::{Label, LabelBuf, LabelIter};
+pub use label::{Label, LabelBuf, LabelIter, LabelParseError};
 
 mod absolute;
 pub use absolute::Name;
 
 mod reversed;
-pub use reversed::{RevName, RevNameBuf};
+pub use reversed::{RevName, RevNameBuf, RevNameParseError};
 
 mod unparsed;
 pub use unparsed::UnparsedName;

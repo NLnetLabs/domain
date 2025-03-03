@@ -23,6 +23,7 @@ license = "BSD-3-Clause"
 domain-macros  = { path = "./macros", version = "0.10.3" }
 
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
+bumpalo        = { version = "3.12", optional = true }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
@@ -70,7 +71,7 @@ net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 tsig        = ["bytes", "ring", "smallvec"]
-zonefile    = ["bytes", "serde", "std"]
+zonefile    = ["bytes", "serde", "std", "dep:bumpalo"] # new: ["std", "dep:bumpalo"]
 
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
