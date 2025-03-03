@@ -167,6 +167,9 @@ impl QType {
 
     /// The type of an [`Aaaa`](crate::new_rdata::Aaaa) record.
     pub const AAAA: Self = Self::new(28);
+
+    /// All possible records.
+    pub const ANY: Self = Self::new(255);
 }
 
 //--- Formatting
@@ -184,6 +187,7 @@ impl fmt::Debug for QType {
             Self::MX => "QType::MX",
             Self::TXT => "QType::TXT",
             Self::AAAA => "QType::AAAA",
+            Self::ANY => "QType::ANY",
             _ => return write!(f, "QType({})", self.code),
         })
     }
