@@ -18,10 +18,7 @@ use crate::new_base::{
 #[cfg(feature = "zonefile")]
 use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
-#[cfg(feature = "zonefile")]
-use super::LabelBuf;
-
-use super::{Label, LabelIter, LabelParseError};
+use super::{Label, LabelBuf, LabelIter, LabelParseError};
 
 //----------- RevName --------------------------------------------------------
 
