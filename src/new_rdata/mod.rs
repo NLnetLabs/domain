@@ -422,8 +422,6 @@ impl<'a> Scan<'a> for &'a UnknownRecordData {
 
 #[cfg(test)]
 mod tests {
-    use super::UnknownRecordData;
-
     #[cfg(feature = "zonefile")]
     #[test]
     fn scan_unknown() {
@@ -431,6 +429,8 @@ mod tests {
             new_base::wire::AsBytes,
             new_zonefile::scanner::{Scan, ScanError, Scanner},
         };
+
+        use super::UnknownRecordData;
 
         let cases = [
             (b"\\# 0" as &[u8], Ok(&[] as &[u8])),

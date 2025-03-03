@@ -167,12 +167,12 @@ impl Eq for Txt {}
 
 #[cfg(test)]
 mod tests {
-    use super::Txt;
-
     #[cfg(feature = "zonefile")]
     #[test]
     fn scan() {
         use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::Txt;
 
         let cases = [
             (b"a b" as &[u8], Ok(&[b"a" as &[u8], b"b"] as &[_])),

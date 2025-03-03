@@ -114,14 +114,14 @@ impl Scan<'_> for A {
 
 #[cfg(test)]
 mod tests {
-    use super::A;
-
     #[cfg(feature = "zonefile")]
     #[test]
     fn scan() {
         use core::net::Ipv4Addr;
 
         use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::A;
 
         let cases = [
             (

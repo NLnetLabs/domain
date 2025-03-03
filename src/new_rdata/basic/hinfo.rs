@@ -81,12 +81,12 @@ impl<'a> Scan<'a> for HInfo<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::HInfo;
-
     #[cfg(feature = "zonefile")]
     #[test]
     fn scan() {
         use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::HInfo;
 
         let cases = [
             (b"cpu os" as &[u8], Ok((b"cpu" as &[u8], b"os" as &[u8]))),

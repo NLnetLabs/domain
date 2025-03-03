@@ -102,13 +102,13 @@ impl<'a, N: Scan<'a>> Scan<'a> for CName<N> {
 
 #[cfg(test)]
 mod tests {
-    use super::CName;
-
     #[cfg(feature = "zonefile")]
     #[test]
     fn scan() {
         use crate::new_base::name::RevNameBuf;
         use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::CName;
 
         let cases = [
             (
