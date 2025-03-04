@@ -1,6 +1,6 @@
 use crate::base::iana::SecAlg;
 use crate::base::Name;
-use crate::crypto::misc::SignRaw;
+use crate::crypto::sign::SignRaw;
 use crate::rdata::Dnskey;
 use std::fmt::Debug;
 use std::vec::Vec;

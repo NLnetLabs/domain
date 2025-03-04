@@ -1,7 +1,7 @@
 //! Signing related errors.
 use core::fmt::{Debug, Display};
 
-use crate::crypto::misc::SignError;
+use crate::crypto::sign::SignError;
 use crate::dnssec::common::Nsec3HashError;
 use crate::rdata::dnssec::Timestamp;
 

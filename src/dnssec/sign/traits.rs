@@ -19,7 +19,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::name::ToName;
 use crate::base::record::Record;
 use crate::base::Name;
-use crate::crypto::misc::SignRaw;
+use crate::crypto::sign::SignRaw;
 use crate::dnssec::sign::denial::nsec3::Nsec3HashProvider;
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::SigningKey;
@@ -111,10 +111,9 @@ where
 /// # use domain::base::{Name, Record, Serial, Ttl};
 /// # use domain::base::iana::Class;
 /// # use domain::crypto::common;
-/// # use domain::crypto::common::GenerateParams;
-/// # use domain::crypto::common::sign::KeyPair;
+/// # use domain::crypto::sign::{generate, GenerateParams, KeyPair};
 /// # use domain::dnssec::sign::keys::SigningKey;
-/// # let (sec_bytes, pub_bytes) = common::sign::generate(GenerateParams::Ed25519,
+/// # let (sec_bytes, pub_bytes) = generate(GenerateParams::Ed25519,
 /// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 /// # let root = Name::<Vec<u8>>::root();
@@ -257,10 +256,9 @@ where
 /// # use domain::base::{Name, Record, Serial, Ttl};
 /// # use domain::base::iana::Class;
 /// # use domain::crypto::common;
-/// # use domain::crypto::common::GenerateParams;
-/// # use domain::crypto::common::sign::KeyPair;
+/// # use domain::crypto::sign::{generate, GenerateParams, KeyPair};
 /// # use domain::dnssec::sign::keys::SigningKey;
-/// # let (sec_bytes, pub_bytes) = common::sign::generate(
+/// # let (sec_bytes, pub_bytes) = generate(
 /// #      GenerateParams::Ed25519,
 /// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
@@ -403,14 +401,13 @@ where
 /// # use domain::base::{Name, Record, Ttl};
 /// # use domain::base::iana::Class;
 /// # use domain::crypto::common;
-/// # use domain::crypto::common::GenerateParams;
-/// # use domain::crypto::common::sign::KeyPair;
+/// # use domain::crypto::sign::{generate, GenerateParams, KeyPair};
 /// # use domain::dnssec::sign::keys::{SigningKey};
 /// # use domain::dnssec::sign::records::{Rrset, SortedRecords};
 /// # use domain::rdata::{A, ZoneRecordData};
 /// # use domain::zonetree::StoredName;
 /// # use std::str::FromStr;
-/// # let (sec_bytes, pub_bytes) = common::sign::generate(
+/// # let (sec_bytes, pub_bytes) = generate(
 /// #      GenerateParams::Ed25519,
 /// #      256).unwrap();
 /// # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();

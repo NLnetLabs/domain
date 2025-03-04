@@ -18,7 +18,7 @@ use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::Name;
-use crate::crypto::misc::SignRaw;
+use crate::crypto::sign::SignRaw;
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::signingkey::SigningKey;
 use crate::dnssec::sign::records::{RecordsIter, Rrset};
@@ -354,8 +354,7 @@ mod tests {
 
     use crate::base::iana::SecAlg;
     use crate::base::Serial;
-    use crate::crypto::common::sign::KeyPair;
-    use crate::crypto::misc::{SignError, Signature};
+    use crate::crypto::sign::{KeyPair, SignError, Signature};
     use crate::dnssec::sign::records::SortedRecords;
     use crate::dnssec::sign::test_util;
     use crate::dnssec::sign::test_util::*;

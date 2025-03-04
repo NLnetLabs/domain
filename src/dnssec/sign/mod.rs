@@ -115,7 +115,7 @@ pub mod traits;
 #[cfg(test)]
 pub mod test_util;
 
-use crate::crypto::misc::SignRaw;
+use crate::crypto::sign::SignRaw;
 
 pub use self::config::SigningConfig;
 

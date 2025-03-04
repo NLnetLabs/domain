@@ -363,9 +363,9 @@ pub(crate) mod sign {
     use std::vec::Vec;
 
     use crate::base::iana::SecAlg;
-    use crate::crypto::common::GenerateParams;
-    use crate::crypto::misc::{
-        RsaSecretKeyBytes, SecretKeyBytes, SignError, SignRaw, Signature,
+    use crate::crypto::sign::{
+        GenerateParams, RsaSecretKeyBytes, SecretKeyBytes, SignError,
+        SignRaw, Signature,
     };
     use crate::rdata::Dnskey;
 
@@ -778,8 +778,7 @@ pub(crate) mod sign {
     #[cfg(test)]
     mod tests {
         use crate::base::iana::SecAlg;
-        use crate::crypto::common::GenerateParams;
-        use crate::crypto::misc::SignRaw;
+        use crate::crypto::sign::{GenerateParams, SignRaw};
 
         use super::KeyPair;
 
@@ -824,8 +823,7 @@ pub(crate) mod sign {
 #[cfg(test)]
 mod tests {
     use crate::base::iana::SecAlg;
-    use crate::crypto::common::GenerateParams;
-    use crate::crypto::misc::{SecretKeyBytes, SignRaw};
+    use crate::crypto::sign::{GenerateParams, SecretKeyBytes, SignRaw};
     use crate::dnssec::common::parse_from_bind;
 
     use super::sign::KeyPair;

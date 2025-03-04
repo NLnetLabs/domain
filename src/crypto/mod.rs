@@ -27,10 +27,8 @@
 //!
 //! ```
 //! # use domain::base::iana::SecAlg;
-//! # use domain::crypto::misc::{self, SecretKeyBytes};
-//! # use domain::crypto::common::sign::KeyPair;
+//! # use domain::crypto::sign::{KeyPair, self, SecretKeyBytes, SignRaw};
 //! # use domain::dnssec::common::parse_from_bind;
-//! # use domain::crypto::misc::SignRaw;
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
 //! let base = "test-data/dnssec-keys/Ktest.+015+56037";
 //! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
@@ -54,11 +52,10 @@
 //! ```
 //! # use domain::base::Name;
 //! # use domain::crypto::common;
-//! # use domain::crypto::common::GenerateParams;
-//! # use domain::crypto::common::sign::KeyPair;
+//! # use domain::crypto::sign::{generate, GenerateParams, KeyPair};
 //! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_key) = common::sign::generate(params, 257).unwrap();
+//! let (sec_bytes, pub_key) = generate(params, 257).unwrap();
 //!
 //! // Parse the key into Ring or OpenSSL.
 //! let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_key).unwrap();
@@ -74,10 +71,8 @@
 //! ```
 //! # use domain::base::Name;
 //! # use domain::crypto::common;
-//! # use domain::crypto::common::GenerateParams;
-//! # use domain::crypto::common::sign::KeyPair;
-//! # use domain::crypto::misc::SignRaw;
-//! # let (sec_bytes, pub_bytes) = common::sign::generate(
+//! # use domain::crypto::sign::{generate, GenerateParams, KeyPair, SignRaw};
+//! # let (sec_bytes, pub_bytes) = generate(
 //!        GenerateParams::Ed25519,
 //!        256).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
@@ -90,13 +85,12 @@
 //! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
 //! [`SecretKeyBytes`]: crate::sign::keys::SecretKeyBytes
 
-// misc requires unstable-crypto-sign.
-#[cfg(feature = "unstable-crypto-sign")]
-pub mod misc;
-
 // common requires either ring or openssl.
 #[cfg(any(feature = "ring", feature = "openssl"))]
 pub mod common;
 
 pub mod openssl;
 pub mod ring;
+
+#[cfg(feature = "unstable-crypto-sign")]
+pub mod sign;

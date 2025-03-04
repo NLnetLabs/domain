@@ -335,9 +335,10 @@ pub(crate) mod sign {
     use secrecy::ExposeSecret;
 
     use crate::base::iana::SecAlg;
-    use crate::crypto::common::GenerateParams;
-    use crate::crypto::misc::{FromBytesError, SecretKeyBytes, SignError};
-    use crate::crypto::misc::{SignRaw, Signature};
+    use crate::crypto::sign::{
+        FromBytesError, GenerateParams, SecretKeyBytes, SignError, SignRaw,
+        Signature,
+    };
     use crate::rdata::Dnskey;
 
     use super::{GenerateError, PublicKey};
@@ -682,10 +683,8 @@ pub(crate) mod sign {
 mod tests {
     use std::sync::Arc;
 
-    use crate::crypto::common::GenerateParams;
-    use crate::crypto::misc::SignRaw;
-
     use crate::crypto::ring::sign::KeyPair;
+    use crate::crypto::sign::{GenerateParams, SignRaw};
 
     #[cfg(feature = "unstable-validator")]
     use std::vec::Vec;
@@ -694,7 +693,7 @@ mod tests {
     use crate::base::iana::SecAlg;
 
     #[cfg(feature = "unstable-validator")]
-    use crate::crypto::misc::SecretKeyBytes;
+    use crate::crypto::sign::SecretKeyBytes;
 
     #[cfg(feature = "unstable-validator")]
     use crate::dnssec::common::parse_from_bind;

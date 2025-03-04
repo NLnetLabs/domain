@@ -1,18 +1,66 @@
+use std::boxed::Box;
+use std::fmt;
+use std::vec::Vec;
+
+use secrecy::{ExposeSecret, SecretBox};
+
 use crate::base::iana::SecAlg;
 use crate::rdata::Dnskey;
 use crate::utils::base64;
 
-use secrecy::{ExposeSecret, SecretBox};
+#[cfg(feature = "openssl")]
+use super::openssl;
 
 #[cfg(feature = "ring")]
 use super::ring;
 
-#[cfg(feature = "openssl")]
-use super::openssl;
+//----------- GenerateParams -------------------------------------------------
 
-use std::boxed::Box;
-use std::vec::Vec;
-use std::{error, fmt};
+/// Parameters for generating a secret key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GenerateParams {
+    /// Generate an RSA/SHA-256 keypair.
+    RsaSha256 {
+        /// The number of bits in the public modulus.
+        ///
+        /// A ~3000-bit key corresponds to a 128-bit security level.  However,
+        /// RSA is mostly used with 2048-bit keys.  Some backends (like Ring)
+        /// do not support smaller key sizes than that.
+        ///
+        /// For more information about security levels, see [NIST SP 800-57
+        /// part 1 revision 5], page 54, table 2.
+        ///
+        /// [NIST SP 800-57 part 1 revision 5]: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
+        bits: u32,
+    },
+
+    /// Generate an ECDSA P-256/SHA-256 keypair.
+    EcdsaP256Sha256,
+
+    /// Generate an ECDSA P-384/SHA-384 keypair.
+    EcdsaP384Sha384,
+
+    /// Generate an Ed25519 keypair.
+    Ed25519,
+
+    /// An Ed448 keypair.
+    Ed448,
+}
+
+//--- Inspection
+
+impl GenerateParams {
+    /// The algorithm of the generated key.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
+            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519 => SecAlg::ED25519,
+            Self::Ed448 => SecAlg::ED448,
+        }
+    }
+}
 
 //----------- SignRaw --------------------------------------------------------
 
@@ -138,219 +186,132 @@ impl From<Signature> for Box<[u8]> {
     }
 }
 
-//============ Error Types ===================================================
+//----------- KeyPair --------------------------------------------------------
 
-//----------- DigestError ----------------------------------------------------
+/// A key pair based on a built-in backend.
+///
+/// This supports any built-in backend (currently, that is OpenSSL and Ring,
+/// if their respective feature flags are enabled).  Wherever possible, it
+/// will prefer the Ring backend over OpenSSL -- but for more uncommon or
+/// insecure algorithms, that Ring does not support, OpenSSL must be used.
+#[derive(Debug)]
+// Note: ring does not implement Clone for KeyPair.
+pub enum KeyPair {
+    /// A key backed by Ring.
+    #[cfg(feature = "ring")]
+    Ring(ring::sign::KeyPair),
 
-/// An error when computing a digest.
-#[derive(Clone, Debug)]
-pub enum DigestError {
-    UnsupportedAlgorithm,
+    /// A key backed by OpenSSL.
+    #[cfg(feature = "openssl")]
+    OpenSSL(openssl::sign::KeyPair),
 }
 
-//--- Display, Error
+//--- Conversion to and from bytes
 
-impl fmt::Display for DigestError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedAlgorithm => "unsupported algorithm",
-        })
+impl KeyPair {
+    /// Import a key pair from bytes.
+    pub fn from_bytes<Octs>(
+        secret: &SecretKeyBytes,
+        public: &Dnskey<Octs>,
+    ) -> Result<Self, FromBytesError>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        // Prefer Ring if it is available.
+        #[cfg(feature = "ring")]
+        {
+            let fallback_to_openssl = match public.algorithm() {
+                SecAlg::RSASHA1
+                | SecAlg::RSASHA1_NSEC3_SHA1
+                | SecAlg::RSASHA256
+                | SecAlg::RSASHA512 => {
+                    ring::PublicKey::from_dnskey(public)
+                        .map_err(|_| FromBytesError::InvalidKey)?
+                        .key_size()
+                        < 2048
+                }
+                _ => false,
+            };
+
+            if !fallback_to_openssl {
+                let key = ring::sign::KeyPair::from_bytes(secret, public)?;
+                return Ok(Self::Ring(key));
+            }
+        }
+
+        // Fall back to OpenSSL.
+        #[cfg(feature = "openssl")]
+        return Ok(Self::OpenSSL(openssl::sign::KeyPair::from_bytes(
+            secret, public,
+        )?));
+
+        // Otherwise fail.
+        #[allow(unreachable_code)]
+        Err(FromBytesError::UnsupportedAlgorithm)
     }
 }
 
-impl error::Error for DigestError {}
+//--- SignRaw
 
-//----------- FromBytesError -----------------------------------------------
+impl SignRaw for KeyPair {
+    fn algorithm(&self) -> SecAlg {
+        match self {
+            #[cfg(feature = "ring")]
+            Self::Ring(key) => key.algorithm(),
+            #[cfg(feature = "openssl")]
+            Self::OpenSSL(key) => key.algorithm(),
+        }
+    }
 
-/// An error in importing a key pair from bytes.
-#[derive(Clone, Debug)]
-pub enum FromBytesError {
-    /// The requested algorithm was not supported.
-    UnsupportedAlgorithm,
+    fn dnskey(&self) -> Dnskey<Vec<u8>> {
+        match self {
+            #[cfg(feature = "ring")]
+            Self::Ring(key) => key.dnskey(),
+            #[cfg(feature = "openssl")]
+            Self::OpenSSL(key) => key.dnskey(),
+        }
+    }
 
-    /// The key's parameters were invalid.
-    InvalidKey,
-
-    /// The implementation does not allow such weak keys.
-    WeakKey,
-
-    /// An implementation failure occurred.
-    ///
-    /// This includes memory allocation failures.
-    Implementation,
-}
-
-//--- Conversions
-
-#[cfg(feature = "ring")]
-impl From<ring::FromBytesError> for FromBytesError {
-    fn from(value: ring::FromBytesError) -> Self {
-        match value {
-            ring::FromBytesError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            ring::FromBytesError::InvalidKey => Self::InvalidKey,
-            ring::FromBytesError::WeakKey => Self::WeakKey,
+    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
+        match self {
+            #[cfg(feature = "ring")]
+            Self::Ring(key) => key.sign_raw(data),
+            #[cfg(feature = "openssl")]
+            Self::OpenSSL(key) => key.sign_raw(data),
         }
     }
 }
 
-#[cfg(feature = "openssl")]
-impl From<openssl::FromBytesError> for FromBytesError {
-    fn from(value: openssl::FromBytesError) -> Self {
-        match value {
-            openssl::FromBytesError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            openssl::FromBytesError::InvalidKey => Self::InvalidKey,
-            openssl::FromBytesError::Implementation => Self::Implementation,
-        }
+//----------- generate() -----------------------------------------------------
+
+/// Generate a new secret key for the given algorithm.
+pub fn generate(
+    params: GenerateParams,
+    flags: u16,
+) -> Result<(SecretKeyBytes, Dnskey<Vec<u8>>), GenerateError> {
+    // Use Ring if it is available.
+    #[cfg(feature = "ring")]
+    if matches!(
+        &params,
+        GenerateParams::EcdsaP256Sha256
+            | GenerateParams::EcdsaP384Sha384
+            | GenerateParams::Ed25519
+    ) {
+        let rng = ::ring::rand::SystemRandom::new();
+        return Ok(ring::sign::generate(params, flags, &rng)?);
     }
-}
 
-//--- Formatting
-
-impl fmt::Display for FromBytesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedAlgorithm => "algorithm not supported",
-            Self::InvalidKey => "malformed or insecure private key",
-            Self::WeakKey => "key too weak to be supported",
-            Self::Implementation => "an internal error occurred",
-        })
+    // Fall back to OpenSSL.
+    #[cfg(feature = "openssl")]
+    {
+        let key = openssl::sign::generate(params, flags)?;
+        return Ok((key.to_bytes(), key.dnskey()));
     }
+
+    // Otherwise fail.
+    #[allow(unreachable_code)]
+    Err(GenerateError::UnsupportedAlgorithm)
 }
-
-//--- Error
-
-impl std::error::Error for FromBytesError {}
-
-//----------- GenerateError --------------------------------------------------
-
-/// An error in generating a key pair.
-#[derive(Clone, Debug)]
-pub enum GenerateError {
-    /// The requested algorithm was not supported.
-    UnsupportedAlgorithm,
-
-    /// An implementation failure occurred.
-    ///
-    /// This includes memory allocation failures.
-    Implementation,
-}
-
-//--- Conversion
-
-#[cfg(feature = "ring")]
-impl From<ring::GenerateError> for GenerateError {
-    fn from(value: ring::GenerateError) -> Self {
-        match value {
-            ring::GenerateError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            ring::GenerateError::Implementation => Self::Implementation,
-        }
-    }
-}
-
-#[cfg(feature = "openssl")]
-impl From<openssl::GenerateError> for GenerateError {
-    fn from(value: openssl::GenerateError) -> Self {
-        match value {
-            openssl::GenerateError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            openssl::GenerateError::Implementation => Self::Implementation,
-        }
-    }
-}
-
-//--- Formatting
-
-impl fmt::Display for GenerateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedAlgorithm => "algorithm not supported",
-            Self::Implementation => "an internal error occurred",
-        })
-    }
-}
-
-//--- Error
-
-impl std::error::Error for GenerateError {}
-
-//----------- SignError ------------------------------------------------------
-
-/// A signature failure.
-///
-/// In case such an error occurs, callers should stop using the key pair they
-/// attempted to sign with.  If such an error occurs with every key pair they
-/// have available, or if such an error occurs with a freshly-generated key
-/// pair, they should use a different cryptographic implementation.  If that
-/// is not possible, they must forego signing entirely.
-///
-/// # Failure Cases
-///
-/// Signing should be an infallible process.  There are three considerable
-/// failure cases for it:
-///
-/// - The secret key was invalid (e.g. its parameters were inconsistent).
-///
-///   Such a failure would mean that all future signing (with this key) will
-///   also fail.  In any case, the implementations provided by this crate try
-///   to verify the key (e.g. by checking the consistency of the private and
-///   public components) before any signing occurs, largely ruling this class
-///   of errors out.
-///
-/// - Not enough randomness could be obtained.  This applies to signature
-///   algorithms which use randomization (e.g. RSA and ECDSA).
-///
-///   On the vast majority of platforms, randomness can always be obtained.
-///   The [`getrandom` crate documentation][getrandom] notes:
-///
-///   > If an error does occur, then it is likely that it will occur on every
-///   > call to getrandom, hence after the first successful call one can be
-///   > reasonably confident that no errors will occur.
-///
-///   [getrandom]: https://docs.rs/getrandom
-///
-///   Thus, in case such a failure occurs, all future signing will probably
-///   also fail.
-///
-/// - Not enough memory could be allocated.
-///
-///   Signature algorithms have a small memory overhead, so an out-of-memory
-///   condition means that the program is nearly out of allocatable space.
-///
-///   Callers who do not expect allocations to fail (i.e. who are using the
-///   standard memory allocation routines, not their `try_` variants) will
-///   likely panic shortly after such an error.
-///
-///   Callers who are aware of their memory usage will likely restrict it far
-///   before they get to this point.  Systems running at near-maximum load
-///   tend to quickly become unresponsive and staggeringly slow.  If memory
-///   usage is an important consideration, programs will likely cap it before
-///   the system reaches e.g. 90% memory use.
-///
-///   As such, memory allocation failure should never really occur.  It is far
-///   more likely that one of the other errors has occurred.
-///
-/// It may be reasonable to panic in any such situation, since each kind of
-/// error is essentially unrecoverable.  However, applications where signing
-/// is an optional step, or where crashing is prohibited, may wish to recover
-/// from such an error differently (e.g. by foregoing signatures or informing
-/// an operator).
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct SignError;
-
-impl fmt::Display for SignError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("could not create a cryptographic signature")
-    }
-}
-
-impl std::error::Error for SignError {}
 
 //----------- SecretKeyBytes -------------------------------------------------
 
@@ -624,40 +585,7 @@ pub(crate) fn parse_bind_entry(
     Ok(Some((key.trim(), val.trim(), rest)))
 }
 
-//============ Error types ===================================================
-
-//----------- BindFormatError ------------------------------------------------
-
-/// An error in loading a [`SecretKeyBytes`] from the conventional DNS format.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum BindFormatError {
-    /// The key file uses an unsupported version of the format.
-    UnsupportedFormat,
-
-    /// The key file did not follow the DNS format correctly.
-    Misformatted,
-
-    /// The key file used an unsupported algorithm.
-    UnsupportedAlgorithm,
-}
-
-//--- Display
-
-impl fmt::Display for BindFormatError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedFormat => "unsupported format",
-            Self::Misformatted => "misformatted key file",
-            Self::UnsupportedAlgorithm => "unsupported algorithm",
-        })
-    }
-}
-
-//--- Error
-
-impl std::error::Error for BindFormatError {}
-
-//----------- RsaSecretKeyBytes ---------------------------------------------------
+//----------- RsaSecretKeyBytes ----------------------------------------------
 
 /// An RSA secret key expressed as raw bytes.
 ///
@@ -797,14 +725,240 @@ impl RsaSecretKeyBytes {
     }
 }
 
+//============ Error Types ===================================================
+
+//----------- FromBytesError -----------------------------------------------
+
+/// An error in importing a key pair from bytes.
+#[derive(Clone, Debug)]
+pub enum FromBytesError {
+    /// The requested algorithm was not supported.
+    UnsupportedAlgorithm,
+
+    /// The key's parameters were invalid.
+    InvalidKey,
+
+    /// The implementation does not allow such weak keys.
+    WeakKey,
+
+    /// An implementation failure occurred.
+    ///
+    /// This includes memory allocation failures.
+    Implementation,
+}
+
+//--- Conversions
+
+#[cfg(feature = "ring")]
+impl From<ring::FromBytesError> for FromBytesError {
+    fn from(value: ring::FromBytesError) -> Self {
+        match value {
+            ring::FromBytesError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            ring::FromBytesError::InvalidKey => Self::InvalidKey,
+            ring::FromBytesError::WeakKey => Self::WeakKey,
+        }
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<openssl::FromBytesError> for FromBytesError {
+    fn from(value: openssl::FromBytesError) -> Self {
+        match value {
+            openssl::FromBytesError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            openssl::FromBytesError::InvalidKey => Self::InvalidKey,
+            openssl::FromBytesError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+//--- Formatting
+
+impl fmt::Display for FromBytesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "algorithm not supported",
+            Self::InvalidKey => "malformed or insecure private key",
+            Self::WeakKey => "key too weak to be supported",
+            Self::Implementation => "an internal error occurred",
+        })
+    }
+}
+
+//--- Error
+
+impl std::error::Error for FromBytesError {}
+
+//----------- GenerateError --------------------------------------------------
+
+/// An error in generating a key pair.
+#[derive(Clone, Debug)]
+pub enum GenerateError {
+    /// The requested algorithm was not supported.
+    UnsupportedAlgorithm,
+
+    /// An implementation failure occurred.
+    ///
+    /// This includes memory allocation failures.
+    Implementation,
+}
+
+//--- Conversion
+
+#[cfg(feature = "ring")]
+impl From<ring::GenerateError> for GenerateError {
+    fn from(value: ring::GenerateError) -> Self {
+        match value {
+            ring::GenerateError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            ring::GenerateError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<openssl::GenerateError> for GenerateError {
+    fn from(value: openssl::GenerateError) -> Self {
+        match value {
+            openssl::GenerateError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            openssl::GenerateError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+//--- Formatting
+
+impl fmt::Display for GenerateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "algorithm not supported",
+            Self::Implementation => "an internal error occurred",
+        })
+    }
+}
+
+//--- Error
+
+impl std::error::Error for GenerateError {}
+
+//----------- SignError ------------------------------------------------------
+
+/// A signature failure.
+///
+/// In case such an error occurs, callers should stop using the key pair they
+/// attempted to sign with.  If such an error occurs with every key pair they
+/// have available, or if such an error occurs with a freshly-generated key
+/// pair, they should use a different cryptographic implementation.  If that
+/// is not possible, they must forego signing entirely.
+///
+/// # Failure Cases
+///
+/// Signing should be an infallible process.  There are three considerable
+/// failure cases for it:
+///
+/// - The secret key was invalid (e.g. its parameters were inconsistent).
+///
+///   Such a failure would mean that all future signing (with this key) will
+///   also fail.  In any case, the implementations provided by this crate try
+///   to verify the key (e.g. by checking the consistency of the private and
+///   public components) before any signing occurs, largely ruling this class
+///   of errors out.
+///
+/// - Not enough randomness could be obtained.  This applies to signature
+///   algorithms which use randomization (e.g. RSA and ECDSA).
+///
+///   On the vast majority of platforms, randomness can always be obtained.
+///   The [`getrandom` crate documentation][getrandom] notes:
+///
+///   > If an error does occur, then it is likely that it will occur on every
+///   > call to getrandom, hence after the first successful call one can be
+///   > reasonably confident that no errors will occur.
+///
+///   [getrandom]: https://docs.rs/getrandom
+///
+///   Thus, in case such a failure occurs, all future signing will probably
+///   also fail.
+///
+/// - Not enough memory could be allocated.
+///
+///   Signature algorithms have a small memory overhead, so an out-of-memory
+///   condition means that the program is nearly out of allocatable space.
+///
+///   Callers who do not expect allocations to fail (i.e. who are using the
+///   standard memory allocation routines, not their `try_` variants) will
+///   likely panic shortly after such an error.
+///
+///   Callers who are aware of their memory usage will likely restrict it far
+///   before they get to this point.  Systems running at near-maximum load
+///   tend to quickly become unresponsive and staggeringly slow.  If memory
+///   usage is an important consideration, programs will likely cap it before
+///   the system reaches e.g. 90% memory use.
+///
+///   As such, memory allocation failure should never really occur.  It is far
+///   more likely that one of the other errors has occurred.
+///
+/// It may be reasonable to panic in any such situation, since each kind of
+/// error is essentially unrecoverable.  However, applications where signing
+/// is an optional step, or where crashing is prohibited, may wish to recover
+/// from such an error differently (e.g. by foregoing signatures or informing
+/// an operator).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct SignError;
+
+impl fmt::Display for SignError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("could not create a cryptographic signature")
+    }
+}
+
+impl std::error::Error for SignError {}
+
+//----------- BindFormatError ------------------------------------------------
+
+/// An error in loading a [`SecretKeyBytes`] from the conventional DNS format.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BindFormatError {
+    /// The key file uses an unsupported version of the format.
+    UnsupportedFormat,
+
+    /// The key file did not follow the DNS format correctly.
+    Misformatted,
+
+    /// The key file used an unsupported algorithm.
+    UnsupportedAlgorithm,
+}
+
+//--- Display
+
+impl fmt::Display for BindFormatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedFormat => "unsupported format",
+            Self::Misformatted => "misformatted key file",
+            Self::UnsupportedAlgorithm => "unsupported algorithm",
+        })
+    }
+}
+
+//--- Error
+
+impl std::error::Error for BindFormatError {}
+
 //============ Tests =========================================================
 
 #[cfg(test)]
 mod tests {
-    use std::{string::ToString, vec::Vec};
+    use std::string::ToString;
+    use std::vec::Vec;
 
     use crate::base::iana::SecAlg;
-    use crate::crypto::misc::SecretKeyBytes;
+    use crate::crypto::sign::SecretKeyBytes;
 
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 60616),
