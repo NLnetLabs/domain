@@ -407,6 +407,7 @@ pub mod sign {
         /// The algorithm used by the key.
         algorithm: SecAlg,
 
+        /// Flags from [`Dnskey`].
         flags: u16,
 
         /// The private key.
@@ -424,12 +425,14 @@ pub mod sign {
         where
             Octs: AsRef<[u8]>,
         {
+            /// Create a [`BigNum`] from a slice.
             fn num(slice: &[u8]) -> Result<BigNum, FromBytesError> {
                 let mut v = BigNum::new()?;
                 v.copy_from_slice(slice)?;
                 Ok(v)
             }
 
+            /// Create a [`BigNum`] from a slice with secure storage.
             fn secure_num(slice: &[u8]) -> Result<BigNum, FromBytesError> {
                 let mut v = BigNum::new_secure()?;
                 v.copy_from_slice(slice)?;
@@ -612,6 +615,7 @@ pub mod sign {
     //--- Signing
 
     impl KeyPair {
+        /// Sign some data.
         fn sign(&self, data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
             use openssl::hash::MessageDigest;
             use openssl::sign::Signer;

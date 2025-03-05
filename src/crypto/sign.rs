@@ -494,6 +494,7 @@ impl SecretKeyBytes {
     ///
     /// This is a simple wrapper around [`Self::format_as_bind()`].
     pub fn display_as_bind(&self) -> impl fmt::Display + '_ {
+        /// Display type to return from this function.
         struct Display<'a>(&'a SecretKeyBytes);
         impl fmt::Display for Display<'_> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -673,6 +674,7 @@ impl RsaSecretKeyBytes {
     ///
     /// This is a simple wrapper around [`Self::format_as_bind()`].
     pub fn display_as_bind(&self) -> impl fmt::Display + '_ {
+        /// Display type to return from this function.
         struct Display<'a>(&'a RsaSecretKeyBytes);
         impl fmt::Display for Display<'_> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -327,6 +327,7 @@ impl PublicKey {
     // key_size should only be called for RSA keys to see if the key is long
     // enough to be supported by ring.
     #[cfg(feature = "unstable-crypto-sign")]
+    /// Compute the key size. This is currently only implemented for RSA.
     pub(super) fn key_size(&self) -> usize {
         match self {
             PublicKey::Rsa(_, components) => {
