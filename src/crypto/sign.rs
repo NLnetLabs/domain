@@ -1,3 +1,9 @@
+//! DNSSEC signing using built-in backends.
+//!
+//! This backend supports all the algorithms supported by Ring and OpenSSL,
+//! depending on whether the respective crate features are enabled.  See the
+//! documentation for each backend for more information.
+
 use std::boxed::Box;
 use std::fmt;
 use std::vec::Vec;
@@ -130,13 +136,28 @@ pub trait SignRaw {
 /// Signatures are too big to pass by value, so they are placed on the heap.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Signature {
+    /// Signature using RSA and SHA-1.
     RsaSha1(Box<[u8]>),
+
+    /// Signature using RSA and SHA-1. This also signals support for NSEC3.
     RsaSha1Nsec3Sha1(Box<[u8]>),
+
+    /// Signature using RSA and SHA-256.
     RsaSha256(Box<[u8]>),
+
+    /// Signature using RSA and SHA-512.
     RsaSha512(Box<[u8]>),
+
+    /// Signature using ECDSA and SHA-256.
     EcdsaP256Sha256(Box<[u8; 64]>),
+
+    /// Signature using ECDSA and SHA-384.
     EcdsaP384Sha384(Box<[u8; 96]>),
+
+    /// Signature using Ed25519.
     Ed25519(Box<[u8; 64]>),
+
+    /// Signature using Ed448.
     Ed448(Box<[u8; 114]>),
 }
 

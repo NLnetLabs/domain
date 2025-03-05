@@ -111,9 +111,11 @@ impl std::error::Error for GenerateError {}
 
 //----------- DigestContext --------------------------------------------------
 
+/// Context for computing a message digest.
 pub struct DigestContext(Hasher);
 
 impl DigestContext {
+    /// Create a new context for a specified digest type.
     pub fn new(digest_type: DigestType) -> Self {
         Self(
             match digest_type {
@@ -125,12 +127,14 @@ impl DigestContext {
         )
     }
 
+    /// Add input to the digest computation.
     pub fn update(&mut self, data: &[u8]) {
         self.0
             .update(data)
             .expect("assume that update does not fail")
     }
 
+    /// Finish computing the digest.
     pub fn finish(mut self) -> Digest {
         Digest(self.0.finish().expect("assume that finish does not fail"))
     }
@@ -138,6 +142,7 @@ impl DigestContext {
 
 //----------- Digest ---------------------------------------------------------
 
+/// A message digest.
 pub struct Digest(DigestBytes);
 
 impl AsRef<[u8]> for Digest {
@@ -148,13 +153,20 @@ impl AsRef<[u8]> for Digest {
 
 //----------- PublicKey ------------------------------------------------------
 
+/// A public key for verifying a signature.
 pub enum PublicKey {
+    /// Default variant, used for RSA.
     Default(MessageDigest, PKey<Public>, u16),
+
+    /// Variant for Ed25519 and Ed448.
     NoDigest(PKey<Public>, u16),
+
+    /// Variant for EcDsa.
     EcDsa(MessageDigest, EcKey<Public>, u16),
 }
 
 impl PublicKey {
+    /// Create a public key from a [`Dnskey`].
     pub fn from_dnskey(
         dnskey: &Dnskey<impl AsRef<[u8]>>,
     ) -> Result<Self, AlgorithmError> {
@@ -235,6 +247,8 @@ impl PublicKey {
             _ => Err(AlgorithmError::Unsupported),
         }
     }
+
+    /// Verify a signature.
     pub fn verify(
         &self,
         signed_data: &[u8],
@@ -284,6 +298,8 @@ impl PublicKey {
             Err(AlgorithmError::BadSig)
         }
     }
+
+    /// Convert to a [`Dnskey`].
     pub fn dnskey(&self) -> Dnskey<Vec<u8>> {
         match self {
             PublicKey::Default(message_digest, public_key, flags) => {
@@ -358,7 +374,8 @@ impl PublicKey {
 }
 
 #[cfg(feature = "unstable-crypto-sign")]
-pub(crate) mod sign {
+/// Submodule for private keys and signing.
+pub mod sign {
     use std::boxed::Box;
     use std::vec::Vec;
 

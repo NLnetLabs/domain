@@ -22,7 +22,8 @@
 //! more specific features that are not required in all applications. In order
 //! to keep the amount of code to be compiled and the number of dependencies
 //! small, these are hidden behind feature flags through which they can be
-//! enabled if required. The flags have the same names as the modules.
+//! enabled if required. The flags have the same names as the modules or the
+//! name prefixed with 'unstable-' if the module is still under development.
 //!
 //! Currently, there are the following modules:
 //!
@@ -33,6 +34,10 @@
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
 //!   [Tokio](https://tokio.rs/) async runtime.
+#![cfg_attr(feature = "unstable-crypto", doc = "* [crypto]:")]
+#![cfg_attr(not(feature = "unstable-crypto"), doc = "* crypto:")]
+//!   Experimental support for cryptographic backends, key generation and
+//!   import.
 #![cfg_attr(feature = "unstable-sign", doc = "* [sign]:")]
 #![cfg_attr(not(feature = "unstable-sign"), doc = "* sign:")]
 //!   Experimental support for DNSSEC signing.
@@ -149,6 +154,13 @@
 //!   a client perspective; primarily the `net::client` module.
 //! * `unstable-server-transport`: receiving and sending DNS messages from
 //!   a server perspective; primarily the `net::server` module.
+//! * `unstable-crypto`: this feature flag needs to be combined with one or
+//!   more feature flags that enable cryptografic backends (currently `ring`
+//!   and `openssl`). This feature flags enables all parts of the crypto
+//!   module except for private key generation and signing.
+//! * `unstable-crypto-sign`: this feature flag needs to be combined with one
+//!   or more feature flags that enable cryptographic backends. This feature
+//!   flag enables all parts of the crypto module.
 //! * `unstable-sign`: basic DNSSEC signing support. This will enable the
 #![cfg_attr(feature = "unstable-sign", doc = "  [sign]")]
 #![cfg_attr(not(feature = "unstable-sign"), doc = "  sign")]

@@ -5,15 +5,14 @@ use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::Composer;
 use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
 use crate::base::{Name, Record, Rtype, ToName, Ttl};
-use crate::crypto::common::{
-    DigestContext, DigestType, ParseDnskeyTextError,
-};
+use crate::crypto::common::{DigestContext, DigestType, FromDnskeyError};
 use crate::dep::octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Dnskey, Nsec3param};
 
+use std::error;
 use std::fmt;
 
 //------------ Nsec3HashError -------------------------------------------------
@@ -279,6 +278,27 @@ where
     }
     Display(record)
 }
+
+//----------- ParseDnskeyTextError -------------------------------------------
+
+#[derive(Clone, Debug)]
+pub enum ParseDnskeyTextError {
+    Misformatted,
+    FromDnskey(FromDnskeyError),
+}
+
+//--- Display, Error
+
+impl fmt::Display for ParseDnskeyTextError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Misformatted => "misformatted DNSKEY record",
+            Self::FromDnskey(e) => return e.fmt(f),
+        })
+    }
+}
+
+impl error::Error for ParseDnskeyTextError {}
 
 //============ Test ==========================================================
 

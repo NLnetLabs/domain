@@ -1,4 +1,4 @@
-//! DNSSEC signing using built-in backends.
+//! DNSSEC message digests and signature verification using built-in backends.
 //!
 //! This backend supports all the algorithms supported by Ring and OpenSSL,
 //! depending on whether the respective crate features are enabled.  See the
@@ -18,23 +18,39 @@ use super::ring;
 
 //----------- DigestType -----------------------------------------------------
 
+/// Type of message digest to compute.
 pub enum DigestType {
+    /// [FIPS Secure Hash Standard] Section 6.1.
+    ///
+    /// [FIPS Secure Hash Standard]: http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
     Sha1,
+
+    /// [FIPS Secure Hash Standard] Section 6.2.
+    ///
+    /// [FIPS Secure Hash Standard]: http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
     Sha256,
+
+    /// [FIPS Secure Hash Standard] Section 6.5.
+    ///
+    /// [FIPS Secure Hash Standard]: http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
     Sha384,
 }
 
 //----------- DigestContext --------------------------------------------------
 
+/// Context for computing a message digest.
 pub enum DigestContext {
     #[cfg(feature = "ring")]
+    /// Use ring to compute the message digest.
     Ring(ring::DigestContext),
     #[cfg(feature = "openssl")]
+    /// Use openssl to compute the message digest.
     Openssl(openssl::DigestContext),
 }
 
 impl DigestContext {
     #[allow(unreachable_code)]
+    /// Create a new context for a specified digest type.
     pub fn new(digest_type: DigestType) -> Self {
         #[cfg(feature = "ring")]
         return Self::Ring(ring::DigestContext::new(digest_type));
@@ -46,6 +62,7 @@ impl DigestContext {
         compile_error!("Either feature \"ring\" or \"openssl\" must be enabled for this crate.");
     }
 
+    /// Add input to the digest computation.
     pub fn update(&mut self, data: &[u8]) {
         match self {
             #[cfg(feature = "ring")]
@@ -59,6 +76,7 @@ impl DigestContext {
         }
     }
 
+    /// Finish computing the digest.
     pub fn finish(self) -> Digest {
         match self {
             #[cfg(feature = "ring")]
@@ -75,10 +93,13 @@ impl DigestContext {
 
 //----------- Digest ---------------------------------------------------------
 
+/// A message digest.
 pub enum Digest {
     #[cfg(feature = "ring")]
+    /// A message digest computed using ring.
     Ring(ring::Digest),
     #[cfg(feature = "openssl")]
+    /// A message digest computed using openssl.
     Openssl(openssl::Digest),
 }
 
@@ -95,16 +116,20 @@ impl AsRef<[u8]> for Digest {
 
 //----------- PublicKey ------------------------------------------------------
 
+/// A public key for verifying a signature.
 pub enum PublicKey {
     #[cfg(feature = "ring")]
+    /// A public key implemented using ring.
     Ring(ring::PublicKey),
 
     #[cfg(feature = "openssl")]
+    /// A public key implemented using openssl.
     Openssl(openssl::PublicKey),
 }
 
 impl PublicKey {
     #[allow(unreachable_code)]
+    /// Create a public key from a [`Dnskey`].
     pub fn from_dnskey(
         dnskey: &Dnskey<impl AsRef<[u8]>>,
     ) -> Result<Self, AlgorithmError> {
@@ -118,6 +143,7 @@ impl PublicKey {
         compile_error!("Either feature \"ring\" or \"openssl\" must be enabled for this crate.");
     }
 
+    /// Verify a signature.
     pub fn verify(
         &self,
         signed_data: &[u8],
@@ -202,8 +228,13 @@ impl error::Error for AlgorithmError {}
 /// An error in reading a DNSKEY record.
 #[derive(Clone, Debug)]
 pub enum FromDnskeyError {
+    /// The key's algorithm is not supported.
     UnsupportedAlgorithm,
+
+    /// The key's protocol is not supported.
     UnsupportedProtocol,
+
+    /// The key is not valid.
     InvalidKey,
 }
 
@@ -220,24 +251,3 @@ impl fmt::Display for FromDnskeyError {
 }
 
 impl error::Error for FromDnskeyError {}
-
-//----------- ParseDnskeyTextError -------------------------------------------
-
-#[derive(Clone, Debug)]
-pub enum ParseDnskeyTextError {
-    Misformatted,
-    FromDnskey(FromDnskeyError),
-}
-
-//--- Display, Error
-
-impl fmt::Display for ParseDnskeyTextError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Misformatted => "misformatted DNSKEY record",
-            Self::FromDnskey(e) => return e.fmt(f),
-        })
-    }
-}
-
-impl error::Error for ParseDnskeyTextError {}
