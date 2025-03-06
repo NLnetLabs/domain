@@ -20,6 +20,9 @@ pub use ipv6::Aaaa;
 mod edns;
 pub use edns::{EdnsOptionsIter, Opt};
 
+mod dnssec;
+pub use dnssec::{DNSKey, Ds, NSec, NSec3, RRSig};
+
 //----------- RecordData -----------------------------------------------------
 
 /// DNS record data.
