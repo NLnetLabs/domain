@@ -44,20 +44,19 @@
 //!
 //! # Usage
 //!
-//! - To generate and/or import signing keys see the [`crypto`] module.
+//! - To generate and/or import signing keys see the [`crate::crypto`] module.
 //! - To sign a collection of [`Record`]s that represent a zone see the
 //!   [`SignableZoneInPlace`] trait.
 //! - To manage the life cycle of signing keys see the [`keyset`] module.
 //!
 //! # Advanced usage
 //!
-//! - For more control over the signing process see the [`SigningConfig`] type
-//!   and the [`SigningKeyUsageStrategy`] and [`DnssecSigningKey`] traits.
+//! - For more control over the signing process see the [`SigningConfig`] type.
 //! - For additional ways to sign zones see the [`SignableZone`] trait and the
 //!   [`sign_zone()`] function.
 //! - To invoke specific stages of the signing process manually see the
 //!   [`Signable`] trait and the [`generate_nsecs()`], [`generate_nsec3s()`],
-//!   [`generate_rrsigs()`] and [`sign_rrset()`] functions.
+//!   [`sign_sorted_zone_records()`] and [`sign_rrset()`] functions.
 //! - To generate signatures for arbitrary data see the [`SignRaw`] trait.
 //!
 //! # Limitations
@@ -68,7 +67,10 @@
 //! - Re-signing an already signed zone, only unsigned zones can be signed.
 //! - Signing of unsorted zones, record collections must be sorted according
 //!   to [`CanonicalOrd`].
-//! - Signing of [`Zone`] types or via an [`core::iter::Iterator`] over
+//! - Signing of
+#![cfg_attr(feature = "unstable-zone", doc = "[`Zone`]")]
+#![cfg_attr(not(feature = "unstable-zone"), doc = "`Zone`")]
+//!   types or via an [`core::iter::Iterator`] over
 //!   [`Record`]s, only signing of slices is supported.
 //! - Signing with both `NSEC` and `NSEC3` or multiple `NSEC3` configurations
 //!   at once.
@@ -77,10 +79,10 @@
 //!   present if you bring your own cryptography).
 //!
 //! [`common`]: crate::sign::crypto::common
-//! [`keyset`]: crate::sign::keys::keyset
+//! [`keyset`]: crate::dnssec::sign::keys::keyset
 //! [`openssl`]: crate::sign::crypto::openssl
 //! [`ring`]: crate::sign::crypto::ring
-//! [`sign_rrset()`]: crate::sign::signatures::rrsigs::sign_rrset
+//! [`sign_rrset()`]: crate::dnssec::sign::signatures::rrsigs::sign_rrset
 //! [`DnssecSigningKey`]: crate::sign::keys::DnssecSigningKey
 //! [`Record`]: crate::base::record::Record
 //! [RFC 5155]: https://rfc-editor.org/rfc/rfc5155
@@ -92,17 +94,24 @@
 //!     https://www.rfc-editor.org/rfc/rfc9499.html#section-10
 //! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
 //! [`KeyPair`]: crate::sign::crypto::common::KeyPair
-//! [`SigningKeyUsageStrategy`]:
-//!     crate::sign::signing::strategy::SigningKeyUsageStrategy
-//! [`Signable`]: crate::sign::traits::Signable
-//! [`SignableZone`]: crate::sign::traits::SignableZone
-//! [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
+//! [`Signable`]: crate::dnssec::sign::traits::Signable
+//! [`SignableZone`]: crate::dnssec::sign::traits::SignableZone
+//! [`SignableZoneInPlace`]: crate::dnssec::sign::traits::SignableZoneInPlace
 //! [`SigningKey`]: crate::sign::keys::SigningKey
 //! [`SortedRecords`]: crate::sign::SortedRecords
 //! [`Zone`]: crate::zonetree::Zone
 
-#![cfg(feature = "unstable-sign")]
-#![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
+#![cfg(all(
+    feature = "unstable-sign",
+    any(feature = "ring", feature = "openssl")
+))]
+#![cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "unstable-sign",
+        any(feature = "ring", feature = "openssl")
+    )))
+)]
 
 pub mod config;
 pub mod denial;
@@ -159,7 +168,7 @@ use traits::{SignableZone, SortedExtend};
 /// as they handle the construction of this type and calling [`sign_zone()`].
 ///
 /// [`Cow`]: std::borrow::Cow
-/// [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
+/// [`SignableZoneInPlace`]: crate::dnssec::sign::traits::SignableZoneInPlace
 pub enum SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
 where
     N: Clone + ToName + From<Name<Octs>> + Ord + Hash,
@@ -330,18 +339,22 @@ where
 ///
 /// - Re-signing, i.e. re-generating expired `RRSIG` signatures, updating the
 ///   NSEC(3) chain to match added or removed records or adding signatures for
-///   another key to an already signed zone e.g. to support key rollover. For
-///   the latter case it does however support providing multiple sets of key
-///   to sign with the [`SigningKeyUsageStrategy`] implementation being used
-///   to determine which keys to use to sign which records.
+///   another key to an already signed zone e.g. to support key rollover.
 ///
 /// - Signing with multiple NSEC(3) configurations at once, e.g. to migrate
 ///   from NSEC <-> NSEC3 or between NSEC3 configurations.
 ///
-/// - Signing of record collections stored in the [`Zone`] type as it
+/// - Signing of record collections stored in the
+#[cfg_attr(feature = "unstable-zone", doc = "[`Zone`]")]
+#[cfg_attr(not(feature = "unstable-zone"), doc = "`Zone`")]
+///   type as it
 ///   currently only support signing of record slices whereas the records in a
-///   [`Zone`] currently only supports a visitor style read interface via
-///   [`ReadableZone`] whereby a callback function is invoked for each node
+#[cfg_attr(feature = "unstable-zone", doc = "[`Zone`]")]
+#[cfg_attr(not(feature = "unstable-zone"), doc = "`Zone`")]
+///   currently only supports a visitor style read interface via
+#[cfg_attr(feature = "unstable-zone", doc = "[`ReadableZone`]")]
+#[cfg_attr(not(feature = "unstable-zone"), doc = "`ReadableZone`")]
+///   whereby a callback function is invoked for each node
 ///   that is "walked".
 ///
 /// # Configuration
@@ -355,8 +368,8 @@ where
 /// [RFC 5155]: https://www.rfc-editor.org/info/rfc5155
 /// [RFC 5155 section 2 Backwards Compatibility]:
 ///     https://www.rfc-editor.org/rfc/rfc5155.html#section-2
-/// [`SignableZoneInPlace`]: crate::sign::traits::SignableZoneInPlace
-/// [`SortedRecords`]: crate::sign::records::SortedRecords
+/// [`SignableZoneInPlace`]: crate::dnssec::sign::traits::SignableZoneInPlace
+/// [`SortedRecords`]: crate::dnssec::sign::records::SortedRecords
 /// [`Zone`]: crate::zonetree::Zone
 pub fn sign_zone<N, Octs, S, Inner, Sort, HP, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,

@@ -1,11 +1,14 @@
-// DNSSEC code that is used both by DNSSEC signing and DNSSEC validation.
+//! DNSSEC code that is used both by DNSSEC signing and DNSSEC validation.
+
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 use crate::base::iana::{Class, Nsec3HashAlg};
 use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::Composer;
 use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
 use crate::base::{Name, Record, Rtype, ToName, Ttl};
-use crate::crypto::common::{DigestContext, DigestType, FromDnskeyError};
+use crate::crypto::common::{DigestContext, DigestType};
 use crate::dep::octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
@@ -117,6 +120,7 @@ where
         return Err(Nsec3HashError::UnsupportedAlgorithm);
     }
 
+    /// Compute the hash octets.
     fn mk_hash<N, SaltOcts, HashOcts>(
         owner: N,
         iterations: u16,
@@ -186,30 +190,26 @@ where
     }
 
     // Ensure there is a single DNSKEY record line in the input.
-    let (line, rest) =
-        next_line(data).ok_or(ParseDnskeyTextError::Misformatted)?;
+    let (line, rest) = next_line(data).ok_or(ParseDnskeyTextError)?;
     if next_line(rest).is_some() {
-        return Err(ParseDnskeyTextError::Misformatted);
+        return Err(ParseDnskeyTextError);
     }
 
     // Parse the entire record.
     let mut scanner = IterScanner::new(line.split_ascii_whitespace());
 
-    let name = scanner
-        .scan_name()
-        .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+    let name = scanner.scan_name().map_err(|_| ParseDnskeyTextError)?;
 
-    let _ = Class::scan(&mut scanner)
-        .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+    let _ = Class::scan(&mut scanner).map_err(|_| ParseDnskeyTextError)?;
 
     if Rtype::scan(&mut scanner).map_or(true, |t| t != Rtype::DNSKEY) {
-        return Err(ParseDnskeyTextError::Misformatted);
+        return Err(ParseDnskeyTextError);
     }
 
-    let data = Dnskey::scan(&mut scanner)
-        .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+    let data =
+        Dnskey::scan(&mut scanner).map_err(|_| ParseDnskeyTextError)?;
 
-    Ok(Record::new(name, Class::IN, Ttl::from_secs(0), data))
+    Ok(Record::new(name, Class::IN, Ttl::ZERO, data))
 }
 
 //------------ format_as_bind ------------------------------------------------
@@ -266,6 +266,7 @@ where
     N: ToName,
     O: AsRef<[u8]>,
 {
+    /// Display type to return.
     struct Display<'a, N, O>(&'a Record<N, Dnskey<O>>);
     impl<N, O> fmt::Display for Display<'_, N, O>
     where
@@ -282,19 +283,14 @@ where
 //----------- ParseDnskeyTextError -------------------------------------------
 
 #[derive(Clone, Debug)]
-pub enum ParseDnskeyTextError {
-    Misformatted,
-    FromDnskey(FromDnskeyError),
-}
+/// Error from parsing a DNSKEY record in presentation format.
+pub struct ParseDnskeyTextError;
 
 //--- Display, Error
 
 impl fmt::Display for ParseDnskeyTextError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Misformatted => "misformatted DNSKEY record",
-            Self::FromDnskey(e) => return e.fmt(f),
-        })
+        f.write_str("misformatted DNSKEY record")
     }
 }
 

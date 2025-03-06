@@ -156,7 +156,7 @@ where
     }
 }
 
-/// Generate [RFC5155] NSEC3 and NSEC3PARAM records for this record set.
+/// Generate RFC5155 NSEC3 and NSEC3PARAM records for this record set.
 ///
 /// This function does NOT enforce use of current best practice settings, as
 /// defined by [RFC 5155], [RFC 9077] and [RFC 9276] which state that:
@@ -841,13 +841,13 @@ where
 ///
 /// RFC 1034 says when _"When a name server loads a zone, it forces the TTL of
 /// all authoritative RRs to be at least the MINIMUM field of the SOA"_ so an
-/// approach used by some zone signers (e.g. PowerDNS [1]) is to use the SOA
+/// approach used by some zone signers (e.g. PowerDNS) is to use the SOA
 /// MINIMUM as the TTL for the NSEC3PARAM.
 ///
 /// An alternative approach used by some zone signers is to use a fixed TTL
 /// for the NSEC3PARAM TTL, e.g. BIND, dnssec-signzone and OpenDNSSEC
-/// reportedly use 0 [1] while ldns-signzone uses 3600 [2] (as does an example
-/// in the BIND documentation [3]).
+/// reportedly use 0 while ldns-signzone uses 3600 (as does an example
+/// in the BIND documentation).
 ///
 /// The default approach used here is to use the TTL of the SOA RR, NOT the
 /// SOA MINIMUM. This is consistent with how a TTL is chosen by tools such as

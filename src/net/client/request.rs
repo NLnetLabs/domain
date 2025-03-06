@@ -692,7 +692,10 @@ pub enum Error {
     /// TSIG authentication failed.
     Authentication(tsig::ValidationError),
 
-    #[cfg(feature = "unstable-validator")]
+    #[cfg(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    ))]
     /// An error happened during DNSSEC validation.
     Validation(crate::dnssec::validator::context::Error),
 }
@@ -721,7 +724,10 @@ impl From<super::dgram::QueryError> for Error {
     }
 }
 
-#[cfg(feature = "unstable-validator")]
+#[cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
 impl From<crate::dnssec::validator::context::Error> for Error {
     fn from(err: crate::dnssec::validator::context::Error) -> Self {
         Self::Validation(err)
@@ -783,7 +789,10 @@ impl fmt::Display for Error {
             #[cfg(feature = "tsig")]
             Error::Authentication(err) => fmt::Display::fmt(err, f),
 
-            #[cfg(feature = "unstable-validator")]
+            #[cfg(all(
+                feature = "unstable-validator",
+                any(feature = "ring", feature = "openssl")
+            ))]
             Error::Validation(_) => {
                 write!(f, "error validating response")
             }
@@ -828,7 +837,10 @@ impl error::Error for Error {
             #[cfg(feature = "tsig")]
             Error::Authentication(e) => Some(e),
 
-            #[cfg(feature = "unstable-validator")]
+            #[cfg(all(
+                feature = "unstable-validator",
+                any(feature = "ring", feature = "openssl")
+            ))]
             Error::Validation(e) => Some(e),
         }
     }

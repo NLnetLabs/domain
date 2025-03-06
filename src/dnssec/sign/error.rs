@@ -18,10 +18,6 @@ pub enum SigningError {
     /// At least one key must be provided to sign with.
     NoKeysProvided,
 
-    /// None of the provided keys were deemed suitable by the
-    /// [`SigningKeyUsageStrategy`] used.
-    NoSuitableKeysFound,
-
     // The zone either lacks a SOA record or has more than one SOA record.
     SoaRecordCouldNotBeDetermined,
 
@@ -55,9 +51,6 @@ impl Display for SigningError {
             SigningError::OutOfMemory => f.write_str("Out of memory"),
             SigningError::NoKeysProvided => {
                 f.write_str("No signing keys provided")
-            }
-            SigningError::NoSuitableKeysFound => {
-                f.write_str("No suitable keys found")
             }
             SigningError::SoaRecordCouldNotBeDetermined => {
                 f.write_str("No apex SOA or too many apex SOA records found")

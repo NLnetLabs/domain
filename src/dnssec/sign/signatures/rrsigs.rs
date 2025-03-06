@@ -37,8 +37,7 @@ pub struct GenerateRrsigConfig<'a, N> {
 }
 
 impl<'a, N> GenerateRrsigConfig<'a, N> {
-    /// Like [`Self::default()`] but gives control over the SigningKeyStrategy
-    /// and Sorter used.
+    /// Create a new object.
     pub fn new(inception: Timestamp, expiration: Timestamp) -> Self {
         Self {
             zone_apex: None,
@@ -207,11 +206,11 @@ where
 
 /// Generate `RRSIG` records for a given RRset.
 ///
-/// See [`sign_rrset_in()`].
+/// See [`sign_sorted_rrset_in()`].
 ///
-/// If signing multiple RRsets, calling [`sign_rrset_in()`] directly will be
-/// more efficient as you can allocate the scratch buffer once and re-use it
-/// across multiple calls.
+/// If signing multiple RRsets, calling [`sign_sorted_rrset_in()`] directly
+/// will be more efficient as you can allocate the scratch buffer once
+/// and re-use it across multiple calls.
 ///
 /// This function will sort the RRset in canonical ordering prior to signing.
 pub fn sign_rrset<N, D, Octs, Inner>(

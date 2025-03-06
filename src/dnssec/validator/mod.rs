@@ -18,6 +18,9 @@
 //! method [validate_msg()](context::ValidationContext::validate_msg()) to
 //! validate a reply message.
 //!
+//! Low-level operations for computing the hash of a DNSKEY or verifying an
+//! RRSIG record are provided by the module [`base`].
+//!
 //! # Caching
 //! The validator has four caches:
 //! 1) A `node` cache that caches the DNSSEC status and (if needed) DNSKEY

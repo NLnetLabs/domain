@@ -38,15 +38,10 @@
 #![cfg_attr(not(feature = "unstable-crypto"), doc = "* crypto:")]
 //!   Experimental support for cryptographic backends, key generation and
 //!   import.
-#![cfg_attr(feature = "unstable-sign", doc = "* [sign]:")]
-#![cfg_attr(not(feature = "unstable-sign"), doc = "* sign:")]
-//!   Experimental support for DNSSEC signing.
+//! * [dnssec]: DNSSEC signing and validation.
 #![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
 #![cfg_attr(not(feature = "tsig"), doc = "* tsig:")]
 //!   Support for securing DNS transactions with TSIG records.
-#![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
-#![cfg_attr(not(feature = "unstable-validator"), doc = "* validator:")]
-//!   A DNSSEC validator.
 #![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
 #![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
 //!   Experimental reading and writing of zone files, i.e. the textual
@@ -162,8 +157,7 @@
 //!   or more feature flags that enable cryptographic backends. This feature
 //!   flag enables all parts of the crypto module.
 //! * `unstable-sign`: basic DNSSEC signing support. This will enable the
-#![cfg_attr(feature = "unstable-sign", doc = "  [sign]")]
-#![cfg_attr(not(feature = "unstable-sign"), doc = "  sign")]
+//!   `dnssec::sign`
 //!   module and requires the `std` feature. In order to actually perform any
 //!   signing, also enable one or more cryptographic backend modules (`ring`
 //!   and `openssl`).
@@ -197,9 +191,6 @@ pub mod base;
 pub mod crypto;
 pub mod dep;
 
-// A working crypto library requires either ring or openssl. The dnssec module
-// needs crypto.
-#[cfg(any(feature = "ring", feature = "openssl"))]
 pub mod dnssec;
 
 pub mod net;

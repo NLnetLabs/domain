@@ -2285,7 +2285,7 @@ where
 //----------- Error ----------------------------------------------------------
 
 /// Various errors that can be returned by function in the
-/// [validator](crate::validator) module.
+/// [validator](crate::dnssec::validator) module.
 #[derive(Clone, Debug)]
 pub enum Error {
     /// Badly formed DNS message.

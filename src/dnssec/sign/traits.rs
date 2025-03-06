@@ -1,7 +1,7 @@
 //! Signing related traits.
 //!
 //! This module provides traits which can be used to simplify invocation of
-//! [`crate::sign::sign_zone()`] for [`Record`] collection types.
+//! [`crate::dnssec::sign::sign_zone()`] for [`Record`] collection types.
 use core::convert::From;
 use core::fmt::{Debug, Display};
 use core::iter::Extend;
@@ -183,7 +183,7 @@ where
     /// DNSSEC sign an unsigned zone using the given configuration and keys.
     ///
     /// This function is a convenience wrapper around calling
-    /// [`crate::sign::sign_zone()`] function with enum variant
+    /// [`crate::dnssec::sign::sign_zone()`] function with enum variant
     /// [`SignableZoneInOut::SignInto`].
     fn sign_zone<Inner, HP, T>(
         &self,
@@ -324,7 +324,7 @@ where
     /// and keys.
     ///
     /// This function is a convenience wrapper around calling
-    /// [`crate::sign::sign_zone()`] function with enum variant
+    /// [`crate::dnssec::sign::sign_zone()`] function with enum variant
     /// [`SignableZoneInOut::SignInPlace`].
     fn sign_zone<Inner, HP>(
         &mut self,
@@ -448,7 +448,7 @@ where
 
     /// Generate `RRSIG` records for this type.
     ///
-    /// This function is a thin wrapper around [`generate_rrsigs()`].
+    /// This function is a thin wrapper around [`sign_sorted_zone_records()`].
     #[allow(clippy::type_complexity)]
     fn sign(
         &self,

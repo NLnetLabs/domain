@@ -3,6 +3,16 @@
 //! This backend supports all the algorithms supported by Ring and OpenSSL,
 //! depending on whether the respective crate features are enabled.  See the
 //! documentation for each backend for more information.
+//!
+//! The [`SecretKeyBytes`] type is a generic representation of a secret key as
+//! a byte slice.  While it does not offer any cryptographic functionality, it
+//! is useful to transfer secret keys stored in memory, independent of any
+//! cryptographic backend.
+//!
+//! [`SecretKeyBytes`] also supports importing and exporting keys from and to
+//! the conventional private-key format popularized by BIND.  This format is
+//! used by a variety of tools for storing DNSSEC keys on disk.  See the
+//! type-level documentation for a specification of the format.
 
 use std::boxed::Box;
 use std::fmt;

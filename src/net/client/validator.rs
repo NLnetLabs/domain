@@ -6,7 +6,7 @@
 //! a validation status to a result code (server failure) and setting or
 //! clearing the AD flag.
 //! For details of the validator see the
-//! [validator](crate::validator) module.
+//! [validator](crate::dnssec::validator) module.
 //!
 //! # Upstream transports
 //!
@@ -30,7 +30,7 @@
 //! some amount of validating for each request.
 //!
 //! The validator has some internal caches (see the
-//! [validator](crate::validator) module) so
+//! [validator](crate::dnssec::validator) module) so
 //! there is no direct need for a cache upstream of the validator. Caching
 //! becomes more complex if there is validator that uses the validator.
 //! in that case, the downstream validator will likely issues requests for

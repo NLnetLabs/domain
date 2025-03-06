@@ -31,7 +31,7 @@ pub trait Sorter {
     /// The imposed order should be compatible with the ordering defined by
     /// RFC 8976 section 3.3.1, i.e. _"DNSSEC's canonical on-the-wire RR
     /// format (without name compression) and ordering as specified in
-    /// Sections 6.1, 6.2, and 6.3 of [RFC4034] with the additional provision
+    /// Sections 6.1, 6.2, and 6.3 of RFC4034 with the additional provision
     /// that RRsets having the same owner name MUST be numerically ordered, in
     /// ascending order, by their numeric RR TYPE"_.
     fn sort_by<N, D, F>(records: &mut Vec<Record<N, D>>, compare: F)
@@ -45,7 +45,7 @@ pub trait Sorter {
 /// The default [`Sorter`] implementation used by [`SortedRecords`].
 ///
 /// The current implementation is the single threaded sort provided by Rust
-/// [`std::vec::Vec::sort_by()`].
+/// [`std::vec::Vec.sort_by()`].
 pub struct DefaultSorter;
 
 impl Sorter for DefaultSorter {
@@ -90,7 +90,8 @@ where
 
     /// Insert a record in sorted order.
     ///
-    /// If inserting a lot of records at once prefer [`extend()`] instead
+    /// If inserting a lot of records at once prefer [`Extend::extend()`]
+    /// instead
     /// which will sort once after all insertions rather than once per
     /// insertion.
     pub fn insert(&mut self, record: Record<N, D>) -> Result<(), Record<N, D>>
