@@ -43,7 +43,7 @@ pub struct EdnsRecord<'a> {
     pub flags: EdnsFlags,
 
     /// Extended DNS options.
-    pub options: SizePrefixed<&'a Opt>,
+    pub options: SizePrefixed<U16, &'a Opt>,
 }
 
 //--- Parsing from DNS messages
@@ -78,7 +78,7 @@ impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
         let (&ext_rcode, rest) = <&u8>::split_bytes(rest)?;
         let (&version, rest) = <&u8>::split_bytes(rest)?;
         let (&flags, rest) = <&EdnsFlags>::split_bytes(rest)?;
-        let (options, rest) = <SizePrefixed<&Opt>>::split_bytes(rest)?;
+        let (options, rest) = <SizePrefixed<U16, &Opt>>::split_bytes(rest)?;
 
         Ok((
             Self {
@@ -235,7 +235,7 @@ impl<'b> ParseBytes<'b> for EdnsOption<'b> {
 impl<'b> SplitBytes<'b> for EdnsOption<'b> {
     fn split_bytes(bytes: &'b [u8]) -> Result<(Self, &'b [u8]), ParseError> {
         let (code, rest) = OptionCode::split_bytes(bytes)?;
-        let (data, rest) = <&SizePrefixed<[u8]>>::split_bytes(rest)?;
+        let (data, rest) = <&SizePrefixed<U16, [u8]>>::split_bytes(rest)?;
 
         let this = match code {
             OptionCode::COOKIE => match data.len() {
@@ -272,7 +272,7 @@ impl BuildBytes for EdnsOption<'_> {
             Self::ExtError(this) => this.as_bytes(),
             Self::Unknown(_, this) => this.as_bytes(),
         };
-        bytes = SizePrefixed::new(data).build_bytes(bytes)?;
+        bytes = SizePrefixed::<U16, _>::new(data).build_bytes(bytes)?;
 
         Ok(bytes)
     }

@@ -74,7 +74,7 @@ where
         let (&ttl, rest) = <&TTL>::split_message_bytes(contents, rest)?;
         let rdata_start = rest;
         let (_, rest) =
-            <&SizePrefixed<[u8]>>::split_message_bytes(contents, rest)?;
+            <&SizePrefixed<U16, [u8]>>::split_message_bytes(contents, rest)?;
         let rdata =
             D::parse_record_data(&contents[..rest], rdata_start + 2, rtype)?;
 
@@ -113,7 +113,7 @@ where
         builder.append_bytes(self.rtype.as_bytes())?;
         builder.append_bytes(self.rclass.as_bytes())?;
         builder.append_bytes(self.ttl.as_bytes())?;
-        SizePrefixed::new(&self.rdata)
+        SizePrefixed::<U16, _>::new(&self.rdata)
             .build_into_message(builder.delegate())?;
         Ok(builder.commit())
     }
@@ -131,7 +131,7 @@ where
         let (rtype, rest) = RType::split_bytes(rest)?;
         let (rclass, rest) = RClass::split_bytes(rest)?;
         let (ttl, rest) = TTL::split_bytes(rest)?;
-        let (rdata, rest) = <&SizePrefixed<[u8]>>::split_bytes(rest)?;
+        let (rdata, rest) = <&SizePrefixed<U16, [u8]>>::split_bytes(rest)?;
         let rdata = D::parse_record_data_bytes(rdata, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
@@ -166,7 +166,8 @@ where
         bytes = self.rtype.as_bytes().build_bytes(bytes)?;
         bytes = self.rclass.as_bytes().build_bytes(bytes)?;
         bytes = self.ttl.as_bytes().build_bytes(bytes)?;
-        bytes = SizePrefixed::new(&self.rdata).build_bytes(bytes)?;
+        bytes =
+            SizePrefixed::<U16, _>::new(&self.rdata).build_bytes(bytes)?;
 
         Ok(bytes)
     }

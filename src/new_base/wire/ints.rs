@@ -292,3 +292,17 @@ define_int! {
     /// An unsigned 64-bit integer in network endianness.
     U64([u8; 8]) = u64;
 }
+
+impl TryFrom<usize> for U16 {
+    type Error = <u16 as TryFrom<usize>>::Error;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        u16::try_from(value).map(U16::new)
+    }
+}
+
+impl From<U16> for usize {
+    fn from(value: U16) -> Self {
+        usize::from(value.get())
+    }
+}

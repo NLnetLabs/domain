@@ -5,7 +5,7 @@ use core::{mem::ManuallyDrop, ptr};
 use crate::new_base::{
     name::UnparsedName,
     parse::ParseMessageBytes,
-    wire::{AsBytes, ParseBytes, SizePrefixed, TruncationError},
+    wire::{AsBytes, ParseBytes, SizePrefixed, TruncationError, U16},
     RClass, RType, Record, TTL,
 };
 
@@ -57,7 +57,7 @@ impl<'b> RecordBuilder<'b> {
             b.append_bytes(record.rclass.as_bytes())?;
             b.append_bytes(record.ttl.as_bytes())?;
             let size = b.context().size;
-            SizePrefixed::new(&record.rdata)
+            SizePrefixed::<U16, _>::new(&record.rdata)
                 .build_into_message(b.delegate())?;
             let data =
                 (size + 2).try_into().expect("Messages are at most 64KiB");
