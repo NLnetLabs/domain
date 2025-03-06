@@ -68,8 +68,8 @@
 //! - Signing of unsorted zones, record collections must be sorted according
 //!   to [`CanonicalOrd`].
 //! - Signing of
-#![cfg_attr(feature = "unstable-zone", doc = "[`Zone`]")]
-#![cfg_attr(not(feature = "unstable-zone"), doc = "`Zone`")]
+#![cfg_attr(feature = "unstable-zonetree", doc = "[`Zone`]")]
+#![cfg_attr(not(feature = "unstable-zonetree"), doc = "`Zone`")]
 //!   types or via an [`core::iter::Iterator`] over
 //!   [`Record`]s, only signing of slices is supported.
 //! - Signing with both `NSEC` and `NSEC3` or multiple `NSEC3` configurations
@@ -345,15 +345,15 @@ where
 ///   from NSEC <-> NSEC3 or between NSEC3 configurations.
 ///
 /// - Signing of record collections stored in the
-#[cfg_attr(feature = "unstable-zone", doc = "[`Zone`]")]
-#[cfg_attr(not(feature = "unstable-zone"), doc = "`Zone`")]
+#[cfg_attr(feature = "unstable-zonetree", doc = "[`Zone`]")]
+#[cfg_attr(not(feature = "unstable-zonetree"), doc = "`Zone`")]
 ///   type as it
 ///   currently only support signing of record slices whereas the records in a
-#[cfg_attr(feature = "unstable-zone", doc = "[`Zone`]")]
-#[cfg_attr(not(feature = "unstable-zone"), doc = "`Zone`")]
+#[cfg_attr(feature = "unstable-zonetree", doc = "[`Zone`]")]
+#[cfg_attr(not(feature = "unstable-zonetree"), doc = "`Zone`")]
 ///   currently only supports a visitor style read interface via
-#[cfg_attr(feature = "unstable-zone", doc = "[`ReadableZone`]")]
-#[cfg_attr(not(feature = "unstable-zone"), doc = "`ReadableZone`")]
+#[cfg_attr(feature = "unstable-zonetree", doc = "[`ReadableZone`]")]
+#[cfg_attr(not(feature = "unstable-zonetree"), doc = "`ReadableZone`")]
 ///   whereby a callback function is invoked for each node
 ///   that is "walked".
 ///
