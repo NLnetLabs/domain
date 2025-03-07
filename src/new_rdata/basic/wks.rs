@@ -2,10 +2,7 @@ use core::fmt;
 
 use domain_macros::*;
 
-use crate::new_base::{
-    build::{self, BuildIntoMessage, BuildResult},
-    wire::AsBytes,
-};
+use crate::new_base::wire::AsBytes;
 
 use super::A;
 
@@ -50,14 +47,6 @@ impl fmt::Debug for Wks {
             .field("protocol", &self.protocol)
             .field("ports", &Ports(&self.ports))
             .finish()
-    }
-}
-
-//--- Building into DNS messages
-
-impl BuildIntoMessage for Wks {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.as_bytes().build_into_message(builder)
     }
 }
 

@@ -240,6 +240,22 @@ impl RType {
     pub const OPT: Self = Self::new(41);
 }
 
+//--- Conversion to and from 'u16'
+
+impl From<u16> for RType {
+    fn from(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+}
+
+impl From<RType> for u16 {
+    fn from(value: RType) -> Self {
+        value.code.get()
+    }
+}
+
 //--- Formatting
 
 impl fmt::Debug for RType {

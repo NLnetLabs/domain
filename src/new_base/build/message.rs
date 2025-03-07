@@ -317,7 +317,7 @@ impl<'b> MessageBuilder<'b, '_> {
 mod test {
     use crate::{
         new_base::{
-            build::{BuildIntoMessage, BuilderContext, MessageState},
+            build::{BuilderContext, MessageState},
             name::RevName,
             wire::U16,
             QClass, QType, Question, RClass, RType, Record, SectionCounts,
@@ -425,10 +425,15 @@ mod test {
 
             assert!(rb.delegate().append_bytes(&[0u8; 5]).is_err());
 
-            let rdata = A {
-                octets: [127, 0, 0, 1],
-            };
-            rdata.build_into_message(rb.delegate()).unwrap();
+            {
+                let mut builder = rb.delegate();
+                builder
+                    .append_built_bytes(&A {
+                        octets: [127, 0, 0, 1],
+                    })
+                    .unwrap();
+                builder.commit();
+            }
             assert_eq!(rb.rdata(), b"\x7F\x00\x00\x01");
         }
 

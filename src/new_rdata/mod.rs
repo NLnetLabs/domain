@@ -5,7 +5,10 @@ use domain_macros::*;
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
     parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
+    wire::{
+        AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
+        TruncationError,
+    },
     ParseRecordData, RType,
 };
 
@@ -146,9 +149,7 @@ where
         rtype: RType,
     ) -> Result<Self, ParseError> {
         match rtype {
-            RType::A => {
-                <&A>::parse_message_bytes(contents, start).map(Self::A)
-            }
+            RType::A => <&A>::parse_bytes(&contents[start..]).map(Self::A),
             RType::NS => {
                 Ns::parse_message_bytes(contents, start).map(Self::Ns)
             }
@@ -159,27 +160,27 @@ where
                 Soa::parse_message_bytes(contents, start).map(Self::Soa)
             }
             RType::WKS => {
-                <&Wks>::parse_message_bytes(contents, start).map(Self::Wks)
+                <&Wks>::parse_bytes(&contents[start..]).map(Self::Wks)
             }
             RType::PTR => {
                 Ptr::parse_message_bytes(contents, start).map(Self::Ptr)
             }
             RType::HINFO => {
-                HInfo::parse_message_bytes(contents, start).map(Self::HInfo)
+                HInfo::parse_bytes(&contents[start..]).map(Self::HInfo)
             }
             RType::MX => {
                 Mx::parse_message_bytes(contents, start).map(Self::Mx)
             }
             RType::TXT => {
-                <&Txt>::parse_message_bytes(contents, start).map(Self::Txt)
+                <&Txt>::parse_bytes(&contents[start..]).map(Self::Txt)
             }
             RType::AAAA => {
-                <&Aaaa>::parse_message_bytes(contents, start).map(Self::Aaaa)
+                <&Aaaa>::parse_bytes(&contents[start..]).map(Self::Aaaa)
             }
             RType::OPT => {
-                <&Opt>::parse_message_bytes(contents, start).map(Self::Opt)
+                <&Opt>::parse_bytes(&contents[start..]).map(Self::Opt)
             }
-            _ => <&UnknownRecordData>::parse_message_bytes(contents, start)
+            _ => <&UnknownRecordData>::parse_bytes(&contents[start..])
                 .map(|data| Self::Unknown(rtype, data)),
         }
     }
@@ -209,21 +210,26 @@ where
 //--- Building record data
 
 impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> BuildResult {
         match self {
-            Self::A(r) => r.build_into_message(builder),
-            Self::Ns(r) => r.build_into_message(builder),
-            Self::CName(r) => r.build_into_message(builder),
-            Self::Soa(r) => r.build_into_message(builder),
-            Self::Wks(r) => r.build_into_message(builder),
-            Self::Ptr(r) => r.build_into_message(builder),
-            Self::HInfo(r) => r.build_into_message(builder),
-            Self::Mx(r) => r.build_into_message(builder),
-            Self::Txt(r) => r.build_into_message(builder),
-            Self::Aaaa(r) => r.build_into_message(builder),
-            Self::Opt(r) => r.build_into_message(builder),
-            Self::Unknown(_, r) => r.octets.build_into_message(builder),
+            Self::A(r) => builder.append_bytes(r.as_bytes())?,
+            Self::Ns(r) => return r.build_into_message(builder),
+            Self::CName(r) => return r.build_into_message(builder),
+            Self::Soa(r) => return r.build_into_message(builder),
+            Self::Wks(r) => builder.append_bytes(r.as_bytes())?,
+            Self::Ptr(r) => return r.build_into_message(builder),
+            Self::HInfo(r) => builder.append_built_bytes(r)?,
+            Self::Mx(r) => return r.build_into_message(builder),
+            Self::Txt(r) => builder.append_bytes(r.as_bytes())?,
+            Self::Aaaa(r) => builder.append_bytes(r.as_bytes())?,
+            Self::Opt(r) => builder.append_bytes(r.as_bytes())?,
+            Self::Unknown(_, r) => builder.append_bytes(r.as_bytes())?,
         }
+
+        Ok(builder.commit())
     }
 }
 

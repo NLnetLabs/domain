@@ -4,10 +4,7 @@ use core::str::FromStr;
 
 use domain_macros::*;
 
-use crate::new_base::{
-    build::{self, BuildIntoMessage, BuildResult},
-    wire::AsBytes,
-};
+use crate::new_base::wire::AsBytes;
 
 //----------- A --------------------------------------------------------------
 
@@ -65,13 +62,5 @@ impl FromStr for A {
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Ipv4Addr::from(*self).fmt(f)
-    }
-}
-
-//--- Building into DNS messages
-
-impl BuildIntoMessage for A {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.as_bytes().build_into_message(builder)
     }
 }

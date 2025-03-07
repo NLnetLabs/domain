@@ -7,10 +7,7 @@ use core::{fmt, iter::FusedIterator};
 use domain_macros::*;
 
 use crate::{
-    new_base::{
-        build::{self, BuildIntoMessage, BuildResult},
-        wire::{ParseError, SplitBytes},
-    },
+    new_base::wire::{ParseError, SplitBytes},
     new_edns::EdnsOption,
 };
 
@@ -40,16 +37,6 @@ impl Opt {
 impl fmt::Debug for Opt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Opt").field(&self.options()).finish()
-    }
-}
-
-// TODO: Formatting.
-
-//--- Building into DNS messages
-
-impl BuildIntoMessage for Opt {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.contents.build_into_message(builder)
     }
 }
 
