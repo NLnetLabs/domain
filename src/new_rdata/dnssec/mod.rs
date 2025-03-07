@@ -7,7 +7,7 @@ use domain_macros::*;
 //----------- Submodules -----------------------------------------------------
 
 mod dnskey;
-pub use dnskey::DNSKey;
+pub use dnskey::{DNSKey, DNSKeyFlags};
 
 mod rrsig;
 pub use rrsig::RRSig;
@@ -16,7 +16,7 @@ mod nsec;
 pub use nsec::{NSec, TypeBitmaps};
 
 mod nsec3;
-pub use nsec3::{NSec3, NSec3Flags, NSec3HashAlg};
+pub use nsec3::{NSec3, NSec3Flags, NSec3HashAlg, NSec3Param};
 
 mod ds;
 pub use ds::{DigestType, Ds};

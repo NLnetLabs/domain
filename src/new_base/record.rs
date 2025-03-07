@@ -238,6 +238,24 @@ impl RType {
 
     /// The type of an [`Opt`](crate::new_rdata::Opt) record.
     pub const OPT: Self = Self::new(41);
+
+    /// The type of a [`Ds`](crate::new_rdata::Ds) record.
+    pub const DS: Self = Self::new(43);
+
+    /// The type of an [`RRSig`](crate::new_rdata::RRSig) record.
+    pub const RRSIG: Self = Self::new(46);
+
+    /// The type of an [`NSec`](crate::new_rdata::NSec) record.
+    pub const NSEC: Self = Self::new(47);
+
+    /// The type of a [`DNSKey`](crate::new_rdata::DNSKey) record.
+    pub const DNSKEY: Self = Self::new(48);
+
+    /// The type of an [`NSec3`](crate::new_rdata::NSec3) record.
+    pub const NSEC3: Self = Self::new(50);
+
+    /// The type of an [`NSec3Param`](crate::new_rdata::NSec3Param) record.
+    pub const NSEC3PARAM: Self = Self::new(51);
 }
 
 //--- Conversion to and from 'u16'
@@ -272,6 +290,12 @@ impl fmt::Debug for RType {
             Self::TXT => "RType::TXT",
             Self::AAAA => "RType::AAAA",
             Self::OPT => "RType::OPT",
+            Self::DS => "RType::DS",
+            Self::RRSIG => "RType::RRSIG",
+            Self::NSEC => "RType::NSEC",
+            Self::DNSKEY => "RType::DNSKEY",
+            Self::NSEC3 => "RType::NSEC3",
+            Self::NSEC3PARAM => "RType::NSEC3PARAM",
             _ => return write!(f, "RType({})", self.code),
         })
     }

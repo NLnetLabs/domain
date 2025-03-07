@@ -8,8 +8,8 @@ use super::TypeBitmaps;
 
 //----------- NSec3 ----------------------------------------------------------
 
-/// An indication of the non-existence of a DNS record (version 3).
-#[derive(Clone, Debug, BuildBytes, ParseBytes)]
+/// An indication of the non-existence of a set of DNS records (version 3).
+#[derive(Clone, Debug, PartialEq, Eq, BuildBytes, ParseBytes)]
 pub struct NSec3<'a> {
     /// The algorithm used to hash names.
     pub algorithm: NSec3HashAlg,
@@ -28,6 +28,33 @@ pub struct NSec3<'a> {
 
     /// The types of the records that exist at this owner name.
     pub types: &'a TypeBitmaps,
+}
+
+//----------- NSec3Param -----------------------------------------------------
+
+/// Parameters for computing [`NSec3`] records.
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    AsBytes,
+    BuildBytes,
+    ParseBytesByRef,
+    SplitBytesByRef,
+)]
+#[repr(C)]
+pub struct NSec3Param {
+    /// The algorithm used to hash names.
+    pub algorithm: NSec3HashAlg,
+
+    /// Flags modifying the behaviour of the record.
+    pub flags: NSec3Flags,
+
+    /// The number of iterations of the underlying hash function per name.
+    pub iterations: U16,
+
+    /// The salt used to randomize the hash function.
+    pub salt: SizePrefixed<u8, [u8]>,
 }
 
 //----------- NSec3HashAlg ---------------------------------------------------
@@ -80,6 +107,8 @@ impl fmt::Debug for NSec3HashAlg {
     Clone,
     Default,
     Hash,
+    PartialEq,
+    Eq,
     AsBytes,
     BuildBytes,
     ParseBytes,

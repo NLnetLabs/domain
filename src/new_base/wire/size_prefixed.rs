@@ -2,6 +2,7 @@
 
 use core::{
     borrow::{Borrow, BorrowMut},
+    cmp::Ordering,
     fmt,
     ops::{Deref, DerefMut},
 };
@@ -108,6 +109,38 @@ impl<S, T: ?Sized> AsRef<T> for SizePrefixed<S, T> {
 impl<S, T: ?Sized> AsMut<T> for SizePrefixed<S, T> {
     fn as_mut(&mut self) -> &mut T {
         &mut self.data
+    }
+}
+
+//--- Equality
+
+impl<S, T: ?Sized + PartialEq> PartialEq for SizePrefixed<S, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl<S, T: ?Sized + Eq> Eq for SizePrefixed<S, T> {}
+
+//--- Ordering
+
+impl<S, T: ?Sized + PartialOrd> PartialOrd for SizePrefixed<S, T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.data.partial_cmp(&other.data)
+    }
+}
+
+impl<S, T: ?Sized + Ord> Ord for SizePrefixed<S, T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.data.cmp(&other.data)
+    }
+}
+
+//--- Formatting
+
+impl<S, T: ?Sized + fmt::Debug> fmt::Debug for SizePrefixed<S, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("SizePrefixed").field(&&self.data).finish()
     }
 }
 
@@ -328,11 +361,3 @@ where
 }
 
 unsafe impl<S: AsBytes, T: ?Sized + AsBytes> AsBytes for SizePrefixed<S, T> {}
-
-//--- Formatting
-
-impl<S, T: ?Sized + fmt::Debug> fmt::Debug for SizePrefixed<S, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("SizePrefixed").field(&&self.data).finish()
-    }
-}

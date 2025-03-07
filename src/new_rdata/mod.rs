@@ -25,8 +25,8 @@ pub use edns::{EdnsOptionsIter, Opt};
 
 mod dnssec;
 pub use dnssec::{
-    DNSKey, DigestType, Ds, NSec, NSec3, NSec3Flags, NSec3HashAlg, RRSig,
-    SecAlg,
+    DNSKey, DNSKeyFlags, DigestType, Ds, NSec, NSec3, NSec3Flags,
+    NSec3HashAlg, NSec3Param, RRSig, SecAlg,
 };
 
 //----------- RecordData -----------------------------------------------------
@@ -68,6 +68,24 @@ pub enum RecordData<'a, N> {
     /// Extended DNS options.
     Opt(&'a Opt),
 
+    /// The signing key of a delegated zone.
+    Ds(&'a Ds),
+
+    /// A cryptographic signature on a DNS record set.
+    RRSig(RRSig<'a>),
+
+    /// An indication of the non-existence of a set of DNS records (version 1).
+    NSec(NSec<'a>),
+
+    /// A cryptographic key for DNS security.
+    DNSKey(&'a DNSKey),
+
+    /// An indication of the non-existence of a set of DNS records (version 3).
+    NSec3(NSec3<'a>),
+
+    /// Parameters for computing [`NSec3`] records.
+    NSec3Param(&'a NSec3Param),
+
     /// Data for an unknown DNS record type.
     Unknown(RType, &'a UnknownRecordData),
 }
@@ -89,6 +107,12 @@ impl<N> RecordData<'_, N> {
             Self::Txt(..) => RType::TXT,
             Self::Aaaa(..) => RType::AAAA,
             Self::Opt(..) => RType::OPT,
+            Self::Ds(..) => RType::DS,
+            Self::RRSig(..) => RType::RRSIG,
+            Self::NSec(..) => RType::NSEC,
+            Self::DNSKey(..) => RType::DNSKEY,
+            Self::NSec3(..) => RType::NSEC3,
+            Self::NSec3Param(..) => RType::NSEC3PARAM,
             Self::Unknown(rtype, _) => *rtype,
         }
     }
@@ -111,6 +135,12 @@ impl<'a, N> RecordData<'a, N> {
             Self::Txt(r) => RecordData::Txt(r),
             Self::Aaaa(r) => RecordData::Aaaa(r),
             Self::Opt(r) => RecordData::Opt(r),
+            Self::Ds(r) => RecordData::Ds(r),
+            Self::RRSig(r) => RecordData::RRSig(r),
+            Self::NSec(r) => RecordData::NSec(r),
+            Self::DNSKey(r) => RecordData::DNSKey(r),
+            Self::NSec3(r) => RecordData::NSec3(r),
+            Self::NSec3Param(r) => RecordData::NSec3Param(r),
             Self::Unknown(rt, rd) => RecordData::Unknown(rt, rd),
         }
     }
@@ -132,6 +162,12 @@ impl<'a, N> RecordData<'a, N> {
             Self::Txt(r) => RecordData::Txt(r),
             Self::Aaaa(r) => RecordData::Aaaa(r),
             Self::Opt(r) => RecordData::Opt(r),
+            Self::Ds(r) => RecordData::Ds(r),
+            Self::RRSig(r) => RecordData::RRSig(r.clone()),
+            Self::NSec(r) => RecordData::NSec(r.clone()),
+            Self::DNSKey(r) => RecordData::DNSKey(r),
+            Self::NSec3(r) => RecordData::NSec3(r.clone()),
+            Self::NSec3Param(r) => RecordData::NSec3Param(r),
             Self::Unknown(rt, rd) => RecordData::Unknown(*rt, rd),
         }
     }
@@ -180,6 +216,23 @@ where
             RType::OPT => {
                 <&Opt>::parse_bytes(&contents[start..]).map(Self::Opt)
             }
+            RType::DS => <&Ds>::parse_bytes(&contents[start..]).map(Self::Ds),
+            RType::RRSIG => {
+                RRSig::parse_bytes(&contents[start..]).map(Self::RRSig)
+            }
+            RType::NSEC => {
+                NSec::parse_bytes(&contents[start..]).map(Self::NSec)
+            }
+            RType::DNSKEY => {
+                <&DNSKey>::parse_bytes(&contents[start..]).map(Self::DNSKey)
+            }
+            RType::NSEC3 => {
+                NSec3::parse_bytes(&contents[start..]).map(Self::NSec3)
+            }
+            RType::NSEC3PARAM => {
+                <&NSec3Param>::parse_bytes(&contents[start..])
+                    .map(Self::NSec3Param)
+            }
             _ => <&UnknownRecordData>::parse_bytes(&contents[start..])
                 .map(|data| Self::Unknown(rtype, data)),
         }
@@ -201,6 +254,14 @@ where
             RType::TXT => <&Txt>::parse_bytes(bytes).map(Self::Txt),
             RType::AAAA => <&Aaaa>::parse_bytes(bytes).map(Self::Aaaa),
             RType::OPT => <&Opt>::parse_bytes(bytes).map(Self::Opt),
+            RType::DS => <&Ds>::parse_bytes(bytes).map(Self::Ds),
+            RType::RRSIG => RRSig::parse_bytes(bytes).map(Self::RRSig),
+            RType::NSEC => NSec::parse_bytes(bytes).map(Self::NSec),
+            RType::DNSKEY => <&DNSKey>::parse_bytes(bytes).map(Self::DNSKey),
+            RType::NSEC3 => NSec3::parse_bytes(bytes).map(Self::NSec3),
+            RType::NSEC3PARAM => {
+                <&NSec3Param>::parse_bytes(bytes).map(Self::NSec3Param)
+            }
             _ => <&UnknownRecordData>::parse_bytes(bytes)
                 .map(|data| Self::Unknown(rtype, data)),
         }
@@ -226,6 +287,12 @@ impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
             Self::Txt(r) => builder.append_bytes(r.as_bytes())?,
             Self::Aaaa(r) => builder.append_bytes(r.as_bytes())?,
             Self::Opt(r) => builder.append_bytes(r.as_bytes())?,
+            Self::Ds(r) => builder.append_bytes(r.as_bytes())?,
+            Self::RRSig(r) => builder.append_built_bytes(r)?,
+            Self::NSec(r) => builder.append_built_bytes(r)?,
+            Self::DNSKey(r) => builder.append_bytes(r.as_bytes())?,
+            Self::NSec3(r) => builder.append_built_bytes(r)?,
+            Self::NSec3Param(r) => builder.append_bytes(r.as_bytes())?,
             Self::Unknown(_, r) => builder.append_bytes(r.as_bytes())?,
         }
 
@@ -250,6 +317,12 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
             Self::Txt(r) => r.build_bytes(bytes),
             Self::Aaaa(r) => r.build_bytes(bytes),
             Self::Opt(r) => r.build_bytes(bytes),
+            Self::Ds(r) => r.build_bytes(bytes),
+            Self::RRSig(r) => r.build_bytes(bytes),
+            Self::NSec(r) => r.build_bytes(bytes),
+            Self::DNSKey(r) => r.build_bytes(bytes),
+            Self::NSec3(r) => r.build_bytes(bytes),
+            Self::NSec3Param(r) => r.build_bytes(bytes),
             Self::Unknown(_, r) => r.build_bytes(bytes),
         }
     }

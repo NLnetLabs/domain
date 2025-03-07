@@ -11,7 +11,7 @@ use crate::new_base::{
 //----------- NSec -----------------------------------------------------------
 
 /// An indication of the non-existence of a set of DNS records (version 1).
-#[derive(Clone, Debug, BuildBytes, ParseBytes)]
+#[derive(Clone, Debug, PartialEq, Eq, BuildBytes, ParseBytes)]
 pub struct NSec<'a> {
     /// The name of the next existing DNS record.
     pub next: &'a Name,
@@ -23,7 +23,7 @@ pub struct NSec<'a> {
 //----------- TypeBitmaps ----------------------------------------------------
 
 /// A bitmap of DNS record types.
-#[derive(AsBytes)]
+#[derive(PartialEq, Eq, AsBytes, BuildBytes)]
 #[repr(transparent)]
 pub struct TypeBitmaps {
     octets: [u8],

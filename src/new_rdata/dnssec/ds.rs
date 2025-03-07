@@ -9,7 +9,7 @@ use super::SecAlg;
 //----------- Ds -------------------------------------------------------------
 
 /// The signing key for a delegated zone.
-#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef)]
 #[repr(C)]
 pub struct Ds {
     /// The key tag of the signing key.
