@@ -190,9 +190,7 @@ extern crate core;
 pub mod base;
 pub mod crypto;
 pub mod dep;
-
 pub mod dnssec;
-
 pub mod net;
 pub mod rdata;
 pub mod resolv;

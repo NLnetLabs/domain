@@ -1,6 +1,16 @@
 // Validator
 
-#![cfg(feature = "unstable-validator")]
+#![cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
+#![cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    )))
+)]
 
 //! This module provides a DNSSEC validator as described in RFCs
 //! [4033](https://www.rfc-editor.org/info/rfc4033),

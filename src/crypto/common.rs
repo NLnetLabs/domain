@@ -4,6 +4,9 @@
 //! depending on whether the respective crate features are enabled.  See the
 //! documentation for each backend for more information.
 
+#![cfg(any(feature = "ring", feature = "openssl"))]
+#![cfg_attr(docsrs, doc(cfg(any(feature = "ring", feature = "openssl"))))]
+
 use core::fmt;
 use std::error;
 use std::vec::Vec;

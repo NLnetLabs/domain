@@ -1,5 +1,7 @@
 //! DNSSEC code that is used both by DNSSEC signing and DNSSEC validation.
 
+#![cfg(any(feature = "ring", feature = "openssl"))]
+#![cfg_attr(docsrs, doc(cfg(any(feature = "ring", feature = "openssl"))))]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 

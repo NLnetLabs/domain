@@ -188,12 +188,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-// common requires either ring or openssl.
-#[cfg(any(feature = "ring", feature = "openssl"))]
 pub mod common;
-
 pub mod openssl;
 pub mod ring;
-
-#[cfg(feature = "unstable-crypto-sign")]
 pub mod sign;

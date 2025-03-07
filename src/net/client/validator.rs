@@ -87,6 +87,18 @@
 //! }
 //! ```
 
+#![cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
+#![cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    )))
+)]
+
 use crate::base::iana::Rcode;
 use crate::base::opt::{AllOptData, ExtendedError};
 use crate::base::{

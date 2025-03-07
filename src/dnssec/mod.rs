@@ -41,16 +41,6 @@
 //! (`unstable-sig`, `unstable-validator`), at least one cryptographic
 //! backend needs to be selected (currently there are `ring` and `openssl`).
 
-// A working crypto library requires either ring or openssl. The dnssec module
-// needs crypto.
-
-#[cfg(any(feature = "ring", feature = "openssl"))]
 pub mod common;
-
 pub mod sign;
-
-#[cfg(all(
-    feature = "unstable-validator",
-    any(feature = "ring", feature = "openssl")
-))]
 pub mod validator;

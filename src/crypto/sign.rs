@@ -14,6 +14,9 @@
 //! used by a variety of tools for storing DNSSEC keys on disk.  See the
 //! type-level documentation for a specification of the format.
 
+#![cfg(feature = "unstable-crypto-sign")]
+#![cfg_attr(docsrs, doc(cfg(feature = "unstable-crypto-sign")))]
+
 use std::boxed::Box;
 use std::fmt;
 use std::vec::Vec;
