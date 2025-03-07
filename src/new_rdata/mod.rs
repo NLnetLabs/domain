@@ -21,7 +21,10 @@ mod edns;
 pub use edns::{EdnsOptionsIter, Opt};
 
 mod dnssec;
-pub use dnssec::{DNSKey, Ds, NSec, NSec3, RRSig};
+pub use dnssec::{
+    DNSKey, DigestType, Ds, NSec, NSec3, NSec3Flags, NSec3HashAlg, RRSig,
+    SecAlg,
+};
 
 //----------- RecordData -----------------------------------------------------
 

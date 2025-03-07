@@ -16,10 +16,10 @@ mod nsec;
 pub use nsec::{NSec, TypeBitmaps};
 
 mod nsec3;
-pub use nsec3::NSec3;
+pub use nsec3::{NSec3, NSec3Flags, NSec3HashAlg};
 
 mod ds;
-pub use ds::Ds;
+pub use ds::{DigestType, Ds};
 
 //----------- SecAlg ---------------------------------------------------------
 
