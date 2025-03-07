@@ -295,7 +295,7 @@ where
         });
         // SAFETY: An 'S' is being modified, not a domain name.
         let size_buf = unsafe { &mut builder.uncommitted_mut()[..size_size] };
-        size_buf.copy_from_slice(&size.as_bytes());
+        size_buf.copy_from_slice(size.as_bytes());
         Ok(builder.commit())
     }
 }
