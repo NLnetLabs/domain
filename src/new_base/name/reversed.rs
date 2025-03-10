@@ -229,7 +229,7 @@ pub struct RevNameBuf {
 
 impl RevNameBuf {
     /// Construct an empty, invalid buffer.
-    fn empty() -> Self {
+    const fn empty() -> Self {
         Self {
             offset: 255,
             buffer: [0; 255],
