@@ -692,10 +692,7 @@ mod test {
     fn scan() {
         use std::vec::Vec;
 
-        use crate::{
-            new_base::name::RevName,
-            new_zonefile::scanner::{Scan, ScanError, Scanner},
-        };
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
         use super::RevNameBuf;
 
@@ -715,9 +712,8 @@ mod test {
         let alloc = bumpalo::Bump::new();
         let mut buffer = Vec::new();
         for (input, expected) in cases {
-            let origin =
-                unsafe { RevName::from_bytes_unchecked(b"\x00\x03org") };
-            let mut scanner = Scanner::new(input, Some(origin));
+            let origin = "org".parse::<RevNameBuf>().unwrap();
+            let mut scanner = Scanner::new(input, Some(&origin));
             let mut name_buf = None;
             let actual = RevNameBuf::scan(&mut scanner, &alloc, &mut buffer)
                 .map(|name| name_buf.insert(name).labels());
