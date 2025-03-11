@@ -295,7 +295,8 @@ where
 /// let keys = [&key];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config: SigningConfig<Name<Vec<u8>>, Vec<u8>, DefaultSorter> = SigningConfig::new(Default::default(), 0.into(), 0.into());
+/// let mut signing_config: SigningConfig<Vec<u8>, DefaultSorter> =
+///     SigningConfig::new(Default::default(), 0.into(), 0.into());
 ///
 /// // Then sign the zone in-place.
 //r records.sign_zone::<DefaultSigningKeyUsageStrategy>(&mut signing_config, &keys).unwrap();
