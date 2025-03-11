@@ -1,6 +1,5 @@
 use core::str::FromStr;
 
-use std::fmt::Debug;
 use std::io::Read;
 use std::string::ToString;
 use std::vec::Vec;
@@ -8,8 +7,8 @@ use std::vec::Vec;
 use bytes::Bytes;
 
 use crate::base::iana::{Class, SecAlg};
-use crate::base::name::FlattenInto;
-use crate::base::{Name, Record, Rtype, Serial, ToName, Ttl};
+use crate::base::name::{FlattenInto, Name};
+use crate::base::{Record, Rtype, Serial, ToName, Ttl};
 use crate::dnssec::common::nsec3_hash;
 use crate::dnssec::sign::denial::nsec3::mk_hashed_nsec3_owner_name;
 use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
@@ -22,7 +21,7 @@ use crate::zonefile::inplace::{Entry, Zonefile};
 use crate::zonetree::types::StoredRecordData;
 use crate::zonetree::StoredName;
 
-use super::denial::nsec3::{GenerateNsec3Config, Nsec3HashProvider};
+use super::denial::nsec3::GenerateNsec3Config;
 use super::records::SortedRecords;
 
 pub(crate) const TEST_TTL: Ttl = Ttl::from_secs(3600);
@@ -110,44 +109,40 @@ where
     mk_record(owner, Nsec::new(next_name, types).into())
 }
 
-pub(crate) fn mk_nsec3param_rr<R, N, HP, Sort>(
+pub(crate) fn mk_nsec3param_rr<R, Sort>(
     owner: &str,
-    cfg: &GenerateNsec3Config<N, Bytes, HP, Sort>,
+    cfg: &GenerateNsec3Config<Bytes, Sort>,
 ) -> Record<StoredName, R>
 where
-    HP: Nsec3HashProvider<N, Bytes>,
-    N: FromStr + ToName + From<Name<Bytes>>,
     R: From<Nsec3param<Bytes>>,
 {
     mk_record(owner, cfg.params.clone().into())
 }
 
-pub(crate) fn mk_nsec3_rr<R, N, HP, Sort>(
+pub(crate) fn mk_nsec3_rr<R, Sort>(
     apex_owner: &str,
     owner: &str,
     next_owner: &str,
     types: &str,
-    cfg: &GenerateNsec3Config<N, Bytes, HP, Sort>,
+    cfg: &GenerateNsec3Config<Bytes, Sort>,
 ) -> Record<StoredName, R>
 where
-    HP: Nsec3HashProvider<N, Bytes>,
-    N: FromStr + ToName + From<Name<Bytes>>,
-    <N as FromStr>::Err: Debug,
     R: From<Nsec3<Bytes>>,
 {
-    let hashed_owner_name = mk_hashed_nsec3_owner_name(
-        &N::from_str(owner).unwrap(),
-        cfg.params.hash_algorithm(),
-        cfg.params.iterations(),
-        cfg.params.salt(),
-        &N::from_str(apex_owner).unwrap(),
-    )
-    .unwrap()
-    .to_name::<Bytes>()
-    .to_string();
+    let hashed_owner_name =
+        mk_hashed_nsec3_owner_name::<Name<Bytes>, Bytes, Bytes>(
+            &Name::from_str(owner).unwrap(),
+            cfg.params.hash_algorithm(),
+            cfg.params.iterations(),
+            cfg.params.salt(),
+            &Name::from_str(apex_owner).unwrap(),
+        )
+        .unwrap()
+        .to_name::<Bytes>()
+        .to_string();
 
-    let next_owner_hash_octets: Vec<u8> = nsec3_hash(
-        N::from_str(next_owner).unwrap(),
+    let next_owner_hash_octets: Vec<u8> = nsec3_hash::<Name<Vec<u8>>, _, _>(
+        Name::from_str(next_owner).unwrap(),
         cfg.params.hash_algorithm(),
         cfg.params.iterations(),
         cfg.params.salt(),
@@ -177,16 +172,13 @@ where
     )
 }
 
-pub(crate) fn mk_precalculated_nsec3_rr<R, N, HP, Sort>(
+pub(crate) fn mk_precalculated_nsec3_rr<R, Sort>(
     owner: &str,
     next_owner: &str,
     types: &str,
-    cfg: &GenerateNsec3Config<N, Bytes, HP, Sort>,
+    cfg: &GenerateNsec3Config<Bytes, Sort>,
 ) -> Record<StoredName, R>
 where
-    HP: Nsec3HashProvider<N, Bytes>,
-    N: FromStr + ToName + From<Name<Bytes>>,
-    <N as FromStr>::Err: Debug,
     R: From<Nsec3<Bytes>>,
 {
     let mut builder = RtypeBitmap::<Bytes>::builder();

@@ -20,7 +20,6 @@ use crate::base::name::ToName;
 use crate::base::record::Record;
 use crate::base::Name;
 use crate::crypto::sign::SignRaw;
-use crate::dnssec::sign::denial::nsec3::Nsec3HashProvider;
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::SigningKey;
 use crate::dnssec::sign::records::{
@@ -185,14 +184,13 @@ where
     /// This function is a convenience wrapper around calling
     /// [`crate::dnssec::sign::sign_zone()`] function with enum variant
     /// [`SignableZoneInOut::SignInto`].
-    fn sign_zone<Inner, HP, T>(
+    fn sign_zone<Inner, T>(
         &self,
-        signing_config: &mut SigningConfig<N, Octs, Sort, HP>,
+        signing_config: &mut SigningConfig<Octs, Sort>,
         signing_keys: &[&SigningKey<Octs, Inner>],
         out: &mut T,
     ) -> Result<(), SigningError>
     where
-        HP: Nsec3HashProvider<N, Octs>,
         Inner: Debug + SignRaw,
         N: Display + Send + CanonicalOrd,
         <Octs as FromBuilder>::Builder: Truncate,
@@ -203,7 +201,7 @@ where
         Self: Sized,
     {
         let in_out = SignableZoneInOut::new_into(self, out);
-        sign_zone::<N, Octs, _, Inner, Sort, HP, T>(
+        sign_zone::<N, Octs, _, Inner, Sort, T>(
             in_out,
             signing_config,
             signing_keys,
@@ -326,13 +324,12 @@ where
     /// This function is a convenience wrapper around calling
     /// [`crate::dnssec::sign::sign_zone()`] function with enum variant
     /// [`SignableZoneInOut::SignInPlace`].
-    fn sign_zone<Inner, HP>(
+    fn sign_zone<Inner>(
         &mut self,
-        signing_config: &mut SigningConfig<N, Octs, Sort, HP>,
+        signing_config: &mut SigningConfig<Octs, Sort>,
         signing_keys: &[&SigningKey<Octs, Inner>],
     ) -> Result<(), SigningError>
     where
-        HP: Nsec3HashProvider<N, Octs>,
         Inner: Debug + SignRaw,
         N: Display + Send + CanonicalOrd,
         <Octs as FromBuilder>::Builder: Truncate,
@@ -340,7 +337,7 @@ where
     {
         let in_out =
             SignableZoneInOut::<_, _, Self, _, _>::new_in_place(self);
-        sign_zone::<N, Octs, _, Inner, Sort, HP, _>(
+        sign_zone::<N, Octs, _, Inner, Sort, _>(
             in_out,
             signing_config,
             signing_keys,

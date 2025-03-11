@@ -2,21 +2,19 @@
 use core::marker::PhantomData;
 
 use super::denial::config::DenialConfig;
-use super::denial::nsec3::{Nsec3HashProvider, OnDemandNsec3HashProvider};
 use super::records::Sorter;
 use crate::rdata::dnssec::Timestamp;
 
 //------------ SigningConfig -------------------------------------------------
 
 /// Signing configuration for a DNSSEC signed zone.
-pub struct SigningConfig<N, Octs, Sort, HP = OnDemandNsec3HashProvider<Octs>>
+pub struct SigningConfig<Octs, Sort>
 where
-    HP: Nsec3HashProvider<N, Octs>,
     Octs: AsRef<[u8]> + From<&'static [u8]>,
     Sort: Sorter,
 {
     /// Authenticated denial of existing mechanism configuration.
-    pub denial: DenialConfig<N, Octs, HP, Sort>,
+    pub denial: DenialConfig<Octs, Sort>,
 
     pub inception: Timestamp,
 
@@ -25,14 +23,13 @@ where
     _phantom: PhantomData<Sort>,
 }
 
-impl<N, Octs, Sort, HP> SigningConfig<N, Octs, Sort, HP>
+impl<Octs, Sort> SigningConfig<Octs, Sort>
 where
-    HP: Nsec3HashProvider<N, Octs>,
     Octs: AsRef<[u8]> + From<&'static [u8]>,
     Sort: Sorter,
 {
     pub fn new(
-        denial: DenialConfig<N, Octs, HP, Sort>,
+        denial: DenialConfig<Octs, Sort>,
         inception: Timestamp,
         expiration: Timestamp,
     ) -> Self {

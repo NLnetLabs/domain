@@ -26,9 +26,8 @@ use crate::utils::base32;
 //----------- GenerateNsec3Config --------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GenerateNsec3Config<N, Octs, HashProvider, Sort>
+pub struct GenerateNsec3Config<Octs, Sort>
 where
-    HashProvider: Nsec3HashProvider<N, Octs>,
     Octs: AsRef<[u8]> + From<&'static [u8]>,
 {
     /// Whether to assume that the final zone will one or more DNSKEY RRs at
@@ -68,35 +67,17 @@ where
     /// Which TTL value should be used for the NSEC3PARAM RR.
     pub nsec3param_ttl_mode: Nsec3ParamTtlMode,
 
-    /// Which [`Nsec3HashProvider`] impl should be used to generate NSEC3
-    /// hashes.
-    ///
-    /// By default the [`OnDemandNsec3HashProvider`] impl is used.
-    ///
-    /// Users may override this with their own impl. The primary use case
-    /// evisioned for this is to track the relationship between the original
-    /// owner names and the hashes generated for them in order to be able to
-    /// output diagnostic information about generated NSEC3 RRs for diagnostic
-    /// purposes.
-    pub hash_provider: HashProvider,
-
-    _phantom: PhantomData<(N, Sort)>,
+    _phantom: PhantomData<Sort>,
 }
 
-impl<N, Octs, HashProvider, Sort>
-    GenerateNsec3Config<N, Octs, HashProvider, Sort>
+impl<Octs, Sort> GenerateNsec3Config<Octs, Sort>
 where
-    HashProvider: Nsec3HashProvider<N, Octs>,
     Octs: AsRef<[u8]> + From<&'static [u8]>,
 {
-    pub fn new(
-        params: Nsec3param<Octs>,
-        hash_provider: HashProvider,
-    ) -> Self {
+    pub fn new(params: Nsec3param<Octs>) -> Self {
         Self {
             assume_dnskeys_will_be_added: true,
             params,
-            hash_provider,
             nsec3param_ttl_mode: Default::default(),
             opt_out_exclude_owner_names_of_unsigned_delegations: true,
             _phantom: Default::default(),
@@ -126,31 +107,18 @@ where
     }
 }
 
-impl<N, Octs> Default
-    for GenerateNsec3Config<
-        N,
-        Octs,
-        OnDemandNsec3HashProvider<Octs>,
-        DefaultSorter,
-    >
+impl<Octs> Default for GenerateNsec3Config<Octs, DefaultSorter>
 where
-    N: ToName + From<Name<Octs>>,
     Octs: AsRef<[u8]> + From<&'static [u8]> + Clone + FromBuilder,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
 {
     fn default() -> Self {
         let params = Nsec3param::default();
-        let hash_provider = OnDemandNsec3HashProvider::new(
-            params.hash_algorithm(),
-            params.iterations(),
-            params.salt().clone(),
-        );
         Self {
             assume_dnskeys_will_be_added: true,
             params,
             nsec3param_ttl_mode: Default::default(),
             opt_out_exclude_owner_names_of_unsigned_delegations: true,
-            hash_provider,
             _phantom: Default::default(),
         }
     }
@@ -177,9 +145,9 @@ where
 /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
 // TODO: Add mutable iterator based variant.
 // TODO: Get rid of &mut for GenerateNsec3Config.
-pub fn generate_nsec3s<N, Octs, HashProvider, Sort>(
+pub fn generate_nsec3s<N, Octs, Sort>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
-    config: &mut GenerateNsec3Config<N, Octs, HashProvider, Sort>,
+    config: &mut GenerateNsec3Config<Octs, Sort>,
 ) -> Result<Nsec3Records<N, Octs>, SigningError>
 where
     N: ToName + Clone + Display + Ord + Hash + Send + From<Name<Octs>>,
@@ -191,7 +159,6 @@ where
         + Send,
     Octs::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
     <Octs::Builder as OctetsBuilder>::AppendError: Debug,
-    HashProvider: Nsec3HashProvider<N, Octs>,
     Sort: Sorter,
 {
     // RFC 5155 7.1 step 2:
@@ -485,7 +452,6 @@ where
         // SAFETY: ttl will be set above before we get here.
         let rec: Record<N, Nsec3<Octs>> = mk_nsec3(
             &name,
-            &mut config.hash_provider,
             config.params.hash_algorithm(),
             config.params.flags(),
             config.params.iterations(),
@@ -493,7 +459,6 @@ where
             &apex_owner,
             bitmap,
             ttl.unwrap(),
-            false,
         )?;
 
         // Store the record by order of its owner name.
@@ -513,7 +478,6 @@ where
         // SAFETY: ttl will be set below before prev is set to Some.
         let rec = mk_nsec3(
             &name,
-            &mut config.hash_provider,
             config.params.hash_algorithm(),
             config.params.flags(),
             config.params.iterations(),
@@ -521,7 +485,6 @@ where
             &apex_owner,
             bitmap,
             ttl.unwrap(),
-            true,
         )?;
 
         // Store the record by order of its owner name.
@@ -662,9 +625,8 @@ where
 // records if the unhashed owner name is an ENT or not, so we pass this flag
 // to the hash provider and it can record it if wanted.
 #[allow(clippy::too_many_arguments)]
-fn mk_nsec3<N, Octs, HashProvider>(
+fn mk_nsec3<N, Octs>(
     name: &N,
-    hash_provider: &mut HashProvider,
     alg: Nsec3HashAlg,
     flags: u8,
     iterations: u16,
@@ -672,20 +634,15 @@ fn mk_nsec3<N, Octs, HashProvider>(
     apex_owner: &N,
     bitmap: RtypeBitmapBuilder<<Octs as FromBuilder>::Builder>,
     ttl: Ttl,
-    unhashed_owner_name_is_ent: bool,
 ) -> Result<Record<N, Nsec3<Octs>>, Nsec3HashError>
 where
     N: ToName + From<Name<Octs>>,
     Octs: FromBuilder + Clone + Default,
     <Octs as FromBuilder>::Builder:
         EmptyBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate,
-    HashProvider: Nsec3HashProvider<N, Octs>,
 {
-    let owner_name = hash_provider.get_or_create(
-        apex_owner,
-        name,
-        unhashed_owner_name_is_ent,
-    )?;
+    let owner_name =
+        mk_hashed_nsec3_owner_name(name, alg, iterations, salt, apex_owner)?;
 
     // RFC 5155 7.1. step 2:
     //   "The Next Hashed Owner Name field is left blank for the moment."
@@ -728,6 +685,13 @@ where
 {
     let base32hex_label =
         mk_base32hex_label_for_name(name, alg, iterations, salt)?;
+    #[cfg(test)]
+    if tests::NSEC3_TEST_MODE
+        .with(|n| *n.borrow() == tests::Nsec3TestMode::NoHash)
+    {
+        let name = N::from(name.try_to_name().ok().unwrap());
+        return Ok(name);
+    }
     Ok(append_origin(base32hex_label, apex_owner))
 }
 
@@ -756,74 +720,15 @@ where
 {
     let hash_octets: Vec<u8> =
         nsec3_hash(name, alg, iterations, salt)?.into_octets();
+    #[cfg(test)]
+    let hash_octets = if tests::NSEC3_TEST_MODE
+        .with(|n| *n.borrow() == tests::Nsec3TestMode::Colliding)
+    {
+        vec![0; hash_octets.len()]
+    } else {
+        hash_octets
+    };
     Ok(base32::encode_string_hex(&hash_octets).to_ascii_lowercase())
-}
-
-//------------ Nsec3HashProvider ---------------------------------------------
-
-pub trait Nsec3HashProvider<N, Octs> {
-    fn get_or_create(
-        &mut self,
-        apex_owner: &N,
-        unhashed_owner_name: &N,
-        unhashed_owner_name_is_ent: bool,
-    ) -> Result<N, Nsec3HashError>;
-}
-
-pub struct OnDemandNsec3HashProvider<SaltOcts> {
-    alg: Nsec3HashAlg,
-    iterations: u16,
-    salt: Nsec3Salt<SaltOcts>,
-}
-
-impl<SaltOcts> OnDemandNsec3HashProvider<SaltOcts> {
-    pub fn new(
-        alg: Nsec3HashAlg,
-        iterations: u16,
-        salt: Nsec3Salt<SaltOcts>,
-    ) -> Self {
-        Self {
-            alg,
-            iterations,
-            salt,
-        }
-    }
-
-    pub fn algorithm(&self) -> Nsec3HashAlg {
-        self.alg
-    }
-
-    pub fn iterations(&self) -> u16 {
-        self.iterations
-    }
-
-    pub fn salt(&self) -> &Nsec3Salt<SaltOcts> {
-        &self.salt
-    }
-}
-
-impl<N, Octs, SaltOcts> Nsec3HashProvider<N, Octs>
-    for OnDemandNsec3HashProvider<SaltOcts>
-where
-    N: ToName + From<Name<Octs>>,
-    Octs: FromBuilder,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    SaltOcts: AsRef<[u8]> + From<&'static [u8]>,
-{
-    fn get_or_create(
-        &mut self,
-        apex_owner: &N,
-        unhashed_owner_name: &N,
-        _unhashed_owner_name_is_ent: bool,
-    ) -> Result<N, Nsec3HashError> {
-        mk_hashed_nsec3_owner_name(
-            unhashed_owner_name,
-            self.alg,
-            self.iterations,
-            &self.salt,
-            apex_owner,
-        )
-    }
 }
 
 //----------- Nsec3ParamTtlMode ----------------------------------------------
@@ -939,14 +844,25 @@ mod tests {
     //      order for us.
     use core::str::FromStr;
 
-    use bytes::Bytes;
+    use std::cell::RefCell;
+
     use pretty_assertions::assert_eq;
 
     use crate::dnssec::sign::records::SortedRecords;
     use crate::dnssec::sign::test_util::*;
-    use crate::zonetree::StoredName;
 
     use super::*;
+
+    #[derive(PartialEq)]
+    pub(super) enum Nsec3TestMode {
+        Normal,
+        Colliding,
+        NoHash,
+    }
+
+    thread_local! {
+    pub(super) static NSEC3_TEST_MODE: RefCell<Nsec3TestMode> = const { RefCell::new(Nsec3TestMode::Normal) };
+    }
 
     #[test]
     fn soa_is_required() {
@@ -1109,15 +1025,9 @@ mod tests {
             12,
             Nsec3Salt::from_str("aabbccdd").unwrap(),
         );
-        let mut cfg = GenerateNsec3Config::<_, _, _, DefaultSorter>::new(
-            nsec3params.clone(),
-            OnDemandNsec3HashProvider::new(
-                nsec3params.hash_algorithm(),
-                nsec3params.iterations(),
-                nsec3params.salt().clone(),
-            ),
-        )
-        .without_assuming_dnskeys_will_be_added();
+        let mut cfg =
+            GenerateNsec3Config::<_, DefaultSorter>::new(nsec3params.clone())
+                .without_assuming_dnskeys_will_be_added();
 
         // See https://datatracker.ietf.org/doc/html/rfc5155#appendix-A
         let zonefile = include_bytes!(
@@ -1390,10 +1300,10 @@ mod tests {
 
     #[test]
     fn test_nsec3_hash_collision_handling() {
-        let mut cfg = GenerateNsec3Config::<_, _, _, DefaultSorter>::new(
+        let mut cfg = GenerateNsec3Config::<_, DefaultSorter>::new(
             Nsec3param::default(),
-            CollidingHashProvider,
         );
+        NSEC3_TEST_MODE.replace(Nsec3TestMode::Colliding);
 
         let records = SortedRecords::<_, _>::from_iter([
             mk_soa_rr("a.", "b.", "c."),
@@ -1410,10 +1320,10 @@ mod tests {
 
     #[test]
     fn test_nsec3_hashing_failure() {
-        let mut cfg = GenerateNsec3Config::<_, _, _, DefaultSorter>::new(
+        let mut cfg = GenerateNsec3Config::<_, DefaultSorter>::new(
             Nsec3param::default(),
-            NonHashingHashProvider,
         );
+        NSEC3_TEST_MODE.replace(Nsec3TestMode::NoHash);
 
         let records = SortedRecords::<_, _>::from_iter([
             mk_soa_rr("a.", "b.", "c."),
@@ -1426,33 +1336,5 @@ mod tests {
                 Nsec3HashError::OwnerHashError
             ))
         ));
-    }
-
-    //------------ Test helpers ----------------------------------------------
-
-    struct CollidingHashProvider;
-
-    impl Nsec3HashProvider<StoredName, Bytes> for CollidingHashProvider {
-        fn get_or_create(
-            &mut self,
-            _apex_owner: &StoredName,
-            _unhashed_owner_name: &StoredName,
-            _unhashed_owner_name_is_ent: bool,
-        ) -> Result<StoredName, Nsec3HashError> {
-            Ok(StoredName::root())
-        }
-    }
-
-    struct NonHashingHashProvider;
-
-    impl Nsec3HashProvider<StoredName, Bytes> for NonHashingHashProvider {
-        fn get_or_create(
-            &mut self,
-            _apex_owner: &StoredName,
-            unhashed_owner_name: &StoredName,
-            _unhashed_owner_name_is_ent: bool,
-        ) -> Result<StoredName, Nsec3HashError> {
-            Ok(unhashed_owner_name.clone())
-        }
     }
 }

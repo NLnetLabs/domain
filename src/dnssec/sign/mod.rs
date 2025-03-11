@@ -143,7 +143,7 @@ use crate::rdata::ZoneRecordData;
 
 use denial::config::DenialConfig;
 use denial::nsec::generate_nsecs;
-use denial::nsec3::{generate_nsec3s, Nsec3HashProvider, Nsec3Records};
+use denial::nsec3::{generate_nsec3s, Nsec3Records};
 use error::SigningError;
 use keys::SigningKey;
 use octseq::{
@@ -371,13 +371,12 @@ where
 /// [`SignableZoneInPlace`]: crate::dnssec::sign::traits::SignableZoneInPlace
 /// [`SortedRecords`]: crate::dnssec::sign::records::SortedRecords
 /// [`Zone`]: crate::zonetree::Zone
-pub fn sign_zone<N, Octs, S, Inner, Sort, HP, T>(
+pub fn sign_zone<N, Octs, S, Inner, Sort, T>(
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
-    signing_config: &mut SigningConfig<N, Octs, Sort, HP>,
+    signing_config: &mut SigningConfig<Octs, Sort>,
     signing_keys: &[&SigningKey<Octs, Inner>],
 ) -> Result<(), SigningError>
 where
-    HP: Nsec3HashProvider<N, Octs>,
     Inner: Debug + SignRaw,
     N: Display
         + Send
@@ -430,7 +429,7 @@ where
             // order." We store the NSEC3s as we create them and sort them
             // afterwards.
             let Nsec3Records { nsec3s, nsec3param } =
-                generate_nsec3s::<N, Octs, HP, Sort>(owner_rrs, cfg)?;
+                generate_nsec3s::<N, Octs, Sort>(owner_rrs, cfg)?;
 
             // Add the generated NSEC3 records.
             in_out.sorted_extend(
