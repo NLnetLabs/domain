@@ -365,43 +365,73 @@ where
         // Try all concrete parsers.
         match rtype {
             RType::A => {
-                A::scan(scanner, alloc, buffer)
+                Scan::scan(scanner, alloc, buffer)
                     .map(|data| Self::A(alloc.alloc(data)))
             }
 
             RType::NS => {
-                <Ns<N>>::scan(scanner, alloc, buffer)
+                Scan::scan(scanner, alloc, buffer)
                     .map(Self::Ns)
             }
 
             RType::CNAME => {
-                <CName<N>>::scan(scanner, alloc, buffer)
+                Scan::scan(scanner, alloc, buffer)
                     .map(Self::CName)
             }
 
             RType::SOA => {
-                <Soa<N>>::scan(scanner, alloc, buffer)
+                Scan::scan(scanner, alloc, buffer)
                     .map(Self::Soa)
             }
 
             RType::PTR => {
-                <Ptr<N>>::scan(scanner, alloc, buffer)
+                Scan::scan(scanner, alloc, buffer)
                     .map(Self::Ptr)
             }
 
             RType::HINFO => {
-                <HInfo<'a>>::scan(scanner, alloc, buffer)
+                Scan::scan(scanner, alloc, buffer)
                     .map(Self::HInfo)
             }
 
             RType::MX => {
-                <Mx<N>>::scan(scanner, alloc, buffer)
+                Scan::scan(scanner, alloc, buffer)
                     .map(Self::Mx)
             }
 
             RType::TXT => {
-                <&'a Txt>::scan(scanner, alloc, buffer)
+                Scan::scan(scanner, alloc, buffer)
                     .map(Self::Txt)
+            }
+
+            RType::DS => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::Ds)
+            }
+
+            RType::RRSIG => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::RRSig)
+            }
+
+            RType::NSEC => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::NSec)
+            }
+
+            RType::DNSKEY => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::DNSKey)
+            }
+
+            RType::NSEC3 => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::NSec3)
+            }
+
+            RType::NSEC3PARAM => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::NSec3Param)
             }
 
             _ => Err(ScanError::Custom("The concrete format for this record type is currently unsupported")),

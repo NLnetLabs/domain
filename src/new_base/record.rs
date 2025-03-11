@@ -325,6 +325,12 @@ impl Scan<'_> for RType {
             "TXT" => Ok(Self::TXT),
             "AAAA" => Ok(Self::AAAA),
             "OPT" => Ok(Self::OPT),
+            "DS" => Ok(Self::DS),
+            "RRSIG" => Ok(Self::RRSIG),
+            "NSEC" => Ok(Self::NSEC),
+            "DNSKEY" => Ok(Self::DNSKEY),
+            "NSEC3" => Ok(Self::NSEC3),
+            "NSEC3PARAM" => Ok(Self::NSEC3PARAM),
 
             rtype if rtype.starts_with("TYPE") => rtype[4..]
                 .parse::<u16>()

@@ -71,7 +71,7 @@ net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 tsig        = ["bytes", "ring", "smallvec"]
-zonefile    = ["bytes", "serde", "std", "dep:bumpalo"] # new: ["std", "dep:bumpalo"]
+zonefile    = ["bytes", "serde", "std", "dep:bumpalo"] # new: ["std", "dep:bumpalo", "dep:time"]
 
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]

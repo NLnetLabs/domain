@@ -185,3 +185,53 @@ impl<'a, N: Scan<'a>> Scan<'a> for Soa<N> {
         }
     }
 }
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_base::{name::RevNameBuf, wire::U32, Serial};
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::Soa;
+
+        let cases = [
+            (
+                b"VENERA Action.domains 20 7200 600 3600000 60" as &[u8],
+                Ok((
+                    "VENERA.com",
+                    "Action.domains.com",
+                    20,
+                    7200,
+                    600,
+                    3600000,
+                    60,
+                )),
+            ),
+            (b"VENERA" as &[u8], Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let origin = "com".parse::<RevNameBuf>().unwrap();
+            let mut scanner = Scanner::new(input, Some(&origin));
+            let expected = expected.map(|expected| Soa::<RevNameBuf> {
+                mname: expected.0.parse().unwrap(),
+                rname: expected.1.parse().unwrap(),
+                serial: Serial::from(expected.2),
+                refresh: U32::new(expected.3),
+                retry: U32::new(expected.4),
+                expire: U32::new(expected.5),
+                minimum: U32::new(expected.6),
+            });
+            assert_eq!(
+                <Soa<RevNameBuf>>::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
+    }
+}

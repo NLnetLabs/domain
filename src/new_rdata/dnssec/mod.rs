@@ -4,6 +4,9 @@ use core::fmt;
 
 use domain_macros::*;
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Submodules -----------------------------------------------------
 
 mod dnskey;
@@ -55,6 +58,20 @@ impl SecAlg {
     pub const RSA_SHA1: Self = Self { code: 5 };
 }
 
+//--- Conversion to and from 'u8'
+
+impl From<u8> for SecAlg {
+    fn from(value: u8) -> Self {
+        Self { code: value }
+    }
+}
+
+impl From<SecAlg> for u8 {
+    fn from(value: SecAlg) -> Self {
+        value.code
+    }
+}
+
 //--- Formatting
 
 impl fmt::Debug for SecAlg {
@@ -64,5 +81,27 @@ impl fmt::Debug for SecAlg {
             Self::RSA_SHA1 => "SecAlg::RSA_SHA1",
             _ => return write!(f, "SecAlg({})", self.code),
         })
+    }
+}
+
+//--- Scanning from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for SecAlg {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'a bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        match scanner.scan_plain_token()? {
+            "DSA" => Ok(Self::DSA_SHA1),
+            "RSASHA1" => Ok(Self::RSA_SHA1),
+
+            alg if alg.chars().all(|c| c.is_ascii_digit()) => {
+                Ok(alg.parse::<u8>().unwrap().into())
+            }
+
+            _ => Err(ScanError::Custom("Unrecognized DNSSEC algorithm")),
+        }
     }
 }
