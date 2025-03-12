@@ -13,3 +13,16 @@ pub struct HInfo<'a> {
     /// The OS type.
     pub os: &'a CharStr,
 }
+
+//--- Interaction
+
+impl HInfo<'_> {
+    /// Copy referenced data into the given [`Bump`] allocator.
+    #[cfg(feature = "bumpalo")]
+    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> HInfo<'r> {
+        HInfo {
+            cpu: self.cpu.clone_to_bump(bump),
+            os: self.os.clone_to_bump(bump),
+        }
+    }
+}

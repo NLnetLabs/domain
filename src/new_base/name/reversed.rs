@@ -105,6 +105,19 @@ impl RevName {
     }
 }
 
+//--- Interaction
+
+impl RevName {
+    /// Copy this into the given [`Bump`] allocator.
+    #[cfg(feature = "bumpalo")]
+    #[allow(clippy::mut_from_ref)] // using a memory allocator
+    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
+        let octets = bump.alloc_slice_copy(self.as_bytes());
+        // SAFETY: 'RevName' is 'repr(transparent)' to '[u8]'.
+        unsafe { core::mem::transmute::<&mut [u8], &mut Self>(octets) }
+    }
+}
+
 //--- Building into DNS messages
 
 impl BuildIntoMessage for RevName {

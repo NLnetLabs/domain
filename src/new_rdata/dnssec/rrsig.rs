@@ -36,3 +36,17 @@ pub struct RRSig<'a> {
     /// The serialized cryptographic signature.
     pub signature: &'a [u8],
 }
+
+//--- Interaction
+
+impl RRSig<'_> {
+    /// Copy referenced data into the given [`Bump`] allocator.
+    #[cfg(feature = "bumpalo")]
+    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> RRSig<'r> {
+        RRSig {
+            signer: self.signer.clone_to_bump(bump),
+            signature: bump.alloc_slice_copy(self.signature),
+            ..self.clone()
+        }
+    }
+}

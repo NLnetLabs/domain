@@ -25,6 +25,21 @@ pub struct Ds {
     pub digest: [u8],
 }
 
+//--- Interaction
+
+impl Ds {
+    /// Copy this into the given [`Bump`] allocator.
+    #[cfg(feature = "bumpalo")]
+    #[allow(clippy::mut_from_ref)] // using a memory allocator
+    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
+        use crate::new_base::wire::{AsBytes, ParseBytesByRef};
+
+        let bytes = bump.alloc_slice_copy(self.as_bytes());
+        // SAFETY: 'ParseBytesByRef' and 'AsBytes' are inverses.
+        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
+    }
+}
+
 //----------- DigestType -----------------------------------------------------
 
 /// A cryptographic digest algorithm.

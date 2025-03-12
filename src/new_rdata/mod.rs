@@ -171,6 +171,41 @@ impl<'a, N> RecordData<'a, N> {
             Self::Unknown(rt, rd) => RecordData::Unknown(*rt, rd),
         }
     }
+
+    /// Copy referenced data into the given [`Bump`] allocator.
+    #[cfg(feature = "bumpalo")]
+    pub fn clone_to_bump<'r>(
+        &self,
+        bump: &'r bumpalo::Bump,
+    ) -> RecordData<'r, N>
+    where
+        N: Clone,
+    {
+        match self {
+            Self::A(&r) => RecordData::A(bump.alloc(r)),
+            Self::Ns(r) => RecordData::Ns(r.clone()),
+            Self::CName(r) => RecordData::CName(r.clone()),
+            Self::Soa(r) => RecordData::Soa(r.clone()),
+            Self::Wks(r) => RecordData::Wks(r.clone_to_bump(bump)),
+            Self::Ptr(r) => RecordData::Ptr(r.clone()),
+            Self::HInfo(r) => RecordData::HInfo(r.clone_to_bump(bump)),
+            Self::Mx(r) => RecordData::Mx(r.clone()),
+            Self::Txt(r) => RecordData::Txt(r.clone_to_bump(bump)),
+            Self::Aaaa(&r) => RecordData::Aaaa(bump.alloc(r)),
+            Self::Opt(r) => RecordData::Opt(r.clone_to_bump(bump)),
+            Self::Ds(r) => RecordData::Ds(r.clone_to_bump(bump)),
+            Self::RRSig(r) => RecordData::RRSig(r.clone_to_bump(bump)),
+            Self::NSec(r) => RecordData::NSec(r.clone_to_bump(bump)),
+            Self::DNSKey(r) => RecordData::DNSKey(r.clone_to_bump(bump)),
+            Self::NSec3(r) => RecordData::NSec3(r.clone_to_bump(bump)),
+            Self::NSec3Param(r) => {
+                RecordData::NSec3Param(r.clone_to_bump(bump))
+            }
+            Self::Unknown(rt, rd) => {
+                RecordData::Unknown(*rt, rd.clone_to_bump(bump))
+            }
+        }
+    }
 }
 
 //--- Parsing record data
@@ -336,4 +371,19 @@ impl<N: BuildBytes> BuildBytes for RecordData<'_, N> {
 pub struct UnknownRecordData {
     /// The unparsed option data.
     pub octets: [u8],
+}
+
+//--- Interaction
+
+impl UnknownRecordData {
+    /// Copy this into the given [`Bump`] allocator.
+    #[cfg(feature = "bumpalo")]
+    #[allow(clippy::mut_from_ref)] // using a memory allocator
+    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
+        use crate::new_base::wire::{AsBytes, ParseBytesByRef};
+
+        let bytes = bump.alloc_slice_copy(self.as_bytes());
+        // SAFETY: 'ParseBytesByRef' and 'AsBytes' are inverses.
+        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
+    }
 }
