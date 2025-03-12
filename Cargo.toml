@@ -55,6 +55,7 @@ tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-fil
 default     = ["std", "rand"]
 
 # Support for libraries
+bumpalo     = ["dep:bumpalo"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 serde       = ["dep:serde", "octseq/serde"]
@@ -71,7 +72,7 @@ net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 tsig        = ["bytes", "ring", "smallvec"]
-zonefile    = ["bytes", "serde", "std", "dep:bumpalo"] # new: ["std", "dep:bumpalo", "dep:time"]
+zonefile    = ["bytes", "serde", "std", "bumpalo"] # new: ["std", "bumpalo", "dep:time"]
 
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
