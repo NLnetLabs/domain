@@ -411,7 +411,7 @@ impl Scan<'_> for LabelBuf {
             // Loop through non-special chunks and special sequences.
             loop {
                 let (chunk, first) = scanner.scan_unquoted_chunk(|&c| {
-                    !c.is_ascii_alphanumeric() && c != b'-'
+                    !c.is_ascii_alphanumeric() && !b"-_".contains(&c)
                 });
 
                 // Copy the non-special chunk into the buffer.
