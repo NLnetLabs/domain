@@ -256,7 +256,8 @@ impl<R: io::BufRead> Entries<R> {
             }
 
             // Look for characters that affect the entry.
-            let Some(pos) = buffer.iter().position(|b| b"\n;()".contains(b))
+            let Some(pos) =
+                buffer.iter().position(|b| b"\n;()\"".contains(b))
             else {
                 // Nothing interesting here.
                 let amount = buffer.len();
@@ -349,8 +350,58 @@ impl<R: io::BufRead> Entries<R> {
                     paren_line_number = None;
                 }
 
+                b'"' => {
+                    self.entry.extend_from_slice(&buffer[..pos + 1]);
+                    self.source.consume(pos + 1);
+                    self.scan_quoted()?;
+                }
+
                 _ => unreachable!(),
             }
+        }
+    }
+
+    /// Skip past a quoted string.
+    fn scan_quoted(&mut self) -> Result<(), EntriesError> {
+        // The line number where the quoted string began.
+        let line_number = self.line_number;
+
+        // Loop through fills of the source buffer.
+        loop {
+            let buffer = self.source.fill_buf()?;
+            if buffer.is_empty() {
+                return Err(EntriesError::UnmatchedDoubleQuote {
+                    line_number,
+                });
+            }
+
+            // Look for characters that affect the entry.
+            let Some(pos) = buffer.iter().position(|&b| b == b'"') else {
+                // Nothing interesting here.
+                let amount = buffer.len();
+                self.entry.extend_from_slice(buffer);
+                self.source.consume(amount);
+                continue;
+            };
+
+            // Make sure the character isn't escaped.
+            let num_backslashes = self
+                .entry
+                .iter()
+                .chain(&buffer[..pos])
+                .rev()
+                .take_while(|&&b| b == b'\\')
+                .count();
+            if num_backslashes % 2 != 0 {
+                // Nothing interesting thus far.
+                self.entry.extend_from_slice(&buffer[..pos + 1]);
+                self.source.consume(pos + 1);
+                continue;
+            }
+
+            self.entry.extend_from_slice(&buffer[..pos + 1]);
+            self.source.consume(pos + 1);
+            return Ok(());
         }
     }
 }
@@ -384,6 +435,12 @@ pub struct Entry<'a> {
 /// An error in [`Entries::next_entry()`].
 #[derive(Debug)]
 pub enum EntriesError {
+    /// An unmatched double-quote was found.
+    UnmatchedDoubleQuote {
+        /// The line number of the opening double quote.
+        line_number: usize,
+    },
+
     /// An unmatched closing parenthesis was found.
     ///
     /// Everything up to the parenthesis (except the parenthesis itself) is
