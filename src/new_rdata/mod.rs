@@ -439,6 +439,11 @@ where
                     .map(Self::Txt)
             }
 
+            RType::AAAA => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(|data| Self::Aaaa(alloc.alloc(data)))
+            }
+
             RType::DS => {
                 Scan::scan(scanner, alloc, buffer)
                     .map(Self::Ds)

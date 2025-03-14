@@ -10,10 +10,10 @@ use std::net::Ipv6Addr;
 
 use domain_macros::*;
 
-use crate::new_base::{
-    build::{self, BuildIntoMessage, BuildResult},
-    wire::AsBytes,
-};
+use crate::new_base::wire::AsBytes;
+
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
 //----------- Aaaa -----------------------------------------------------------
 
@@ -78,10 +78,26 @@ impl fmt::Display for Aaaa {
     }
 }
 
-//--- Building into DNS messages
+//--- Parsing from the zonefile format
 
-impl BuildIntoMessage for Aaaa {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.as_bytes().build_into_message(builder)
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for Aaaa {
+    /// Scan the data for an AAAA record.
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let addr = scanner
+            .scan_plain_token()?
+            .parse::<Ipv6Addr>()
+            .map_err(|_| ScanError::Custom("Invalid IPv6 address"))?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self::from(addr))
+        } else {
+            Err(ScanError::Custom("Unexpected data at end of AAAA record"))
+        }
     }
 }
