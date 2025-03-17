@@ -15,7 +15,15 @@ use crate::{
 
 /// Extended DNS options.
 #[derive(
-    PartialEq, Eq, PartialOrd, Ord, Hash, AsBytes, BuildBytes, ParseBytesByRef,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    AsBytes,
+    BuildBytes,
+    ParseBytesByRef,
+    UnsizedClone,
 )]
 #[repr(transparent)]
 pub struct Opt {

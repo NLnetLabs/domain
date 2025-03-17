@@ -11,7 +11,7 @@ use crate::new_base::{
 //----------- Txt ------------------------------------------------------------
 
 /// Free-form text strings about this domain.
-#[derive(AsBytes, BuildBytes)]
+#[derive(AsBytes, BuildBytes, UnsizedClone)]
 #[repr(transparent)]
 pub struct Txt {
     /// The text strings, as concatenated [`CharStr`]s.

@@ -2,6 +2,8 @@
 
 use core::fmt;
 
+use domain_macros::UnsizedClone;
+
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
     parse::{ParseMessageBytes, SplitMessageBytes},
@@ -11,6 +13,7 @@ use super::{
 //----------- CharStr --------------------------------------------------------
 
 /// A DNS "character string".
+#[derive(UnsizedClone)]
 #[repr(transparent)]
 pub struct CharStr {
     /// The underlying octets.

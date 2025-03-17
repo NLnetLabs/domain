@@ -9,9 +9,14 @@ use core::{
 
 use domain_macros::*;
 
-use crate::new_base::{
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
+use crate::{
+    new_base::{
+        parse::{ParseMessageBytes, SplitMessageBytes},
+        wire::{
+            BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
+        },
+    },
+    utils::CloneFrom,
 };
 
 use super::LabelIter;
@@ -19,7 +24,7 @@ use super::LabelIter;
 //----------- Name -----------------------------------------------------------
 
 /// An absolute domain name.
-#[derive(AsBytes, BuildBytes)]
+#[derive(AsBytes, BuildBytes, UnsizedClone)]
 #[repr(transparent)]
 pub struct Name([u8]);
 
@@ -238,6 +243,12 @@ impl NameBuf {
             size: name.len() as u8,
             buffer,
         }
+    }
+}
+
+impl CloneFrom for NameBuf {
+    fn clone_from(value: &Self::Target) -> Self {
+        Self::copy_from(value)
     }
 }
 

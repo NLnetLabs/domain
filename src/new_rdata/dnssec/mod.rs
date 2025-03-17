@@ -38,6 +38,7 @@ pub use ds::{DigestType, Ds};
     ParseBytesByRef,
     SplitBytes,
     SplitBytesByRef,
+    UnsizedClone,
 )]
 #[repr(transparent)]
 pub struct SecAlg {

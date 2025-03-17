@@ -9,7 +9,7 @@ use super::A;
 //----------- Wks ------------------------------------------------------------
 
 /// Well-known services supported on this domain.
-#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone)]
 #[repr(C, packed)]
 pub struct Wks {
     /// The address of the host providing these services.

@@ -36,7 +36,7 @@ impl NSec<'_> {
 //----------- TypeBitmaps ----------------------------------------------------
 
 /// A bitmap of DNS record types.
-#[derive(PartialEq, Eq, AsBytes, BuildBytes)]
+#[derive(PartialEq, Eq, AsBytes, BuildBytes, UnsizedClone)]
 #[repr(transparent)]
 pub struct TypeBitmaps {
     octets: [u8],

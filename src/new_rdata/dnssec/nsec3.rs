@@ -58,6 +58,7 @@ impl NSec3<'_> {
     BuildBytes,
     ParseBytesByRef,
     SplitBytesByRef,
+    UnsizedClone,
 )]
 #[repr(C)]
 pub struct NSec3Param {

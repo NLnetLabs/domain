@@ -7,6 +7,8 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
+use domain_macros::UnsizedClone;
+
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
     parse::{ParseMessageBytes, SplitMessageBytes},
@@ -25,7 +27,7 @@ use super::{
 /// options).  When serialized as bytes, the inner value is prefixed with an
 /// integer (often a [`U16`](super::U16)) indicating the length of the inner
 /// value in bytes.
-#[derive(Copy, Clone, AsBytes)]
+#[derive(Copy, Clone, AsBytes, UnsizedClone)]
 #[repr(C)]
 pub struct SizePrefixed<S, T: ?Sized> {
     /// The size prefix (needed for 'ParseBytesByRef' / 'AsBytes').
