@@ -244,9 +244,11 @@ where
     /// Use [`apply`][Self::apply] to apply changes to the zone.
     pub fn new(
         zone: Zone,
+        create_diff: bool,
     ) -> Pin<Box<dyn Future<Output = Result<Self, Error>> + Send>> {
         Box::pin(async move {
-            let write = ReopenableZoneWriter::new(zone.clone()).await?;
+            let write =
+                ReopenableZoneWriter::new(zone.clone(), create_diff).await?;
 
             Ok(Self {
                 zone,
@@ -528,15 +530,22 @@ struct ReopenableZoneWriter {
     /// A write interface to the root node of a zone for a particular zone
     /// version.
     writable: Option<Box<dyn WritableZoneNode>>,
+
+    /// Whether or not to create diffs on write.
+    create_diff: bool,
 }
 
 impl ReopenableZoneWriter {
     /// Creates a writer for the given [`Zone`].
-    async fn new(zone: Zone) -> std::io::Result<Self> {
+    async fn new(zone: Zone, create_diff: bool) -> std::io::Result<Self> {
         let write = zone.write().await;
-        let writable = Some(write.open(true).await?);
+        let writable = Some(write.open(create_diff).await?);
         let write = Some(write);
-        Ok(Self { write, writable })
+        Ok(Self {
+            write,
+            writable,
+            create_diff,
+        })
     }
 
     /// Commits any pending changes to the [`Zone`] being written to.
@@ -570,7 +579,7 @@ impl ReopenableZoneWriter {
             self.write
                 .as_mut()
                 .ok_or(Error::Finished)?
-                .open(true)
+                .open(self.create_diff)
                 .await?,
         );
         Ok(())
@@ -653,7 +662,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         let qname = Name::from_str("example.com").unwrap();
 
@@ -711,7 +720,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         let qname = Name::from_str("example.com").unwrap();
 
@@ -752,7 +761,7 @@ mod tests {
         let res = updater.apply(ZoneUpdate::AddRecord(soa_rec.clone())).await;
         assert!(matches!(res, Err(crate::zonetree::update::Error::Finished)));
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         updater
             .apply(ZoneUpdate::AddRecord(soa_rec.clone()))
@@ -801,7 +810,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         // Create an AXFR request to reply to.
         let req = mk_request("example.com", Rtype::AXFR).into_message();
@@ -912,7 +921,7 @@ mod tests {
         //     serial number of 3,"
         let zone = mk_empty_zone("JAIN.AD.JP.");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
         //    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (
         //                                      1 600 600 3600000 604800)
         let soa_1 = mk_rfc_1995_ixfr_example_soa(1);
@@ -1215,7 +1224,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         // Create an AXFR request to reply to.
         let req = mk_request("example.com", Rtype::AXFR).into_message();
