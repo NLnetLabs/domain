@@ -479,7 +479,7 @@ where
                 signing_config.rrsig_validity_period_strategy.clone(),
             );
         rrsig_config.add_used_dnskeys = signing_config.add_used_dnskeys;
-        rrsig_config.zone_apex = Some(&apex_owner);
+        rrsig_config.zone_apex = Some(apex_owner);
 
         // Sign the NSEC(3)s.
         let owner_rrs = RecordsIter::new(in_out.as_out_slice());

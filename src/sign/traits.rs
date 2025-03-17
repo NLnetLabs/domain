@@ -513,7 +513,7 @@ where
             GenerateRrsigConfig::<N, KeyStrat, ValidityStrat, Sort>::new(
                 rrsig_validity_period_strategy,
             )
-            .with_zone_apex(expected_apex);
+            .with_zone_apex(expected_apex.clone());
 
         generate_rrsigs(self.owner_rrs(), keys, &rrsig_config)
     }
