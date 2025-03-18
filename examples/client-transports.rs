@@ -11,7 +11,6 @@ use std::str::FromStr;
 #[cfg(feature = "unstable-validator")]
 use std::sync::Arc;
 use std::time::Duration;
-use std::vec::Vec;
 
 #[cfg(feature = "tsig")]
 use domain::net::client::request::SendRequestMulti;
