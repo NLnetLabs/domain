@@ -166,7 +166,7 @@ impl<'a> Scan<'a> for &'a CharStr {
         match scanner.scan_token(buffer)? {
             Some(token) if token.len() > 255 => {
                 buffer.truncate(start);
-                Err(ScanError::Custom("Overlong character string"))
+                Err(ScanError::Custom("overlong character string"))
             }
 
             Some(token) => {

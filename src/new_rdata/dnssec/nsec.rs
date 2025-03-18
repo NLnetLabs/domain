@@ -58,7 +58,7 @@ impl<'a> Scan<'a> for NSec<'a> {
         if scanner.is_empty() {
             Ok(Self { next, types })
         } else {
-            Err(ScanError::Custom("Unexpected data at end of SOA record"))
+            Err(ScanError::Custom("unexpected data at end of SOA record"))
         }
     }
 }

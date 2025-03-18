@@ -123,13 +123,13 @@ impl Scan<'_> for Serial {
             .map_err(|err| {
                 ScanError::Custom(match err.kind() {
                     IntErrorKind::PosOverflow => {
-                        "Specified serial number will overflow"
+                        "specified serial number will overflow"
                     }
                     IntErrorKind::InvalidDigit => {
-                        "Serial numbers can only contain digits"
+                        "serial numbers can only contain digits"
                     }
                     IntErrorKind::NegOverflow => {
-                        "Serial numbers must be non-negative"
+                        "serial numbers must be non-negative"
                     }
                     // We have already checked for other kinds of errors.
                     _ => unreachable!(),

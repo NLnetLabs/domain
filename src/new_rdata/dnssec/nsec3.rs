@@ -87,7 +87,7 @@ impl<'a> Scan<'a> for NSec3<'a> {
             let salt_len =
                 Base16Dec::decode_all_to_vec(salt.as_bytes(), buffer)
                     .map_err(|_| {
-                        ScanError::Custom("Invalid NSEC3 salt (base16)")
+                        ScanError::Custom("invalid NSEC3 salt (base16)")
                     })?
                     .len();
             buffer[start] = salt_len as u8;
@@ -106,7 +106,7 @@ impl<'a> Scan<'a> for NSec3<'a> {
         let next_len =
             Base32HexDec::decode_all_to_vec(next.as_bytes(), buffer, false)
                 .map_err(|_| {
-                    ScanError::Custom("Invalid next owner name (base32hex)")
+                    ScanError::Custom("invalid next owner name (base32hex)")
                 })?
                 .len();
         buffer[start] = next_len as u8;
@@ -193,7 +193,7 @@ impl<'a> Scan<'a> for &'a NSec3Param {
             let salt_len =
                 Base16Dec::decode_all_to_vec(salt.as_bytes(), buffer)
                     .map_err(|_| {
-                        ScanError::Custom("Invalid NSEC3 salt (base16)")
+                        ScanError::Custom("invalid NSEC3 salt (base16)")
                     })?
                     .len();
             buffer[salt_start] = salt_len as u8;
@@ -281,7 +281,7 @@ impl<'a> Scan<'a> for NSec3HashAlg {
             .map_err(|err| {
                 ScanError::Custom(match err.kind() {
                     IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => {
-                        "Invalid NSEC3 hash algorithm number"
+                        "invalid NSEC3 hash algorithm number"
                     }
                     IntErrorKind::InvalidDigit => {
                         "NSEC3 hash algorithm must be a number"
@@ -389,7 +389,7 @@ impl<'a> Scan<'a> for NSec3Flags {
             .map_err(|err| {
                 ScanError::Custom(match err.kind() {
                     IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => {
-                        "Invalid NSEC3 flags number"
+                        "invalid NSEC3 flags number"
                     }
                     IntErrorKind::InvalidDigit => {
                         "NSEC3 flags must be a number"

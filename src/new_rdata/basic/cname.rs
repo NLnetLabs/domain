@@ -94,7 +94,7 @@ impl<'a, N: Scan<'a>> Scan<'a> for CName<N> {
         if scanner.is_empty() {
             Ok(Self { name })
         } else {
-            Err(ScanError::Custom("Unexpected data at end of CNAME record"))
+            Err(ScanError::Custom("unexpected data at end of CNAME record"))
         }
     }
 }

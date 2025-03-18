@@ -101,7 +101,7 @@ impl<'a> Scan<'a> for SecAlg {
                 Ok(alg.parse::<u8>().unwrap().into())
             }
 
-            _ => Err(ScanError::Custom("Unrecognized DNSSEC algorithm")),
+            _ => Err(ScanError::Custom("unrecognized DNSSEC algorithm")),
         }
     }
 }

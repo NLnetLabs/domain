@@ -504,7 +504,7 @@ impl Scan<'_> for RevNameBuf {
             scanner.consume(1);
             let origin = scanner
                 .origin()
-                .ok_or(ScanError::Custom("Unknown origin name"))?;
+                .ok_or(ScanError::Custom("unknown origin name"))?;
             return Ok(RevNameBuf::copy_from(origin));
         }
 
@@ -518,7 +518,7 @@ impl Scan<'_> for RevNameBuf {
 
             if !c.is_ascii_alphanumeric() && !b"\\-_\"".contains(&c) {
                 return Err(ScanError::Custom(
-                    "Irregular character in domain name",
+                    "irregular character in domain name",
                 ));
             }
 
@@ -526,7 +526,7 @@ impl Scan<'_> for RevNameBuf {
             let label = LabelBuf::scan(scanner, alloc, buffer)?;
             if this.offset < 2 + label.len() as u8 {
                 return Err(ScanError::Custom(
-                    "Domain name exceeds 255 bytes",
+                    "domain name exceeds 255 bytes",
                 ));
             }
             this.prepend_label(&label);
@@ -537,10 +537,10 @@ impl Scan<'_> for RevNameBuf {
                     // This is a relative domain name.
                     let origin = scanner
                         .origin()
-                        .ok_or(ScanError::Custom("Unknown origin name"))?;
+                        .ok_or(ScanError::Custom("unknown origin name"))?;
                     if this.offset < origin.len() as u8 {
                         return Err(ScanError::Custom(
-                            "Relative domain name exceeds 255 bytes",
+                            "relative domain name exceeds 255 bytes",
                         ));
                     }
 
@@ -555,7 +555,7 @@ impl Scan<'_> for RevNameBuf {
 
                 _ => {
                     return Err(ScanError::Custom(
-                        "Irregular character in domain name",
+                        "irregular character in domain name",
                     ));
                 }
             }

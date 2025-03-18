@@ -466,7 +466,7 @@ impl Scan<'_> for NameBuf {
             scanner.consume(1);
             let origin = scanner
                 .origin()
-                .ok_or(ScanError::Custom("Unknown origin name"))?;
+                .ok_or(ScanError::Custom("unknown origin name"))?;
 
             origin
                 .build_bytes(&mut this.buffer)
@@ -482,7 +482,7 @@ impl Scan<'_> for NameBuf {
 
             if !c.is_ascii_alphanumeric() && !b"\\-_\"".contains(&c) {
                 return Err(ScanError::Custom(
-                    "Irregular character in domain name",
+                    "irregular character in domain name",
                 ));
             }
 
@@ -490,7 +490,7 @@ impl Scan<'_> for NameBuf {
             let label = LabelBuf::scan(scanner, alloc, buffer)?;
             if 255 - this.size < 2 + label.len() as u8 {
                 return Err(ScanError::Custom(
-                    "Domain name exceeds 255 bytes",
+                    "domain name exceeds 255 bytes",
                 ));
             }
             this.append_label(&label);
@@ -501,14 +501,14 @@ impl Scan<'_> for NameBuf {
                     // This is a relative domain name.
                     let origin = scanner
                         .origin()
-                        .ok_or(ScanError::Custom("Unknown origin name"))?;
+                        .ok_or(ScanError::Custom("unknown origin name"))?;
 
                     // Append the origin to this name.
                     origin
                         .build_bytes(&mut this.buffer[this.size as usize..])
                         .map_err(|_| {
                             ScanError::Custom(
-                                "Relative domain name exceeds 255 bytes",
+                                "relative domain name exceeds 255 bytes",
                             )
                         })?;
                     // We exclude the root label, which gets added manually.
@@ -522,7 +522,7 @@ impl Scan<'_> for NameBuf {
 
                 _ => {
                     return Err(ScanError::Custom(
-                        "Irregular character in domain name",
+                        "irregular character in domain name",
                     ));
                 }
             }

@@ -64,10 +64,10 @@ impl<'a> Scan<'a> for &'a Ds {
 
             decoder
                 .decode_to_vec(token.as_bytes(), buffer)
-                .map_err(|_| ScanError::Custom("Invalid Base16 in digest"))?;
+                .map_err(|_| ScanError::Custom("invalid Base16 in digest"))?;
         }
         decoder.finish().map_err(|_| {
-            ScanError::Custom("Partial byte in Base16-encoded digest")
+            ScanError::Custom("partial byte in Base16-encoded digest")
         })?;
 
         // Allocate the record.
@@ -156,10 +156,10 @@ impl<'a> Scan<'a> for DigestType {
             .map_err(|err| {
                 ScanError::Custom(match err.kind() {
                     IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => {
-                        "Invalid digest algorithm number"
+                        "invalid digest algorithm number"
                     }
                     IntErrorKind::InvalidDigit => {
-                        "Digest algorithm must be a number"
+                        "digest algorithm must be a number"
                     }
                     // We have already checked for other kinds of errors.
                     _ => unreachable!(),

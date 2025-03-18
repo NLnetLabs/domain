@@ -88,13 +88,13 @@ impl Scan<'_> for A {
         let addr = scanner
             .scan_plain_token()?
             .parse::<Ipv4Addr>()
-            .map_err(|_| ScanError::Custom("Invalid IPv4 address"))?;
+            .map_err(|_| ScanError::Custom("invalid IPv4 address"))?;
 
         scanner.skip_ws();
         if scanner.is_empty() {
             Ok(Self::from(addr))
         } else {
-            Err(ScanError::Custom("Unexpected data at end of A record"))
+            Err(ScanError::Custom("unexpected data at end of A record"))
         }
     }
 }
@@ -119,7 +119,7 @@ mod tests {
             ),
             (
                 b"a" as &[u8],
-                Err(ScanError::Custom("Invalid IPv4 address")),
+                Err(ScanError::Custom("invalid IPv4 address")),
             ),
         ];
 

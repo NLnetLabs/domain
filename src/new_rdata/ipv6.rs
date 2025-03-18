@@ -91,13 +91,13 @@ impl Scan<'_> for Aaaa {
         let addr = scanner
             .scan_plain_token()?
             .parse::<Ipv6Addr>()
-            .map_err(|_| ScanError::Custom("Invalid IPv6 address"))?;
+            .map_err(|_| ScanError::Custom("invalid IPv6 address"))?;
 
         scanner.skip_ws();
         if scanner.is_empty() {
             Ok(Self::from(addr))
         } else {
-            Err(ScanError::Custom("Unexpected data at end of AAAA record"))
+            Err(ScanError::Custom("unexpected data at end of AAAA record"))
         }
     }
 }

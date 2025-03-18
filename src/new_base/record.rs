@@ -334,10 +334,10 @@ impl Scan<'_> for RType {
 
             rtype if rtype.starts_with("TYPE") => rtype[4..]
                 .parse::<u16>()
-                .map_err(|_| ScanError::Custom("Invalid type value"))
+                .map_err(|_| ScanError::Custom("invalid record type value"))
                 .map(Self::from),
 
-            _ => Err(ScanError::Custom("Unrecognized record type")),
+            _ => Err(ScanError::Custom("unrecognized record type")),
         }
     }
 }
@@ -425,10 +425,10 @@ impl Scan<'_> for RClass {
 
             class if class.starts_with("CLASS") => class[5..]
                 .parse::<u16>()
-                .map_err(|_| ScanError::Custom("Invalid class value"))
+                .map_err(|_| ScanError::Custom("invalid record class value"))
                 .map(Self::from),
 
-            _ => Err(ScanError::Custom("Unrecognized record class")),
+            _ => Err(ScanError::Custom("unrecognized record class")),
         }
     }
 }
@@ -498,7 +498,7 @@ impl Scan<'_> for TTL {
             .map_err(|err| {
                 ScanError::Custom(match err.kind() {
                     IntErrorKind::PosOverflow => {
-                        "Specified TTL will overflow"
+                        "specified TTL will overflow"
                     }
                     IntErrorKind::InvalidDigit => {
                         "TTLs can only contain digits"
@@ -643,7 +643,10 @@ mod test {
             (b"A" as &[u8], Ok(RType::A)),
             (b"TYPE1", Ok(RType::A)),
             (b"TXT", Ok(RType::TXT)),
-            (b"TYPE65536", Err(ScanError::Custom("Invalid type value"))),
+            (
+                b"TYPE65536",
+                Err(ScanError::Custom("invalid record type value")),
+            ),
         ];
 
         let alloc = bumpalo::Bump::new();
@@ -665,7 +668,10 @@ mod test {
         let cases = [
             (b"IN" as &[u8], Ok(RClass::IN)),
             (b"CLASS1", Ok(RClass::IN)),
-            (b"CLASS65536", Err(ScanError::Custom("Invalid class value"))),
+            (
+                b"CLASS65536",
+                Err(ScanError::Custom("invalid record class value")),
+            ),
         ];
 
         let alloc = bumpalo::Bump::new();

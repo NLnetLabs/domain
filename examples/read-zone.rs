@@ -27,8 +27,7 @@ fn main() {
         while let Some(entry) = scanner.scan().transpose() {
             i += 1;
             if let Err(err) = entry {
-                eprintln!("Failed at entry {i} in {zone_file}:");
-                eprintln!("  Error: {err:?}");
+                eprintln!("Could not parse {zone_file}: {err}");
                 exit(1);
             }
 

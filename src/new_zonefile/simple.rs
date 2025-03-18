@@ -23,6 +23,7 @@
 //! }
 //! ```
 
+use core::fmt;
 use std::{io, path::PathBuf, vec::Vec};
 
 use crate::{
@@ -421,24 +422,34 @@ pub enum ZonefileError {
         line_number: usize,
     },
 
-    /// An error in scanning an entry.
-    Entry {
-        /// The scanning error that occurred.
-        error: ScanError,
-
-        /// The line number of the entry.
-        line_number: usize,
-    },
-
     /// An error in disambiguating entries.
     Entries(EntriesError),
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for ZonefileError {}
 
 //--- Conversion from error types
 
 impl From<EntriesError> for ZonefileError {
     fn from(error: EntriesError) -> Self {
         Self::Entries(error)
+    }
+}
+
+//--- Formatting
+
+impl fmt::Display for ZonefileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Record { error, line_number } => {
+                write!(f, "failed to parse the record on line {line_number}: {error}")
+            }
+            Self::Directive { error, line_number } => {
+                write!(f, "failed to parse the directive on line {line_number}: {error}")
+            }
+            Self::Entries(error) => error.fmt(f),
+        }
     }
 }
 
@@ -478,6 +489,36 @@ pub enum RecordError {
     DataError(ScanError),
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for RecordError {}
+
+//--- Formatting
+
+impl fmt::Display for RecordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnknownRecordType => "unknown record type",
+            Self::MissingOrigin => "the origin name is unknown",
+            Self::MissingFirstField => "could not infer an omitted field",
+            Self::MissingFields => "one or more required fields were missing",
+            Self::MultipleTTLs => "multiple TTLs were specified",
+            Self::MultipleClasses => "multiple record classes were specified",
+            Self::OwnerError(err) => {
+                return write!(f, "could not parse the owner name: {err}")
+            }
+            Self::ClassError(err) => {
+                return write!(f, "could not parse the record class: {err}")
+            }
+            Self::TTLError(err) => {
+                return write!(f, "could not parse the record TTL: {err}")
+            }
+            Self::DataError(err) => {
+                return write!(f, "could not parse the record data: {err}")
+            }
+        })
+    }
+}
+
 //----------- DirectiveError -------------------------------------------------
 
 /// An error in scanning a zonefile directive.
@@ -497,6 +538,23 @@ pub enum DirectiveError {
 
     /// An unknown directive was used.
     UnknownDirective,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for DirectiveError {}
+
+//--- Formatting
+
+impl fmt::Display for DirectiveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::MissingFields => "one or more required fields were missing",
+            Self::InvalidIncludePath => "could not parse the include path",
+            Self::InvalidOrigin => "could not parse the origin name",
+            Self::InvalidTTL => "could not parse the TTL",
+            Self::UnknownDirective => "unrecognized directive",
+        })
+    }
 }
 
 //============ Tests =========================================================

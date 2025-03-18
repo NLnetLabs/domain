@@ -106,7 +106,7 @@ impl<'a, N: Scan<'a>> Scan<'a> for Ns<N> {
         if scanner.is_empty() {
             Ok(Self { name })
         } else {
-            Err(ScanError::Custom("Unexpected data at end of NS record"))
+            Err(ScanError::Custom("unexpected data at end of NS record"))
         }
     }
 }

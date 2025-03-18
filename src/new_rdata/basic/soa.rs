@@ -181,7 +181,7 @@ impl<'a, N: Scan<'a>> Scan<'a> for Soa<N> {
                 minimum,
             })
         } else {
-            Err(ScanError::Custom("Unexpected data at end of SOA record"))
+            Err(ScanError::Custom("unexpected data at end of SOA record"))
         }
     }
 }

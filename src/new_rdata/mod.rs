@@ -396,7 +396,7 @@ where
             // Parse from the unknown record data format.
             let data = <&'a UnknownRecordData>::scan(scanner, alloc, buffer)?;
             return Self::parse_record_data_bytes(&data.octets, rtype)
-                .map_err(|_| ScanError::Custom("Invalid unknown-data content for a known record data type"));
+                .map_err(|_| ScanError::Custom("invalid unknown-data content for a known record data type"));
         }
 
         // Try all concrete parsers.
@@ -476,7 +476,7 @@ where
                     .map(Self::NSec3Param)
             }
 
-            _ => Err(ScanError::Custom("The concrete format for this record type is currently unsupported")),
+            _ => Err(ScanError::Custom("the concrete format for this record type is currently unsupported")),
         }
     }
 }

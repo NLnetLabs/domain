@@ -76,7 +76,7 @@ impl<'a> Scan<'a> for RRSig<'a> {
 
             if !text.chars().all(|c| c.is_ascii_digit()) {
                 return Err(ScanError::Custom(
-                    "Invalid characters in RRSIG timestamp",
+                    "invalid characters in RRSIG timestamp",
                 ));
             }
 
@@ -84,7 +84,7 @@ impl<'a> Scan<'a> for RRSig<'a> {
                 return text.parse::<u32>().map(Into::into).map_err(|err| {
                     ScanError::Custom(match err.kind() {
                         IntErrorKind::PosOverflow => {
-                            "Overly large UNIX timestamp"
+                            "overly large UNIX timestamp"
                         }
                         // We have already checked for other kinds of errors.
                         _ => unreachable!(),
@@ -107,12 +107,12 @@ impl<'a> Scan<'a> for RRSig<'a> {
                     })
                     .map_err(|_| {
                         ScanError::Custom(
-                            "Invalid calendar date in RRSIG timestamp",
+                            "invalid calendar date in RRSIG timestamp",
                         )
                     })?,
                 Time::from_hms(hour, minute, second).map_err(|_| {
                     ScanError::Custom(
-                        "Invalid calendar time in RRSIG timestamp",
+                        "invalid calendar time in RRSIG timestamp",
                     )
                 })?,
             )
@@ -162,12 +162,12 @@ impl<'a> Scan<'a> for RRSig<'a> {
             scanner.skip_ws();
 
             decoder.decode_to_vec(token.as_bytes(), buffer).map_err(
-                |_| ScanError::Custom("Invalid Base64 in RRSIG signature"),
+                |_| ScanError::Custom("invalid Base64 in RRSIG signature"),
             )?;
         }
         decoder.finish(&mut [], false).map_err(|_| {
             ScanError::Custom(
-                "Partial block in Base64-encoded RRSIG signature",
+                "partial block in Base64-encoded RRSIG signature",
             )
         })?;
         let signature = alloc.alloc_slice_copy(&buffer[start..]);

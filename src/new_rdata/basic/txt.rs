@@ -139,7 +139,7 @@ impl<'a> Scan<'a> for &'a Txt {
                 Some(token) if token.len() > 255 => {
                     buffer.truncate(start);
                     return Err(ScanError::Custom(
-                        "Overlong character string",
+                        "overlong character string",
                     ));
                 }
 
@@ -167,7 +167,7 @@ impl<'a> Scan<'a> for &'a Txt {
         } else if start == buffer.len() {
             Err(ScanError::Incomplete)
         } else {
-            Err(ScanError::Custom("Unexpected data at end of TXT record"))
+            Err(ScanError::Custom("unexpected data at end of TXT record"))
         }
     }
 }

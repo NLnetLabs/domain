@@ -30,7 +30,7 @@
 //! }
 //! ```
 
-use core::ops::Range;
+use core::{fmt, ops::Range};
 use std::{io, vec::Vec};
 
 //----------- Entries --------------------------------------------------------
@@ -466,11 +466,36 @@ pub enum EntriesError {
     Source(io::Error),
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for EntriesError {}
+
 //--- Conversions from sub-errors
 
 impl From<io::Error> for EntriesError {
     fn from(error: io::Error) -> Self {
         Self::Source(error)
+    }
+}
+
+//--- Formatting
+
+impl fmt::Display for EntriesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnmatchedDoubleQuote { line_number } => {
+                write!(f, "a double-quote on line {line_number} was never terminated")
+            }
+            Self::UnmatchedRightParen { line_number } => {
+                write!(f, "an opening parenthesis on line {line_number} was never terminated")
+            }
+            Self::NestedOpeningParen {
+                first_line_number,
+                second_line_number,
+            } => {
+                write!(f, "nested parentheses (on line {first_line_number} and {second_line_number}) were found")
+            }
+            Self::Source(error) => error.fmt(f),
+        }
     }
 }
 

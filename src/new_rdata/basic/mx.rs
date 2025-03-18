@@ -121,7 +121,7 @@ impl<'a, N: Scan<'a>> Scan<'a> for Mx<N> {
                 exchange,
             })
         } else {
-            Err(ScanError::Custom("Unexpected data at end of MX record"))
+            Err(ScanError::Custom("unexpected data at end of MX record"))
         }
     }
 }

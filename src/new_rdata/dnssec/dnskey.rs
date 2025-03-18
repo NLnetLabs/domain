@@ -69,12 +69,12 @@ impl<'a> Scan<'a> for &'a DNSKey {
             scanner.skip_ws();
 
             decoder.decode_to_vec(token.as_bytes(), buffer).map_err(
-                |_| ScanError::Custom("Invalid Base64 in DNSKEY material"),
+                |_| ScanError::Custom("invalid Base64 in DNSKEY material"),
             )?;
         }
         decoder.finish(&mut [], false).map_err(|_| {
             ScanError::Custom(
-                "Partial block in Base64-encoded DNSKEY material",
+                "partial block in Base64-encoded DNSKEY material",
             )
         })?;
 
@@ -195,7 +195,7 @@ impl<'a> Scan<'a> for DNSKeyFlags {
             .map_err(|err| {
                 ScanError::Custom(match err.kind() {
                     IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => {
-                        "Invalid NSEC3 flags number"
+                        "invalid NSEC3 flags number"
                     }
                     IntErrorKind::InvalidDigit => {
                         "NSEC3 flags must be a number"

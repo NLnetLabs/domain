@@ -58,7 +58,7 @@ impl<'a> Scan<'a> for HInfo<'a> {
         if scanner.is_empty() {
             Ok(Self { cpu, os })
         } else {
-            Err(ScanError::Custom("Unexpected data at end of HINFO record"))
+            Err(ScanError::Custom("unexpected data at end of HINFO record"))
         }
     }
 }
