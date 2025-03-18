@@ -8,8 +8,8 @@ use tokio::net::TcpStream;
 use domain::base::Name;
 use domain::base::Rtype;
 use domain::base::{MessageBuilder, Serial, Ttl};
+use domain::net::client::request::RequestMessage;
 use domain::net::client::request::SendRequestMulti;
-use domain::net::client::request::{RequestMessage, RequestMessageMulti};
 use domain::net::client::stream;
 use domain::rdata::Soa;
 
@@ -36,10 +36,8 @@ async fn main() {
     eprintln!("Requesting IXFR from {server_addr} for zone {qname} from serial {soa_serial}");
 
     let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
-    let (tcp, transport) = stream::Connection::<
-        RequestMessage<Vec<u8>>,
-        RequestMessageMulti<Vec<u8>>,
-    >::new(tcp_conn);
+    let (tcp, transport) =
+        stream::Connection::<RequestMessage<Vec<u8>>>::new(tcp_conn);
     tokio::spawn(async move {
         transport.run().await;
         println!("single TSIG TCP run terminated");
@@ -57,7 +55,7 @@ async fn main() {
     msg.push((&qname, Rtype::IXFR)).unwrap();
     let mut msg = msg.authority();
     msg.push((&qname, 3600, soa)).unwrap();
-    let req = RequestMessageMulti::new(msg.clone()).unwrap();
+    let req = RequestMessage::new(msg.clone()).unwrap();
 
     let mut request = SendRequestMulti::send_request(&tcp, req);
 

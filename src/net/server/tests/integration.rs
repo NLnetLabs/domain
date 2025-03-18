@@ -25,7 +25,7 @@ use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::base::Name;
 use crate::base::Rtype;
-use crate::net::client::request::{RequestMessage, RequestMessageMulti};
+use crate::net::client::request::RequestMessage;
 use crate::net::client::{dgram, stream, tsig};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
@@ -294,10 +294,6 @@ fn mk_client_factory(
             if let Some(key) = key {
                 let (conn, transport) = stream::Connection::<
                     tsig::RequestMessage<RequestMessage<Vec<u8>>, Arc<Key>>,
-                    tsig::RequestMessage<
-                        RequestMessageMulti<Vec<u8>>,
-                        Arc<Key>,
-                    >,
                 >::new(stream);
 
                 tokio::spawn(transport.run());
@@ -315,7 +311,6 @@ fn mk_client_factory(
             } else {
                 let (conn, transport) = stream::Connection::<
                     RequestMessage<Vec<u8>>,
-                    RequestMessageMulti<Vec<u8>>,
                 >::new(stream);
 
                 tokio::spawn(transport.run());

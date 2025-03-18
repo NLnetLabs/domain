@@ -1,9 +1,7 @@
 //! Using the `domain::net::client` module for sending a query.
 use domain::base::{MessageBuilder, Name, Rtype};
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
-use domain::net::client::request::{
-    RequestMessage, RequestMessageMulti, SendRequest,
-};
+use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::{
     cache, dgram, dgram_stream, load_balancer, multi_stream, redundant,
     stream,
@@ -274,8 +272,7 @@ async fn main() {
         }
     };
 
-    let (tcp, transport) =
-        stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(tcp_conn);
+    let (tcp, transport) = stream::Connection::new(tcp_conn);
     tokio::spawn(async move {
         transport.run().await;
         println!("single TCP run terminated");
@@ -293,8 +290,7 @@ async fn main() {
     #[cfg(feature = "tsig")]
     {
         let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
-        let (tcp, transport) =
-            stream::Connection::<RequestMessage<Vec<u8>>, _>::new(tcp_conn);
+        let (tcp, transport) = stream::Connection::new(tcp_conn);
         tokio::spawn(async move {
             transport.run().await;
             println!("single TSIG TCP run terminated");
@@ -306,7 +302,7 @@ async fn main() {
         let mut msg = msg.question();
         msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AXFR))
             .unwrap();
-        let req = RequestMessageMulti::new(msg).unwrap();
+        let req = RequestMessage::new(msg).unwrap();
 
         do_tsig(tcp.clone(), req).await;
 
@@ -350,7 +346,7 @@ where
 }
 
 #[cfg(feature = "tsig")]
-async fn do_tsig<Octs, SR>(conn: SR, req: RequestMessageMulti<Octs>)
+async fn do_tsig<Octs, SR>(conn: SR, req: RequestMessage<Octs>)
 where
     Octs: AsRef<[u8]>
         + Send
@@ -358,9 +354,8 @@ where
         + std::fmt::Debug
         + domain::dep::octseq::Octets
         + 'static,
-    SR: SendRequestMulti<
-            tsig::RequestMessage<RequestMessageMulti<Octs>, Arc<Key>>,
-        > + Send
+    SR: SendRequestMulti<tsig::RequestMessage<RequestMessage<Octs>, Arc<Key>>>
+        + Send
         + Sync
         + 'static,
 {

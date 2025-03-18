@@ -38,7 +38,7 @@
 //!
 //! Sending requests & handling responses:
 //! - [`net::client::stream`] supports sending of XFR requests and receiving
-//!   one or more responses via [`RequestMessageMulti`].
+//!   one or more responses via [`RequestMessage`].
 //! - [`net::client::tsig`] can be wrapped around another transport to add
 //!   TSIG request signing and response validation.
 //! - [`net::xfr::protocol::XfrResponseInterpreter`] can be used to parse
@@ -59,7 +59,7 @@
 //! [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
 //! [RFC 8945]: https://www.rfc-editor.org/info/rfc8945
 //! [`net::client::stream`]: crate::net::client::stream
-//! [`RequestMessageMulti`]: crate::net::client::request::RequestMessageMulti
+//! [`RequestMessage`]: crate::net::client::request::RequestMessage
 //! [`net::client::tsig`]: crate::net::client::tsig
 //! [`net::xfr::protocol::XfrResponseInterpreter`]: crate::net::xfr::protocol::XfrResponseInterpreter
 //! [`ZoneUpdate`]: crate::zonetree::types::ZoneUpdate
