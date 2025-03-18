@@ -181,25 +181,27 @@ impl<'a, N> RecordData<'a, N> {
     where
         N: Clone,
     {
+        use crate::utils::clone_to_bump;
+
         match self {
             Self::A(&r) => RecordData::A(bump.alloc(r)),
             Self::Ns(r) => RecordData::Ns(r.clone()),
             Self::CName(r) => RecordData::CName(r.clone()),
             Self::Soa(r) => RecordData::Soa(r.clone()),
-            Self::Wks(r) => RecordData::Wks(r.clone_to_bump(bump)),
+            Self::Wks(r) => RecordData::Wks(clone_to_bump(*r, bump)),
             Self::Ptr(r) => RecordData::Ptr(r.clone()),
             Self::HInfo(r) => RecordData::HInfo(r.clone_to_bump(bump)),
             Self::Mx(r) => RecordData::Mx(r.clone()),
-            Self::Txt(r) => RecordData::Txt(r.clone_to_bump(bump)),
+            Self::Txt(r) => RecordData::Txt(clone_to_bump(*r, bump)),
             Self::Aaaa(&r) => RecordData::Aaaa(bump.alloc(r)),
-            Self::Opt(r) => RecordData::Opt(r.clone_to_bump(bump)),
-            Self::Ds(r) => RecordData::Ds(r.clone_to_bump(bump)),
+            Self::Opt(r) => RecordData::Opt(clone_to_bump(*r, bump)),
+            Self::Ds(r) => RecordData::Ds(clone_to_bump(*r, bump)),
             Self::RRSig(r) => RecordData::RRSig(r.clone_to_bump(bump)),
             Self::NSec(r) => RecordData::NSec(r.clone_to_bump(bump)),
-            Self::DNSKey(r) => RecordData::DNSKey(r.clone_to_bump(bump)),
+            Self::DNSKey(r) => RecordData::DNSKey(clone_to_bump(*r, bump)),
             Self::NSec3(r) => RecordData::NSec3(r.clone_to_bump(bump)),
             Self::NSec3Param(r) => {
-                RecordData::NSec3Param(r.clone_to_bump(bump))
+                RecordData::NSec3Param(clone_to_bump(*r, bump))
             }
             Self::Unknown(rt, rd) => {
                 RecordData::Unknown(*rt, rd.clone_to_bump(bump))

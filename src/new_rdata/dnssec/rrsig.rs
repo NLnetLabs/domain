@@ -43,8 +43,10 @@ impl RRSig<'_> {
     /// Copy referenced data into the given [`Bump`] allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> RRSig<'r> {
+        use crate::utils::clone_to_bump;
+
         RRSig {
-            signer: self.signer.clone_to_bump(bump),
+            signer: clone_to_bump(self.signer, bump),
             signature: bump.alloc_slice_copy(self.signature),
             ..self.clone()
         }

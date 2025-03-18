@@ -9,7 +9,9 @@ use super::SecAlg;
 //----------- Ds -------------------------------------------------------------
 
 /// The signing key for a delegated zone.
-#[derive(Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(
+    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone,
+)]
 #[repr(C)]
 pub struct Ds {
     /// The key tag of the signing key.
@@ -23,21 +25,6 @@ pub struct Ds {
 
     /// A serialized digest of the signing key.
     pub digest: [u8],
-}
-
-//--- Interaction
-
-impl Ds {
-    /// Copy this into the given [`Bump`] allocator.
-    #[cfg(feature = "bumpalo")]
-    #[allow(clippy::mut_from_ref)] // using a memory allocator
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
-        use crate::new_base::wire::{AsBytes, ParseBytesByRef};
-
-        let bytes = bump.alloc_slice_copy(self.as_bytes());
-        // SAFETY: 'ParseBytesByRef' and 'AsBytes' are inverses.
-        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
-    }
 }
 
 //----------- DigestType -----------------------------------------------------

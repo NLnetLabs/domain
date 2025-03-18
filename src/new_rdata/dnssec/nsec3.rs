@@ -36,13 +36,15 @@ impl NSec3<'_> {
     /// Copy referenced data into the given [`Bump`] allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> NSec3<'r> {
+        use crate::utils::clone_to_bump;
+
         NSec3 {
             algorithm: self.algorithm,
             flags: self.flags,
             iterations: self.iterations,
-            salt: self.salt.clone_to_bump(bump),
-            next: self.next.clone_to_bump(bump),
-            types: self.types.clone_to_bump(bump),
+            salt: clone_to_bump(self.salt, bump),
+            next: clone_to_bump(self.next, bump),
+            types: clone_to_bump(self.types, bump),
         }
     }
 }
@@ -73,21 +75,6 @@ pub struct NSec3Param {
 
     /// The salt used to randomize the hash function.
     pub salt: SizePrefixed<u8, [u8]>,
-}
-
-//--- Interaction
-
-impl NSec3Param {
-    /// Copy this into the given [`Bump`] allocator.
-    #[cfg(feature = "bumpalo")]
-    #[allow(clippy::mut_from_ref)] // using a memory allocator
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
-        use crate::new_base::wire::{AsBytes, ParseBytesByRef};
-
-        let bytes = bump.alloc_slice_copy(self.as_bytes());
-        // SAFETY: 'ParseBytesByRef' and 'AsBytes' are inverses.
-        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
-    }
 }
 
 //----------- NSec3HashAlg ---------------------------------------------------
