@@ -610,6 +610,112 @@ pub fn derive_as_bytes(input: pm::TokenStream) -> pm::TokenStream {
         .into()
 }
 
+//----------- UnsizedClone ---------------------------------------------------
+
+#[proc_macro_derive(UnsizedClone)]
+pub fn derive_unsized_clone(input: pm::TokenStream) -> pm::TokenStream {
+    fn inner(input: syn::DeriveInput) -> Result<TokenStream> {
+        // Construct an 'ImplSkeleton' so that we can add trait bounds.
+        let mut skeleton = ImplSkeleton::new(&input, true);
+        skeleton.bound =
+            Some(syn::parse_quote!(::domain::utils::UnsizedClone));
+
+        let struct_data = match &input.data {
+            syn::Data::Struct(data) if !data.fields.is_empty() => {
+                let data = Struct::new_as_self(&data.fields);
+                for field in data.sized_fields() {
+                    skeleton.require_bound(
+                        field.ty.clone(),
+                        syn::parse_quote!(::domain::__core::clone::Clone),
+                    );
+                }
+
+                skeleton.require_bound(
+                    data.unsized_field().unwrap().ty.clone(),
+                    syn::parse_quote!(::domain::utils::UnsizedClone),
+                );
+
+                Some(data)
+            }
+
+            syn::Data::Struct(_) => None,
+
+            syn::Data::Enum(data) => {
+                for variant in data.variants.iter() {
+                    for field in variant.fields.iter() {
+                        skeleton.require_bound(
+                            field.ty.clone(),
+                            syn::parse_quote!(::domain::__core::clone::Clone),
+                        );
+                    }
+                }
+
+                None
+            }
+
+            syn::Data::Union(data) => {
+                return Err(Error::new_spanned(
+                    data.union_token,
+                    "'UnsizedClone' cannot be 'derive'd for 'union's",
+                ));
+            }
+        };
+
+        if let Some(data) = struct_data {
+            let sized_members = data.sized_members();
+            let unsized_member = data.unsized_member().unwrap();
+
+            skeleton.contents.stmts.push(syn::parse_quote! {
+                unsafe fn unsized_clone(&self, dst: *mut ()) {
+                    let dst = ::domain::utils::UnsizedClone::ptr_with_address(self, dst);
+                    unsafe {
+                        #(::domain::__core::ptr::write(
+                            ::domain::__core::ptr::addr_of_mut!((*dst).#sized_members),
+                            ::domain::__core::clone::Clone::clone(&self.#sized_members),
+                        );)*
+                        ::domain::utils::UnsizedClone::unsized_clone(
+                            &self.#unsized_member,
+                            ::domain::__core::ptr::addr_of_mut!((*dst).#unsized_member) as *mut (),
+                        );
+                    }
+                }
+            });
+
+            skeleton.contents.stmts.push(syn::parse_quote! {
+                fn ptr_with_address(&self, addr: *mut ()) -> *mut Self {
+                    ::domain::utils::UnsizedClone::ptr_with_address(
+                        &self.#unsized_member,
+                        addr,
+                    ) as *mut Self
+                }
+            });
+        } else {
+            skeleton.contents.stmts.push(syn::parse_quote! {
+                unsafe fn unsized_clone(&self, dst: *mut ()) {
+                    let dst = dst as *mut Self;
+                    let this = ::domain::__core::clone::Clone::clone(self);
+                    unsafe {
+                        ::domain::__core::ptr::write(dst as *mut Self, this);
+                    }
+                }
+            });
+
+            skeleton.contents.stmts.push(syn::parse_quote! {
+                fn ptr_with_address(&self, addr: *mut ()) -> *mut Self {
+                    addr as *mut Self
+                }
+            });
+        }
+
+        Ok(skeleton.into_token_stream())
+    }
+
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+    inner(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
 //----------- Utility Functions ----------------------------------------------
 
 /// Add a `field_` prefix to member names.

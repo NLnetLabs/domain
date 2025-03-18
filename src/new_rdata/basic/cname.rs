@@ -24,6 +24,7 @@ use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
     BuildBytes,
     ParseBytes,
     SplitBytes,
+    UnsizedClone,
 )]
 #[repr(transparent)]
 pub struct CName<N: ?Sized> {

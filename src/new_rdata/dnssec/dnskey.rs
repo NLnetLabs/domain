@@ -18,7 +18,9 @@ use super::SecAlg;
 //----------- DNSKey ---------------------------------------------------------
 
 /// A cryptographic key for DNS security.
-#[derive(Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(
+    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone,
+)]
 #[repr(C)]
 pub struct DNSKey {
     /// Flags describing the usage of the key.
@@ -34,20 +36,7 @@ pub struct DNSKey {
     pub key: [u8],
 }
 
-//--- Interaction
-
-impl DNSKey {
-    /// Copy this into the given [`Bump`] allocator.
-    #[cfg(feature = "bumpalo")]
-    #[allow(clippy::mut_from_ref)] // using a memory allocator
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
-        use crate::new_base::wire::{AsBytes, ParseBytesByRef};
-
-        let bytes = bump.alloc_slice_copy(self.as_bytes());
-        // SAFETY: 'ParseBytesByRef' and 'AsBytes' are inverses.
-        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
-    }
-}
+//--- Scanning from the zonefile format
 
 #[cfg(feature = "zonefile")]
 impl<'a> Scan<'a> for &'a DNSKey {

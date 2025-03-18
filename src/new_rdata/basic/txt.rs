@@ -14,7 +14,7 @@ use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 //----------- Txt ------------------------------------------------------------
 
 /// Free-form text strings about this domain.
-#[derive(AsBytes, BuildBytes)]
+#[derive(AsBytes, BuildBytes, UnsizedClone)]
 #[repr(transparent)]
 pub struct Txt {
     /// The text strings, as concatenated [`CharStr`]s.
@@ -26,17 +26,6 @@ pub struct Txt {
 //--- Interaction
 
 impl Txt {
-    /// Copy this into the given [`Bump`] allocator.
-    #[cfg(feature = "bumpalo")]
-    #[allow(clippy::mut_from_ref)] // using a memory allocator
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
-        use crate::new_base::wire::AsBytes;
-
-        let bytes = bump.alloc_slice_copy(self.as_bytes());
-        // SAFETY: 'ParseBytesByRef' and 'AsBytes' are inverses.
-        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
-    }
-
     /// Iterate over the [`CharStr`]s in this record.
     pub fn iter(&self) -> impl Iterator<Item = &CharStr> + '_ {
         // NOTE: A TXT record always has at least one 'CharStr' within.

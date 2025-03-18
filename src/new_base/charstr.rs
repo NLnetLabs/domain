@@ -2,6 +2,8 @@
 
 use core::fmt;
 
+use domain_macros::UnsizedClone;
+
 #[cfg(feature = "zonefile")]
 use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
@@ -14,23 +16,11 @@ use super::{
 //----------- CharStr --------------------------------------------------------
 
 /// A DNS "character string".
+#[derive(UnsizedClone)]
 #[repr(transparent)]
 pub struct CharStr {
     /// The underlying octets.
     pub octets: [u8],
-}
-
-//--- Interaction
-
-impl CharStr {
-    /// Copy this into the given [`Bump`] allocator.
-    #[cfg(feature = "bumpalo")]
-    #[allow(clippy::mut_from_ref)] // using a memory allocator
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
-        let octets = bump.alloc_slice_copy(&self.octets);
-        // SAFETY: 'CharStr' is 'repr(transparent)' to '[u8]'.
-        unsafe { core::mem::transmute::<&mut [u8], &mut CharStr>(octets) }
-    }
 }
 
 //--- Parsing from DNS messages

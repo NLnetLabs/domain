@@ -28,6 +28,7 @@ use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
     SplitBytes,
     ParseBytesByRef,
     SplitBytesByRef,
+    UnsizedClone,
 )]
 #[repr(transparent)]
 pub struct Ptr<N: ?Sized> {

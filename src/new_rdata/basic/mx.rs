@@ -26,6 +26,7 @@ use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
     SplitBytes,
     ParseBytesByRef,
     SplitBytesByRef,
+    UnsizedClone,
 )]
 #[repr(C)]
 pub struct Mx<N: ?Sized> {

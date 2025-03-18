@@ -10,9 +10,14 @@ use core::{
 
 use domain_macros::*;
 
-use crate::new_base::{
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
+use crate::{
+    new_base::{
+        parse::{ParseMessageBytes, SplitMessageBytes},
+        wire::{
+            BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
+        },
+    },
+    utils::CloneFrom,
 };
 
 #[cfg(feature = "zonefile")]
@@ -23,7 +28,7 @@ use super::{Label, LabelBuf, LabelIter, LabelParseError};
 //----------- Name -----------------------------------------------------------
 
 /// An absolute domain name.
-#[derive(AsBytes, BuildBytes)]
+#[derive(AsBytes, BuildBytes, UnsizedClone)]
 #[repr(transparent)]
 pub struct Name([u8]);
 
@@ -96,19 +101,6 @@ impl Name {
     pub const fn labels(&self) -> LabelIter<'_> {
         // SAFETY: A 'Name' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
-    }
-}
-
-//--- Interaction
-
-impl Name {
-    /// Copy this into the given [`Bump`] allocator.
-    #[cfg(feature = "bumpalo")]
-    #[allow(clippy::mut_from_ref)] // using a memory allocator
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
-        let bytes = bump.alloc_slice_copy(self.as_bytes());
-        // SAFETY: 'AsBytes' is a transmute, so we can transmute back.
-        unsafe { core::mem::transmute::<&mut [u8], &mut Self>(bytes) }
     }
 }
 
@@ -262,6 +254,12 @@ impl NameBuf {
             size: name.len() as u8,
             buffer,
         }
+    }
+}
+
+impl CloneFrom for NameBuf {
+    fn clone_from(value: &Self::Target) -> Self {
+        Self::copy_from(value)
     }
 }
 

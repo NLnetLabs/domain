@@ -7,6 +7,8 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
+use domain_macros::UnsizedClone;
+
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
     parse::{ParseMessageBytes, SplitMessageBytes},
@@ -25,7 +27,7 @@ use super::{
 /// options).  When serialized as bytes, the inner value is prefixed with an
 /// integer (often a [`U16`](super::U16)) indicating the length of the inner
 /// value in bytes.
-#[derive(Copy, Clone, AsBytes)]
+#[derive(Copy, Clone, AsBytes, UnsizedClone)]
 #[repr(C)]
 pub struct SizePrefixed<S, T: ?Sized> {
     /// The size prefix (needed for 'ParseBytesByRef' / 'AsBytes').
@@ -58,23 +60,6 @@ where
             }),
             data,
         }
-    }
-}
-
-//--- Interaction
-
-impl<S, T: ?Sized> SizePrefixed<S, T>
-where
-    S: AsBytes + SplitBytesByRef + Copy + TryFrom<usize> + TryInto<usize>,
-    T: AsBytes + ParseBytesByRef,
-{
-    /// Copy this into the given [`Bump`] allocator.
-    #[cfg(feature = "bumpalo")]
-    #[allow(clippy::mut_from_ref)] // using a memory allocator
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
-        let bytes = bump.alloc_slice_copy(self.as_bytes());
-        // SAFETY: 'ParseBytesByRef' and 'AsBytes' are inverses.
-        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
     }
 }
 

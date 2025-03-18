@@ -9,10 +9,17 @@ use core::{
     str::FromStr,
 };
 
-use crate::new_base::{
-    build::{self, BuildIntoMessage, BuildResult},
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
+use domain_macros::UnsizedClone;
+
+use crate::{
+    new_base::{
+        build::{self, BuildIntoMessage, BuildResult},
+        parse::{ParseMessageBytes, SplitMessageBytes},
+        wire::{
+            BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
+        },
+    },
+    utils::CloneFrom,
 };
 
 #[cfg(feature = "zonefile")]
@@ -29,6 +36,7 @@ use super::{Label, LabelBuf, LabelIter, LabelParseError};
 /// use, making many common operations (e.g. comparing and ordering domain
 /// names) more computationally expensive.  A [`RevName`] stores the labels in
 /// reversed order for more efficient use.
+#[derive(UnsizedClone)]
 #[repr(transparent)]
 pub struct RevName([u8]);
 
@@ -106,19 +114,6 @@ impl RevName {
     pub const fn labels(&self) -> LabelIter<'_> {
         // SAFETY: A 'RevName' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
-    }
-}
-
-//--- Interaction
-
-impl RevName {
-    /// Copy this into the given [`Bump`] allocator.
-    #[cfg(feature = "bumpalo")]
-    #[allow(clippy::mut_from_ref)] // using a memory allocator
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {
-        let octets = bump.alloc_slice_copy(self.as_bytes());
-        // SAFETY: 'RevName' is 'repr(transparent)' to '[u8]'.
-        unsafe { core::mem::transmute::<&mut [u8], &mut Self>(octets) }
     }
 }
 
@@ -279,6 +274,12 @@ impl RevNameBuf {
         let mut buffer = [0u8; 255];
         buffer[offset as usize..].copy_from_slice(name.as_bytes());
         Self { offset, buffer }
+    }
+}
+
+impl CloneFrom for RevNameBuf {
+    fn clone_from(value: &Self::Target) -> Self {
+        Self::copy_from(value)
     }
 }
 
