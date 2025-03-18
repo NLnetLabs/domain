@@ -251,3 +251,24 @@ impl<T: Clone> CloneFrom for Vec<T> {
         value.into()
     }
 }
+
+//----------- clone_to_bump --------------------------------------------------
+
+/// Clone a value into a [`Bump`] allocator.
+///
+/// This works with [`UnsizedClone`] values, which extends [`Bump`]'s native
+/// functionality.
+#[cfg(feature = "bumpalo")]
+#[allow(clippy::mut_from_ref)] // using a memory allocator
+pub fn clone_to_bump<'a, T: ?Sized + UnsizedClone>(
+    value: &T,
+    bump: &'a bumpalo::Bump,
+) -> &'a mut T {
+    let layout = Layout::for_value(value);
+    let ptr = bump.alloc_layout(layout).as_ptr().cast::<()>();
+    unsafe {
+        value.unsized_clone(ptr);
+    };
+    let ptr = value.ptr_with_address(ptr);
+    unsafe { &mut *ptr }
+}
