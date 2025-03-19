@@ -31,7 +31,7 @@ pub unsafe trait UnsizedClone {
     /// Change the address of a pointer to [`Self`].
     ///
     /// When [`Self`] is used as the last field in a type that also implements
-    /// [`ParseBytesByRef`], it may be dynamically sized, and so a pointer (or
+    /// [`UnsizedClone`], it may be dynamically sized, and so a pointer (or
     /// reference) to it may include additional metadata.  This metadata is
     /// included verbatim in any reference/pointer to the containing type.
     ///
@@ -258,6 +258,8 @@ impl<T: Clone> CloneFrom for Vec<T> {
 ///
 /// This works with [`UnsizedClone`] values, which extends [`Bump`]'s native
 /// functionality.
+///
+/// [`Bump`]: bumpalo::Bump
 #[cfg(feature = "bumpalo")]
 #[allow(clippy::mut_from_ref)] // using a memory allocator
 pub fn clone_to_bump<'a, T: ?Sized + UnsizedClone>(

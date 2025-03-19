@@ -172,7 +172,7 @@ impl<'a, N> RecordData<'a, N> {
         }
     }
 
-    /// Copy referenced data into the given [`Bump`] allocator.
+    /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(
         &self,
@@ -378,7 +378,7 @@ pub struct UnknownRecordData {
 //--- Interaction
 
 impl UnknownRecordData {
-    /// Copy this into the given [`Bump`] allocator.
+    /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     #[allow(clippy::mut_from_ref)] // using a memory allocator
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> &'r mut Self {

@@ -23,7 +23,7 @@ pub struct NSec<'a> {
 //--- Interaction
 
 impl NSec<'_> {
-    /// Copy referenced data into the given [`Bump`] allocator.
+    /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> NSec<'r> {
         use crate::utils::clone_to_bump;
