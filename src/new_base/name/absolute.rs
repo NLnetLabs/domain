@@ -2,6 +2,7 @@
 
 use core::{
     borrow::{Borrow, BorrowMut},
+    cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
@@ -162,6 +163,85 @@ impl PartialEq for Name {
 }
 
 impl Eq for Name {}
+
+//--- Comparison
+
+impl PartialOrd for Name {
+    fn partial_cmp(&self, that: &Self) -> Option<Ordering> {
+        Some(self.cmp(that))
+    }
+}
+
+impl Ord for Name {
+    fn cmp(&self, that: &Self) -> Ordering {
+        // We wish to compare the labels in these names in reverse order.
+        // Unfortunately, labels in absolute names cannot be traversed
+        // backwards efficiently.  We need to try harder.
+        //
+        // Consider two names that are not equal.  This means that one name is
+        // a strict suffix of the other, or that the two had different labels
+        // at some position.  Following this mismatched label is a suffix of
+        // labels that both names do agree on.
+        //
+        // We traverse the bytes in the names in reverse order and find the
+        // length of their shared suffix.  The actual shared suffix, in units
+        // of labels, may be shorter than this (because the last bytes of the
+        // mismatched labels could be the same).
+        //
+        // Then, we traverse the labels of both names in forward order, until
+        // we hit the shared suffix territory.  We try to match up the names
+        // in order to discover the real shared suffix.  Once the suffix is
+        // found, the immediately preceding label (if there is one) contains
+        // the inequality, and can be compared as usual.
+
+        let suffix_len = core::iter::zip(
+            self.as_bytes().iter().rev().map(u8::to_ascii_lowercase),
+            that.as_bytes().iter().rev().map(u8::to_ascii_lowercase),
+        )
+        .position(|(a, b)| a != b);
+
+        let Some(suffix_len) = suffix_len else {
+            // 'iter::zip()' simply ignores unequal iterators, stopping when
+            // either iterator finishes.  Even though the two names had no
+            // mismatching bytes, one could be longer than the other.
+            return self.len().cmp(&that.len());
+        };
+
+        // Prepare for forward traversal.
+        let (mut lhs, mut rhs) = (self.labels(), that.labels());
+        // SAFETY: There is at least one unequal byte, and it cannot be the
+        //   root label, so both names have at least one additional label.
+        let mut prev = unsafe {
+            (lhs.next().unwrap_unchecked(), rhs.next().unwrap_unchecked())
+        };
+
+        // Traverse both names in lockstep, trying to match their lengths.
+        loop {
+            let (llen, rlen) = (lhs.remaining().len(), rhs.remaining().len());
+            if llen == rlen && llen <= suffix_len {
+                // We're in shared suffix territory, and 'lhs' and 'rhs' have
+                // the same length.  Thus, they must be identical, and we have
+                // found the shared suffix.
+                break prev.0.cmp(prev.1);
+            } else if llen > rlen {
+                // Try to match the lengths by shortening 'lhs'.
+
+                // SAFETY: 'llen > rlen >= 1', thus 'lhs' contains at least
+                //   one additional label before the root.
+                prev.0 = unsafe { lhs.next().unwrap_unchecked() };
+            } else {
+                // Try to match the lengths by shortening 'rhs'.
+
+                // SAFETY: Either:
+                // - '1 <= llen < rlen', thus 'rhs' contains at least one
+                //   additional label before the root.
+                // - 'llen == rlen > suffix_len >= 1', thus 'rhs' contains at
+                //   least one additional label before the root.
+                prev.1 = unsafe { rhs.next().unwrap_unchecked() };
+            }
+        }
+    }
+}
 
 //--- Hashing
 
@@ -452,7 +532,7 @@ impl AsMut<Name> for NameBuf {
     }
 }
 
-//--- Forwarding equality, hashing, and formatting
+//--- Forwarding equality, comparison, hashing, and formatting
 
 impl PartialEq for NameBuf {
     fn eq(&self, that: &Self) -> bool {
@@ -461,6 +541,18 @@ impl PartialEq for NameBuf {
 }
 
 impl Eq for NameBuf {}
+
+impl PartialOrd for NameBuf {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NameBuf {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (**self).cmp(&**other)
+    }
+}
 
 impl Hash for NameBuf {
     fn hash<H: Hasher>(&self, state: &mut H) {
