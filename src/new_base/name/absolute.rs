@@ -20,7 +20,7 @@ use crate::{
     utils::CloneFrom,
 };
 
-use super::LabelIter;
+use super::{CanonicalName, LabelIter};
 
 //----------- Name -----------------------------------------------------------
 
@@ -98,6 +98,21 @@ impl Name {
     pub const fn labels(&self) -> LabelIter<'_> {
         // SAFETY: A 'Name' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalName for Name {
+    fn cmp_composed(&self, other: &Self) -> Ordering {
+        self.as_bytes().cmp(other.as_bytes())
+    }
+
+    fn cmp_lowercase_composed(&self, other: &Self) -> Ordering {
+        self.as_bytes()
+            .iter()
+            .map(u8::to_ascii_lowercase)
+            .cmp(other.as_bytes().iter().map(u8::to_ascii_lowercase))
     }
 }
 
