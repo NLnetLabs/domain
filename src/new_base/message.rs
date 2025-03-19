@@ -9,7 +9,7 @@ use super::wire::{AsBytes, ParseBytesByRef, U16};
 //----------- Message --------------------------------------------------------
 
 /// A DNS message.
-#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone)]
 #[repr(C, packed)]
 pub struct Message {
     /// The message header.
