@@ -9,18 +9,16 @@ use std::sync::Arc;
 
 use ::ring::rand::SystemRandom;
 
-use crate::{
-    base::iana::SecAlg,
-    validate::{PublicKeyBytes, Signature},
-};
-
-use super::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
+use crate::base::iana::SecAlg;
+use crate::sign::error::{FromBytesError, GenerateError, SignError};
+use crate::sign::{SecretKeyBytes, SignRaw};
+use crate::validate::{PublicKeyBytes, Signature};
 
 #[cfg(feature = "openssl")]
-use super::openssl;
+use crate::sign::crypto::openssl;
 
 #[cfg(feature = "ring")]
-use super::ring;
+use crate::sign::crypto::ring;
 
 //----------- KeyPair --------------------------------------------------------
 
@@ -121,6 +119,54 @@ impl SignRaw for KeyPair {
     }
 }
 
+//----------- GenerateParams -------------------------------------------------
+
+/// Parameters for generating a secret key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GenerateParams {
+    /// Generate an RSA/SHA-256 keypair.
+    RsaSha256 {
+        /// The number of bits in the public modulus.
+        ///
+        /// A ~3000-bit key corresponds to a 128-bit security level.  However,
+        /// RSA is mostly used with 2048-bit keys.  Some backends (like Ring)
+        /// do not support smaller key sizes than that.
+        ///
+        /// For more information about security levels, see [NIST SP 800-57
+        /// part 1 revision 5], page 54, table 2.
+        ///
+        /// [NIST SP 800-57 part 1 revision 5]: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
+        bits: u32,
+    },
+
+    /// Generate an ECDSA P-256/SHA-256 keypair.
+    EcdsaP256Sha256,
+
+    /// Generate an ECDSA P-384/SHA-384 keypair.
+    EcdsaP384Sha384,
+
+    /// Generate an Ed25519 keypair.
+    Ed25519,
+
+    /// An Ed448 keypair.
+    Ed448,
+}
+
+//--- Inspection
+
+impl GenerateParams {
+    /// The algorithm of the generated key.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
+            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519 => SecAlg::ED25519,
+            Self::Ed448 => SecAlg::ED448,
+        }
+    }
+}
+
 //----------- generate() -----------------------------------------------------
 
 /// Generate a new secret key for the given algorithm.
@@ -149,113 +195,6 @@ pub fn generate(
     // Otherwise fail.
     #[allow(unreachable_code)]
     Err(GenerateError::UnsupportedAlgorithm)
-}
-
-//============ Error Types ===================================================
-
-//----------- FromBytesError -----------------------------------------------
-
-/// An error in importing a key pair from bytes.
-#[derive(Clone, Debug)]
-pub enum FromBytesError {
-    /// The requested algorithm was not supported.
-    UnsupportedAlgorithm,
-
-    /// The key's parameters were invalid.
-    InvalidKey,
-
-    /// The implementation does not allow such weak keys.
-    WeakKey,
-
-    /// An implementation failure occurred.
-    ///
-    /// This includes memory allocation failures.
-    Implementation,
-}
-
-//--- Conversions
-
-#[cfg(feature = "ring")]
-impl From<ring::FromBytesError> for FromBytesError {
-    fn from(value: ring::FromBytesError) -> Self {
-        match value {
-            ring::FromBytesError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            ring::FromBytesError::InvalidKey => Self::InvalidKey,
-            ring::FromBytesError::WeakKey => Self::WeakKey,
-        }
-    }
-}
-
-#[cfg(feature = "openssl")]
-impl From<openssl::FromBytesError> for FromBytesError {
-    fn from(value: openssl::FromBytesError) -> Self {
-        match value {
-            openssl::FromBytesError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            openssl::FromBytesError::InvalidKey => Self::InvalidKey,
-            openssl::FromBytesError::Implementation => Self::Implementation,
-        }
-    }
-}
-
-//--- Formatting
-
-impl fmt::Display for FromBytesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedAlgorithm => "algorithm not supported",
-            Self::InvalidKey => "malformed or insecure private key",
-            Self::WeakKey => "key too weak to be supported",
-            Self::Implementation => "an internal error occurred",
-        })
-    }
-}
-
-//--- Error
-
-impl std::error::Error for FromBytesError {}
-
-//----------- GenerateError --------------------------------------------------
-
-/// An error in generating a key pair.
-#[derive(Clone, Debug)]
-pub enum GenerateError {
-    /// The requested algorithm was not supported.
-    UnsupportedAlgorithm,
-
-    /// An implementation failure occurred.
-    ///
-    /// This includes memory allocation failures.
-    Implementation,
-}
-
-//--- Conversion
-
-#[cfg(feature = "ring")]
-impl From<ring::GenerateError> for GenerateError {
-    fn from(value: ring::GenerateError) -> Self {
-        match value {
-            ring::GenerateError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            ring::GenerateError::Implementation => Self::Implementation,
-        }
-    }
-}
-
-#[cfg(feature = "openssl")]
-impl From<openssl::GenerateError> for GenerateError {
-    fn from(value: openssl::GenerateError) -> Self {
-        match value {
-            openssl::GenerateError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            openssl::GenerateError::Implementation => Self::Implementation,
-        }
-    }
 }
 
 //--- Formatting
