@@ -1,9 +1,13 @@
+use core::cmp::Ordering;
+
 use domain_macros::*;
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
+    name::CanonicalName,
     parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{AsBytes, ParseError, U16},
+    wire::{AsBytes, BuildBytes, ParseError, TruncationError, U16},
+    CanonicalRecordData,
 };
 
 //----------- Mx -------------------------------------------------------------
@@ -52,6 +56,25 @@ impl<N> Mx<N> {
             preference: self.preference,
             exchange: (f)(&self.exchange),
         }
+    }
+}
+
+//--- Canonical operations
+
+impl<N: ?Sized + CanonicalName> CanonicalRecordData for Mx<N> {
+    fn build_canonical_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        let bytes = self.preference.build_bytes(bytes)?;
+        let bytes = self.exchange.build_lowercased_bytes(bytes)?;
+        Ok(bytes)
+    }
+
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.preference.cmp(&other.preference).then_with(|| {
+            self.exchange.cmp_lowercase_composed(&other.exchange)
+        })
     }
 }
 

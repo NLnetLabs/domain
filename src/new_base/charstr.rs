@@ -17,7 +17,26 @@ use super::{
 #[repr(transparent)]
 pub struct CharStr {
     /// The underlying octets.
+    ///
+    /// This is at most 255 bytes.  It does not include the length octet that
+    /// precedes the character string when serialized in the wire format.
     pub octets: [u8],
+}
+
+//--- Inspection
+
+impl CharStr {
+    /// The length of the [`CharStr`].
+    ///
+    /// This is always less than 256 -- it is guaranteed to fit in a [`u8`].
+    pub const fn len(&self) -> usize {
+        self.octets.len()
+    }
+
+    /// Whether the [`CharStr`] is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.octets.is_empty()
+    }
 }
 
 //--- Parsing from DNS messages

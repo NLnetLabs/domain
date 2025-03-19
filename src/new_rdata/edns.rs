@@ -2,12 +2,15 @@
 //!
 //! See [RFC 6891](https://datatracker.ietf.org/doc/html/rfc6891).
 
-use core::{fmt, iter::FusedIterator};
+use core::{cmp::Ordering, fmt, iter::FusedIterator};
 
 use domain_macros::*;
 
 use crate::{
-    new_base::wire::{ParseError, SplitBytes},
+    new_base::{
+        wire::{ParseError, SplitBytes},
+        CanonicalRecordData,
+    },
     new_edns::EdnsOption,
 };
 
@@ -37,6 +40,14 @@ impl Opt {
     /// Traverse the options in this record.
     pub fn options(&self) -> EdnsOptionsIter<'_> {
         EdnsOptionsIter::new(&self.contents)
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for Opt {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.contents.cmp(&other.contents)
     }
 }
 

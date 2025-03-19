@@ -1,15 +1,18 @@
 //! Record data types.
 
+use core::cmp::Ordering;
+
 use domain_macros::*;
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
+    name::CanonicalName,
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{
         AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
         TruncationError,
     },
-    ParseRecordData, RType,
+    CanonicalRecordData, ParseRecordData, RType,
 };
 
 //----------- Concrete record data types -------------------------------------
@@ -210,6 +213,66 @@ impl<'a, N> RecordData<'a, N> {
     }
 }
 
+//--- Canonical operations
+
+impl<N: CanonicalName> CanonicalRecordData for RecordData<'_, N> {
+    fn build_canonical_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        match self {
+            Self::A(r) => r.build_canonical_bytes(bytes),
+            Self::Ns(r) => r.build_canonical_bytes(bytes),
+            Self::CName(r) => r.build_canonical_bytes(bytes),
+            Self::Soa(r) => r.build_canonical_bytes(bytes),
+            Self::Wks(r) => r.build_canonical_bytes(bytes),
+            Self::Ptr(r) => r.build_canonical_bytes(bytes),
+            Self::HInfo(r) => r.build_canonical_bytes(bytes),
+            Self::Mx(r) => r.build_canonical_bytes(bytes),
+            Self::Txt(r) => r.build_canonical_bytes(bytes),
+            Self::Aaaa(r) => r.build_canonical_bytes(bytes),
+            Self::Opt(r) => r.build_canonical_bytes(bytes),
+            Self::Ds(r) => r.build_canonical_bytes(bytes),
+            Self::RRSig(r) => r.build_canonical_bytes(bytes),
+            Self::NSec(r) => r.build_canonical_bytes(bytes),
+            Self::DNSKey(r) => r.build_canonical_bytes(bytes),
+            Self::NSec3(r) => r.build_canonical_bytes(bytes),
+            Self::NSec3Param(r) => r.build_canonical_bytes(bytes),
+            Self::Unknown(_, rd) => rd.build_canonical_bytes(bytes),
+        }
+    }
+
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.rtype()
+            .cmp(&other.rtype())
+            .then_with(|| match (self, other) {
+                (Self::A(l), Self::A(r)) => l.cmp_canonical(r),
+                (Self::Ns(l), Self::Ns(r)) => l.cmp_canonical(r),
+                (Self::CName(l), Self::CName(r)) => l.cmp_canonical(r),
+                (Self::Soa(l), Self::Soa(r)) => l.cmp_canonical(r),
+                (Self::Wks(l), Self::Wks(r)) => l.cmp_canonical(r),
+                (Self::Ptr(l), Self::Ptr(r)) => l.cmp_canonical(r),
+                (Self::HInfo(l), Self::HInfo(r)) => l.cmp_canonical(r),
+                (Self::Mx(l), Self::Mx(r)) => l.cmp_canonical(r),
+                (Self::Txt(l), Self::Txt(r)) => l.cmp_canonical(r),
+                (Self::Aaaa(l), Self::Aaaa(r)) => l.cmp_canonical(r),
+                (Self::Opt(l), Self::Opt(r)) => l.cmp_canonical(r),
+                (Self::Ds(l), Self::Ds(r)) => l.cmp_canonical(r),
+                (Self::RRSig(l), Self::RRSig(r)) => l.cmp_canonical(r),
+                (Self::NSec(l), Self::NSec(r)) => l.cmp_canonical(r),
+                (Self::DNSKey(l), Self::DNSKey(r)) => l.cmp_canonical(r),
+                (Self::NSec3(l), Self::NSec3(r)) => l.cmp_canonical(r),
+                (Self::NSec3Param(l), Self::NSec3Param(r)) => {
+                    l.cmp_canonical(r)
+                }
+                (Self::Unknown(_, l), Self::Unknown(_, r)) => {
+                    l.cmp_canonical(r)
+                }
+                _ => unreachable!(),
+            })
+    }
+}
+
 //--- Parsing record data
 
 impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>
@@ -387,5 +450,15 @@ impl UnknownRecordData {
         let bytes = bump.alloc_slice_copy(self.as_bytes());
         // SAFETY: 'ParseBytesByRef' and 'AsBytes' are inverses.
         unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for UnknownRecordData {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        // Since this is not a well-known record data type, embedded domain
+        // names do not need to be lowercased.
+        self.octets.cmp(&other.octets)
     }
 }

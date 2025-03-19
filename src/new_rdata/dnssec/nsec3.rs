@@ -1,8 +1,11 @@
-use core::fmt;
+use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
-use crate::new_base::wire::{SizePrefixed, U16};
+use crate::new_base::{
+    wire::{AsBytes, SizePrefixed, U16},
+    CanonicalRecordData,
+};
 
 use super::TypeBitmaps;
 
@@ -49,6 +52,34 @@ impl NSec3<'_> {
     }
 }
 
+//--- Canonical operations
+
+impl CanonicalRecordData for NSec3<'_> {
+    fn cmp_canonical(&self, that: &Self) -> Ordering {
+        let this = (
+            self.algorithm,
+            self.flags.as_bytes(),
+            self.iterations,
+            self.salt.len(),
+            self.salt,
+            self.next.len(),
+            self.next,
+            self.types.as_bytes(),
+        );
+        let that = (
+            that.algorithm,
+            that.flags.as_bytes(),
+            that.iterations,
+            that.salt.len(),
+            that.salt,
+            that.next.len(),
+            that.next,
+            that.types.as_bytes(),
+        );
+        this.cmp(&that)
+    }
+}
+
 //----------- NSec3Param -----------------------------------------------------
 
 /// Parameters for computing [`NSec3`] records.
@@ -75,6 +106,12 @@ pub struct NSec3Param {
 
     /// The salt used to randomize the hash function.
     pub salt: SizePrefixed<u8, [u8]>,
+}
+
+impl CanonicalRecordData for NSec3Param {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.as_bytes().cmp(other.as_bytes())
+    }
 }
 
 //----------- NSec3HashAlg ---------------------------------------------------

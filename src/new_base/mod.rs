@@ -14,8 +14,8 @@ pub use question::{QClass, QType, Question, UnparsedQuestion};
 
 mod record;
 pub use record::{
-    ParseRecordData, RClass, RType, Record, UnparsedRecord,
-    UnparsedRecordData, TTL,
+    CanonicalRecordData, ParseRecordData, RClass, RType, Record,
+    UnparsedRecord, UnparsedRecordData, TTL,
 };
 
 //--- Elements of DNS messages

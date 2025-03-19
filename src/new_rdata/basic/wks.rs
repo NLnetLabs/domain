@@ -1,8 +1,8 @@
-use core::fmt;
+use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
-use crate::new_base::wire::AsBytes;
+use crate::new_base::{wire::AsBytes, CanonicalRecordData};
 
 use super::A;
 
@@ -20,6 +20,14 @@ pub struct Wks {
 
     /// A bitset of supported well-known ports.
     pub ports: [u8],
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for Wks {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.as_bytes().cmp(other.as_bytes())
+    }
 }
 
 //--- Formatting

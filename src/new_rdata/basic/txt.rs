@@ -1,11 +1,11 @@
-use core::fmt;
+use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
     wire::{ParseBytesByRef, ParseError, SplitBytes},
-    CharStr,
+    CanonicalRecordData, CharStr,
 };
 
 //----------- Txt ------------------------------------------------------------
@@ -35,6 +35,14 @@ impl Txt {
             })
         })
         .map(|(elem, _rest)| elem)
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for Txt {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.content.cmp(&other.content)
     }
 }
 

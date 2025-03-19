@@ -1,3 +1,4 @@
+use core::cmp::Ordering;
 use core::fmt;
 use core::net::Ipv4Addr;
 use core::str::FromStr;
@@ -5,6 +6,7 @@ use core::str::FromStr;
 use domain_macros::*;
 
 use crate::new_base::wire::AsBytes;
+use crate::new_base::CanonicalRecordData;
 
 //----------- A --------------------------------------------------------------
 
@@ -44,6 +46,14 @@ impl From<Ipv4Addr> for A {
 impl From<A> for Ipv4Addr {
     fn from(value: A) -> Self {
         Self::from(value.octets)
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for A {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.octets.cmp(&other.octets)
     }
 }
 

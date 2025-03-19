@@ -1,6 +1,8 @@
+use core::cmp::Ordering;
+
 use domain_macros::*;
 
-use crate::new_base::CharStr;
+use crate::new_base::{CanonicalRecordData, CharStr};
 
 //----------- HInfo ----------------------------------------------------------
 
@@ -26,5 +28,25 @@ impl HInfo<'_> {
             cpu: clone_to_bump(self.cpu, bump),
             os: clone_to_bump(self.os, bump),
         }
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for HInfo<'_> {
+    fn cmp_canonical(&self, that: &Self) -> Ordering {
+        let this = (
+            self.cpu.len(),
+            &self.cpu.octets,
+            self.os.len(),
+            &self.os.octets,
+        );
+        let that = (
+            that.cpu.len(),
+            &that.cpu.octets,
+            that.os.len(),
+            &that.os.octets,
+        );
+        this.cmp(&that)
     }
 }

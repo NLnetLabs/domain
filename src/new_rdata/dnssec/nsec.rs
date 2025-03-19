@@ -1,11 +1,11 @@
-use core::{fmt, mem};
+use core::{cmp::Ordering, fmt, mem};
 
 use domain_macros::*;
 
 use crate::new_base::{
-    name::Name,
-    wire::{ParseBytesByRef, ParseError},
-    RType,
+    name::{CanonicalName, Name},
+    wire::{AsBytes, ParseBytesByRef, ParseError},
+    CanonicalRecordData, RType,
 };
 
 //----------- NSec -----------------------------------------------------------
@@ -32,6 +32,16 @@ impl NSec<'_> {
             next: clone_to_bump(self.next, bump),
             types: clone_to_bump(self.types, bump),
         }
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for NSec<'_> {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.next
+            .cmp_composed(other.next)
+            .then_with(|| self.types.as_bytes().cmp(other.types.as_bytes()))
     }
 }
 

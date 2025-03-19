@@ -1,9 +1,13 @@
+use core::cmp::Ordering;
+
 use domain_macros::*;
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
+    name::CanonicalName,
     parse::ParseMessageBytes,
-    wire::ParseError,
+    wire::{ParseError, TruncationError},
+    CanonicalRecordData,
 };
 
 //----------- CName ----------------------------------------------------------
@@ -47,6 +51,21 @@ impl<N> CName<N> {
         CName {
             name: (f)(&self.name),
         }
+    }
+}
+
+//--- Canonical operations
+
+impl<N: ?Sized + CanonicalName> CanonicalRecordData for CName<N> {
+    fn build_canonical_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.name.build_lowercased_bytes(bytes)
+    }
+
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.name.cmp_lowercase_composed(&other.name)
     }
 }
 

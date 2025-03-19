@@ -1,10 +1,13 @@
+use core::cmp::Ordering;
+
 use domain_macros::*;
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
+    name::CanonicalName,
     parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{AsBytes, ParseError, U32},
-    Serial,
+    wire::{AsBytes, BuildBytes, ParseError, TruncationError, U32},
+    CanonicalRecordData, Serial,
 };
 
 //----------- Soa ------------------------------------------------------------
@@ -74,6 +77,35 @@ impl<N> Soa<N> {
             expire: self.expire,
             minimum: self.minimum,
         }
+    }
+}
+
+//--- Canonical operations
+
+impl<N: CanonicalName> CanonicalRecordData for Soa<N> {
+    fn build_canonical_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        let bytes = self.mname.build_lowercased_bytes(bytes)?;
+        let bytes = self.rname.build_lowercased_bytes(bytes)?;
+        let bytes = self.serial.build_bytes(bytes)?;
+        let bytes = self.refresh.build_bytes(bytes)?;
+        let bytes = self.retry.build_bytes(bytes)?;
+        let bytes = self.expire.build_bytes(bytes)?;
+        let bytes = self.minimum.build_bytes(bytes)?;
+        Ok(bytes)
+    }
+
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.mname
+            .cmp_lowercase_composed(&other.mname)
+            .then_with(|| self.rname.cmp_lowercase_composed(&other.rname))
+            .then_with(|| self.serial.as_bytes().cmp(other.serial.as_bytes()))
+            .then_with(|| self.refresh.cmp(&other.refresh))
+            .then_with(|| self.retry.cmp(&other.retry))
+            .then_with(|| self.expire.cmp(&other.expire))
+            .then_with(|| self.minimum.cmp(&other.minimum))
     }
 }
 
