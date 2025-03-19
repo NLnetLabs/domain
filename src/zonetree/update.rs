@@ -94,7 +94,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
 /// # );
 /// #
-/// let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+/// let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 /// updater.apply(ZoneUpdate::DeleteAllRecords);
 /// updater.apply(ZoneUpdate::AddRecord(a_rec));
 /// updater.apply(ZoneUpdate::Finished(new_soa_rec));
@@ -159,7 +159,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
 /// # );
 /// #
-/// let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+/// let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 /// updater.apply(ZoneUpdate::DeleteRecord(old_a_rec));
 /// updater.apply(ZoneUpdate::AddRecord(new_aaaa_rec));
 /// updater.apply(ZoneUpdate::Finished(new_soa_rec));
@@ -188,7 +188,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// let zone = builder.build();
 ///
 /// // And a ZoneUpdater
-/// let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+/// let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 ///
 /// // And an XFR response interpreter
 /// let mut interpreter = XfrResponseInterpreter::new();
