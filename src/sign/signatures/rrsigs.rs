@@ -21,6 +21,7 @@ use crate::base::record::Record;
 use crate::base::Name;
 use crate::rdata::dnssec::{ProtoRrsig, Timestamp};
 use crate::rdata::{Dnskey, Rrsig, ZoneRecordData};
+use crate::sign::denial::nsec3::Nsec3HashProvider;
 use crate::sign::error::SigningError;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::keys::signingkey::SigningKey;
@@ -32,6 +33,7 @@ use crate::sign::signatures::strategy::{
     DefaultSigningKeyUsageStrategy, RrsigValidityPeriodStrategy,
 };
 use crate::sign::traits::SignRaw;
+use crate::sign::SigningConfig;
 
 //------------ GenerateRrsigConfig -------------------------------------------
 
@@ -83,6 +85,37 @@ where
 {
     pub fn default(rrsig_validity_period_strategy: ValidityStrat) -> Self {
         Self::new(rrsig_validity_period_strategy)
+    }
+}
+
+impl<N, Octs, Inner, KeyStrat, ValidityStrat, Sort, HP>
+    From<&SigningConfig<N, Octs, Inner, KeyStrat, ValidityStrat, Sort, HP>>
+    for GenerateRrsigConfig<N, KeyStrat, ValidityStrat, Sort>
+where
+    HP: Nsec3HashProvider<N, Octs>,
+    Octs: AsRef<[u8]> + From<&'static [u8]>,
+    Inner: SignRaw,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    ValidityStrat: RrsigValidityPeriodStrategy + Clone,
+    Sort: Sorter,
+{
+    fn from(
+        signing_cfg: &SigningConfig<
+            N,
+            Octs,
+            Inner,
+            KeyStrat,
+            ValidityStrat,
+            Sort,
+            HP,
+        >,
+    ) -> Self {
+        let mut rrsig_cfg =
+            GenerateRrsigConfig::<N, KeyStrat, ValidityStrat, Sort>::new(
+                signing_cfg.rrsig_validity_period_strategy.clone(),
+            );
+        rrsig_cfg.add_used_dnskeys = signing_cfg.add_used_dnskeys;
+        rrsig_cfg
     }
 }
 
