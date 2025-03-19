@@ -116,7 +116,7 @@ where
     pub fn without_opt_out_excluding_owner_names_of_unsigned_delegations(
         mut self,
     ) -> Self {
-        self.opt_out_exclude_owner_names_of_unsigned_delegations = true;
+        self.opt_out_exclude_owner_names_of_unsigned_delegations = false;
         self
     }
 
