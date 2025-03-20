@@ -231,6 +231,26 @@ exceptions that are reflected in `rustfmt.toml`:
 The maximum line length is set to 78 characters. (This is to support a
 workflow that keeps multiple editor windows side-by-side on screen.)
 
+#### Imports
+
+Imports are not automatically reordered and must be sorted manually. We
+sort them alphabetically in a series of groups: `core`, `std`, extern
+crates, `crate`, `super`. There are no empty lines between groups.
+
+Each import statement contains one or more items from one module. I.e.,
+imports from sub-modules aren’t nested but get their own use statement.
+
+All module, type, and function imports each get their own use statements
+with imported items ordered alphabetically.
+
+For example:
+
+```rust
+use std::{fs, io};
+use std::fs::{File, Metadata};
+use std::fs::create_dir_all;
+```
+
 ## Maintaining the crate
 
 ### Pull requests
