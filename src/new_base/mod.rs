@@ -57,12 +57,6 @@ pub mod compat {
     #[deprecated = "use 'crate::new_base::RType' instead."]
     pub use iana::rtype::Rtype;
 
-    #[deprecated = "use 'crate::new_base::Message' instead."]
-    pub use message::Message;
-
-    #[deprecated = "use 'crate::new_base::build::MessageBuilder' instead."]
-    pub use message_builder::MessageBuilder;
-
     #[deprecated = "use 'crate::new_base::name::Label' instead."]
     pub use name::Label;
 
@@ -154,16 +148,6 @@ pub mod compat {
             #[deprecated = "use 'crate::new_rdata::SecAlg' instead."]
             pub use crate::new_rdata::SecAlg;
         }
-    }
-
-    pub mod message {
-        #[deprecated = "use 'crate::new_base::Message' instead."]
-        pub use crate::new_base::Message;
-    }
-
-    pub mod message_builder {
-        #[deprecated = "use 'crate::new_base::build::MessageBuilder' instead."]
-        pub use crate::new_base::build::MessageBuilder;
     }
 
     pub mod name {
