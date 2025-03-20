@@ -31,15 +31,30 @@ use std::string::ToString;
 use std::vec::Vec;
 
 /// Provide a [Service] trait for an object that implements [SingleService].
-pub struct SingleServiceToService<RequestOcts, SVC, CR> {
+pub struct SingleServiceToService<RequestOcts, SVC, CR, RequestMeta>
+where
+    RequestMeta: Clone + Default,
+    RequestOcts: Octets + Send + Sync,
+    SVC: SingleService<RequestOcts, RequestMeta, CR>,
+    CR: ComposeReply + 'static,
+    Self: Send + Sync + 'static,
+{
     /// Service that is wrapped by this object.
     service: SVC,
 
     /// Phantom field for RequestOcts and CR.
-    _phantom: PhantomData<(RequestOcts, CR)>,
+    _phantom: PhantomData<(RequestOcts, CR, RequestMeta)>,
 }
 
-impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
+impl<RequestOcts, SVC, CR, RequestMeta>
+    SingleServiceToService<RequestOcts, SVC, CR, RequestMeta>
+where
+    RequestMeta: Clone + Default,
+    RequestOcts: Octets + Send + Sync,
+    SVC: SingleService<RequestOcts, RequestMeta, CR>,
+    CR: ComposeReply + 'static,
+    Self: Send + Sync + 'static,
+{
     /// Create a new [SingleServiceToService] object.
     pub fn new(service: SVC) -> Self {
         Self {
@@ -49,18 +64,23 @@ impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
     }
 }
 
-impl<RequestOcts, SVC, CR> Service<RequestOcts>
-    for SingleServiceToService<RequestOcts, SVC, CR>
+impl<RequestOcts, SVC, CR, RequestMeta> Service<RequestOcts, RequestMeta>
+    for SingleServiceToService<RequestOcts, SVC, CR, RequestMeta>
 where
+    RequestMeta: Clone + Default,
     RequestOcts: Octets + Send + Sync,
-    SVC: SingleService<RequestOcts, CR>,
+    SVC: SingleService<RequestOcts, RequestMeta, CR>,
     CR: ComposeReply + 'static,
+    Self: Send + Sync + 'static,
 {
     type Target = Vec<u8>;
     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
     type Future = Pin<Box<dyn Future<Output = Self::Stream> + Send>>;
 
-    fn call(&self, request: Request<RequestOcts>) -> Self::Future {
+    fn call(
+        &self,
+        request: Request<RequestOcts, RequestMeta>,
+    ) -> Self::Future {
         let fut = self.service.call(request);
         let fut = async move {
             let reply = match fut.await {
@@ -114,7 +134,8 @@ where
     }
 }
 
-impl<SR, RequestOcts, CR> SingleService<RequestOcts, CR>
+impl<SR, RequestOcts, RequestMeta, CR>
+    SingleService<RequestOcts, RequestMeta, CR>
     for ClientTransportToSingleService<SR, RequestOcts>
 where
     RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
@@ -123,7 +144,7 @@ where
 {
     fn call(
         &self,
-        request: Request<RequestOcts>,
+        request: Request<RequestOcts, RequestMeta>,
     ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
@@ -194,7 +215,7 @@ where
     }
 }
 
-impl<RequestOcts, CR> SingleService<RequestOcts, CR>
+impl<RequestOcts, RequestMeta, CR> SingleService<RequestOcts, RequestMeta, CR>
     for BoxClientTransportToSingleService<RequestOcts>
 where
     RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
@@ -202,7 +223,7 @@ where
 {
     fn call(
         &self,
-        request: Request<RequestOcts>,
+        request: Request<RequestOcts, RequestMeta>,
     ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
