@@ -39,7 +39,7 @@ use super::ServerCommand;
 /// - "A timeout of at least a few seconds is advisable for normal
 ///   operations".
 /// - "Servers MAY use zero timeouts when they are experiencing heavy load or
-///    are under attack".
+///   are under attack".
 /// - "Servers MAY allow idle connections to remain open for longer periods as
 ///   resources permit".
 ///
@@ -128,7 +128,7 @@ impl Config {
     /// - "A timeout of at least a few seconds is advisable for normal
     ///   operations".
     /// - "Servers MAY use zero timeouts when they are experiencing heavy load
-    ///    or are under attack".
+    ///   or are under attack".
     /// - "Servers MAY allow idle connections to remain open for longer
     ///   periods as resources permit".
     ///

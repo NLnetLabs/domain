@@ -4,6 +4,8 @@
 
 Breaking changes
 
+* FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
+
 New
 
 * Added `HashCompressor`, an unlimited name compressor that uses a hash map
@@ -57,6 +59,7 @@ Other changes
 [#396]: https://github.com/NLnetLabs/domain/pull/396
 [#417]: https://github.com/NLnetLabs/domain/pull/417
 [#421]: https://github.com/NLnetLabs/domain/pull/421
+[#423]: https://github.com/NLnetLabs/domain/pull/423
 [#424]: https://github.com/NLnetLabs/domain/pull/424
 [#425]: https://github.com/NLnetLabs/domain/pull/425
 [#427]: https://github.com/NLnetLabs/domain/pull/427
