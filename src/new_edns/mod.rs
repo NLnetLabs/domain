@@ -8,13 +8,15 @@ use domain_macros::*;
 
 use crate::{
     new_base::{
+        name::RevName,
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
             SizePrefixed, SplitBytes, TruncationError, U16,
         },
+        RClass, RType, Record,
     },
-    new_rdata::Opt,
+    new_rdata::{Opt, RecordData},
 };
 
 //----------- EDNS option modules --------------------------------------------
@@ -98,6 +100,22 @@ impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
         match Self::split_bytes(bytes) {
             Ok((this, &[])) => Ok(this),
             _ => Err(ParseError),
+        }
+    }
+}
+
+impl<'a, DN> From<EdnsRecord<'a>> for Record<&RevName, RecordData<'a, DN>> {
+    fn from(value: EdnsRecord<'a>) -> Self {
+        let flags = value.flags.bits().to_be_bytes();
+        let ttl = [value.ext_rcode, value.version, flags[0], flags[1]];
+        Record {
+            rname: RevName::ROOT,
+            rtype: RType::OPT,
+            rclass: RClass {
+                code: value.max_udp_payload,
+            },
+            ttl: u32::from_be_bytes(ttl).into(),
+            rdata: RecordData::Opt(*value.options),
         }
     }
 }

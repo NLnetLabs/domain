@@ -88,7 +88,8 @@ unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std
 arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
-itertools = "0.13.0"
+env_logger         = "0.11"
+itertools          = "0.13.0"
 lazy_static        = { version = "1.4.0" }
 rstest             = "0.23.0"
 rustls-pemfile     = { version = "2.1.2" }

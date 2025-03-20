@@ -211,5 +211,6 @@ pub mod zonefile;
 pub mod zonetree;
 
 pub mod new_base;
+pub mod new_client;
 pub mod new_edns;
 pub mod new_rdata;
