@@ -12,7 +12,9 @@ use crate::base::name::FlattenInto;
 use crate::base::{Name, Record, Rtype, Serial, ToName, Ttl};
 use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
 use crate::rdata::nsec3::OwnerHash;
-use crate::rdata::{Dnskey, Ns, Nsec, Nsec3, Nsec3param, Rrsig, Soa, A};
+use crate::rdata::{
+    Aaaa, Dnskey, Ns, Nsec, Nsec3, Nsec3param, Rrsig, Soa, A,
+};
 use crate::sign::denial::nsec3::mk_hashed_nsec3_owner_name;
 use crate::utils::base32;
 use crate::validate::nsec3_hash;
@@ -52,6 +54,13 @@ where
     R: From<A>,
 {
     mk_record(owner, A::from_str("1.2.3.4").unwrap().into())
+}
+
+pub(crate) fn mk_aaaa_rr<R>(owner: &str) -> Record<StoredName, R>
+where
+    R: From<Aaaa>,
+{
+    mk_record(owner, Aaaa::from_str("2001:db8::0").unwrap().into())
 }
 
 pub(crate) fn mk_dnskey_rr<R>(
