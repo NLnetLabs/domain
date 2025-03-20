@@ -39,6 +39,7 @@ impl<'b, 'c> MessageBuilder<'b, 'c> {
     ///
     /// Panics if the buffer is less than 12 bytes long (which is the minimum
     /// possible size for a DNS message).
+    #[must_use]
     pub fn new(
         buffer: &'b mut [u8],
         context: &'c mut BuilderContext,
@@ -54,16 +55,19 @@ impl<'b, 'c> MessageBuilder<'b, 'c> {
 
 impl MessageBuilder<'_, '_> {
     /// The message header.
+    #[must_use]
     pub fn header(&self) -> &Header {
         &self.message.header
     }
 
     /// The message header, mutably.
+    #[must_use]
     pub fn header_mut(&mut self) -> &mut Header {
         &mut self.message.header
     }
 
     /// The message built thus far.
+    #[must_use]
     pub fn message(&self) -> &Message {
         self.message.slice_to(self.context.size)
     }
@@ -74,11 +78,13 @@ impl MessageBuilder<'_, '_> {
     ///
     /// The caller must not modify any compressed names among these bytes.
     /// This can invalidate name compression state.
+    #[must_use]
     pub unsafe fn message_mut(&mut self) -> &mut Message {
         self.message.slice_to_mut(self.context.size)
     }
 
     /// The builder context.
+    #[must_use]
     pub fn context(&self) -> &BuilderContext {
         self.context
     }
@@ -91,11 +97,13 @@ impl<'b> MessageBuilder<'b, '_> {
     ///
     /// The returned message is valid, but it can be modified by the caller
     /// arbitrarily; avoid modifying the message beyond the header.
+    #[must_use]
     pub fn finish(self) -> &'b mut Message {
         self.message.slice_to_mut(self.context.size)
     }
 
     /// Reborrow the builder with a shorter lifetime.
+    #[must_use]
     pub fn reborrow(&mut self) -> MessageBuilder<'_, '_> {
         MessageBuilder {
             message: self.message,
@@ -138,6 +146,7 @@ impl<'b> MessageBuilder<'b, '_> {
     }
 
     /// Obtain a [`Builder`].
+    #[must_use]
     pub(super) fn builder(&mut self, start: usize) -> Builder<'_> {
         debug_assert!(start <= self.context.size);
         unsafe {

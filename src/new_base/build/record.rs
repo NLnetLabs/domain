@@ -21,6 +21,7 @@ use super::{
 /// a DNS message (using a [`MessageBuilder`]).  It can be used to inspect the
 /// record, to (re)write the record data, and to commit (finish building) or
 /// cancel (remove) the record.
+#[must_use = "A 'RecordBuilder' must be explicitly committed, else all added content will be lost"]
 pub struct RecordBuilder<'b> {
     /// The underlying message builder.
     builder: MessageBuilder<'b, 'b>,
