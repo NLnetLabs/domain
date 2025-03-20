@@ -88,8 +88,11 @@ impl MessageBuilder<'_, '_> {
 
 impl<'b> MessageBuilder<'b, '_> {
     /// End the builder, returning the built message.
-    pub fn finish(self) -> &'b Message {
-        self.message.slice_to(self.context.size)
+    ///
+    /// The returned message is valid, but it can be modified by the caller
+    /// arbitrarily; avoid modifying the message beyond the header.
+    pub fn finish(self) -> &'b mut Message {
+        self.message.slice_to_mut(self.context.size)
     }
 
     /// Reborrow the builder with a shorter lifetime.
