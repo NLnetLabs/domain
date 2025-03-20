@@ -34,6 +34,14 @@ pub struct Opt {
     contents: [u8],
 }
 
+//--- Associated Constants
+
+impl Opt {
+    /// Empty OPT record data.
+    pub const EMPTY: &'static Self =
+        unsafe { core::mem::transmute(&[] as &[u8]) };
+}
+
 //--- Inspection
 
 impl Opt {
