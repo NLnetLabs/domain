@@ -571,8 +571,8 @@ impl<Octs> OptRecord<Octs> {
             Name::root_slice(),
             Class::from_int(self.udp_payload_size),
             Ttl::from_secs(
-                u32::from(self.ext_rcode) << 24
-                    | u32::from(self.version) << 16
+                (u32::from(self.ext_rcode) << 24)
+                    | (u32::from(self.version) << 16)
                     | u32::from(self.flags),
             ),
             self.data.for_slice_ref(),
