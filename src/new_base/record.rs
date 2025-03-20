@@ -496,6 +496,8 @@ pub trait CanonicalRecordData: BuildBytes {
     ///
     /// This is equivalent to serializing both record data instances using
     /// [`build_canonical_bytes()`] and comparing the resulting byte strings.
+    ///
+    /// [`build_canonical_bytes()`]: Self::build_canonical_bytes()
     fn cmp_canonical(&self, other: &Self) -> Ordering;
 }
 
