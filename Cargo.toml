@@ -34,7 +34,7 @@ libc           = { version = "0.2.153", default-features = false, optional = tru
 log            = { version = "0.4.22", optional = true }
 parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
-openssl        = { version = "0.10.57", optional = true } # 0.10.57 upgrades to 'bitflags' 2.x
+openssl        = { version = "0.10.57", optional = true } # 0.10.70 upgrades to 'bitflags' 2.x
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17", optional = true }
 rustversion    = { version = "1", optional = true }
