@@ -236,7 +236,7 @@ impl<'a> ParsedMessage<'a> {
         // Parse EDNS options.
         if let Some(edns_data) = edns_data {
             for option in edns_data.options() {
-                this.options.push(option?);
+                this.options.push(option?.clone_to_bump(alloc.inner));
             }
         }
 
@@ -312,7 +312,7 @@ impl<'a> ParsedMessage<'a> {
                 continue;
             }
 
-            builder.build_additional(additional)?;
+            builder.build_additional(additional)?.commit();
         }
 
         debug_assert!(

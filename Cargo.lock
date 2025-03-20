@@ -317,6 +317,7 @@ dependencies = [
  "serde_test",
  "serde_yaml",
  "siphasher",
+ "slab",
  "smallvec",
  "socket2",
  "time",

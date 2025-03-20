@@ -50,6 +50,7 @@ tokio-rustls   = { version = "0.26", optional = true, default-features = false }
 tokio-stream   = { version = "0.1.1", optional = true }
 tracing        = { version = "0.1.40", optional = true, features = ["log"] }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
+slab = "0.4.9"
 
 [features]
 default     = ["std", "rand"]
