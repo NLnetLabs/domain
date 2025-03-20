@@ -1211,7 +1211,7 @@ mod tests {
             mk_precalculated_nsec3_rr(
                 // from: ai.example. to: y.w.example.
                 "gjeqe526plbf1g8mklp59enfd789njgi.example.",
-                "ji6neoaepv8b5o6k4ev33abha8ht9fgc",
+                "jPai6neoaepv8b5o6k4ev33abha8ht9fgc",
                 "A HINFO AAAA RRSIG",
                 &cfg,
             ),
@@ -1240,6 +1240,62 @@ mod tests {
                 "",
                 &cfg,
             ),
+        ]);
+
+        assert_eq!(generated_records.nsec3s, expected_records.into_inner());
+
+        let expected_nsec3param = mk_nsec3param_rr("example.", &cfg);
+        assert_eq!(generated_records.nsec3param, expected_nsec3param);
+
+        // TTLs are not compared by the eq check above so check them
+        // explicitly now.
+        //
+        // RFC 9077 updated RFC 4034 (NSEC) and RFC 5155 (NSEC3) to say that
+        // the "TTL of the NSEC(3) RR that is returned MUST be the lesser of
+        // the MINIMUM field of the SOA record and the TTL of the SOA itself".
+        //
+        // So in our case that is min(1800, 3600) = 1800.
+        for nsec3 in &generated_records.nsec3s {
+            assert_eq!(nsec3.ttl(), Ttl::from_secs(1800));
+        }
+    }
+
+    #[test]
+    fn rfc_5155_and_9077_compliant_opt_out_enabled_flags_only() {
+        let nsec3params = Nsec3param::new(
+            Nsec3HashAlg::SHA1,
+            1,  // enable opt-out
+            12, // do 12 extra hashing iterations
+            Nsec3Salt::from_str("aabbccdd").unwrap(),
+        );
+
+        let mut cfg = GenerateNsec3Config::<
+            StoredName,
+            Bytes,
+            OnDemandNsec3HashProvider<Bytes>,
+            DefaultSorter,
+        >::new(
+            nsec3params.clone(),
+            OnDemandNsec3HashProvider::new(
+                nsec3params.hash_algorithm(),
+                nsec3params.iterations(),
+                nsec3params.salt().clone(),
+            ),
+        )
+        .without_assuming_dnskeys_will_be_added()
+        .without_opt_out_excluding_owner_names_of_unsigned_delegations();
+
+        // See https://datatracker.ietf.org/doc/html/rfc5155#appendix-A
+        let zonefile = include_bytes!(
+            "../../../test-data/zonefiles/rfc5155-appendix-A.zone"
+        );
+
+        let records = bytes_to_records(&zonefile[..]);
+        let generated_records =
+            generate_nsec3s(records.owner_rrs(), &mut cfg).unwrap();
+
+        // Generate the expected NSEC3 RRs.
+        let expected_records = SortedRecords::<_, _>::from_iter([
             mk_precalculated_nsec3_rr(
                 // from: ns2.example. to: *.w.example.
                 "q04jkcevqvmu85r014c7dkba38o0ji5r.example.",
@@ -1256,6 +1312,98 @@ mod tests {
             ),
             mk_precalculated_nsec3_rr(
                 // from: xx.example. to: example.
+                "t644ebqk9bibcna874givr6joj62mlhv.example.",
+                "0p9mhaveqvm6t7vbl5lop2u3t2rp3tom",
+                "A HINFO AAAA RRSIG",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // ns1.example. -> x.y.w.example.
+                "2t7b4g4vsa5smi47k61mv5bv1a22bojr.example.",
+                "2vptu5timamqttgl4luu9kg21e0aor3s",
+                "A RRSIG",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // x.y.w.example. -> a.example.
+                "2vptu5timamqttgl4luu9kg21e0aor3s.example.",
+                "35mthgpgcu1qg68fab165klnsnk3dpvl",
+                "MX RRSIG",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // a.example. -> c.example.
+                "35mthgpgcu1qg68fab165klnsnk3dpvl.example.",
+                "4g6p9u5gvfshp30pqecj98b3maqbn1ck",
+                "NS DS RRSIG",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // c.example. -> x.w.example.
+                // Note: as this is an insecure delegation and NSEC3 opt-out
+                // is disabled the c.example. RRSET has an NSEC3 RR but its
+                // type bitmap lacks the RRSIG RTYPE as insecure delegations
+                // are not signed.
+                "4g6p9u5gvfshp30pqecj98b3maqbn1ck.example.",
+                "b4um86eghhds6nea196smvmlo4ors995",
+                "NS",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // x.w.example. -> ai.example.
+                "b4um86eghhds6nea196smvmlo4ors995.example.",
+                "gjeqe526plbf1g8mklp59enfd789njgi",
+                "MX RRSIG",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // ai.example. -> y.w.example.
+                "gjeqe526plbf1g8mklp59enfd789njgi.example.",
+                "ji6neoaepv8b5o6k4ev33abha8ht9fgc",
+                "A HINFO AAAA RRSIG",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // y.w.example -> w.example.
+                "ji6neoaepv8b5o6k4ev33abha8ht9fgc.example.",
+                "k8udemvp1j2f7eg6jebps17vp3n8i58h",
+                "",
+                &cfg,
+            ),
+            // Unlike NSEC, with NSEC3 empty non-terminals must also have
+            // NSEC3 RRs:
+            //
+            // https://www.rfc-editor.org/rfc/rfc5155#section-7.1
+            // 7.1.  Zone Signing
+            // ..
+            //   "Each empty non-terminal MUST have a corresponding NSEC3 RR,
+            //    unless the empty non-terminal is only derived from an
+            //    insecure delegation covered by an Opt-Out NSEC3 RR."
+            //
+            // ENT NSEC3 RRs have an empty Type Bit Map.
+            mk_precalculated_nsec3_rr(
+                // w.example. -> ns2.example.
+                "k8udemvp1j2f7eg6jebps17vp3n8i58h.example.",
+                "q04jkcevqvmu85r014c7dkba38o0ji5r",
+                "",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // ns2.example. -> *.w.example.
+                "q04jkcevqvmu85r014c7dkba38o0ji5r.example.",
+                "r53bq7cc2uvmubfu5ocmm6pers9tk9en",
+                "A RRSIG",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // *.w.example. -> xx.example.
+                "r53bq7cc2uvmubfu5ocmm6pers9tk9en.example.",
+                "t644ebqk9bibcna874givr6joj62mlhv",
+                "MX RRSIG",
+                &cfg,
+            ),
+            mk_precalculated_nsec3_rr(
+                // xx.example. -> example.
                 "t644ebqk9bibcna874givr6joj62mlhv.example.",
                 "0p9mhaveqvm6t7vbl5lop2u3t2rp3tom",
                 "A HINFO AAAA RRSIG",
