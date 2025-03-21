@@ -5,7 +5,6 @@ use core::{
     fmt,
     hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
-    str::FromStr,
 };
 
 use domain_macros::*;
@@ -23,7 +22,7 @@ use crate::{
 #[cfg(feature = "zonefile")]
 use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
-use super::{Label, LabelBuf, LabelIter, LabelParseError};
+use super::{Label, LabelBuf, LabelIter};
 
 //----------- Name -----------------------------------------------------------
 
@@ -538,35 +537,6 @@ impl Scan<'_> for NameBuf {
     }
 }
 
-//--- Parsing from strings
-
-impl FromStr for NameBuf {
-    type Err = NameParseError;
-
-    /// Parse a name from a string.
-    ///
-    /// This is intended for easily constructing hard-coded domain names.  The
-    /// labels in the name should be given in the conventional order (i.e. not
-    /// reversed), and should be separated by ASCII periods.  The labels will
-    /// be parsed using [`LabelBuf::from_str()`]; see its documentation.  This
-    /// function cannot parse all valid domain names; if an exceptional name
-    /// needs to be parsed, use [`Name::from_bytes_unchecked()`].  If the
-    /// input is empty, the root name is returned.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut this = Self::empty();
-        for label in s.split('.') {
-            let label =
-                label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
-            if 255 - this.size < 2 + label.len() as u8 {
-                return Err(NameParseError::Overlong);
-            }
-            this.append_label(&label);
-        }
-        this.append_label(Label::ROOT);
-        Ok(this)
-    }
-}
-
 //--- Access to the underlying 'Name'
 
 impl Deref for NameBuf {
@@ -637,23 +607,6 @@ impl fmt::Debug for NameBuf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
-}
-
-//------------ NameParseError ------------------------------------------------
-
-/// An error in parsing a [`Name`] from a string.
-///
-/// This can be returned by [`NameBuf::from_str()`].  It is not used when
-/// parsing names from the zonefile format, which uses a different mechanism.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NameParseError {
-    /// The name was too large.
-    ///
-    /// Valid names are between 1 and 255 bytes, inclusive.
-    Overlong,
-
-    /// A label in the name could not be parsed.
-    Label(LabelParseError),
 }
 
 //============ Unit tests ====================================================
