@@ -34,6 +34,8 @@ pub enum ClientError {
     TooManyRequests,
 
     Bug,
+
+    Broken,
 }
 
 impl From<SocketError> for ClientError {
