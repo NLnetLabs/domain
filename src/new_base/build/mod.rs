@@ -24,7 +24,7 @@
 //!     // Select a randomized ID here.
 //!     id: U16::new(1234),
 //!     // A recursive query for authoritative data.
-//!     flags: HeaderFlags::default()
+//!     flags: *HeaderFlags::default()
 //!         .query(0)
 //!         .set_authoritative(true)
 //!         .request_recursion(true),
