@@ -88,22 +88,21 @@ async fn example_redundant(
     dst1: &str,
     dst2: &str,
 ) -> redundant::Connection<RequestMessage<Vec<u8>>> {
-    let (redun, transport) = redundant::Connection::new();
-    tokio::spawn(transport.run());
+    let redun = redundant::Connection::new();
     let server_addr = SocketAddr::new(IpAddr::from_str(dst1).unwrap(), 53);
     let udp_connect = UdpConnect::new(server_addr);
     let tcp_connect = TcpConnect::new(server_addr);
     let (conn, transport) =
         dgram_stream::Connection::new(udp_connect, tcp_connect);
     tokio::spawn(transport.run());
-    redun.add(Box::new(conn)).await.unwrap();
+    redun.add(Box::new(conn));
     let server_addr = SocketAddr::new(IpAddr::from_str(dst2).unwrap(), 53);
     let udp_connect = UdpConnect::new(server_addr);
     let tcp_connect = TcpConnect::new(server_addr);
     let (conn, transport) =
         dgram_stream::Connection::new(udp_connect, tcp_connect);
     tokio::spawn(transport.run());
-    redun.add(Box::new(conn)).await.unwrap();
+    redun.add(Box::new(conn));
 
     redun
 }
