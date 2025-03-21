@@ -128,23 +128,26 @@ pub async fn send_udp_request<'a>(
     .await
     .unwrap();
 
-    sock.connect(addr).await.map_err(SocketError::Connect)?;
+    sock.connect(addr)
+        .await
+        .map_err(|e| SocketError::Connect(e.kind()))?;
 
     let bytes = request.as_bytes();
-    let sent = sock.send(bytes).await.map_err(SocketError::Send)?;
+    let sent = sock
+        .send(bytes)
+        .await
+        .map_err(|e| SocketError::Send(e.kind()))?;
 
     if sent != bytes.len() {
         // From the ErrorKind::WriteZero docs:
         // > This typically means that an operation could only succeed if it wrote a particular
         // > number of bytes but only a smaller number of bytes could be written.
-        return Err(SocketError::Send(io::Error::from(
-            io::ErrorKind::WriteZero,
-        )));
+        return Err(SocketError::Send(io::ErrorKind::WriteZero));
     }
 
     tokio::time::timeout(timeout, async {
         loop {
-            let len = sock.recv(buffer).await.map_err(SocketError::Receive)?;
+            let len = sock.recv(buffer).await.map_err(|e| SocketError::Receive(e.kind()))?;
 
             // TODO: Add more context to these trace calls
             trace!("Received {len} bytes of message");

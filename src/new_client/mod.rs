@@ -7,22 +7,23 @@ pub mod tcp;
 pub mod udp;
 
 pub trait Client {
+    #[allow(async_fn_in_trait)]
     async fn request<'a>(
         &self,
         exchange: &mut Exchange<'a>,
     ) -> Result<(), ClientError>;
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum SocketError {
-    Connect(io::Error),
-    Send(io::Error),
-    Receive(io::Error),
+    Connect(io::ErrorKind),
+    Send(io::ErrorKind),
+    Receive(io::ErrorKind),
     Timeout,
 }
 
 /// Error type for client transports.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ClientError {
     TruncatedRequest,
 
