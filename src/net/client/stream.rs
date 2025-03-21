@@ -4,8 +4,8 @@
 // RFC 7828 describes the edns-tcp-keepalive option
 
 use super::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
-    GetResponseMulti, SendRequest, SendRequestMulti,
+    ComposeRequest, Error, GetResponse, GetResponseMulti, SendRequest,
+    SendRequestMulti,
 };
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::message::Message;
@@ -169,21 +169,19 @@ impl Default for Config {
 
 /// A connection to a single stream transport.
 #[derive(Debug)]
-pub struct Connection<Req, ReqMulti> {
+pub struct Connection<Req> {
     /// The sender half of the request channel.
-    sender: mpsc::Sender<ChanReq<Req, ReqMulti>>,
+    sender: mpsc::Sender<ChanReq<Req>>,
 }
 
-impl<Req, ReqMulti> Connection<Req, ReqMulti> {
+impl<Req> Connection<Req> {
     /// Creates a new stream transport with default configuration.
     ///
     /// Returns a connection and a future that drives the transport using
     /// the provided stream. This future needs to be run while any queries
     /// are active. This is most easly achieved by spawning it into a runtime.
     /// It terminates when the last connection is dropped.
-    pub fn new<Stream>(
-        stream: Stream,
-    ) -> (Self, Transport<Stream, Req, ReqMulti>) {
+    pub fn new<Stream>(stream: Stream) -> (Self, Transport<Stream, Req>) {
         Self::with_config(stream, Default::default())
     }
 
@@ -196,16 +194,15 @@ impl<Req, ReqMulti> Connection<Req, ReqMulti> {
     pub fn with_config<Stream>(
         stream: Stream,
         config: Config,
-    ) -> (Self, Transport<Stream, Req, ReqMulti>) {
+    ) -> (Self, Transport<Stream, Req>) {
         let (sender, transport) = Transport::new(stream, config);
         (Self { sender }, transport)
     }
 }
 
-impl<Req, ReqMulti> Connection<Req, ReqMulti>
+impl<Req> Connection<Req>
 where
     Req: ComposeRequest + 'static,
-    ReqMulti: ComposeRequestMulti + 'static,
 {
     /// Start a DNS request.
     ///
@@ -217,8 +214,11 @@ where
     ) -> Result<Message<Bytes>, Error> {
         let (sender, receiver) = oneshot::channel();
         let sender = ReplySender::Single(Some(sender));
-        let msg = ReqSingleMulti::Single(msg);
-        let req = ChanReq { sender, msg };
+        let req = ChanReq {
+            sender,
+            msg,
+            expect_multiple_responses: false,
+        };
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
@@ -230,14 +230,14 @@ where
     /// Start a streaming request.
     async fn handle_streaming_request_impl(
         self,
-        msg: ReqMulti,
+        msg: Req,
         sender: mpsc::Sender<Result<Option<Message<Bytes>>, Error>>,
     ) -> Result<(), Error> {
         let reply_sender = ReplySender::Stream(sender);
-        let msg = ReqSingleMulti::Multi(msg);
         let req = ChanReq {
             sender: reply_sender,
             msg,
+            expect_multiple_responses: true,
         };
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
@@ -255,7 +255,7 @@ where
     }
 
     /// Return a multiple-response request handler for a request.
-    fn get_streaming_request(&self, request_msg: ReqMulti) -> RequestMulti {
+    fn get_streaming_request(&self, request_msg: Req) -> RequestMulti {
         let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
         RequestMulti {
             stream: receiver,
@@ -267,7 +267,7 @@ where
     }
 }
 
-impl<Req, ReqMulti> Clone for Connection<Req, ReqMulti> {
+impl<Req> Clone for Connection<Req> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
@@ -275,10 +275,9 @@ impl<Req, ReqMulti> Clone for Connection<Req, ReqMulti> {
     }
 }
 
-impl<Req, ReqMulti> SendRequest<Req> for Connection<Req, ReqMulti>
+impl<Req> SendRequest<Req> for Connection<Req>
 where
     Req: ComposeRequest + 'static,
-    ReqMulti: ComposeRequestMulti + Debug + Send + Sync + 'static,
 {
     fn send_request(
         &self,
@@ -288,14 +287,13 @@ where
     }
 }
 
-impl<Req, ReqMulti> SendRequestMulti<ReqMulti> for Connection<Req, ReqMulti>
+impl<Req> SendRequestMulti<Req> for Connection<Req>
 where
     Req: ComposeRequest + Debug + Send + Sync + 'static,
-    ReqMulti: ComposeRequestMulti + 'static,
 {
     fn send_request(
         &self,
-        request_msg: ReqMulti,
+        request_msg: Req,
     ) -> Box<dyn GetResponseMulti + Send + Sync> {
         Box::new(self.get_streaming_request(request_msg))
     }
@@ -402,7 +400,7 @@ impl Debug for RequestMulti {
 
 /// The underlying machinery of a stream transport.
 #[derive(Debug)]
-pub struct Transport<Stream, Req, ReqMulti> {
+pub struct Transport<Stream, Req> {
     /// The stream socket towards the remote end.
     stream: Stream,
 
@@ -410,7 +408,7 @@ pub struct Transport<Stream, Req, ReqMulti> {
     config: Config,
 
     /// The receiver half of request channel.
-    receiver: mpsc::Receiver<ChanReq<Req, ReqMulti>>,
+    receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
 /// This is the type of sender in [ChanReq].
@@ -455,24 +453,17 @@ impl ReplySender {
     }
 }
 
-#[derive(Debug)]
-/// Enum that can either store a request for a single response or one for
-/// multiple responses.
-enum ReqSingleMulti<Req, ReqMulti> {
-    /// Single response request.
-    Single(Req),
-    /// Multi-response request.
-    Multi(ReqMulti),
-}
-
 /// A message from a [`Request`] to start a new request.
 #[derive(Debug)]
-struct ChanReq<Req, ReqMulti> {
+struct ChanReq<Req> {
     /// DNS request message
-    msg: ReqSingleMulti<Req, ReqMulti>,
+    msg: Req,
 
     /// Sender to send result back to [`Request`]
     sender: ReplySender,
+
+    /// This channel expects multiple responses
+    expect_multiple_responses: bool,
 }
 
 /// A message back to [`Request`] returning a response.
@@ -576,12 +567,12 @@ enum XFRState {
     Error,
 }
 
-impl<Stream, Req, ReqMulti> Transport<Stream, Req, ReqMulti> {
+impl<Stream, Req> Transport<Stream, Req> {
     /// Creates a new transport.
     fn new(
         stream: Stream,
         config: Config,
-    ) -> (mpsc::Sender<ChanReq<Req, ReqMulti>>, Self) {
+    ) -> (mpsc::Sender<ChanReq<Req>>, Self) {
         let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
         (
             sender,
@@ -594,11 +585,10 @@ impl<Stream, Req, ReqMulti> Transport<Stream, Req, ReqMulti> {
     }
 }
 
-impl<Stream, Req, ReqMulti> Transport<Stream, Req, ReqMulti>
+impl<Stream, Req> Transport<Stream, Req>
 where
     Stream: AsyncRead + AsyncWrite,
     Req: ComposeRequest,
-    ReqMulti: ComposeRequestMulti,
 {
     /// Run the transport machinery.
     pub async fn run(mut self) {
@@ -616,7 +606,7 @@ where
             send_keepalive: true,
         };
         let mut query_vec =
-            Queries::<(ChanReq<Req, ReqMulti>, Option<XFRState>)>::new();
+            Queries::<(ChanReq<Req>, Option<XFRState>)>::new();
 
         let mut reqmsg: Option<Vec<u8>> = None;
         let mut reqmsg_offset = 0;
@@ -849,7 +839,7 @@ where
     /// Reports an error to all outstanding queries.
     fn error(
         error: Error,
-        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRState>)>,
+        query_vec: &mut Queries<(ChanReq<Req>, Option<XFRState>)>,
     ) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
@@ -882,7 +872,7 @@ where
     async fn demux_reply(
         answer: Message<Bytes>,
         status: &mut Status,
-        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRState>)>,
+        query_vec: &mut Queries<(ChanReq<Req>, Option<XFRState>)>,
     ) {
         // We got an answer, reset the timer
         status.state = ConnState::Active(Some(Instant::now()));
@@ -899,13 +889,13 @@ where
             }
         };
         let mut send_eof = false;
-        let answer = if match &req.msg {
-            ReqSingleMulti::Single(msg) => msg.is_answer(answer.for_slice()),
-            ReqSingleMulti::Multi(msg) => {
+        let answer = if match &req.expect_multiple_responses {
+            false => req.msg.is_answer(answer.for_slice()),
+            true => {
                 let xfr_data =
                     opt_xfr_data.expect("xfr_data should be present");
                 let (eof, xfr_data, is_answer) =
-                    check_stream(msg, xfr_data, &answer);
+                    check_stream(&req.msg, xfr_data, &answer);
                 send_eof = eof;
                 opt_xfr_data = Some(xfr_data);
                 is_answer
@@ -949,10 +939,10 @@ where
     /// idle. Addend a edns-tcp-keepalive option if needed.
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
-        mut req: ChanReq<Req, ReqMulti>,
+        mut req: ChanReq<Req>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
-        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRState>)>,
+        query_vec: &mut Queries<(ChanReq<Req>, Option<XFRState>)>,
     ) {
         match &status.state {
             ConnState::Active(timer) => {
@@ -984,10 +974,10 @@ where
             }
         }
 
-        let xfr_data = match &req.msg {
-            ReqSingleMulti::Single(_) => None,
-            ReqSingleMulti::Multi(msg) => {
-                let qtype = match msg.to_message().and_then(|m| {
+        let xfr_data = match &req.expect_multiple_responses {
+            false => None,
+            true => {
+                let qtype = match req.msg.to_message().and_then(|m| {
                     m.sole_question()
                         .map_err(|_| Error::MessageParseError)
                         .map(|q| q.qtype())
@@ -1032,21 +1022,11 @@ where
         // nature of its use of sequence numbers, is far more
         // resilient against forgery by third parties."
 
-        let hdr = match &mut req.msg {
-            ReqSingleMulti::Single(msg) => msg.header_mut(),
-            ReqSingleMulti::Multi(msg) => msg.header_mut(),
-        };
+        let hdr = req.msg.header_mut();
         hdr.set_id(index);
 
         if status.send_keepalive
-            && match &mut req.msg {
-                ReqSingleMulti::Single(msg) => {
-                    msg.add_opt(&TcpKeepalive::new(None)).is_ok()
-                }
-                ReqSingleMulti::Multi(msg) => {
-                    msg.add_opt(&TcpKeepalive::new(None)).is_ok()
-                }
-            }
+            && req.msg.add_opt(&TcpKeepalive::new(None)).is_ok()
         {
             status.send_keepalive = false;
         }
@@ -1073,24 +1053,11 @@ where
     }
 
     /// Convert the query message to a vector.
-    fn convert_query(
-        msg: &ReqSingleMulti<Req, ReqMulti>,
-    ) -> Result<Vec<u8>, Error> {
-        match msg {
-            ReqSingleMulti::Single(msg) => {
-                let mut target = StreamTarget::new_vec();
-                msg.append_message(&mut target)
-                    .map_err(|_| Error::StreamLongMessage)?;
-                Ok(target.into_target())
-            }
-            ReqSingleMulti::Multi(msg) => {
-                let target = StreamTarget::new_vec();
-                let target = msg
-                    .append_message(target)
-                    .map_err(|_| Error::StreamLongMessage)?;
-                Ok(target.finish().into_target())
-            }
-        }
+    fn convert_query(msg: &Req) -> Result<Vec<u8>, Error> {
+        let mut target = StreamTarget::new_vec();
+        msg.append_message(&mut target)
+            .map_err(|_| Error::StreamLongMessage)?;
+        Ok(target.into_target())
     }
 }
 
@@ -1101,7 +1068,7 @@ fn check_stream<CRM>(
     answer: &Message<Bytes>,
 ) -> (bool, XFRState, bool)
 where
-    CRM: ComposeRequestMulti,
+    CRM: ComposeRequest,
 {
     // First check if the reply matches the request.
     // RFC 5936, Section 2.2.2:

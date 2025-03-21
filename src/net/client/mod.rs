@@ -110,11 +110,11 @@
 //!
 //! For example:
 //! ```no_run
-//! # use domain::net::client::request::{RequestMessageMulti, SendRequest};
+//! # use domain::net::client::request::SendRequest;
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # async fn _test() {
-//! # let (tls_conn, _) = domain::net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
+//! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
 //! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
@@ -138,11 +138,11 @@
 //!
 //! For example:
 //! ```no_run
-//! # use crate::domain::net::client::request::{RequestMessageMulti, SendRequest};
+//! # use crate::domain::net::client::request::SendRequest;
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # async fn _test() {
-//! # let (tls_conn, _) = domain::net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
+//! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
 //! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
@@ -176,12 +176,12 @@
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # async fn _test() {
-//! # let (conn, _) = domain::net::client::stream::Connection::<RequestMessage<Vec<u8>>, _>::new(
+//! # let (conn, _) = domain::net::client::stream::Connection::<RequestMessage<Vec<u8>>>::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
 //! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
 //! # );
-//! # let req = domain::net::client::request::RequestMessageMulti::new(
+//! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
 //! # ).unwrap();
 //! # let mut request = conn.send_request(req);

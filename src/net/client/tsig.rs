@@ -57,7 +57,6 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
-use octseq::Octets;
 use tracing::trace;
 
 use crate::base::message::CopyRecordsError;
@@ -66,70 +65,11 @@ use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::base::StaticCompressor;
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
-    GetResponseMulti, SendRequest, SendRequestMulti,
+    ComposeRequest, Error, GetResponse, GetResponseMulti, SendRequest,
+    SendRequestMulti,
 };
 use crate::rdata::tsig::Time48;
-use crate::tsig::{ClientSequence, ClientTransaction, Key};
-
-/// A wrapper around [`ClientTransaction`] and [`ClientSequence`].
-///
-/// This wrapper allows us to write calling code once that invokes methods on
-/// the TSIG signer/validator which have the same name and purpose for single
-/// response vs multiple response streams, yet have distinct Rust types and so
-/// must be called on the correct type, without needing to know at the call
-/// site which of the distinct types it actually is.
-#[derive(Clone, Debug)]
-enum TsigClient<K> {
-    /// A [`ClientTransaction`] for signing a request and validating a single
-    /// response.
-    Transaction(ClientTransaction<K>),
-
-    /// A [`ClientSequence`] for signing a request and validating a single
-    /// response.
-    Sequence(ClientSequence<K>),
-}
-
-impl<K> TsigClient<K>
-where
-    K: AsRef<Key>,
-{
-    /// A helper wrapper around [`ClientTransaction::answer`] and
-    /// [`ClientSequence::answer`] that allows the appropriate method to be
-    /// invoked without needing to know which type it actually is.
-    pub fn answer<Octs>(
-        &mut self,
-        message: &mut Message<Octs>,
-        now: Time48,
-    ) -> Result<(), Error>
-    where
-        Octs: Octets + AsMut<[u8]> + ?Sized,
-    {
-        match self {
-            TsigClient::Transaction(client) => client.answer(message, now),
-            TsigClient::Sequence(client) => client.answer(message, now),
-        }
-        .map_err(Error::Authentication)
-    }
-
-    /// A helper method that allows [`ClientSequence::done`] to be called
-    /// without knowing or caring if the underlying type is actually
-    /// [`ClientTransaction`] instead (which doesn't have a `done()` method).
-    ///
-    /// Invoking this method on a [`ClientTransaction`] is harmless and has no
-    /// effect.
-    fn done(self) -> Result<(), Error> {
-        match self {
-            TsigClient::Transaction(_) => {
-                // Nothing to do.
-                Ok(())
-            }
-            TsigClient::Sequence(client) => {
-                client.done().map_err(Error::Authentication)
-            }
-        }
-    }
-}
+use crate::tsig::{ClientSequence, Key};
 
 //------------ Connection -----------------------------------------------------
 
@@ -184,11 +124,11 @@ where
     }
 }
 
-//------------ SendRequestMulti ----------------------------------------------------
+//------------ SendRequestMulti -----------------------------------------------
 
 impl<CR, Upstream, K> SendRequestMulti<CR> for Connection<Upstream, K>
 where
-    CR: ComposeRequestMulti + 'static,
+    CR: ComposeRequest + 'static,
     Upstream: SendRequestMulti<RequestMessage<CR, K>> + Send + Sync + 'static,
     K: Clone + AsRef<Key> + Send + Sync + 'static,
 {
@@ -196,7 +136,7 @@ where
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponseMulti + Send + Sync> {
-        Box::new(Request::<CR, Upstream, K>::new_multi(
+        Box::new(Request::<CR, Upstream, K>::new(
             request_msg,
             self.key.clone(),
             self.upstream.clone(),
@@ -215,7 +155,7 @@ where
 type Forwarder<Upstream, CR, K> = fn(
     &Upstream,
     RequestMessage<CR, K>,
-    Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+    Arc<std::sync::Mutex<Option<ClientSequence<K>>>>,
 ) -> RequestState<K>;
 
 /// Forward a request that should result in a single response.
@@ -226,7 +166,7 @@ type Forwarder<Upstream, CR, K> = fn(
 fn forwarder<CR, K, Upstream>(
     upstream: &Upstream,
     msg: RequestMessage<CR, K>,
-    tsig_client: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+    tsig_client: Arc<std::sync::Mutex<Option<ClientSequence<K>>>>,
 ) -> RequestState<K>
 where
     CR: ComposeRequest,
@@ -235,18 +175,18 @@ where
     RequestState::GetResponse(upstream.send_request(msg), tsig_client)
 }
 
-/// Forward a request that may result in multiple responses.
+/// Forward a request that should result in multiple responses.
 ///
 /// This function forwards a [`RequestMessage`] to an upstream transport using
-/// a client that can accept multiple responses, i.e. was sent via the
-/// [`ComposeRequestMulti`] trait.
+/// a client that can only accept a single response, i.e. was sent via the
+/// [`ComposeRequest`] trait.
 fn forwarder_multi<CR, K, Upstream>(
     upstream: &Upstream,
     msg: RequestMessage<CR, K>,
-    tsig_client: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+    tsig_client: Arc<std::sync::Mutex<Option<ClientSequence<K>>>>,
 ) -> RequestState<K>
 where
-    CR: ComposeRequestMulti,
+    CR: ComposeRequest,
     Upstream: SendRequestMulti<RequestMessage<CR, K>> + Send + Sync,
 {
     RequestState::GetResponseMulti(upstream.send_request(msg), tsig_client)
@@ -274,9 +214,7 @@ struct Request<CR, Upstream, K> {
 impl<CR, Upstream, K> Request<CR, Upstream, K>
 where
     CR: ComposeRequest,
-    Upstream: SendRequest<RequestMessage<CR, K>> + Send + Sync,
     K: Clone + AsRef<Key>,
-    Self: GetResponse,
 {
     /// Create a new Request object.
     fn new(request_msg: CR, key: K, upstream: Arc<Upstream>) -> Self {
@@ -294,16 +232,6 @@ where
     CR: Sync + Send,
     K: Clone + AsRef<Key>,
 {
-    /// Create a new Request object.
-    fn new_multi(request_msg: CR, key: K, upstream: Arc<Upstream>) -> Self {
-        Self {
-            state: RequestState::Init,
-            request_msg: Some(request_msg),
-            key,
-            upstream,
-        }
-    }
-
     /// This is the implementation of the get_response method.
     ///
     /// This function is cancel safe.
@@ -375,12 +303,12 @@ where
     /// - `Err` if validation or some other error occurred.
     fn validate_response(
         response: Option<Message<Bytes>>,
-        tsig_client: &mut Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+        tsig_client: &mut Arc<std::sync::Mutex<Option<ClientSequence<K>>>>,
     ) -> Result<Option<Message<Bytes>>, Error> {
         let res = match response {
             None => {
                 let client = tsig_client.lock().unwrap().take().unwrap();
-                client.done()?;
+                client.done().map_err(Error::Authentication)?;
                 None
             }
 
@@ -391,7 +319,9 @@ where
                 if let Some(client) = tsig_client.lock().unwrap().deref_mut()
                 {
                     trace!("Validating TSIG for sequence reply");
-                    client.answer(&mut modifiable_msg, Time48::now())?;
+                    client
+                        .answer(&mut modifiable_msg, Time48::now())
+                        .map_err(Error::Authentication)?;
                 }
 
                 let out_vec = modifiable_msg.into_octets();
@@ -443,7 +373,7 @@ where
 
 impl<CR, Upstream, K> GetResponseMulti for Request<CR, Upstream, K>
 where
-    CR: ComposeRequestMulti,
+    CR: ComposeRequest,
     Upstream: SendRequestMulti<RequestMessage<CR, K>> + Send + Sync,
     K: Clone + AsRef<Key> + Send + Sync,
 {
@@ -457,7 +387,11 @@ where
                 + '_,
         >,
     > {
-        Box::pin(self.get_response_impl(forwarder_multi))
+        Box::pin(async move {
+            // Unwrap the one and only response, we don't need the multiple
+            // response handling ability of [`Request::get_response_impl`].
+            self.get_response_impl(forwarder_multi).await
+        })
     }
 }
 
@@ -475,13 +409,13 @@ enum RequestState<K> {
     /// Waiting for a response to verify.
     GetResponse(
         Box<dyn GetResponse + Send + Sync>,
-        Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+        Arc<std::sync::Mutex<Option<ClientSequence<K>>>>,
     ),
 
     /// Wait for multiple responses to verify.
     GetResponseMulti(
         Box<dyn GetResponseMulti + Send + Sync>,
-        Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+        Arc<std::sync::Mutex<Option<ClientSequence<K>>>>,
     ),
 
     /// The last of multiple responses was received and verified.
@@ -534,7 +468,7 @@ where
     /// its async state machine, and could be "woken up" in parallel on a
     /// different thread thus requiring that access to the signer be made
     /// thread safe via a locking mechanism like [`Mutex`].
-    signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+    signer: Arc<std::sync::Mutex<Option<ClientSequence<K>>>>,
 }
 
 impl<CR, K> RequestMessage<CR, K>
@@ -545,7 +479,7 @@ where
     fn new(
         request: CR,
         key: K,
-        signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+        signer: Arc<std::sync::Mutex<Option<ClientSequence<K>>>>,
     ) -> Self
     where
         CR: Sync + Send,
@@ -576,14 +510,12 @@ where
                 "Signing single request transaction with key '{}'",
                 self.key.as_ref().name()
             );
-            TsigClient::Transaction(
-                ClientTransaction::request(
-                    self.key.clone(),
-                    &mut target,
-                    Time48::now(),
-                )
-                .unwrap(),
+            ClientSequence::request(
+                self.key.clone(),
+                &mut target,
+                Time48::now(),
             )
+            .unwrap()
         };
 
         *self.signer.lock().unwrap() = Some(client);
@@ -594,82 +526,6 @@ where
     fn to_vec(&self) -> Result<Vec<u8>, Error> {
         let msg = self.to_message()?;
         Ok(msg.as_octets().clone())
-    }
-
-    fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
-        let mut target = StaticCompressor::new(Vec::new());
-
-        self.append_message(&mut target)?;
-
-        // It would be nice to use .builder() here. But that one deletes all
-        // sections. We have to resort to .as_builder() which gives a
-        // reference and then .clone()
-        let msg = Message::from_octets(target.into_target()).expect(
-            "Message should be able to parse output from MessageBuilder",
-        );
-        Ok(msg)
-    }
-
-    fn header(&self) -> &crate::base::Header {
-        self.request.header()
-    }
-
-    fn header_mut(&mut self) -> &mut crate::base::Header {
-        self.request.header_mut()
-    }
-
-    fn set_udp_payload_size(&mut self, value: u16) {
-        self.request.set_udp_payload_size(value)
-    }
-
-    fn set_dnssec_ok(&mut self, value: bool) {
-        self.request.set_dnssec_ok(value)
-    }
-
-    fn add_opt(
-        &mut self,
-        opt: &impl crate::base::opt::ComposeOptData,
-    ) -> Result<(), crate::base::opt::LongOptData> {
-        self.request.add_opt(opt)
-    }
-
-    fn is_answer(&self, answer: &Message<[u8]>) -> bool {
-        self.request.is_answer(answer)
-    }
-
-    fn dnssec_ok(&self) -> bool {
-        self.request.dnssec_ok()
-    }
-}
-
-impl<CR, K> ComposeRequestMulti for RequestMessage<CR, K>
-where
-    CR: ComposeRequestMulti,
-    K: Clone + Debug + Send + Sync + AsRef<Key>,
-{
-    // Used by the stream transport.
-    fn append_message<Target: Composer>(
-        &self,
-        target: Target,
-    ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
-        let mut target = self.request.append_message(target)?;
-
-        trace!(
-            "Signing streaming request sequence with key '{}'",
-            self.key.as_ref().name()
-        );
-        let client = TsigClient::Sequence(
-            ClientSequence::request(
-                self.key.clone(),
-                &mut target,
-                Time48::now(),
-            )
-            .unwrap(),
-        );
-
-        *self.signer.lock().unwrap() = Some(client);
-
-        Ok(target)
     }
 
     fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
@@ -800,8 +656,8 @@ mod tests {
 
         // Wrap that message into a request message compatible with a
         // transport capable of receving multiple responses.
-        let req = crate::net::client::request::RequestMessageMulti::new(msg)
-            .unwrap();
+        let req =
+            crate::net::client::request::RequestMessage::new(msg).unwrap();
 
         // Make a TSIG key to sign the request with.
         let key = mk_tsig_key();
@@ -816,7 +672,7 @@ mod tests {
 
         // Wrap the request message into a TSIG signing request with a signing
         // key and upstream transport.
-        let mut req = Request::new_multi(req, key, upstream);
+        let mut req = Request::new(req, key, upstream);
 
         // "Send" the request and receive the first validated mock response.
         let res = req
@@ -1023,7 +879,7 @@ mod tests {
 
     impl<CR, KS> GetResponseMulti for MockGetResponseMulti<CR, KS>
     where
-        CR: ComposeRequestMulti + Debug,
+        CR: ComposeRequest + Debug,
         KS: Debug + KeyStore<Key = KS> + AsRef<Key>,
     {
         fn get_response(
@@ -1150,6 +1006,7 @@ mod tests {
         invalidate_signature: bool,
         dont_sign_last_response: bool,
     }
+
     impl MockUpstreamMulti {
         fn new(
             key: Arc<Key>,
@@ -1166,7 +1023,7 @@ mod tests {
 
     impl<CR> SendRequestMulti<CR> for MockUpstreamMulti
     where
-        CR: ComposeRequestMulti + Debug + Send + Sync + 'static,
+        CR: ComposeRequest + Debug + Send + Sync + 'static,
     {
         fn send_request(
             &self,

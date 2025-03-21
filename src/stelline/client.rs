@@ -21,9 +21,8 @@ use crate::base::iana::{Opcode, OptionCode};
 use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
-    GetResponseMulti, RequestMessage, RequestMessageMulti, SendRequest,
-    SendRequestMulti,
+    ComposeRequest, Error, GetResponse, GetResponseMulti, RequestMessage,
+    SendRequest, SendRequestMulti,
 };
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
@@ -249,7 +248,7 @@ impl Dispatcher {
                 }
 
                 Client::Multi(client) => {
-                    let reqmsg = entry2reqmsg_multi(entry);
+                    let reqmsg = entry2reqmsg(entry);
                     trace!(?reqmsg);
                     Response::Multi(client.send_request(reqmsg))
                 }
@@ -265,7 +264,7 @@ impl Dispatcher {
 
 pub enum Client {
     Single(Box<dyn SendRequest<RequestMessage<Vec<u8>>>>),
-    Multi(Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>),
+    Multi(Box<dyn SendRequestMulti<RequestMessage<Vec<u8>>>>),
 }
 
 impl SendRequest<RequestMessage<Vec<u8>>> for Client {
@@ -282,10 +281,10 @@ impl SendRequest<RequestMessage<Vec<u8>>> for Client {
     }
 }
 
-impl SendRequestMulti<RequestMessageMulti<Vec<u8>>> for Client {
+impl SendRequestMulti<RequestMessage<Vec<u8>>> for Client {
     fn send_request(
         &self,
-        request_msg: RequestMessageMulti<Vec<u8>>,
+        request_msg: RequestMessage<Vec<u8>>,
     ) -> Box<dyn GetResponseMulti + Send + Sync> {
         match self {
             Client::Single(_) => panic!(
@@ -725,31 +724,6 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
         reqmsg.set_dnssec_ok(reply.fl_do);
     }
 
-    if reply.notify {
-        reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
-    }
-
-    let edns_bytes = &sections.additional.edns_bytes;
-    if !edns_bytes.is_empty() {
-        let raw_opt = RawOptData { bytes: edns_bytes };
-        reqmsg.add_opt(&raw_opt).unwrap();
-    }
-
-    reqmsg
-}
-
-fn entry2reqmsg_multi(entry: &Entry) -> RequestMessageMulti<Vec<u8>> {
-    let (sections, reply, msg) = entry2msg(entry);
-
-    let mut reqmsg = RequestMessageMulti::new(msg).unwrap();
-    if !entry
-        .matches
-        .as_ref()
-        .map(|v| v.mock_client)
-        .unwrap_or_default()
-    {
-        reqmsg.set_dnssec_ok(reply.fl_do);
-    }
     if reply.notify {
         reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
     }
