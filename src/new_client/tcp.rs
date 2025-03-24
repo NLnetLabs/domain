@@ -20,7 +20,7 @@
 //! - `edns-tcp-keepalive` is ignored, because we simply keep the connection
 //!   around for as long as we need it.
 //!
-//! # Related RFC excerpts
+//! # Relevant RFC excerpts
 //!
 //! RFC 1035, Section 4.2.2:
 //!
