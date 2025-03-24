@@ -1,16 +1,37 @@
+//! Multiplexed TCP Client
+//!
+//! A [`TcpClient`] maintains a TCP connection. Each [`TcpClient::request`]
+//! call sends a request over that connection and returns a future for the
+//! response.
+//!
+//! If you require a long-lived connection with a server. You probably want
+//! to use a multi TCP stream (to )
+//!
+//! Characteristics of this implementation:
+//!
+//! - Messages sent with this client should not contain TSIG records,
+//!   because the message id will be modified, invalidating the signature.
+//! - Each [`TcpClient`] spawns a background task for reading the incoming
+//!   messages.
+//! - The background task will abort when [`TcpClient`] is dropped.
+//! - The ids assigned to each message will usually be low and may be reused.
+//! - If the connection is found to be in a broken state. All requests will
+//!   receive errors. A new [`TcpClient`] should be created at this point.
+//! - `edns-tcp-keepalive` is ignored, because we simply keep the connection
+//!   around for as long as we need it.
+
 use core::convert::Infallible;
-use std::{sync::Arc, time::Duration, vec::Vec};
+use core::mem;
+use std::sync::Arc;
+use std::time::Duration;
+use std::vec::Vec;
 
 use slab::Slab;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
-    net::TcpStream,
-    sync::{
-        oneshot::{self, Sender},
-        Mutex,
-    },
-    task::JoinHandle,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::net::TcpStream;
+use tokio::sync::oneshot::{self, Sender};
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 use crate::new_base::{
     build::BuilderContext,
@@ -46,18 +67,12 @@ impl<T> Drop for AbortJoinHandle<T> {
     }
 }
 
-/// The inner structure for the TCP client, which gets wrapped in an [`Arc`]
-struct TcpClientInner {
+pub struct TcpClient {
     /// Ensure that the read loop lives as long as the client
     _read_loop: AbortJoinHandle<Infallible>,
     write: Mutex<WriteHalf<TcpStream>>,
     ids: Arc<Mutex<Slab<oneshot::Sender<Result<Vec<u8>, ClientError>>>>>,
     config: TcpConfig,
-}
-
-#[derive(Clone)]
-pub struct TcpClient {
-    inner: Arc<TcpClientInner>,
 }
 
 impl TcpClient {
@@ -68,12 +83,10 @@ impl TcpClient {
             AbortJoinHandle(tokio::spawn(read_loop(read, ids.clone())));
 
         Self {
-            inner: Arc::new(TcpClientInner {
-                _read_loop: read_loop,
-                write: write.into(),
-                ids,
-                config,
-            }),
+            _read_loop: read_loop,
+            write: write.into(),
+            ids,
+            config,
         }
     }
 }
@@ -103,7 +116,7 @@ impl Client for TcpClient {
 
         let (tx, rx) = oneshot::channel();
         let message_id = {
-            let mut ids = self.inner.ids.lock().await;
+            let mut ids = self.ids.lock().await;
             let message_id = ids.insert(tx);
 
             // Slab tries to keep ids as small as possible, so if we get an
@@ -126,7 +139,7 @@ impl Client for TcpClient {
 
         // Temporary scope to drop the lock on write early
         {
-            let mut write = self.inner.write.lock().await;
+            let mut write = self.write.lock().await;
             write
                 .write_all(buffer)
                 .await
@@ -134,8 +147,7 @@ impl Client for TcpClient {
         }
 
         let res =
-            tokio::time::timeout(self.inner.config.response_timeout, rx)
-                .await;
+            tokio::time::timeout(self.config.response_timeout, rx).await;
 
         match res {
             // We have a message with our id, we parse it and return
@@ -146,17 +158,13 @@ impl Client for TcpClient {
             // happen if everything is working as expected.
             Ok(Err(_)) => Err(ClientError::Bug),
             // The future has timed out.
-            Err(_) => {
-                // We ignore the error because the read loop might have
-                // removed the id from the slab already.
-                let _ = self
-                    .inner
-                    .ids
-                    .lock()
-                    .await
-                    .try_remove(message_id as usize);
-                Err(ClientError::Socket(SocketError::Timeout))
-            }
+            //
+            // In this case, we do not remove our id from the slab. This
+            // allows us to distinguish between responses that are late and
+            // responses that are invalid. In the first case, we just
+            // continue. In the second case, we mark the connection as
+            // broken.
+            Err(_) => Err(ClientError::Socket(SocketError::Timeout)),
         }
     }
 }
@@ -200,18 +208,11 @@ async fn read_loop_inner(
     mut reader: ReadHalf<TcpStream>,
     ids: Arc<Mutex<Slab<Sender<Result<Vec<u8>, ClientError>>>>>,
 ) -> ClientError {
-    loop {
-        // First read the shim
-        let mut buf = [0u8; 2];
-        if let Err(err) = reader.read_exact(&mut buf).await {
-            return SocketError::Receive(err.kind()).into();
-        }
-        let shim = u16::from_be_bytes(buf) as usize;
+    let mut buf = Vec::new();
 
-        // Read a response
-        let mut buf = vec![0u8; shim];
-        if let Err(err) = reader.read_exact(&mut buf).await {
-            return SocketError::Receive(err.kind()).into();
+    loop {
+        if let Err(err) = read_response(&mut buf, &mut reader).await {
+            return ClientError::Socket(err);
         }
 
         // Read the id from the response. We do this without checking
@@ -221,6 +222,8 @@ async fn read_loop_inner(
         };
         let recv_id = u16::from_be_bytes(*recv_id);
 
+        // If we get a message with an id that's not in the slab, then the
+        // other side of the connection is broken.
         let Some(recv_tx) = ids.lock().await.try_remove(recv_id as usize)
         else {
             return ClientError::Broken;
@@ -229,6 +232,26 @@ async fn read_loop_inner(
         // Here, the receiver might have timed out (or dropped for
         // other reasons) after we have removed the id from the slab.
         // So, we ignore this error.
-        let _ = recv_tx.send(Ok(buf));
+        let _ = recv_tx.send(Ok(mem::take(&mut buf)));
     }
+}
+
+async fn read_response(
+    buf: &mut Vec<u8>,
+    reader: &mut ReadHalf<TcpStream>,
+) -> Result<(), SocketError> {
+    // First read the shim
+    let mut shim_buf = [0u8; 2];
+    if let Err(err) = reader.read_exact(&mut shim_buf).await {
+        return Err(SocketError::Receive(err.kind()));
+    }
+    let shim = u16::from_be_bytes(shim_buf) as usize;
+
+    // Read a response
+    *buf = vec![0u8; shim];
+    if let Err(err) = reader.read_exact(buf).await {
+        return Err(SocketError::Receive(err.kind()));
+    }
+
+    Ok(())
 }

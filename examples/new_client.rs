@@ -17,6 +17,7 @@ async fn main() {
 
     let example = b"\x00\x03org\x07example";
     let nlnetlabs = b"\x00\x02nl\x09nlnetlabs";
+    let google = b"\x00\x03com\x06google";
 
     let addr: SocketAddr = "1.1.1.1:53".parse().unwrap();
 
@@ -29,18 +30,18 @@ async fn main() {
     let stream = TcpStream::connect(addr).await.unwrap();
     let client = TcpClient::new(stream, TcpConfig::default());
 
-    let n = metrics.num_alive_tasks();
-    println!("Runtime has {} alive tasks", n);
-
     let res = join!(
         send_request(example, &client),
         send_request(nlnetlabs, &client),
+        send_request(google, &client),
     );
-    println!("{}", res.0);
-    println!("{}", res.1);
+    println!("{}\n", res.0);
+    println!("{}\n", res.1);
+    println!("{}\n", res.2);
 
     drop(client);
 
+    println!("Waiting to see whether tokio will stop the task");
     // Give tokio a bit of time to exit the background task
     tokio::time::sleep(Duration::from_secs(1)).await;
     let n = metrics.num_alive_tasks();
@@ -48,9 +49,6 @@ async fn main() {
 }
 
 async fn send_request(name: &[u8], client: &impl Client) -> String {
-    let mut bump = bumpalo::Bump::new();
-    let alloc = Allocator::new(&mut bump);
-
     let mut request = ParsedMessage::default();
     request.flags.request_recursion(true);
     let name = unsafe { RevName::from_bytes_unchecked(name) };
@@ -58,6 +56,8 @@ async fn send_request(name: &[u8], client: &impl Client) -> String {
         .questions
         .push(Question::new(name, QType::A, QClass::IN));
 
+    let mut bump = bumpalo::Bump::new();
+    let alloc = Allocator::new(&mut bump);
     let mut exchange = Exchange {
         alloc,
         request,
