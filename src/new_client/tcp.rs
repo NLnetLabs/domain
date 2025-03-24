@@ -5,7 +5,7 @@
 //! response.
 //!
 //! If you require a long-lived connection with a server. You probably want
-//! to use a multi TCP stream (to )
+//! to use a multi TCP stream (to be implemented).
 //!
 //! Characteristics of this implementation:
 //!
@@ -19,6 +19,57 @@
 //!   receive errors. A new [`TcpClient`] should be created at this point.
 //! - `edns-tcp-keepalive` is ignored, because we simply keep the connection
 //!   around for as long as we need it.
+//!
+//! # Related RFC excerpts
+//!
+//! RFC 1035, Section 4.2.2:
+//!
+//! > Messages sent over TCP connections use server port 53 (decimal). The
+//! > message is prefixed with a two byte length field which gives the
+//! > message length, excluding the two byte length field. This length field
+//! > allows the low-level processing to assemble a complete message before
+//! > beginning to parse it.
+//!
+//! RCF 7766, Section 6.2.1:
+//!
+//! > To amortise connection setup costs, both clients and servers SHOULD
+//! > support connection reuse by sending multiple queries and responses over
+//! > a single persistent TCP connection.
+//! >
+//! > When sending multiple queries over a TCP connection, clients MUST NOT
+//! > reuse the DNS Message ID of an in-flight query on that connection in
+//! > order to avoid Message ID collisions.
+//!
+//! RFC 7766, Section 6.2.1.1:
+//!
+//! > In order to achieve performance on par with UDP, DNS clients SHOULD
+//! > pipeline their queries.  When a DNS client sends multiple queries to
+//! > a server, it SHOULD NOT wait for an outstanding reply before sending
+//! > the next query.
+//!
+//! > It is likely that DNS servers need to process pipelined queries
+//! > concurrently and also send out-of-order responses over TCP in order
+//! > to provide the level of performance possible with UDP transport.
+//!
+//! RFC 7766, Secton 6.2.3:
+//!
+//! > DNS clients SHOULD close the TCP connection of an idle session, unless
+//! > an idle timeout has been established using some other signalling
+//! > mechanism, for example, edns-tcp-keepalive.
+//!
+//! RFC 7858, Section 3.4:
+//!
+//! > In order to amortize TCP and TLS connection setup costs, clients and
+//! > servers SHOULD NOT immediately close a connection after each response.
+//! > Instead, clients and servers SHOULD reuse existing connections for
+//! > subsequent queries as long as they have sufficient resources.
+//!
+//! RFC 7766, Section 8:
+//!
+//! > DNS clients and servers SHOULD pass the two-octet length field, and
+//! > the message described by that length field, to the TCP layer at the
+//! > same time (e.g., in a single "write" system call) to make it more
+//! > likely that all the data will be transmitted in a single TCP segment.
 
 use core::convert::Infallible;
 use core::mem;
@@ -33,16 +84,12 @@ use tokio::sync::oneshot::{self, Sender};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-use crate::new_base::{
-    build::BuilderContext,
-    wire::{AsBytes, ParseBytesByRef},
-    Message,
-};
+use crate::new_base::build::BuilderContext;
+use crate::new_base::wire::{AsBytes, ParseBytesByRef};
+use crate::new_base::Message;
 
-use super::{
-    exchange::{Exchange, ParsedMessage},
-    Client, ClientError, SocketError,
-};
+use super::exchange::{Exchange, ParsedMessage};
+use super::{Client, ClientError, SocketError};
 
 /// Configuration for a stream transport connection.
 #[derive(Clone, Debug)]

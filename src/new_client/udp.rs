@@ -1,3 +1,52 @@
+//! UDP client
+//!
+//! This module implements the client side of DNS over UDP. A [`UdpClient`]
+//! creates a UDP socket for every request.
+//!
+//! # Relevant RFC excerpts
+//!
+//! RFC 6891, section 6.2.3:
+//!
+//! > The requestor's UDP payload size (encoded in the RR CLASS field) is
+//! > the number of octets of the largest UDP payload that can be
+//! > reassembled and delivered in the requestor's network stack.  Note
+//! > that path MTU, with or without fragmentation, could be smaller than
+//! > this.
+//! >
+//! > Values lower than 512 MUST be treated as equal to 512.
+//! >
+//! > The requestor SHOULD place a value in this field that it can actually
+//! > receive.  For example, if a requestor sits behind a firewall that
+//! > will block fragmented IP packets, a requestor SHOULD NOT choose a
+//! > value that will cause fragmentation.  Doing so will prevent large
+//! > responses from being received and can cause fallback to occur.  This
+//! > knowledge may be auto-detected by the implementation or provided by a
+//! > human administrator.
+//!
+//! RFC 5452, section 9.2:
+//!
+//! > Resolver implementations MUST:
+//! >
+//! > o  Use an unpredictable source port for outgoing queries from the
+//! >    range of available ports (53, or 1024 and above) that is as large
+//! >    as possible and practicable;
+//!
+//! RFC 9715, section 3.2:
+//!
+//! > UDP requestors should limit the requestor's maximum UDP payload size to
+//! > fit in the minimum of the interface MTU, the network MTU value
+//! > configured by the network operators, and the RECOMMENDED maximum
+//! > DNS/UDP payload size 1400. A smaller limit may be allowed. For more
+//! > details, see Appendix A.
+//!
+//! RFC 9715, appendix A:
+//!
+//! > In order to avoid IP fragmentation, DNSFlagDay2020 proposes that UDP
+//! > requestors set the requestor's payload size to 1232 and UDP responders
+//! > compose UDP responses so they fit in 1232 octets. The size 1232 is
+//! > based on an MTU of 1280, which is required by the IPv6 specification
+//! > RFC8200, minus 48 octets for the IPv6 and UDP headers.
+
 use core::net::SocketAddr;
 use core::time::Duration;
 use std::io;
@@ -5,16 +54,12 @@ use std::io;
 use tokio::{net::UdpSocket, sync::Semaphore};
 use tracing::trace;
 
-use crate::new_base::{
-    build::BuilderContext,
-    wire::{AsBytes, ParseBytesByRef},
-    Message,
-};
+use crate::new_base::build::BuilderContext;
+use crate::new_base::wire::{AsBytes, ParseBytesByRef};
+use crate::new_base::Message;
 
-use super::{
-    exchange::{Exchange, ParsedMessage},
-    Client, ClientError, SocketError,
-};
+use super::exchange::{Exchange, ParsedMessage};
+use super::{Client, ClientError, SocketError};
 
 #[derive(Clone, Debug)]
 pub struct UdpConfig {
@@ -81,6 +126,9 @@ impl Client for UdpClient {
             request_builder.header_mut().id.set(rand::random());
             let request_message = request_builder.message();
 
+            // We create a new UDP socket for each retry, to follow
+            // RFC 5452's recommendations of using unpredictable source port
+            // numbers.
             let response_result = send_udp_request(
                 &mut *response_buffer,
                 request_message,

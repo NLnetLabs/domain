@@ -48,6 +48,17 @@ pub struct Exchange<'a> {
     pub metadata: Vec<Metadata>,
 }
 
+impl<'a> Exchange<'a> {
+    pub fn new(bump: &'a mut Bump) -> Self {
+        Self {
+            alloc: Allocator::new(bump),
+            request: ParsedMessage::default(),
+            response: ParsedMessage::default(),
+            metadata: Vec::new(),
+        }
+    }
+}
+
 //----------- OutgoingResponse -----------------------------------------------
 
 /// An [`Exchange`] with an initialized response message.

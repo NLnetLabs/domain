@@ -57,13 +57,8 @@ async fn send_request(name: &[u8], client: &impl Client) -> String {
         .push(Question::new(name, QType::A, QClass::IN));
 
     let mut bump = bumpalo::Bump::new();
-    let alloc = Allocator::new(&mut bump);
-    let mut exchange = Exchange {
-        alloc,
-        request,
-        response: ParsedMessage::default(),
-        metadata: Vec::new(),
-    };
+    let mut exchange = Exchange::new(&mut bump);
+    exchange.request = request;
 
     client.request(&mut exchange).await.unwrap();
 
