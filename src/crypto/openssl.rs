@@ -155,8 +155,8 @@ impl AsRef<[u8]> for Digest {
 
 /// A public key for verifying a signature.
 pub enum PublicKey {
-    /// Default variant, used for RSA.
-    Default(MessageDigest, PKey<Public>, u16),
+    /// Variant for RSA.
+    Rsa(MessageDigest, PKey<Public>, u16),
 
     /// Variant for Ed25519 and Ed448.
     NoDigest(PKey<Public>, u16),
@@ -196,7 +196,7 @@ impl PublicKey {
                     .map_err(|_| AlgorithmError::InvalidData)?;
                 let public_key = PKey::from_rsa(public_key)
                     .map_err(|_| AlgorithmError::InvalidData)?;
-                Ok(PublicKey::Default(
+                Ok(PublicKey::Rsa(
                     digest_algorithm,
                     public_key,
                     dnskey.flags(),
@@ -255,7 +255,7 @@ impl PublicKey {
         signature: &[u8],
     ) -> Result<(), AlgorithmError> {
         let valid = match self {
-            PublicKey::Default(digest_algorithm, public_key, _) => {
+            PublicKey::Rsa(digest_algorithm, public_key, _) => {
                 let mut verifier =
                     Verifier::new(*digest_algorithm, public_key.as_ref())
                         .map_err(|_| AlgorithmError::InvalidData)?;
@@ -302,7 +302,7 @@ impl PublicKey {
     /// Convert to a [`Dnskey`].
     pub fn dnskey(&self) -> Dnskey<Vec<u8>> {
         match self {
-            PublicKey::Default(message_digest, public_key, flags) => {
+            PublicKey::Rsa(message_digest, public_key, flags) => {
                 let alg = if *message_digest == MessageDigest::sha256() {
                     SecAlg::RSASHA256
                 } else {
@@ -452,7 +452,7 @@ pub mod sign {
                     .expect("should not fail");
                     let rsa_public =
                         PKey::from_rsa(rsa_public).expect("should not fail");
-                    let p = PublicKey::Default(
+                    let p = PublicKey::Rsa(
                         MessageDigest::sha256(),
                         rsa_public,
                         public.flags(),
@@ -681,7 +681,7 @@ pub mod sign {
                     let key = Rsa::from_public_components(n, e)
                         .expect("should not fail");
                     let key = PKey::from_rsa(key).expect("should not fail");
-                    let public = PublicKey::Default(
+                    let public = PublicKey::Rsa(
                         MessageDigest::sha256(),
                         key,
                         self.flags,
