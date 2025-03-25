@@ -311,8 +311,17 @@ impl PublicKey {
     pub fn dnskey(&self) -> Dnskey<Vec<u8>> {
         match self {
             PublicKey::Rsa(message_digest, public_key, flags) => {
-                let alg = if *message_digest == MessageDigest::sha256() {
+                let alg = if *message_digest == MessageDigest::sha1() {
+                    // We have problem. This case can either be RSASHA1 or
+                    // RSASHA1_NSEC3_SHA1. We would need an extra flag to
+                    // record which one. Both are almost depricated. Return
+                    // RSASHA1_NSEC3_SHA1 because it is newer. If it causes
+                    // problems then we need to be explicit.
+                    SecAlg::RSASHA1_NSEC3_SHA1
+                } else if *message_digest == MessageDigest::sha256() {
                     SecAlg::RSASHA256
+                } else if *message_digest == MessageDigest::sha512() {
+                    SecAlg::RSASHA512
                 } else {
                     unreachable!();
                 };
