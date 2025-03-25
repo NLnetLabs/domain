@@ -244,6 +244,14 @@ impl PublicKey {
                 .map_err(|_| AlgorithmError::InvalidData)?;
                 Ok(PublicKey::NoDigest(public_key, dnskey.flags()))
             }
+            SecAlg::ED448 => {
+                let public_key = PKey::public_key_from_raw_bytes(
+                    dnskey.public_key().as_ref(),
+                    Id::ED448,
+                )
+                .map_err(|_| AlgorithmError::InvalidData)?;
+                Ok(PublicKey::NoDigest(public_key, dnskey.flags()))
+            }
             _ => Err(AlgorithmError::Unsupported),
         }
     }
