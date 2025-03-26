@@ -160,8 +160,7 @@
 //!   `dnssec::sign`
 //!   module and requires the `std` feature. In order to actually perform any
 //!   signing, also enable one or more cryptographic backend modules (`ring`
-//!   and `openssl`).
-//! * `unstable-validate`: basic DNSSEC validation support. This enables the
+//!   and `openssl`). Enabling this will also enable `unstable-crypto-sign`.
 //! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
 //!   and the `net::client::validator` modules.
 //! * `unstable-xfr`: zone transfer related functionality..
