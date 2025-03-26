@@ -150,7 +150,7 @@
 //! * `unstable-server-transport`: receiving and sending DNS messages from
 //!   a server perspective; primarily the `net::server` module.
 //! * `unstable-crypto`: this feature flag needs to be combined with one or
-//!   more feature flags that enable cryptografic backends (currently `ring`
+//!   more feature flags that enable cryptographic backends (currently `ring`
 //!   and `openssl`). This feature flags enables all parts of the crypto
 //!   module except for private key generation and signing.
 //! * `unstable-crypto-sign`: this feature flag needs to be combined with one
