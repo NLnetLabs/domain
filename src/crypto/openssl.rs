@@ -490,7 +490,7 @@ pub mod sign {
                     // 'EVP_PKEY_fromdata', which could be used to replace the
                     // deprecated methods called here.
 
-                    let key = openssl::rsa::Rsa::from_private_components(
+                    let key = Rsa::from_private_components(
                         n, e, d, p, q, d_p, d_q, q_i,
                     )?;
 
@@ -502,9 +502,9 @@ pub mod sign {
                 }
 
                 SecretKeyBytes::EcdsaP256Sha256(s) => {
-                    use openssl::{ec, nid};
+                    use openssl::ec;
 
-                    let group = nid::Nid::X9_62_PRIME256V1;
+                    let group = Nid::X9_62_PRIME256V1;
                     let group = ec::EcGroup::from_curve_name(group)?;
                     let n = secure_num(s.expose_secret().as_slice())?;
 
@@ -522,10 +522,9 @@ pub mod sign {
                 }
 
                 SecretKeyBytes::EcdsaP384Sha384(s) => {
-                    use openssl::{ec, nid};
+                    use openssl::ec;
 
-                    let group = nid::Nid::SECP384R1;
-                    let group = ec::EcGroup::from_curve_name(group)?;
+                    let group = ec::EcGroup::from_curve_name(Nid::SECP384R1)?;
                     let n = secure_num(s.expose_secret().as_slice())?;
 
                     let public_key = PublicKey::from_dnskey(public)
@@ -790,16 +789,14 @@ pub mod sign {
         let algorithm = params.algorithm();
         let pkey = match params {
             GenerateParams::RsaSha256 { bits } => {
-                openssl::rsa::Rsa::generate(bits).and_then(PKey::from_rsa)?
+                Rsa::generate(bits).and_then(PKey::from_rsa)?
             }
             GenerateParams::EcdsaP256Sha256 => {
-                let group = openssl::nid::Nid::X9_62_PRIME256V1;
-                let group = openssl::ec::EcGroup::from_curve_name(group)?;
+                let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
                 PKey::from_ec_key(openssl::ec::EcKey::generate(&group)?)?
             }
             GenerateParams::EcdsaP384Sha384 => {
-                let group = openssl::nid::Nid::SECP384R1;
-                let group = openssl::ec::EcGroup::from_curve_name(group)?;
+                let group = EcGroup::from_curve_name(Nid::SECP384R1)?;
                 PKey::from_ec_key(openssl::ec::EcKey::generate(&group)?)?
             }
             GenerateParams::Ed25519 => PKey::generate_ed25519()?,
