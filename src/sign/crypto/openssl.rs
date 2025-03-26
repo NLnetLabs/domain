@@ -12,6 +12,7 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "openssl")))]
 
 use core::fmt;
+
 use std::{boxed::Box, vec::Vec};
 
 use openssl::{
@@ -22,14 +23,11 @@ use openssl::{
 };
 use secrecy::ExposeSecret;
 
-use crate::{
-    base::iana::SecAlg,
-    validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature},
-};
-
-use super::{
-    GenerateParams, RsaSecretKeyBytes, SecretKeyBytes, SignError, SignRaw,
-};
+use crate::base::iana::SecAlg;
+use crate::sign::crypto::common::GenerateParams;
+use crate::sign::error::SignError;
+use crate::sign::{RsaSecretKeyBytes, SecretKeyBytes, SignRaw};
+use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
 //----------- KeyPair --------------------------------------------------------
 
@@ -450,11 +448,10 @@ impl std::error::Error for GenerateError {}
 mod tests {
     use std::{string::ToString, vec::Vec};
 
-    use crate::{
-        base::iana::SecAlg,
-        sign::{GenerateParams, SecretKeyBytes, SignRaw},
-        validate::Key,
-    };
+    use crate::base::iana::SecAlg;
+    use crate::sign::crypto::common::GenerateParams;
+    use crate::sign::{SecretKeyBytes, SignRaw};
+    use crate::validate::Key;
 
     use super::KeyPair;
 

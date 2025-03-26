@@ -1,0 +1,31 @@
+; Extracted using ldns-readzone -s from the signed zone defined at
+;   https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
+; DNSSEC RRs have been removed, e.g. DNSKEY, NSEC and RRSIG.
+; The SOA MINIMUM has been changed from 3600 to 1800 for RFC 9077 testing.
+; Contains one extra record compared to that defined in Appendix A of RFC
+; 4035, b.example A, for additional testing.
+example.        3600    IN      SOA     ns1.example. bugs.x.w.example. 1081539377 3600 300 3600000 1800
+example.        3600    IN      NS      ns2.example.
+example.        3600    IN      NS      ns1.example.
+example.        3600    IN      MX      1 xx.example.
+a.example.      3600    IN      NS      ns2.a.example.
+a.example.      3600    IN      NS      ns1.a.example.
+a.example.      3600    IN      DS      57855 5 1 b6dcd485719adca18e5f3d48a2331627fdd3636b
+ns1.a.example.  3600    IN      A       192.0.2.5
+ns2.a.example.  3600    IN      A       192.0.2.6
+ai.example.     3600    IN      A       192.0.2.9
+ai.example.     3600    IN      HINFO   "KLH-10" "ITS"
+ai.example.     3600    IN      AAAA    2001:db8::f00:baa9
+b.example.      3600    IN      NS      ns1.b.example.
+b.example.      3600    IN      NS      ns2.b.example.
+b.example.      3600    IN      A       127.0.0.1 ; not authoritative, should not appear in the NSEC bitmap
+ns1.b.example.  3600    IN      A       192.0.2.7
+ns2.b.example.  3600    IN      A       192.0.2.8
+ns1.example.    3600    IN      A       192.0.2.1
+ns2.example.    3600    IN      A       192.0.2.2
+*.w.example.    3600    IN      MX      1 ai.example.
+x.w.example.    3600    IN      MX      1 xx.example.
+x.y.w.example.  3600    IN      MX      1 xx.example.
+xx.example.     3600    IN      A       192.0.2.10
+xx.example.     3600    IN      HINFO   "KLH-10" "TOPS-20"
+xx.example.     3600    IN      AAAA    2001:db8::f00:baaa
