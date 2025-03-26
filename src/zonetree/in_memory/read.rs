@@ -110,7 +110,18 @@ impl ReadZone {
                     )
                 }
             }
-            Some(Special::NxDomain) => NodeAnswer::nx_domain(),
+            Some(Special::NxDomain) => {
+                if walk.enabled() {
+                    self.query_children(
+                        node.children(),
+                        label,
+                        qname,
+                        qtype,
+                        walk,
+                    );
+                }
+                NodeAnswer::nx_domain()
+            }
             Some(Special::Cname(cname)) => {
                 if walk.enabled() {
                     let mut rrset = Rrset::new(Rtype::CNAME, cname.ttl());
