@@ -26,7 +26,10 @@ where
     /// The zone already has NSEC records.
     Nsec(GenerateNsecConfig),
 
-    /// The zone already has NSEC3 records, possibly more than one set.
+    /// The zone already has NSEC3 records.
+    ///
+    /// Note: While zones can have multiple NSEC3 chains, only the configuraton
+    /// for a single chain can be expressed using this type.
     ///
     /// https://datatracker.ietf.org/doc/html/rfc5155#section-7.3
     /// 7.3.  Secondary Servers
