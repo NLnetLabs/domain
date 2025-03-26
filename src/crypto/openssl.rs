@@ -354,7 +354,7 @@ impl PublicKey {
                 let alg = match public_key.id() {
                     Id::ED25519 => SecAlg::ED25519,
                     Id::ED448 => SecAlg::ED448,
-                    _ => todo!(),
+                    _ => unreachable!(),
                 };
 
                 let key =
