@@ -230,7 +230,6 @@ impl PublicKey {
             }
         }
         .map_err(|_| AlgorithmError::BadSig)
-        .map_err(|_| AlgorithmError::BadSig)
     }
 
     /// Convert to a [`Dnskey`].
