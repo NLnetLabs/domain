@@ -13,7 +13,7 @@ where
     Octs: AsRef<[u8]> + From<&'static [u8]>,
     Sort: Sorter,
 {
-    /// Authenticated denial of existing mechanism configuration.
+    /// Authenticated denial of existence mechanism configuration.
     pub denial: DenialConfig<Octs, Sort>,
 
     pub inception: Timestamp,
