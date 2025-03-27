@@ -10,7 +10,7 @@ use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::Composer;
 use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
 use crate::base::{Name, Record, Rtype, ToName, Ttl};
-use crate::crypto::common::{DigestContext, DigestType};
+use crate::crypto::common::{DigestBuilder, DigestType};
 use crate::dep::octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
@@ -137,13 +137,13 @@ where
         let mut canonical_owner = HashOcts::empty();
         owner.compose_canonical(&mut canonical_owner)?;
 
-        let mut ctx = DigestContext::new(DigestType::Sha1);
+        let mut ctx = DigestBuilder::new(DigestType::Sha1);
         ctx.update(canonical_owner.as_ref());
         ctx.update(salt.as_slice());
         let mut h = ctx.finish();
 
         for _ in 0..iterations {
-            let mut ctx = DigestContext::new(DigestType::Sha1);
+            let mut ctx = DigestBuilder::new(DigestType::Sha1);
             ctx.update(h.as_ref());
             ctx.update(salt.as_slice());
             h = ctx.finish();

@@ -5,7 +5,7 @@ use crate::base::rdata::ComposeRecordData;
 use crate::base::wire::{Compose, Composer};
 use crate::base::{CanonicalOrd, Name, Record, RecordData, ToName};
 use crate::crypto::common::{
-    AlgorithmError, Digest, DigestContext, DigestType, PublicKey,
+    AlgorithmError, Digest, DigestBuilder, DigestType, PublicKey,
 };
 use crate::dep::octseq::builder::with_infallible;
 use crate::rdata::{Dnskey, Rrsig};
@@ -81,9 +81,9 @@ where
         });
 
         let mut ctx = match algorithm {
-            DigestAlg::SHA1 => DigestContext::new(DigestType::Sha1),
-            DigestAlg::SHA256 => DigestContext::new(DigestType::Sha256),
-            DigestAlg::SHA384 => DigestContext::new(DigestType::Sha384),
+            DigestAlg::SHA1 => DigestBuilder::new(DigestType::Sha1),
+            DigestAlg::SHA256 => DigestBuilder::new(DigestType::Sha256),
+            DigestAlg::SHA384 => DigestBuilder::new(DigestType::Sha384),
             _ => {
                 return Err(AlgorithmError::Unsupported);
             }

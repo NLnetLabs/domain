@@ -109,13 +109,13 @@ impl fmt::Display for GenerateError {
 
 impl std::error::Error for GenerateError {}
 
-//----------- DigestContext --------------------------------------------------
+//----------- DigestBuilder --------------------------------------------------
 
-/// Context for computing a message digest.
-pub struct DigestContext(Hasher);
+/// Builder for computing a message digest.
+pub struct DigestBuilder(Hasher);
 
-impl DigestContext {
-    /// Create a new context for a specified digest type.
+impl DigestBuilder {
+    /// Create a new builder for a specified digest type.
     pub fn new(digest_type: DigestType) -> Self {
         Self(
             match digest_type {

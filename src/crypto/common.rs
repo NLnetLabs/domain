@@ -39,27 +39,27 @@ pub enum DigestType {
     Sha384,
 }
 
-//----------- DigestContext --------------------------------------------------
+//----------- DigestBuilder --------------------------------------------------
 
-/// Context for computing a message digest.
-pub enum DigestContext {
+/// Builder for computing a message digest.
+pub enum DigestBuilder {
     #[cfg(feature = "ring")]
     /// Use ring to compute the message digest.
-    Ring(ring::DigestContext),
+    Ring(ring::DigestBuilder),
     #[cfg(feature = "openssl")]
     /// Use openssl to compute the message digest.
-    Openssl(openssl::DigestContext),
+    Openssl(openssl::DigestBuilder),
 }
 
-impl DigestContext {
+impl DigestBuilder {
     #[allow(unreachable_code)]
     /// Create a new context for a specified digest type.
     pub fn new(digest_type: DigestType) -> Self {
         #[cfg(feature = "ring")]
-        return Self::Ring(ring::DigestContext::new(digest_type));
+        return Self::Ring(ring::DigestBuilder::new(digest_type));
 
         #[cfg(feature = "openssl")]
-        return Self::Openssl(openssl::DigestContext::new(digest_type));
+        return Self::Openssl(openssl::DigestBuilder::new(digest_type));
 
         #[cfg(not(any(feature = "ring", feature = "openssl")))]
         compile_error!("Either feature \"ring\" or \"openssl\" must be enabled for this crate.");
@@ -69,11 +69,11 @@ impl DigestContext {
     pub fn update(&mut self, data: &[u8]) {
         match self {
             #[cfg(feature = "ring")]
-            DigestContext::Ring(digest_context) => {
+            DigestBuilder::Ring(digest_context) => {
                 digest_context.update(data)
             }
             #[cfg(feature = "openssl")]
-            DigestContext::Openssl(digest_context) => {
+            DigestBuilder::Openssl(digest_context) => {
                 digest_context.update(data)
             }
         }
@@ -83,11 +83,11 @@ impl DigestContext {
     pub fn finish(self) -> Digest {
         match self {
             #[cfg(feature = "ring")]
-            DigestContext::Ring(digest_context) => {
+            DigestBuilder::Ring(digest_context) => {
                 Digest::Ring(digest_context.finish())
             }
             #[cfg(feature = "openssl")]
-            DigestContext::Openssl(digest_context) => {
+            DigestBuilder::Openssl(digest_context) => {
                 Digest::Openssl(digest_context.finish())
             }
         }
