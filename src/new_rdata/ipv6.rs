@@ -2,6 +2,7 @@
 //!
 //! See [RFC 3596](https://datatracker.ietf.org/doc/html/rfc3596).
 
+use core::cmp::Ordering;
 #[cfg(feature = "std")]
 use core::{fmt, str::FromStr};
 
@@ -13,6 +14,7 @@ use domain_macros::*;
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
     wire::AsBytes,
+    CanonicalRecordData,
 };
 
 //----------- Aaaa -----------------------------------------------------------
@@ -55,6 +57,14 @@ impl From<Ipv6Addr> for Aaaa {
 impl From<Aaaa> for Ipv6Addr {
     fn from(value: Aaaa) -> Self {
         Self::from(value.octets)
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for Aaaa {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.octets.cmp(&other.octets)
     }
 }
 

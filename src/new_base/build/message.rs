@@ -39,6 +39,7 @@ impl<'b, 'c> MessageBuilder<'b, 'c> {
     ///
     /// Panics if the buffer is less than 12 bytes long (which is the minimum
     /// possible size for a DNS message).
+    #[must_use]
     pub fn new(
         buffer: &'b mut [u8],
         context: &'c mut BuilderContext,
@@ -54,16 +55,19 @@ impl<'b, 'c> MessageBuilder<'b, 'c> {
 
 impl MessageBuilder<'_, '_> {
     /// The message header.
+    #[must_use]
     pub fn header(&self) -> &Header {
         &self.message.header
     }
 
     /// The message header, mutably.
+    #[must_use]
     pub fn header_mut(&mut self) -> &mut Header {
         &mut self.message.header
     }
 
     /// The message built thus far.
+    #[must_use]
     pub fn message(&self) -> &Message {
         self.message.slice_to(self.context.size)
     }
@@ -74,11 +78,13 @@ impl MessageBuilder<'_, '_> {
     ///
     /// The caller must not modify any compressed names among these bytes.
     /// This can invalidate name compression state.
+    #[must_use]
     pub unsafe fn message_mut(&mut self) -> &mut Message {
         self.message.slice_to_mut(self.context.size)
     }
 
     /// The builder context.
+    #[must_use]
     pub fn context(&self) -> &BuilderContext {
         self.context
     }
@@ -88,11 +94,16 @@ impl MessageBuilder<'_, '_> {
 
 impl<'b> MessageBuilder<'b, '_> {
     /// End the builder, returning the built message.
-    pub fn finish(self) -> &'b Message {
-        self.message.slice_to(self.context.size)
+    ///
+    /// The returned message is valid, but it can be modified by the caller
+    /// arbitrarily; avoid modifying the message beyond the header.
+    #[must_use]
+    pub fn finish(self) -> &'b mut Message {
+        self.message.slice_to_mut(self.context.size)
     }
 
     /// Reborrow the builder with a shorter lifetime.
+    #[must_use]
     pub fn reborrow(&mut self) -> MessageBuilder<'_, '_> {
         MessageBuilder {
             message: self.message,
@@ -129,12 +140,12 @@ impl<'b> MessageBuilder<'b, '_> {
     ///
     /// This will remove all message contents and mark it as truncated.
     pub fn truncate(&mut self) {
-        self.message.header.flags =
-            self.message.header.flags.set_truncated(true);
+        self.message.header.flags.set_truncated(true);
         *self.context = BuilderContext::default();
     }
 
     /// Obtain a [`Builder`].
+    #[must_use]
     pub(super) fn builder(&mut self, start: usize) -> Builder<'_> {
         debug_assert!(start <= self.context.size);
         unsafe {
@@ -317,7 +328,7 @@ impl<'b> MessageBuilder<'b, '_> {
 mod test {
     use crate::{
         new_base::{
-            build::{BuildIntoMessage, BuilderContext, MessageState},
+            build::{BuilderContext, MessageState},
             name::RevName,
             wire::U16,
             QClass, QType, Question, RClass, RType, Record, SectionCounts,
@@ -425,10 +436,15 @@ mod test {
 
             assert!(rb.delegate().append_bytes(&[0u8; 5]).is_err());
 
-            let rdata = A {
-                octets: [127, 0, 0, 1],
-            };
-            rdata.build_into_message(rb.delegate()).unwrap();
+            {
+                let mut builder = rb.delegate();
+                builder
+                    .append_built_bytes(&A {
+                        octets: [127, 0, 0, 1],
+                    })
+                    .unwrap();
+                builder.commit();
+            }
             assert_eq!(rb.rdata(), b"\x7F\x00\x00\x01");
         }
 

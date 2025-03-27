@@ -1,6 +1,6 @@
 //! DNS records.
 
-use core::{borrow::Borrow, fmt, ops::Deref};
+use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
@@ -74,7 +74,7 @@ where
         let (&ttl, rest) = <&TTL>::split_message_bytes(contents, rest)?;
         let rdata_start = rest;
         let (_, rest) =
-            <&SizePrefixed<[u8]>>::split_message_bytes(contents, rest)?;
+            <&SizePrefixed<U16, [u8]>>::split_message_bytes(contents, rest)?;
         let rdata =
             D::parse_record_data(&contents[..rest], rdata_start + 2, rtype)?;
 
@@ -113,7 +113,7 @@ where
         builder.append_bytes(self.rtype.as_bytes())?;
         builder.append_bytes(self.rclass.as_bytes())?;
         builder.append_bytes(self.ttl.as_bytes())?;
-        SizePrefixed::new(&self.rdata)
+        SizePrefixed::<U16, _>::new(&self.rdata)
             .build_into_message(builder.delegate())?;
         Ok(builder.commit())
     }
@@ -131,7 +131,7 @@ where
         let (rtype, rest) = RType::split_bytes(rest)?;
         let (rclass, rest) = RClass::split_bytes(rest)?;
         let (ttl, rest) = TTL::split_bytes(rest)?;
-        let (rdata, rest) = <&SizePrefixed<[u8]>>::split_bytes(rest)?;
+        let (rdata, rest) = <&SizePrefixed<U16, [u8]>>::split_bytes(rest)?;
         let rdata = D::parse_record_data_bytes(rdata, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
@@ -166,7 +166,8 @@ where
         bytes = self.rtype.as_bytes().build_bytes(bytes)?;
         bytes = self.rclass.as_bytes().build_bytes(bytes)?;
         bytes = self.ttl.as_bytes().build_bytes(bytes)?;
-        bytes = SizePrefixed::new(&self.rdata).build_bytes(bytes)?;
+        bytes =
+            SizePrefixed::<U16, _>::new(&self.rdata).build_bytes(bytes)?;
 
         Ok(bytes)
     }
@@ -237,6 +238,89 @@ impl RType {
 
     /// The type of an [`Opt`](crate::new_rdata::Opt) record.
     pub const OPT: Self = Self::new(41);
+
+    /// The type of a [`Ds`](crate::new_rdata::Ds) record.
+    pub const DS: Self = Self::new(43);
+
+    /// The type of an [`RRSig`](crate::new_rdata::RRSig) record.
+    pub const RRSIG: Self = Self::new(46);
+
+    /// The type of an [`NSec`](crate::new_rdata::NSec) record.
+    pub const NSEC: Self = Self::new(47);
+
+    /// The type of a [`DNSKey`](crate::new_rdata::DNSKey) record.
+    pub const DNSKEY: Self = Self::new(48);
+
+    /// The type of an [`NSec3`](crate::new_rdata::NSec3) record.
+    pub const NSEC3: Self = Self::new(50);
+
+    /// The type of an [`NSec3Param`](crate::new_rdata::NSec3Param) record.
+    pub const NSEC3PARAM: Self = Self::new(51);
+}
+
+//--- Interaction
+
+impl RType {
+    /// Whether this type uses lowercased domain names in canonical form.
+    ///
+    /// As specified by [RFC 4034, section 6.2] (and updated by [RFC 6840,
+    /// section 5.1]), the canonical form of the record data of any of the
+    /// following types will have its domain names lowercased:
+    ///
+    /// - [`NS`](RType::NS)
+    /// - `MD` (obsolete)
+    /// - `MF` (obsolete)
+    /// - [`CNAME`](RType::CNAME)
+    /// - [`SOA`](RType::SOA)
+    /// - `MB`
+    /// - `MG`
+    /// - `MR`
+    /// - [`PTR`](RType::PTR)
+    /// - `MINFO`
+    /// - [`MX`](RType::MX)
+    /// - `RP`
+    /// - `AFSDB`
+    /// - `RT`
+    /// - `SIG` (obsolete)
+    /// - `PX`
+    /// - `NXT` (obsolete)
+    /// - `NAPTR`
+    /// - `KX`
+    /// - `SRV`
+    /// - `DNAME`
+    /// - `A6` (obsolete)
+    /// - [`RRSIG`](RType::RRSIG)
+    ///
+    /// [RFC 4034, section 6.2]: https://datatracker.ietf.org/doc/html/rfc4034#section-6.2
+    /// [RFC 6840, section 5.1]: https://datatracker.ietf.org/doc/html/rfc6840#section-5.1
+    pub const fn uses_lowercase_canonical_form(&self) -> bool {
+        // TODO: Update this as more types are added.
+        matches!(
+            *self,
+            Self::NS
+                | Self::CNAME
+                | Self::SOA
+                | Self::PTR
+                | Self::MX
+                | Self::RRSIG
+        )
+    }
+}
+
+//--- Conversion to and from 'u16'
+
+impl From<u16> for RType {
+    fn from(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+}
+
+impl From<RType> for u16 {
+    fn from(value: RType) -> Self {
+        value.code.get()
+    }
 }
 
 //--- Formatting
@@ -255,6 +339,12 @@ impl fmt::Debug for RType {
             Self::TXT => "RType::TXT",
             Self::AAAA => "RType::AAAA",
             Self::OPT => "RType::OPT",
+            Self::DS => "RType::DS",
+            Self::RRSIG => "RType::RRSIG",
+            Self::NSEC => "RType::NSEC",
+            Self::DNSKEY => "RType::DNSKEY",
+            Self::NSEC3 => "RType::NSEC3",
+            Self::NSEC3PARAM => "RType::NSEC3PARAM",
             _ => return write!(f, "RType({})", self.code),
         })
     }
@@ -378,6 +468,37 @@ pub trait ParseRecordData<'a>: Sized {
         bytes: &'a [u8],
         rtype: RType,
     ) -> Result<Self, ParseError>;
+}
+
+//----------- CanonicalRecordData --------------------------------------------
+
+/// DNSSEC-conformant operations for resource records.
+///
+/// As specified by [RFC 4034, section 6], there is a "canonical form" for
+/// DNS resource records, used for ordering records and computing signatures.
+/// This trait defines operations for working with the canonical form.
+///
+/// [RFC 4034, section 6]: https://datatracker.ietf.org/doc/html/rfc4034#section-6
+pub trait CanonicalRecordData: BuildBytes {
+    /// Serialize record data in the canonical form.
+    ///
+    /// This is subtly different from [`BuildBytes`]: for certain special
+    /// record data types, it causes embedded domain names to be lowercased.
+    /// By default, it will fall back to [`BuildBytes`].
+    fn build_canonical_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.build_bytes(bytes)
+    }
+
+    /// Compare record data in the canonical form.
+    ///
+    /// This is equivalent to serializing both record data instances using
+    /// [`build_canonical_bytes()`] and comparing the resulting byte strings.
+    ///
+    /// [`build_canonical_bytes()`]: Self::build_canonical_bytes()
+    fn cmp_canonical(&self, other: &Self) -> Ordering;
 }
 
 //----------- UnparsedRecordData ---------------------------------------------

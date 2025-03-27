@@ -9,12 +9,17 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use domain_macros::AsBytes;
+use domain_macros::{AsBytes, UnsizedClone};
 
-use crate::new_base::{
-    build::{BuildIntoMessage, BuildResult, Builder},
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
+use crate::{
+    new_base::{
+        build::{BuildIntoMessage, BuildResult, Builder},
+        parse::{ParseMessageBytes, SplitMessageBytes},
+        wire::{
+            BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
+        },
+    },
+    utils::CloneFrom,
 };
 
 //----------- Label ----------------------------------------------------------
@@ -22,7 +27,7 @@ use crate::new_base::{
 /// A label in a domain name.
 ///
 /// A label contains up to 63 bytes of arbitrary data.
-#[derive(AsBytes)]
+#[derive(AsBytes, UnsizedClone)]
 #[repr(transparent)]
 pub struct Label([u8]);
 
@@ -297,6 +302,12 @@ impl LabelBuf {
         let mut data = [0u8; 63];
         data[..size as usize].copy_from_slice(label.as_bytes());
         Self { size, data }
+    }
+}
+
+impl CloneFrom for LabelBuf {
+    fn clone_from(value: &Self::Target) -> Self {
+        Self::copy_from(value)
     }
 }
 

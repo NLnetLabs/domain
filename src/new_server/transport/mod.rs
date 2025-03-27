@@ -56,7 +56,8 @@ pub async fn serve_udp(
                 let response = Message::parse_bytes_by_mut(&mut buffer)
                     .expect("Any 12-byte or larger buffer is a 'Message'");
                 response.header.id = message.header.id;
-                response.header.flags = message.header.flags.respond(1);
+                response.header.flags = message.header.flags;
+                response.header.flags.respond(1);
                 let response = response.slice_to(0);
                 let _ = self.socket.send_to(response.as_bytes(), peer).await;
                 return;

@@ -276,21 +276,24 @@ impl<'a> ParsedMessage<'a> {
         for question in &self.questions {
             builder
                 .build_question(question)?
-                .expect("No answers, authorities, or additionals are built");
+                .expect("No answers, authorities, or additionals are built")
+                .commit();
         }
 
         // Build the answer section.
         for answer in &self.answers {
             builder
                 .build_answer(answer)?
-                .expect("No authorities, or additionals are built");
+                .expect("No authorities, or additionals are built")
+                .commit();
         }
 
         // Build the authority section.
         for authority in &self.authorities {
             builder
                 .build_authority(authority)?
-                .expect("No additionals are built");
+                .expect("No additionals are built")
+                .commit();
         }
 
         // Build the additional section.
@@ -317,7 +320,7 @@ impl<'a> ParsedMessage<'a> {
                 continue;
             }
 
-            builder.build_additional(additional)?;
+            builder.build_additional(additional)?.commit();
         }
 
         debug_assert!(
@@ -363,7 +366,8 @@ impl ParsedMessage<'_> {
     ) {
         self.reset();
         self.id = request.id;
-        self.flags = request.flags.respond(code.header_bits());
+        self.flags = request.flags;
+        self.flags.respond(code.header_bits());
 
         if let Some(edns) = request
             .additional

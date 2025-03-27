@@ -177,8 +177,7 @@ impl CookieLayer {
             exchange.respond(ResponseCode::BadCookie);
         } else {
             exchange.respond(ResponseCode::Refused);
-            exchange.response.flags =
-                exchange.response.flags.set_truncated(true);
+            exchange.response.flags.set_truncated(true);
         }
         exchange
             .response

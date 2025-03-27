@@ -29,6 +29,15 @@ impl<T: ?Sized + BuildBytes> BuildBytes for &T {
     }
 }
 
+impl<T: ?Sized + BuildBytes> BuildBytes for &mut T {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        T::build_bytes(*self, bytes)
+    }
+}
+
 impl BuildBytes for u8 {
     fn build_bytes<'b>(
         &self,

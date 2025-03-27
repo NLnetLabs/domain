@@ -125,7 +125,14 @@ impl fmt::Display for ClientCookie {
 
 /// A DNS cookie.
 #[derive(
-    Debug, PartialEq, Eq, Hash, AsBytes, BuildBytes, ParseBytesByRef,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    AsBytes,
+    BuildBytes,
+    ParseBytesByRef,
+    UnsizedClone,
 )]
 #[repr(C)]
 pub struct Cookie {

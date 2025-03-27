@@ -55,11 +55,12 @@ tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-fil
 default     = ["std", "rand"]
 
 # Support for libraries
+bumpalo     = ["dep:bumpalo", "std"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
-std         = ["dep:hashbrown", "bytes?/std", "octseq/std", "time/std"]
+std         = ["dep:hashbrown", "bumpalo?/std", "bytes?/std", "octseq/std", "time/std"]
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
@@ -89,7 +90,7 @@ arbitrary = ["dep:arbitrary"]
 [dev-dependencies]
 itertools = "0.13.0"
 lazy_static        = { version = "1.4.0" }
-rstest             = "0.19.0"
+rstest             = "0.23.0"
 rustls-pemfile     = { version = "2.1.2" }
 serde_test         = "1.0.130"
 serde_json         = "1.0.113"

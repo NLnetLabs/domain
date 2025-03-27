@@ -45,7 +45,7 @@ pub struct EdnsRecord<'a> {
     pub flags: EdnsFlags,
 
     /// Extended DNS options.
-    pub options: SizePrefixed<&'a Opt>,
+    pub options: SizePrefixed<U16, &'a Opt>,
 }
 
 //--- Converting to and from 'Record'
@@ -125,7 +125,7 @@ impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
         let (&ext_rcode, rest) = <&u8>::split_bytes(rest)?;
         let (&version, rest) = <&u8>::split_bytes(rest)?;
         let (&flags, rest) = <&EdnsFlags>::split_bytes(rest)?;
-        let (options, rest) = <SizePrefixed<&Opt>>::split_bytes(rest)?;
+        let (options, rest) = <SizePrefixed<U16, &Opt>>::split_bytes(rest)?;
 
         Ok((
             Self {
@@ -282,6 +282,33 @@ impl EdnsOption<'_> {
             Self::Unknown(code, _) => *code,
         }
     }
+
+    /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
+    #[cfg(feature = "bumpalo")]
+    pub fn clone_to_bump<'r>(
+        &self,
+        bump: &'r bumpalo::Bump,
+    ) -> EdnsOption<'r> {
+        use crate::utils::clone_to_bump;
+
+        match *self {
+            EdnsOption::ClientCookie(&client_cookie) => {
+                EdnsOption::ClientCookie(bump.alloc(client_cookie))
+            }
+            EdnsOption::Cookie(cookie) => {
+                EdnsOption::Cookie(clone_to_bump(cookie, bump))
+            }
+            EdnsOption::ExtError(ext_error) => {
+                EdnsOption::ExtError(clone_to_bump(ext_error, bump))
+            }
+            EdnsOption::Unknown(option_code, unknown_option) => {
+                EdnsOption::Unknown(
+                    option_code,
+                    clone_to_bump(unknown_option, bump),
+                )
+            }
+        }
+    }
 }
 
 //--- Parsing from bytes
@@ -298,7 +325,7 @@ impl<'b> ParseBytes<'b> for EdnsOption<'b> {
 impl<'b> SplitBytes<'b> for EdnsOption<'b> {
     fn split_bytes(bytes: &'b [u8]) -> Result<(Self, &'b [u8]), ParseError> {
         let (code, rest) = OptionCode::split_bytes(bytes)?;
-        let (data, rest) = <&SizePrefixed<[u8]>>::split_bytes(rest)?;
+        let (data, rest) = <&SizePrefixed<U16, [u8]>>::split_bytes(rest)?;
 
         let this = match code {
             OptionCode::COOKIE => match data.len() {
@@ -335,7 +362,7 @@ impl BuildBytes for EdnsOption<'_> {
             Self::ExtError(this) => this.as_bytes(),
             Self::Unknown(_, this) => this.as_bytes(),
         };
-        bytes = SizePrefixed::new(data).build_bytes(bytes)?;
+        bytes = SizePrefixed::<U16, _>::new(data).build_bytes(bytes)?;
 
         Ok(bytes)
     }
@@ -401,7 +428,7 @@ impl fmt::Debug for OptionCode {
 //----------- UnknownOption --------------------------------------------------
 
 /// Data for an unknown Extended DNS option.
-#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone)]
 #[repr(transparent)]
 pub struct UnknownOption {
     /// The unparsed option data.

@@ -9,7 +9,7 @@ use super::wire::{AsBytes, ParseBytesByRef, U16};
 //----------- Message --------------------------------------------------------
 
 /// A DNS message.
-#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone)]
 #[repr(C, packed)]
 pub struct Message {
     /// The message header.
@@ -150,7 +150,7 @@ impl HeaderFlags {
     }
 
     /// Set the specified flag bit.
-    fn set_flag(mut self, pos: u32, value: bool) -> Self {
+    fn set_flag(&mut self, pos: u32, value: bool) -> &mut Self {
         self.inner &= !(1 << pos);
         self.inner |= (value as u16) << pos;
         self
@@ -182,7 +182,7 @@ impl HeaderFlags {
     }
 
     /// Construct a query.
-    pub fn query(mut self, opcode: u8) -> Self {
+    pub fn query(&mut self, opcode: u8) -> &mut Self {
         assert!(opcode < 16);
         self.inner &= !(0xF << 11);
         self.inner |= (opcode as u16) << 11;
@@ -190,7 +190,7 @@ impl HeaderFlags {
     }
 
     /// Construct a response.
-    pub fn respond(mut self, rcode: u8) -> Self {
+    pub fn respond(&mut self, rcode: u8) -> &mut Self {
         assert!(rcode < 16);
         self.inner &= !0xF;
         self.inner |= rcode as u16;
@@ -203,7 +203,7 @@ impl HeaderFlags {
     }
 
     /// Mark this as an authoritative answer.
-    pub fn set_authoritative(self, value: bool) -> Self {
+    pub fn set_authoritative(&mut self, value: bool) -> &mut Self {
         self.set_flag(10, value)
     }
 
@@ -213,7 +213,7 @@ impl HeaderFlags {
     }
 
     /// Mark this message as truncated.
-    pub fn set_truncated(self, value: bool) -> Self {
+    pub fn set_truncated(&mut self, value: bool) -> &mut Self {
         self.set_flag(9, value)
     }
 
@@ -223,7 +223,7 @@ impl HeaderFlags {
     }
 
     /// Direct the server to query recursively.
-    pub fn request_recursion(self, value: bool) -> Self {
+    pub fn request_recursion(&mut self, value: bool) -> &mut Self {
         self.set_flag(8, value)
     }
 
@@ -233,7 +233,7 @@ impl HeaderFlags {
     }
 
     /// Indicate support for recursive queries.
-    pub fn support_recursion(self, value: bool) -> Self {
+    pub fn support_recursion(&mut self, value: bool) -> &mut Self {
         self.set_flag(7, value)
     }
 }

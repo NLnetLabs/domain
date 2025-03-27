@@ -8,10 +8,17 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use crate::new_base::{
-    build::{self, BuildIntoMessage, BuildResult},
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
+use domain_macros::UnsizedClone;
+
+use crate::{
+    new_base::{
+        build::{self, BuildIntoMessage, BuildResult},
+        parse::{ParseMessageBytes, SplitMessageBytes},
+        wire::{
+            BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
+        },
+    },
+    utils::CloneFrom,
 };
 
 use super::LabelIter;
@@ -25,6 +32,7 @@ use super::LabelIter;
 /// use, making many common operations (e.g. comparing and ordering domain
 /// names) more computationally expensive.  A [`RevName`] stores the labels in
 /// reversed order for more efficient use.
+#[derive(UnsizedClone)]
 #[repr(transparent)]
 pub struct RevName([u8]);
 
@@ -229,7 +237,7 @@ pub struct RevNameBuf {
 
 impl RevNameBuf {
     /// Construct an empty, invalid buffer.
-    fn empty() -> Self {
+    const fn empty() -> Self {
         Self {
             offset: 255,
             buffer: [0; 255],
@@ -242,6 +250,12 @@ impl RevNameBuf {
         let mut buffer = [0u8; 255];
         buffer[offset as usize..].copy_from_slice(name.as_bytes());
         Self { offset, buffer }
+    }
+}
+
+impl CloneFrom for RevNameBuf {
+    fn clone_from(value: &Self::Target) -> Self {
+        Self::copy_from(value)
     }
 }
 

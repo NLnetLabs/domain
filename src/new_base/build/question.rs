@@ -17,6 +17,7 @@ use super::{BuildCommitted, BuildIntoMessage, MessageBuilder, MessageState};
 /// appended to a message (using a [`MessageBuilder`]).  It can be used to
 /// inspect the question's fields, to replace it with a new question, and to
 /// commit (finish building) or cancel (remove) the question.
+#[must_use = "A 'QuestionBuilder' must be explicitly committed, else all added content will be lost"]
 pub struct QuestionBuilder<'b> {
     /// The underlying message builder.
     builder: MessageBuilder<'b, 'b>,

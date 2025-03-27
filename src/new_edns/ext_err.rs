@@ -11,7 +11,7 @@ use crate::new_base::wire::U16;
 //----------- ExtError -------------------------------------------------------
 
 /// An extended DNS error.
-#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone)]
 #[repr(C)]
 pub struct ExtError {
     /// The error code.

@@ -396,6 +396,19 @@ impl Builder<'_> {
         self.append_with(bytes.len(), |buffer| buffer.copy_from_slice(bytes))
     }
 
+    /// Serialize an object into bytes and append it.
+    ///
+    /// No name compression will be performed.
+    pub fn append_built_bytes(
+        &mut self,
+        object: &impl BuildBytes,
+    ) -> Result<(), TruncationError> {
+        let rest = object.build_bytes(self.uninitialized())?.len();
+        let appended = self.uninitialized().len() - rest;
+        self.mark_appended(appended);
+        Ok(())
+    }
+
     /// Compress and append a domain name.
     pub fn append_name(
         &mut self,

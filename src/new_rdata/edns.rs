@@ -2,14 +2,14 @@
 //!
 //! See [RFC 6891](https://datatracker.ietf.org/doc/html/rfc6891).
 
-use core::{fmt, iter::FusedIterator};
+use core::{cmp::Ordering, fmt, iter::FusedIterator};
 
 use domain_macros::*;
 
 use crate::{
     new_base::{
-        build::{self, BuildIntoMessage, BuildResult},
         wire::{ParseError, SplitBytes},
+        CanonicalRecordData,
     },
     new_edns::EdnsOption,
 };
@@ -18,7 +18,15 @@ use crate::{
 
 /// Extended DNS options.
 #[derive(
-    PartialEq, Eq, PartialOrd, Ord, Hash, AsBytes, BuildBytes, ParseBytesByRef,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    AsBytes,
+    BuildBytes,
+    ParseBytesByRef,
+    UnsizedClone,
 )]
 #[repr(transparent)]
 pub struct Opt {
@@ -31,7 +39,7 @@ pub struct Opt {
 impl Opt {
     /// Empty OPT record data.
     pub const EMPTY: &'static Self =
-        unsafe { core::mem::transmute(&[] as &'static [u8]) };
+        unsafe { core::mem::transmute(&[] as &[u8]) };
 }
 
 //--- Inspection
@@ -43,21 +51,19 @@ impl Opt {
     }
 }
 
+//--- Canonical operations
+
+impl CanonicalRecordData for Opt {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.contents.cmp(&other.contents)
+    }
+}
+
 //--- Formatting
 
 impl fmt::Debug for Opt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Opt").field(&self.options()).finish()
-    }
-}
-
-// TODO: Formatting.
-
-//--- Building into DNS messages
-
-impl BuildIntoMessage for Opt {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.contents.build_into_message(builder)
     }
 }
 
