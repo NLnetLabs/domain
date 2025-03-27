@@ -85,11 +85,11 @@
 //! The module also support computing message digests using the
 #![cfg_attr(
     any(feature = "ring", feature = "openssl"),
-    doc = "[`common::DigestContext`]"
+    doc = "[`common::DigestBuilder`]"
 )]
 #![cfg_attr(
     not(any(feature = "ring", feature = "openssl")),
-    doc = "`common::DigestContext`"
+    doc = "`common::DigestBuilder`"
 )]
 //! type.
 //!
@@ -159,10 +159,10 @@
 //! Given some data compute a message digest.
 //!
 //! ```
-//! use domain::crypto::common::{DigestContext, DigestType};
+//! use domain::crypto::common::{DigestBuilder, DigestType};
 //!
 //! let input = "Hello World!";
-//! let mut ctx = DigestContext::new(DigestType::Sha256);
+//! let mut ctx = DigestBuilder::new(DigestType::Sha256);
 //! ctx.update(input.as_bytes());
 //! ctx.finish().as_ref();
 //! ```
