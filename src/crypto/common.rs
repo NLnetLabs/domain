@@ -43,17 +43,17 @@ pub enum DigestType {
 
 /// Builder for computing a message digest.
 pub enum DigestBuilder {
-    #[cfg(feature = "ring")]
     /// Use ring to compute the message digest.
+    #[cfg(feature = "ring")]
     Ring(ring::DigestBuilder),
-    #[cfg(feature = "openssl")]
     /// Use openssl to compute the message digest.
+    #[cfg(feature = "openssl")]
     Openssl(openssl::DigestBuilder),
 }
 
 impl DigestBuilder {
-    #[allow(unreachable_code)]
     /// Create a new context for a specified digest type.
+    #[allow(unreachable_code)]
     pub fn new(digest_type: DigestType) -> Self {
         #[cfg(feature = "ring")]
         return Self::Ring(ring::DigestBuilder::new(digest_type));
@@ -98,11 +98,11 @@ impl DigestBuilder {
 
 /// A message digest.
 pub enum Digest {
-    #[cfg(feature = "ring")]
     /// A message digest computed using ring.
+    #[cfg(feature = "ring")]
     Ring(ring::Digest),
-    #[cfg(feature = "openssl")]
     /// A message digest computed using openssl.
+    #[cfg(feature = "openssl")]
     Openssl(openssl::Digest),
 }
 
@@ -121,18 +121,18 @@ impl AsRef<[u8]> for Digest {
 
 /// A public key for verifying a signature.
 pub enum PublicKey {
-    #[cfg(feature = "ring")]
     /// A public key implemented using ring.
+    #[cfg(feature = "ring")]
     Ring(ring::PublicKey),
 
-    #[cfg(feature = "openssl")]
     /// A public key implemented using openssl.
+    #[cfg(feature = "openssl")]
     Openssl(openssl::PublicKey),
 }
 
 impl PublicKey {
-    #[allow(unreachable_code)]
     /// Create a public key from a [`Dnskey`].
+    #[allow(unreachable_code)]
     pub fn from_dnskey(
         dnskey: &Dnskey<impl AsRef<[u8]>>,
     ) -> Result<Self, AlgorithmError> {
