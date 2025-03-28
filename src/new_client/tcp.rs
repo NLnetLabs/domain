@@ -77,12 +77,15 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
+use futures_util::future::{select, Either};
+use futures_util::pin_mut;
 use slab::Slab;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
-use tokio::sync::oneshot::{self, Sender};
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
+use tokio::sync::oneshot;
+use tokio::sync::{Mutex, Notify, Semaphore};
+use tokio::task::{yield_now, JoinHandle};
+use tokio::time::timeout;
 
 use crate::new_base::build::BuilderContext;
 use crate::new_base::wire::{AsBytes, ParseBytesByRef};
@@ -95,13 +98,24 @@ use super::{Client, ClientError, SocketError};
 #[derive(Clone, Debug)]
 pub struct TcpConfig {
     /// Response timeout currently in effect.
-    response_timeout: Duration,
+    pub response_timeout: Duration,
+
+    /// Time until the connection will close if there are no requests waiting
+    /// for a response.
+    ///
+    /// Setting this to a low value might leads to the connection being closed
+    /// before the first request is sent.
+    ///
+    /// Setting this to `None` will close the connection when the
+    /// client and all requests are dropped.
+    pub idle_timeout: Option<Duration>,
 }
 
 impl Default for TcpConfig {
     fn default() -> Self {
         Self {
             response_timeout: Duration::from_secs(19),
+            idle_timeout: None,
         }
     }
 }
@@ -114,26 +128,45 @@ impl<T> Drop for AbortJoinHandle<T> {
     }
 }
 
+pub struct TcpClientState {
+    // Used to track the current amount of active requests
+    request_count: Semaphore,
+    // Used to notify the background of a new request
+    background_notify: Notify,
+    // Used to give out new ids and create connections from background to
+    // requests
+    ids: Mutex<Slab<oneshot::Sender<Result<Vec<u8>, ClientError>>>>,
+}
+
 pub struct TcpClient {
     /// Ensure that the read loop lives as long as the client
     _read_loop: AbortJoinHandle<Infallible>,
     write: Mutex<WriteHalf<TcpStream>>,
-    ids: Arc<Mutex<Slab<oneshot::Sender<Result<Vec<u8>, ClientError>>>>>,
     config: TcpConfig,
+    state: Arc<TcpClientState>,
 }
 
 impl TcpClient {
     pub fn new(stream: TcpStream, config: TcpConfig) -> Self {
         let (read, write) = tokio::io::split(stream);
-        let ids = Arc::new(Mutex::default());
-        let read_loop =
-            AbortJoinHandle(tokio::spawn(read_loop(read, ids.clone())));
+
+        let state = Arc::new(TcpClientState {
+            request_count: Semaphore::new(Semaphore::MAX_PERMITS),
+            background_notify: Notify::new(),
+            ids: Default::default(),
+        });
+
+        let read_loop = AbortJoinHandle(tokio::spawn(read_loop(
+            read,
+            config.idle_timeout,
+            state.clone(),
+        )));
 
         Self {
             _read_loop: read_loop,
             write: write.into(),
-            ids,
             config,
+            state,
         }
     }
 }
@@ -143,6 +176,15 @@ impl Client for TcpClient {
         &self,
         exchange: &mut Exchange<'a>,
     ) -> Result<(), ClientError> {
+        let _permit = self
+            .state
+            .request_count
+            .acquire()
+            .await
+            .map_err(|_| ClientError::Closed);
+
+        self.state.background_notify.notify_one();
+
         // Multiple requests can be multiplexed over the same TcpStream.
         // Therefore, the requests are read by a background task and then
         // distributed. This background task will get dropped automatically
@@ -153,7 +195,7 @@ impl Client for TcpClient {
 
         // We allocate the space for the maximum DNS message size and 2
         // additional bytes for the shim. We start writing the message with
-        // an offset of 2.
+        // an offset of 2
         let mut buffer = vec![0u8; 65536 + 2];
         let mut context = BuilderContext::default();
         let mut request_builder = exchange
@@ -163,7 +205,7 @@ impl Client for TcpClient {
 
         let (tx, rx) = oneshot::channel();
         let message_id = {
-            let mut ids = self.ids.lock().await;
+            let mut ids = self.state.ids.lock().await;
             let message_id = ids.insert(tx);
 
             // Slab tries to keep ids as small as possible, so if we get an
@@ -238,13 +280,14 @@ impl TcpClient {
 /// Function to read messages for a TcpStream and dispatch them
 async fn read_loop(
     reader: ReadHalf<TcpStream>,
-    ids: Arc<Mutex<Slab<Sender<Result<Vec<u8>, ClientError>>>>>,
+    idle_timeout: Option<Duration>,
+    state: Arc<TcpClientState>,
 ) -> Infallible {
-    let error = read_loop_inner(reader, ids.clone()).await;
+    let error = read_loop_inner(reader, idle_timeout, &state).await;
 
     // Loop to notify all connections of the broken state
     loop {
-        let mut ids = ids.lock().await;
+        let mut ids = state.ids.lock().await;
         for recv_tx in ids.drain() {
             let _ = recv_tx.send(Err(error.clone()));
         }
@@ -253,12 +296,29 @@ async fn read_loop(
 
 async fn read_loop_inner(
     mut reader: ReadHalf<TcpStream>,
-    ids: Arc<Mutex<Slab<Sender<Result<Vec<u8>, ClientError>>>>>,
+    idle_timeout: Option<Duration>,
+    state: &TcpClientState,
 ) -> ClientError {
     let mut buf = Vec::new();
 
     loop {
-        if let Err(err) = read_response(&mut buf, &mut reader).await {
+        // Read a response, possibly with a timeout
+        let read_fut = read_response(&mut buf, &mut reader);
+        let read_res = if let Some(idle_timeout) = idle_timeout {
+            let timer_fut = idle_timer(state, idle_timeout);
+            pin_mut!(read_fut);
+            pin_mut!(timer_fut);
+            match select(read_fut, timer_fut).await {
+                Either::Left((read_res, _)) => read_res,
+                Either::Right((_, _)) => {
+                    return ClientError::Closed;
+                }
+            }
+        } else {
+            read_fut.await
+        };
+
+        if let Err(err) = read_res {
             return ClientError::Socket(err);
         }
 
@@ -271,7 +331,8 @@ async fn read_loop_inner(
 
         // If we get a message with an id that's not in the slab, then the
         // other side of the connection is broken.
-        let Some(recv_tx) = ids.lock().await.try_remove(recv_id as usize)
+        let Some(recv_tx) =
+            state.ids.lock().await.try_remove(recv_id as usize)
         else {
             return ClientError::Broken;
         };
@@ -280,6 +341,22 @@ async fn read_loop_inner(
         // other reasons) after we have removed the id from the slab.
         // So, we ignore this error.
         let _ = recv_tx.send(Ok(mem::take(&mut buf)));
+    }
+}
+
+/// Start a future that checks whether the connection has been idle
+async fn idle_timer(state: &TcpClientState, idle_timeout: Duration) {
+    loop {
+        if state.request_count.available_permits() == Semaphore::MAX_PERMITS {
+            state.background_notify.notified().await;
+            if timeout(idle_timeout, state.background_notify.notified())
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+        yield_now().await
     }
 }
 

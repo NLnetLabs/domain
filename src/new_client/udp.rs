@@ -51,7 +51,8 @@ use core::net::SocketAddr;
 use core::time::Duration;
 use std::io;
 
-use tokio::{net::UdpSocket, sync::Semaphore};
+use tokio::net::UdpSocket;
+use tokio::sync::Semaphore;
 use tracing::trace;
 
 use crate::new_base::build::BuilderContext;
@@ -63,11 +64,11 @@ use super::{Client, ClientError, SocketError};
 
 #[derive(Clone, Debug)]
 pub struct UdpConfig {
-    max_parallel: usize,
-    read_timeout: Duration,
-    max_retries: u8,
-    udp_payload_size: Option<u16>,
-    recv_size: usize,
+    pub max_parallel: usize,
+    pub read_timeout: Duration,
+    pub max_retries: u8,
+    pub udp_payload_size: Option<u16>,
+    pub recv_size: usize,
 }
 
 impl Default for UdpConfig {
@@ -168,13 +169,15 @@ pub async fn send_udp_request<'a>(
     addr: SocketAddr,
     timeout: Duration,
 ) -> Result<&'a Message, SocketError> {
-    let sock = if addr.is_ipv4() {
-        UdpSocket::bind(SocketAddr::from(([0u8; 4], 0)))
+    let sock_addr = if addr.is_ipv4() {
+        SocketAddr::from(([0u8; 4], 0))
     } else {
-        UdpSocket::bind(SocketAddr::from(([0u16; 8], 0)))
-    }
-    .await
-    .unwrap();
+        SocketAddr::from(([0u16; 8], 0))
+    };
+
+    let sock = UdpSocket::bind(sock_addr)
+        .await
+        .map_err(|e| SocketError::Bind(e.kind()))?;
 
     sock.connect(addr)
         .await

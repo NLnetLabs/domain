@@ -16,6 +16,7 @@ pub trait Client {
 
 #[derive(Clone, Debug)]
 pub enum SocketError {
+    Bind(io::ErrorKind),
     Connect(io::ErrorKind),
     Send(io::ErrorKind),
     Receive(io::ErrorKind),
@@ -37,6 +38,10 @@ pub enum ClientError {
     Bug,
 
     Broken,
+
+    Closed,
+
+    TimedOut,
 }
 
 impl From<SocketError> for ClientError {

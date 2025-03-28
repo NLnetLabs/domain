@@ -46,6 +46,29 @@ async fn main() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     let n = metrics.num_alive_tasks();
     println!("Runtime has {} alive tasks", n);
+
+    println!("\n=== TCP WITH TIMEOUT ===");
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let client = TcpClient::new(
+        stream,
+        TcpConfig {
+            idle_timeout: Some(Duration::from_millis(500)),
+            ..Default::default()
+        },
+    );
+
+    let res = join!(
+        send_request(example, &client),
+        send_request(nlnetlabs, &client),
+    );
+    println!("{}\n", res.0);
+    println!("{}\n", res.1);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let res = send_request(google, &client).await;
+    println!("{res}\n");
+
+    drop(client);
 }
 
 async fn send_request(name: &[u8], client: &impl Client) -> String {
@@ -60,8 +83,8 @@ async fn send_request(name: &[u8], client: &impl Client) -> String {
     let mut exchange = Exchange::new(&mut bump);
     exchange.request = request;
 
-    client.request(&mut exchange).await.unwrap();
-
-    // TODO: Nicer output format
-    format!("{:?}", exchange.response)
+    match client.request(&mut exchange).await {
+        Ok(()) => format!("{:?}", exchange.response),
+        Err(err) => format!("Error: {:?}", err),
+    }
 }
