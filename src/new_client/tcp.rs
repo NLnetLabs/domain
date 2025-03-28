@@ -136,12 +136,12 @@ pub struct TcpClientState {
     // Used to give out new ids and create connections from background to
     // requests
     ids: Mutex<Slab<oneshot::Sender<Result<Vec<u8>, ClientError>>>>,
+    write: Mutex<WriteHalf<TcpStream>>,
 }
 
 pub struct TcpClient {
     /// Ensure that the read loop lives as long as the client
     _read_loop: AbortJoinHandle<Infallible>,
-    write: Mutex<WriteHalf<TcpStream>>,
     config: TcpConfig,
     state: Arc<TcpClientState>,
 }
@@ -154,6 +154,7 @@ impl TcpClient {
             request_count: Semaphore::new(Semaphore::MAX_PERMITS),
             background_notify: Notify::new(),
             ids: Default::default(),
+            write: Mutex::new(write),
         });
 
         let read_loop = AbortJoinHandle(tokio::spawn(read_loop(
@@ -164,7 +165,6 @@ impl TcpClient {
 
         Self {
             _read_loop: read_loop,
-            write: write.into(),
             config,
             state,
         }
@@ -181,7 +181,7 @@ impl Client for TcpClient {
             .request_count
             .acquire()
             .await
-            .map_err(|_| ClientError::Closed);
+            .map_err(|_| ClientError::Closed)?;
 
         self.state.background_notify.notify_one();
 
@@ -228,7 +228,7 @@ impl Client for TcpClient {
 
         // Temporary scope to drop the lock on write early
         {
-            let mut write = self.write.lock().await;
+            let mut write = self.state.write.lock().await;
             write
                 .write_all(buffer)
                 .await
@@ -284,6 +284,12 @@ async fn read_loop(
     state: Arc<TcpClientState>,
 ) -> Infallible {
     let error = read_loop_inner(reader, idle_timeout, &state).await;
+
+    state.request_count.close();
+    {
+        let mut writer = state.write.lock().await;
+        let _ = writer.shutdown().await;
+    }
 
     // Loop to notify all connections of the broken state
     loop {
