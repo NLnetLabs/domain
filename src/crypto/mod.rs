@@ -93,67 +93,6 @@
 )]
 //! type.
 //!
-//! # Importing keys
-//!
-//! Keys can be imported from files stored on disk in the conventional BIND
-//! format.
-//!
-//! ```
-//! # use domain::base::iana::SecAlg;
-//! # use domain::crypto::sign::{KeyPair, self, SecretKeyBytes, SignRaw};
-//! # use domain::dnssec::common::parse_from_bind;
-//! // Load an Ed25519 key named 'Ktest.+015+56037'.
-//! let base = "test-data/dnssec-keys/Ktest.+015+56037";
-//! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
-//! let sec_bytes = SecretKeyBytes::parse_from_bind(&sec_text).unwrap();
-//! let pub_text = std::fs::read_to_string(format!("{base}.key")).unwrap();
-//! let pub_key = parse_from_bind::<Vec<u8>>(&pub_text).unwrap();
-//!
-//! // Parse the key into Ring or OpenSSL.
-//! let key_pair = KeyPair::from_bytes(&sec_bytes, pub_key.data())
-//!     .unwrap();
-//!
-//! // Check that the owner, algorithm, and key tag matched expectations.
-//! assert_eq!(key_pair.algorithm(), SecAlg::ED25519);
-//! assert_eq!(key_pair.dnskey().key_tag(), 56037);
-//! ```
-//!
-//! # Generating keys
-//!
-//! Keys can also be generated.
-//!
-//! ```
-//! # use domain::base::Name;
-//! # use domain::crypto::common;
-//! # use domain::crypto::sign::{generate, GenerateParams, KeyPair};
-//! // Generate a new Ed25519 key.
-//! let params = GenerateParams::Ed25519;
-//! let (sec_bytes, pub_key) = generate(params, 257).unwrap();
-//!
-//! // Parse the key into Ring or OpenSSL.
-//! let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_key).unwrap();
-//!
-//! // Access the public key (with metadata).
-//! println!("{:?}", pub_key);
-//! ```
-//!
-//! # Signing data
-//!
-//! Given some data and a key, the data can be signed with the key.
-//!
-//! ```
-//! # use domain::base::Name;
-//! # use domain::crypto::common;
-//! # use domain::crypto::sign::{generate, GenerateParams, KeyPair, SignRaw};
-//! # let (sec_bytes, pub_bytes) = generate(
-//!        GenerateParams::Ed25519,
-//!        256).unwrap();
-//! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
-//! // Sign arbitrary byte sequences with the key.
-//! let sig = key_pair.sign_raw(b"Hello, World!").unwrap();
-//! println!("{:?}", sig);
-//! ```
-//!
 //! # Message digests
 //!
 //! Given some data compute a message digest.
@@ -171,7 +110,7 @@
 //!
 //! Given some data, a signature, and a DNSKEY, the signature can be verified.
 //!
-//! ```
+//! ```norun
 //! use domain::rdata::Dnskey;
 //! use domain::crypto::common::PublicKey;
 //! use domain::base::iana::SecAlg;

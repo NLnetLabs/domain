@@ -677,93 +677,83 @@ pub mod sign {
             _ => Err(GenerateError::UnsupportedAlgorithm),
         }
     }
-}
 
-//============ Tests =========================================================
+    //============ Tests =====================================================
 
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
+    #[cfg(test)]
+    mod test {
 
-    use crate::crypto::ring::sign::KeyPair;
-    use crate::crypto::sign::{GenerateParams, SignRaw};
+        use std::vec::Vec;
 
-    #[cfg(feature = "unstable-validator")]
-    use std::vec::Vec;
+        use crate::base::iana::SecAlg;
+        use crate::crypto::ring::sign::KeyPair;
+        use crate::crypto::sign::{GenerateParams, SecretKeyBytes, SignRaw};
+        use crate::dnssec::common::parse_from_bind;
 
-    #[cfg(feature = "unstable-validator")]
-    use crate::base::iana::SecAlg;
+        const GENERATE_PARAMS: &[GenerateParams] = &[
+            GenerateParams::EcdsaP256Sha256,
+            GenerateParams::EcdsaP384Sha384,
+            GenerateParams::Ed25519,
+        ];
 
-    #[cfg(feature = "unstable-validator")]
-    use crate::crypto::sign::SecretKeyBytes;
+        const KEYS: &[(SecAlg, u16)] = &[
+            (SecAlg::RSASHA256, 60616),
+            (SecAlg::ECDSAP256SHA256, 42253),
+            (SecAlg::ECDSAP384SHA384, 33566),
+            (SecAlg::ED25519, 56037),
+        ];
 
-    #[cfg(feature = "unstable-validator")]
-    use crate::dnssec::common::parse_from_bind;
-
-    #[cfg(feature = "unstable-validator")]
-    const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA256, 60616),
-        (SecAlg::ECDSAP256SHA256, 42253),
-        (SecAlg::ECDSAP384SHA384, 33566),
-        (SecAlg::ED25519, 56037),
-    ];
-
-    const GENERATE_PARAMS: &[GenerateParams] = &[
-        GenerateParams::EcdsaP256Sha256,
-        GenerateParams::EcdsaP384Sha384,
-        GenerateParams::Ed25519,
-    ];
-
-    #[test]
-    #[cfg(feature = "unstable-validator")]
-    fn public_key() {
-        for &(algorithm, key_tag) in KEYS {
-            let name =
-                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
-
-            let path = format!("test-data/dnssec-keys/K{}.private", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
-
-            let path = format!("test-data/dnssec-keys/K{}.key", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
-
-            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
-
-            assert_eq!(key.dnskey(), *pub_key.data());
+        #[test]
+        fn generated_roundtrip() {
+            for params in GENERATE_PARAMS {
+                let (sk, pk) =
+                    crate::crypto::sign::generate(params.clone(), 256)
+                        .unwrap();
+                let key = KeyPair::from_bytes(&sk, &pk).unwrap();
+                assert_eq!(key.dnskey(), pk);
+            }
         }
-    }
 
-    #[test]
-    fn generated_roundtrip() {
-        let rng = Arc::new(ring::rand::SystemRandom::new());
-        for params in GENERATE_PARAMS {
-            let (sk, pk) =
-                super::sign::generate(params.clone(), 256, &*rng).unwrap();
-            let key = KeyPair::from_bytes(&sk, &pk).unwrap();
-            assert_eq!(key.dnskey(), pk);
+        #[test]
+        fn public_key() {
+            for &(algorithm, key_tag) in KEYS {
+                let name =
+                    format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+                let path = format!("test-data/dnssec-keys/K{}.private", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
+
+                let path = format!("test-data/dnssec-keys/K{}.key", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+
+                let key =
+                    KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
+
+                assert_eq!(key.dnskey(), *pub_key.data());
+            }
         }
-    }
 
-    #[test]
-    #[cfg(feature = "unstable-validator")]
-    fn sign() {
-        for &(algorithm, key_tag) in KEYS {
-            let name =
-                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+        #[test]
+        fn sign() {
+            for &(algorithm, key_tag) in KEYS {
+                let name =
+                    format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
-            let path = format!("test-data/dnssec-keys/K{}.private", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
+                let path = format!("test-data/dnssec-keys/K{}.private", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
-            let path = format!("test-data/dnssec-keys/K{}.key", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+                let path = format!("test-data/dnssec-keys/K{}.key", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
+                let key =
+                    KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
-            let _ = key.sign_raw(b"Hello, World!").unwrap();
+                let _ = key.sign_raw(b"Hello, World!").unwrap();
+            }
         }
     }
 }

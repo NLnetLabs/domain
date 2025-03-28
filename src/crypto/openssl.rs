@@ -795,10 +795,17 @@ pub mod sign {
         })
     }
 
+    //============ Tests =====================================================
+
     #[cfg(test)]
     mod tests {
+
+        use std::string::ToString;
+        use std::vec::Vec;
+
         use crate::base::iana::SecAlg;
-        use crate::crypto::sign::{GenerateParams, SignRaw};
+        use crate::crypto::sign::{GenerateParams, SecretKeyBytes, SignRaw};
+        use crate::dnssec::common::parse_from_bind;
 
         use super::KeyPair;
 
@@ -809,6 +816,28 @@ pub mod sign {
             (SecAlg::ED25519, 56037),
             (SecAlg::ED448, 7379),
         ];
+
+        #[test]
+        fn generate() {
+            for &(algorithm, _) in KEYS {
+                let params = match algorithm {
+                    SecAlg::RSASHA256 => {
+                        GenerateParams::RsaSha256 { bits: 3072 }
+                    }
+                    SecAlg::ECDSAP256SHA256 => {
+                        GenerateParams::EcdsaP256Sha256
+                    }
+                    SecAlg::ECDSAP384SHA384 => {
+                        GenerateParams::EcdsaP384Sha384
+                    }
+                    SecAlg::ED25519 => GenerateParams::Ed25519,
+                    SecAlg::ED448 => GenerateParams::Ed448,
+                    _ => unreachable!(),
+                };
+
+                let _ = crate::crypto::sign::generate(params, 0).unwrap();
+            }
+        }
 
         #[test]
         fn generated_roundtrip() {
@@ -835,106 +864,71 @@ pub mod sign {
                 assert!(key.pkey.public_eq(&equiv.pkey));
             }
         }
-    }
-}
 
-//============ Tests =========================================================
+        #[test]
+        fn imported_roundtrip() {
+            for &(algorithm, key_tag) in KEYS {
+                let name =
+                    format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
-#[cfg(test)]
-mod tests {
-    use crate::base::iana::SecAlg;
-    use crate::crypto::sign::{GenerateParams, SecretKeyBytes, SignRaw};
-    use crate::dnssec::common::parse_from_bind;
+                let path = format!("test-data/dnssec-keys/K{}.key", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
 
-    use super::sign::KeyPair;
+                let path = format!("test-data/dnssec-keys/K{}.private", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
-    use std::string::ToString;
-    use std::vec::Vec;
+                let key =
+                    KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
+                let same = key.to_bytes().display_as_bind().to_string();
 
-    const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA256, 60616),
-        (SecAlg::ECDSAP256SHA256, 42253),
-        (SecAlg::ECDSAP384SHA384, 33566),
-        (SecAlg::ED25519, 56037),
-        (SecAlg::ED448, 7379),
-    ];
-
-    #[test]
-    fn generate() {
-        for &(algorithm, _) in KEYS {
-            let params = match algorithm {
-                SecAlg::RSASHA256 => GenerateParams::RsaSha256 { bits: 3072 },
-                SecAlg::ECDSAP256SHA256 => GenerateParams::EcdsaP256Sha256,
-                SecAlg::ECDSAP384SHA384 => GenerateParams::EcdsaP384Sha384,
-                SecAlg::ED25519 => GenerateParams::Ed25519,
-                SecAlg::ED448 => GenerateParams::Ed448,
-                _ => unreachable!(),
-            };
-
-            let _ = super::sign::generate(params, 0).unwrap();
+                let data = data.lines().collect::<Vec<_>>();
+                let same = same.lines().collect::<Vec<_>>();
+                assert_eq!(data, same);
+            }
         }
-    }
 
-    #[test]
-    fn imported_roundtrip() {
-        for &(algorithm, key_tag) in KEYS {
-            let name =
-                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+        #[test]
+        fn public_key() {
+            for &(algorithm, key_tag) in KEYS {
+                let name =
+                    format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
-            let path = format!("test-data/dnssec-keys/K{}.key", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+                let path = format!("test-data/dnssec-keys/K{}.private", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
-            let path = format!("test-data/dnssec-keys/K{}.private", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
+                let path = format!("test-data/dnssec-keys/K{}.key", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
-            let same = key.to_bytes().display_as_bind().to_string();
+                let key =
+                    KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
-            let data = data.lines().collect::<Vec<_>>();
-            let same = same.lines().collect::<Vec<_>>();
-            assert_eq!(data, same);
+                assert_eq!(key.dnskey(), *pub_key.data());
+            }
         }
-    }
 
-    #[test]
-    fn public_key() {
-        for &(algorithm, key_tag) in KEYS {
-            let name =
-                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+        #[test]
+        fn sign() {
+            for &(algorithm, key_tag) in KEYS {
+                let name =
+                    format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
-            let path = format!("test-data/dnssec-keys/K{}.private", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
+                let path = format!("test-data/dnssec-keys/K{}.private", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
-            let path = format!("test-data/dnssec-keys/K{}.key", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+                let path = format!("test-data/dnssec-keys/K{}.key", name);
+                let data = std::fs::read_to_string(path).unwrap();
+                let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
 
-            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
+                let key =
+                    KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
-            assert_eq!(key.dnskey(), *pub_key.data());
-        }
-    }
-
-    #[test]
-    fn sign() {
-        for &(algorithm, key_tag) in KEYS {
-            let name =
-                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
-
-            let path = format!("test-data/dnssec-keys/K{}.private", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
-
-            let path = format!("test-data/dnssec-keys/K{}.key", name);
-            let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
-
-            let key = KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
-
-            let _ = key.sign_raw(b"Hello, World!").unwrap();
+                let _ = key.sign_raw(b"Hello, World!").unwrap();
+            }
         }
     }
 }
