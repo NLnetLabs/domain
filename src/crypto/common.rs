@@ -60,9 +60,6 @@ impl DigestBuilder {
 
         #[cfg(feature = "openssl")]
         return Self::Openssl(openssl::DigestBuilder::new(digest_type));
-
-        #[cfg(not(any(feature = "ring", feature = "openssl")))]
-        compile_error!("Either feature \"ring\" or \"openssl\" must be enabled for this crate.");
     }
 
     /// Add input to the digest computation.

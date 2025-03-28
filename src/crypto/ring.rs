@@ -13,16 +13,13 @@
 use core::fmt;
 
 use std::ptr;
-use std::ptr::addr_eq;
 use std::vec::Vec;
 
 use ring::digest;
 use ring::digest::SHA1_FOR_LEGACY_USE_ONLY;
 use ring::digest::{Context, Digest as RingDigest};
 use ring::rsa::PublicKeyComponents;
-use ring::signature::{
-    self, RsaParameters, UnparsedPublicKey, VerificationAlgorithm,
-};
+use ring::signature::{self, RsaParameters, UnparsedPublicKey};
 
 use super::common::{rsa_exponent_modulus, AlgorithmError, DigestType};
 
@@ -142,10 +139,7 @@ pub enum PublicKey {
     Rsa(&'static RsaParameters, PublicKeyComponents<Vec<u8>>),
 
     /// Variant for elliptic-curve public keys.
-    Unparsed(
-        &'static dyn VerificationAlgorithm,
-        UnparsedPublicKey<Vec<u8>>,
-    ),
+    Unparsed(SecAlg, UnparsedPublicKey<Vec<u8>>),
 }
 
 impl PublicKey {
@@ -199,7 +193,7 @@ impl PublicKey {
                 key.extend_from_slice(public_key);
 
                 Ok(PublicKey::Unparsed(
-                    algorithm,
+                    sec_alg,
                     signature::UnparsedPublicKey::new(algorithm, key),
                 ))
             }
@@ -207,7 +201,7 @@ impl PublicKey {
                 let key = dnskey.public_key().as_ref().to_vec();
                 let algorithm = &signature::ED25519;
                 Ok(PublicKey::Unparsed(
-                    algorithm,
+                    sec_alg,
                     signature::UnparsedPublicKey::new(algorithm, key),
                 ))
             }
@@ -286,38 +280,22 @@ impl PublicKey {
                 Dnskey::new(flags, 3, alg, key).expect("new should not fail")
             }
             PublicKey::Unparsed(algorithm, unparsed) => {
-                if addr_eq(
-                    *algorithm as *const _,
-                    &signature::ECDSA_P256_SHA256_FIXED as *const _,
-                ) {
-                    let alg = SecAlg::ECDSAP256SHA256;
-
-                    // Ring has an extra byte with the value 4 in front.
-                    let p = unparsed.as_ref();
-                    let p = p[1..].to_vec();
-                    Dnskey::new(flags, 3, alg, p)
-                        .expect("new should not fail")
-                } else if addr_eq(
-                    *algorithm as *const _,
-                    &signature::ECDSA_P384_SHA384_FIXED as *const _,
-                ) {
-                    let alg = SecAlg::ECDSAP384SHA384;
-
-                    // Ring has an extra byte with the value 4 in front.
-                    let p = unparsed.as_ref();
-                    let p = p[1..].to_vec();
-                    Dnskey::new(flags, 3, alg, p)
-                        .expect("new should not fail")
-                } else if addr_eq(
-                    *algorithm as *const _,
-                    &signature::ED25519 as *const _,
-                ) {
-                    let alg = SecAlg::ED25519;
-
-                    Dnskey::new(flags, 3, alg, unparsed.as_ref().to_vec())
-                        .expect("new should not fail")
-                } else {
-                    unreachable!();
+                match *algorithm {
+                    SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+                        // Ring has an extra byte with the value 4 in front.
+                        let p = unparsed.as_ref();
+                        let p = p[1..].to_vec();
+                        Dnskey::new(flags, 3, *algorithm, p)
+                            .expect("new should not fail")
+                    }
+                    SecAlg::ED25519 => Dnskey::new(
+                        flags,
+                        3,
+                        *algorithm,
+                        unparsed.as_ref().to_vec(),
+                    )
+                    .expect("new should not fail"),
+                    _ => unreachable!(),
                 }
             }
         }
@@ -548,22 +526,28 @@ pub mod sign {
 
                 Self::EcdsaP256Sha256 { key, flags, rng: _ }
                 | Self::EcdsaP384Sha384 { key, flags, rng: _ } => {
-                    let algorithm = match self {
+                    let (algorithm, sec_alg) = match self {
                         Self::EcdsaP256Sha256 {
                             key: _,
                             flags: _,
                             rng: _,
-                        } => &signature::ECDSA_P256_SHA256_FIXED,
+                        } => (
+                            &signature::ECDSA_P256_SHA256_FIXED,
+                            SecAlg::ECDSAP256SHA256,
+                        ),
                         Self::EcdsaP384Sha384 {
                             key: _,
                             flags: _,
                             rng: _,
-                        } => &signature::ECDSA_P384_SHA384_FIXED,
+                        } => (
+                            &signature::ECDSA_P384_SHA384_FIXED,
+                            SecAlg::ECDSAP384SHA384,
+                        ),
                         _ => unreachable!(),
                     };
                     let key = key.public_key().as_ref();
                     let public = PublicKey::Unparsed(
-                        algorithm,
+                        sec_alg,
                         signature::UnparsedPublicKey::new(
                             algorithm,
                             key.to_vec(),
@@ -572,13 +556,15 @@ pub mod sign {
                     public.dnskey(*flags)
                 }
                 Self::Ed25519(key, flags) => {
-                    let algorithm = match self {
-                        Self::Ed25519(_, _) => &signature::ED25519,
+                    let (algorithm, sec_alg) = match self {
+                        Self::Ed25519(_, _) => {
+                            (&signature::ED25519, SecAlg::ED25519)
+                        }
                         _ => unreachable!(),
                     };
                     let key = key.public_key().as_ref();
                     let public = PublicKey::Unparsed(
-                        algorithm,
+                        sec_alg,
                         signature::UnparsedPublicKey::new(
                             algorithm,
                             key.to_vec(),
@@ -658,8 +644,9 @@ pub mod sign {
                 // Manually parse the PKCS#8 document for the public key.
                 let pk = doc.as_ref()[73..138].to_vec();
                 let algorithm = &signature::ECDSA_P256_SHA256_FIXED;
+                let sec_alg = SecAlg::ECDSAP256SHA256;
                 let pk = signature::UnparsedPublicKey::new(algorithm, pk);
-                let pk = PublicKey::Unparsed(algorithm, pk);
+                let pk = PublicKey::Unparsed(sec_alg, pk);
 
                 Ok((sk, pk.dnskey(flags)))
             }
@@ -677,8 +664,9 @@ pub mod sign {
                 // Manually parse the PKCS#8 document for the public key.
                 let pk = doc.as_ref()[88..185].to_vec();
                 let algorithm = &signature::ECDSA_P384_SHA384_FIXED;
+                let sec_alg = SecAlg::ECDSAP384SHA384;
                 let pk = signature::UnparsedPublicKey::new(algorithm, pk);
-                let pk = PublicKey::Unparsed(algorithm, pk);
+                let pk = PublicKey::Unparsed(sec_alg, pk);
                 Ok((sk, pk.dnskey(flags)))
             }
 
@@ -694,8 +682,9 @@ pub mod sign {
                 // Manually parse the PKCS#8 document for the public key.
                 let pk = doc.as_ref()[51..83].to_vec();
                 let algorithm = &signature::ED25519;
+                let sec_alg = SecAlg::ED25519;
                 let pk = signature::UnparsedPublicKey::new(algorithm, pk);
-                let pk = PublicKey::Unparsed(algorithm, pk);
+                let pk = PublicKey::Unparsed(sec_alg, pk);
 
                 Ok((sk, pk.dnskey(flags)))
             }
