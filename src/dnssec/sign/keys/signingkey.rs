@@ -10,6 +10,7 @@ use std::vec::Vec;
 /// A signing key.
 ///
 /// This associates important metadata with a raw cryptographic secret key.
+// Make debugging easier. Octets support Debug, we just need to require it.
 #[derive(Debug)]
 pub struct SigningKey<Octs, Inner: SignRaw>
 where

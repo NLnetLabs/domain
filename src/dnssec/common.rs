@@ -162,6 +162,7 @@ where
 }
 
 //------------ parse_from_bind -----------------------------------------------
+
 /// Parse a DNSSEC key from the conventional format used by BIND.
 ///
 /// See the type-level documentation for a description of this format.
