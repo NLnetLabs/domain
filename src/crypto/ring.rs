@@ -21,7 +21,9 @@ use ring::digest::{Context, Digest as RingDigest};
 use ring::rsa::PublicKeyComponents;
 use ring::signature::{self, RsaParameters, UnparsedPublicKey};
 
-use super::common::{rsa_exponent_modulus, AlgorithmError, DigestType};
+use super::common::{
+    rsa_encode, rsa_exponent_modulus, AlgorithmError, DigestType,
+};
 
 use crate::base::iana::SecAlg;
 use crate::rdata::Dnskey;
@@ -258,24 +260,7 @@ impl PublicKey {
                 let e = &components.e;
                 let n = &components.n;
 
-                let mut key = Vec::new();
-
-                // Encode the exponent length.
-                if let Ok(exp_len) = u8::try_from(e.len()) {
-                    key.reserve_exact(1 + e.len() + n.len());
-                    key.push(exp_len);
-                } else if let Ok(exp_len) = u16::try_from(e.len()) {
-                    key.reserve_exact(3 + e.len() + n.len());
-                    key.push(0u8);
-                    key.extend(&exp_len.to_be_bytes());
-                } else {
-                    unreachable!(
-                        "RSA exponents are (much) shorter than 64KiB"
-                    )
-                }
-
-                key.extend(e);
-                key.extend(n);
+                let key = rsa_encode(e, n);
 
                 Dnskey::new(flags, 3, alg, key).expect("new should not fail")
             }
