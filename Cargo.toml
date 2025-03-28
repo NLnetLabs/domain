@@ -36,7 +36,7 @@ parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
 openssl        = { version = "0.10.57", optional = true } # 0.10.57 upgrades to 'bitflags' 2.x
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
-ring           = { version = "0.17", optional = true }
+ring           = { version = "0.17.2", optional = true }
 rustversion    = { version = "1", optional = true }
 secrecy        = { version = "0.10", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
@@ -72,11 +72,12 @@ zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
+unstable-crypto = ["bytes"]
+unstable-crypto-sign = ["dep:secrecy", "unstable-crypto"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
-unstable-sign = ["std", "dep:secrecy", "dep:smallvec", "dep:serde", "time/formatting", "tracing", "unstable-validate"]
+unstable-sign = ["std", "dep:smallvec", "dep:serde", "time/formatting", "tracing", "unstable-crypto-sign"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
-unstable-validate = ["bytes", "std", "ring"]
-unstable-validator = ["unstable-validate", "zonefile", "unstable-client-transport"]
+unstable-validator = ["zonefile", "unstable-client-transport", "unstable-crypto"]
 unstable-xfr = ["net"]
 unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]
 
@@ -155,7 +156,9 @@ required-features = ["net", "unstable-client-transport", "unstable-server-transp
 
 [[example]]
 name = "keyset"
-required-features = ["serde", "unstable-sign"]
+# Note that we have to pick a crypto backend eventhough the example doesn't
+# need one.
+required-features = ["serde", "unstable-sign", "ring"]
 
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible
