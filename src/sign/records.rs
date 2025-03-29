@@ -374,6 +374,10 @@ impl<'a, N, D> OwnerRrs<'a, N, D> {
         OwnerRrs { slice }
     }
 
+    pub fn into_inner(self) -> &'a [Record<N, D>] {
+        self.slice
+    }
+
     pub fn owner(&self) -> &N {
         self.slice[0].owner()
     }

@@ -21,6 +21,7 @@ use crate::base::record::Record;
 use crate::base::Name;
 use crate::rdata::dnssec::{ProtoRrsig, Timestamp};
 use crate::rdata::{Dnskey, Rrsig, ZoneRecordData};
+use crate::sign::denial::nsec3::Nsec3HashProvider;
 use crate::sign::error::SigningError;
 use crate::sign::keys::keymeta::DesignatedSigningKey;
 use crate::sign::keys::signingkey::SigningKey;
@@ -32,22 +33,23 @@ use crate::sign::signatures::strategy::{
     DefaultSigningKeyUsageStrategy, RrsigValidityPeriodStrategy,
 };
 use crate::sign::traits::SignRaw;
+use crate::sign::SigningConfig;
 
 //------------ GenerateRrsigConfig -------------------------------------------
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct GenerateRrsigConfig<'a, N, KeyStrat, ValidityStrat, Sort> {
+pub struct GenerateRrsigConfig<N, KeyStrat, ValidityStrat, Sort> {
     pub add_used_dnskeys: bool,
 
-    pub zone_apex: Option<&'a N>,
+    pub zone_apex: Option<N>,
 
     pub rrsig_validity_period_strategy: ValidityStrat,
 
     _phantom: PhantomData<(KeyStrat, Sort)>,
 }
 
-impl<'a, N, KeyStrat, ValidityStrat, Sort>
-    GenerateRrsigConfig<'a, N, KeyStrat, ValidityStrat, Sort>
+impl<N, KeyStrat, ValidityStrat, Sort>
+    GenerateRrsigConfig<N, KeyStrat, ValidityStrat, Sort>
 {
     /// Like [`Self::default()`] but gives control over the SigningKeyStrategy
     /// and Sorter used.
@@ -65,7 +67,7 @@ impl<'a, N, KeyStrat, ValidityStrat, Sort>
         self
     }
 
-    pub fn with_zone_apex(mut self, zone_apex: &'a N) -> Self {
+    pub fn with_zone_apex(mut self, zone_apex: N) -> Self {
         self.zone_apex = Some(zone_apex);
         self
     }
@@ -73,7 +75,6 @@ impl<'a, N, KeyStrat, ValidityStrat, Sort>
 
 impl<N, ValidityStrat>
     GenerateRrsigConfig<
-        '_,
         N,
         DefaultSigningKeyUsageStrategy,
         ValidityStrat,
@@ -84,6 +85,37 @@ where
 {
     pub fn default(rrsig_validity_period_strategy: ValidityStrat) -> Self {
         Self::new(rrsig_validity_period_strategy)
+    }
+}
+
+impl<N, Octs, Inner, KeyStrat, ValidityStrat, Sort, HP>
+    From<&SigningConfig<N, Octs, Inner, KeyStrat, ValidityStrat, Sort, HP>>
+    for GenerateRrsigConfig<N, KeyStrat, ValidityStrat, Sort>
+where
+    HP: Nsec3HashProvider<N, Octs>,
+    Octs: AsRef<[u8]> + From<&'static [u8]>,
+    Inner: SignRaw,
+    KeyStrat: SigningKeyUsageStrategy<Octs, Inner>,
+    ValidityStrat: RrsigValidityPeriodStrategy + Clone,
+    Sort: Sorter,
+{
+    fn from(
+        signing_cfg: &SigningConfig<
+            N,
+            Octs,
+            Inner,
+            KeyStrat,
+            ValidityStrat,
+            Sort,
+            HP,
+        >,
+    ) -> Self {
+        let mut rrsig_cfg =
+            GenerateRrsigConfig::<N, KeyStrat, ValidityStrat, Sort>::new(
+                signing_cfg.rrsig_validity_period_strategy.clone(),
+            );
+        rrsig_cfg.add_used_dnskeys = signing_cfg.add_used_dnskeys;
+        rrsig_cfg
     }
 }
 
@@ -149,7 +181,7 @@ where
 pub fn generate_rrsigs<N, Octs, DSK, Inner, KeyStrat, ValidityStrat, Sort>(
     records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[DSK],
-    config: &GenerateRrsigConfig<'_, N, KeyStrat, ValidityStrat, Sort>,
+    config: &GenerateRrsigConfig<N, KeyStrat, ValidityStrat, Sort>,
 ) -> Result<RrsigRecords<N, Octs>, SigningError>
 where
     DSK: DesignatedSigningKey<Octs, Inner>,
@@ -199,7 +231,7 @@ where
     // canonically ordered that the first record is part of the apex RRSET.
     // Otherwise, check if the first record matches the given apex, if not
     // that means that the input starts beneath the apex.
-    let (zone_apex, at_apex) = match config.zone_apex {
+    let (zone_apex, at_apex) = match &config.zone_apex {
         Some(zone_apex) => (zone_apex, first_rrs.owner() == zone_apex),
         None => (&first_owner, true),
     };
@@ -410,7 +442,7 @@ fn log_keys_in_use<Octs, DSK, Inner>(
 #[allow(clippy::too_many_arguments)]
 fn generate_apex_rrsigs<N, Octs, DSK, Inner, KeyStrat, ValidityStrat, Sort>(
     keys: &[DSK],
-    config: &GenerateRrsigConfig<'_, N, KeyStrat, ValidityStrat, Sort>,
+    config: &GenerateRrsigConfig<N, KeyStrat, ValidityStrat, Sort>,
     records: &mut core::iter::Peekable<
         RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     >,
@@ -1081,7 +1113,7 @@ mod tests {
             RecordsIter::new(&records),
             &keys,
             &GenerateRrsigConfig::default(rrsig_validity_period_strategy)
-                .with_zone_apex(&mk_name(zone_apex)),
+                .with_zone_apex(mk_name(zone_apex)),
         )
         .unwrap();
 
