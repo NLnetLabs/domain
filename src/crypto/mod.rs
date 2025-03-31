@@ -110,7 +110,7 @@
 //!
 //! Given some data, a signature, and a DNSKEY, the signature can be verified.
 //!
-//! ```norun
+//! ```no_run
 //! use domain::rdata::Dnskey;
 //! use domain::crypto::common::PublicKey;
 //! use domain::base::iana::SecAlg;
