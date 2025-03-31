@@ -104,7 +104,8 @@ impl<Octs: FromBuilder> Txt<Octs> {
     {
         let mut builder = TxtBuilder::<Octs::Builder>::new();
         builder.append_slice(text)?;
-        builder.finish()}
+        builder.finish()
+    }
 }
 
 impl<Octs> Txt<Octs> {
