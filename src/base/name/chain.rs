@@ -241,7 +241,7 @@ pub struct ChainIter<'a, L: ToLabelIter + 'a, R: ToLabelIter + 'a>(
     iter::Chain<L::LabelIter<'a>, R::LabelIter<'a>>,
 );
 
-impl<'a, L, R> Clone for ChainIter<'a, L, R>
+impl<L, R> Clone for ChainIter<'_, L, R>
 where
     L: ToLabelIter,
     R: ToLabelIter,
@@ -263,7 +263,7 @@ where
     }
 }
 
-impl<'a, L, R> DoubleEndedIterator for ChainIter<'a, L, R>
+impl<L, R> DoubleEndedIterator for ChainIter<'_, L, R>
 where
     L: ToLabelIter,
     R: ToLabelIter,
@@ -281,7 +281,7 @@ pub enum UncertainChainIter<'a, Octets: AsRef<[u8]>, R: ToLabelIter> {
     Relative(ChainIter<'a, UncertainName<Octets>, R>),
 }
 
-impl<'a, Octets, R> Clone for UncertainChainIter<'a, Octets, R>
+impl<Octets, R> Clone for UncertainChainIter<'_, Octets, R>
 where
     Octets: AsRef<[u8]>,
     R: ToLabelIter,
@@ -311,7 +311,7 @@ where
     }
 }
 
-impl<'a, Octets, R> DoubleEndedIterator for UncertainChainIter<'a, Octets, R>
+impl<Octets, R> DoubleEndedIterator for UncertainChainIter<'_, Octets, R>
 where
     Octets: AsRef<[u8]>,
     R: ToLabelIter,
@@ -328,7 +328,7 @@ where
 
 struct DisplayWithDot<'a, L, R>(&'a Chain<L, R>);
 
-impl<'a, L, R> fmt::Display for DisplayWithDot<'a, L, R>
+impl<L, R> fmt::Display for DisplayWithDot<'_, L, R>
 where
     Chain<L, R>: ToLabelIter,
 {

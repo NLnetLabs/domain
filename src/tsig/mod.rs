@@ -1653,10 +1653,7 @@ impl Algorithm {
     /// Returns `None` if the name doesn’t represent a known algorithm.
     pub fn from_name<N: ToName>(name: &N) -> Option<Self> {
         let mut labels = name.iter_labels();
-        let first = match labels.next() {
-            Some(label) => label,
-            None => return None,
-        };
+        let first = labels.next()?;
         match labels.next() {
             Some(label) if label.is_root() => {}
             _ => return None,

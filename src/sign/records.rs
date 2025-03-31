@@ -403,7 +403,7 @@ impl<N> FamilyName<N> {
     }
 }
 
-impl<'a, N: Clone> FamilyName<&'a N> {
+impl<N: Clone> FamilyName<&N> {
     pub fn cloned(&self) -> FamilyName<N> {
         FamilyName {
             owner: (*self.owner).clone(),
@@ -508,10 +508,7 @@ where
     type Item = Family<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if !record.owner().name_eq(first.owner())
@@ -548,10 +545,7 @@ where
     type Item = Rrset<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if !record.owner().name_eq(first.owner())
@@ -589,10 +583,7 @@ where
     type Item = Rrset<'a, N, D>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = match self.slice.first() {
-            Some(first) => first,
-            None => return None,
-        };
+        let first = self.slice.first()?;
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if record.rtype() != first.rtype() {

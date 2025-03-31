@@ -24,7 +24,7 @@ pub trait SigningKey {
     fn sign(&self, data: &[u8]) -> Result<Self::Signature, Self::Error>;
 }
 
-impl<'a, K: SigningKey> SigningKey for &'a K {
+impl<K: SigningKey> SigningKey for &K {
     type Octets = K::Octets;
     type Signature = K::Signature;
     type Error = K::Error;
