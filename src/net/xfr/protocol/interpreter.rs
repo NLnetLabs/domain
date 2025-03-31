@@ -279,14 +279,12 @@ impl RecordProcessor {
     pub(super) fn process_record(
         &mut self,
         rec: ParsedRecord,
-    ) -> Option<
-        Result<
-            (ZoneUpdate<ParsedRecord>, Option<ZoneUpdate<ParsedRecord>>),
+    ) -> Result<
+        Option<(ZoneUpdate<ParsedRecord>, Option<ZoneUpdate<ParsedRecord>>)>,
             IterationError,
-        >,
     > {
         if self.finished {
-            return Some(Err(IterationError::AlreadyFinished));
+            return Err(IterationError::AlreadyFinished);
         }
 
         self.rr_count += 1;
@@ -317,9 +315,9 @@ impl RecordProcessor {
             // Both AXFR and IXFR begin with an initial SOA record.
             XfrType::Axfr | XfrType::Ixfr if self.rr_count == 1 => {
                 if soa.is_none() {
-                    return Some(Err(IterationError::MissingInitialSoa));
+                    return Err(IterationError::MissingInitialSoa);
                 } else {
-                    return None;
+                    return Ok(None);
                 }
             }
 
@@ -429,7 +427,7 @@ impl RecordProcessor {
             (update, None)
         };
 
-        Some(Ok(updates))
+        Ok(Some(updates))
     }
 
     pub fn rr_count(&self) -> usize {

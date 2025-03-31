@@ -52,7 +52,11 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
 
         let iter = answer.limit_to();
 
-        Ok(Self { processor, iter, held_update: None })
+        Ok(Self {
+            processor,
+            iter,
+            held_update: None,
+        })
     }
 }
 
@@ -67,12 +71,15 @@ impl Iterator for XfrZoneUpdateIterator<'_, '_> {
         loop {
             match self.iter.next() {
                 Some(Ok(record)) => {
-                    trace!("XFR record {}: {record:?}", self.processor.rr_count());
-                    match self.processor.process_record(record) {
+                    trace!(
+                        "XFR record {}: {record:?}",
+                        self.processor.rr_count()
+                    );
+                    match self.processor.process_record(record).transpose() {
                         None => {
                             // No update resulted from processing this record.
                             // Move on to the next record.
-                            continue
+                            continue;
                         }
 
                         Some(Ok((update, extra_update))) => {
