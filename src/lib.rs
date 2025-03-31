@@ -154,6 +154,10 @@
 #![allow(clippy::uninlined_format_args)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+// XXX Allow deprecation warnings from ring for the 0.10 series. Do no
+//     do this for main!
+#![allow(deprecated)]
+
 #[cfg(feature = "std")]
 #[allow(unused_imports)] // Import macros even if unused.
 #[macro_use]
