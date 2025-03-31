@@ -27,6 +27,7 @@ Bug fixes
 * NSEC records should include themselves in the generated bitmap. ([#417])
 * Trailing double quote wrongly preserved when parsing record data. ([#470],
   [#472])
+* Don't error with unexpected end of entry for RFC 3597 RDATA of length zero. ([475])
 
 Unstable features
 
@@ -70,6 +71,7 @@ Other changes
 [#463]: https://github.com/NLnetLabs/domain/pull/463
 [#470]: https://github.com/NLnetLabs/domain/pull/470
 [#472]: https://github.com/NLnetLabs/domain/pull/472
+[#475]: https://github.com/NLnetLabs/domain/pull/475
 [@weilence]: https://github.com/weilence
 
 
