@@ -255,7 +255,7 @@ impl RecordProcessor {
         initial_xfr_type: XfrType,
         initial_soa: Soa<ParsedName<Bytes>>,
     ) -> Self {
-        // Processign of each diff group toggles the mode between adding and
+        // Processing of each diff group toggles the mode between adding and
         // deleting. As the first diff group represents a deletion, set the
         // initial mode to adding so that at the start of handling the first
         // diff group the mode is correctly toggled to deleting.
