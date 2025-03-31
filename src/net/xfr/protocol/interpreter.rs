@@ -274,14 +274,16 @@ impl RecordProcessor {
 
     /// Process a single resource record.
     ///
-    /// Returns a [`ZoneUpdate`] that should be emitted for the processed
-    /// record, if any.
+    /// Returns zero, one or two [`ZoneUpdate`]s that should be emitted for
+    /// the processed record.
+    // This is a relatively internal interface so allow the complex type.
+    #[allow(clippy::type_complexity)]
     pub(super) fn process_record(
         &mut self,
         rec: ParsedRecord,
     ) -> Result<
         Option<(ZoneUpdate<ParsedRecord>, Option<ZoneUpdate<ParsedRecord>>)>,
-            IterationError,
+        IterationError,
     > {
         if self.finished {
             return Err(IterationError::AlreadyFinished);
