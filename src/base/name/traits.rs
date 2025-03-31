@@ -81,7 +81,11 @@ pub trait ToLabelIter {
 }
 
 impl<'r, N: ToLabelIter + ?Sized> ToLabelIter for &'r N {
-    type LabelIter<'a> = N::LabelIter<'a> where 'r: 'a, N: 'a;
+    type LabelIter<'a>
+        = N::LabelIter<'a>
+    where
+        'r: 'a,
+        N: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         (*self).iter_labels()

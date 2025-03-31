@@ -1027,8 +1027,7 @@ where
             DeserializeCharStrSeed<'a, Builder>,
         );
 
-        impl<Builder> serde::de::Visitor<'_>
-            for ReadableVisitor<'_, Builder>
+        impl<Builder> serde::de::Visitor<'_> for ReadableVisitor<'_, Builder>
         where
             Builder: OctetsBuilder + AsMut<[u8]>,
         {

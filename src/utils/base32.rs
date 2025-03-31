@@ -418,9 +418,13 @@ impl SymbolConverter {
         if self.next == 8 {
             self.output = [
                 (self.input[0] << 3) | (self.input[1] >> 2),
-                (self.input[1] << 6) | (self.input[2] << 1) | (self.input[3] >> 4),
+                (self.input[1] << 6)
+                    | (self.input[2] << 1)
+                    | (self.input[3] >> 4),
                 (self.input[3] << 4) | (self.input[4] >> 1),
-                (self.input[4] << 7) | (self.input[5] << 2) | (self.input[6] >> 3),
+                (self.input[4] << 7)
+                    | (self.input[5] << 2)
+                    | (self.input[6] >> 3),
                 (self.input[6] << 5) | self.input[7],
             ];
             self.next = 0;
@@ -463,8 +467,9 @@ where
         if self.next == 2 {
             return Ok(Some(&self.output[0..1]));
         }
-        self.output[1] =
-            (self.input[1] << 6) | (self.input[2] << 1) | (self.input[3] >> 4);
+        self.output[1] = (self.input[1] << 6)
+            | (self.input[2] << 1)
+            | (self.input[3] >> 4);
         if self.next == 4 {
             return Ok(Some(&self.output[0..2]));
         }
@@ -472,8 +477,9 @@ where
         if self.next == 5 {
             return Ok(Some(&self.output[0..3]));
         }
-        self.output[3] =
-            (self.input[4] << 7) | (self.input[5] << 2) | (self.input[6] >> 3);
+        self.output[3] = (self.input[4] << 7)
+            | (self.input[5] << 2)
+            | (self.input[6] >> 3);
         Ok(Some(&self.output[0..4]))
     }
 }
