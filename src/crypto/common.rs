@@ -167,31 +167,45 @@ pub fn rsa_exponent_modulus(
     dnskey: &Dnskey<impl AsRef<[u8]>>,
     min_len: usize,
 ) -> Result<(Vec<u8>, Vec<u8>), AlgorithmError> {
-    let public_key = dnskey.public_key().as_ref();
-    if public_key.len() <= 3 {
+    let public_key: &[u8] = dnskey.public_key().as_ref();
+
+    // Determine the exponent length.
+    let (exp_len, rest) = match *public_key {
+        [exp_len @ 1..=255, ref rest @ ..] => (exp_len as usize, rest),
+
+        [0, hi @ 1..=255, lo, ref rest @ ..] => {
+            let exp_len = u16::from_be_bytes([hi, lo]);
+            (exp_len as usize, rest)
+        }
+
+        _ => return Err(AlgorithmError::InvalidData),
+    };
+
+    // Split the exponent and the modulus.
+    if rest.len() < exp_len {
         return Err(AlgorithmError::InvalidData);
     }
+    let (exp, num) = rest.split_at(exp_len);
 
-    let (pos, exp_len) = match public_key[0] {
-        0 => (
-            3,
-            (usize::from(public_key[1]) << 8) | usize::from(public_key[2]),
-        ),
-        len => (1, usize::from(len)),
-    };
+    // Validate the exponent and modulus.
+    for i in [exp, num] {
+        // [RFC 3110, section 2](https://www.rfc-editor.org/rfc/rfc3110#section-2):
+        //
+        // > For interoperability, the exponent and modulus are each limited
+        // > to 4096 bits in length.
+        //
+        // > Leading zero octets are prohibited in the exponent and modulus.
+        if !(1..=512).contains(&i.len()) || i[0] == 0 {
+            return Err(AlgorithmError::InvalidData);
+        }
+    }
 
-    // Check if there's enough space for exponent and modulus.
-    if public_key[pos..].len() < pos + exp_len {
-        return Err(AlgorithmError::InvalidData);
-    };
-
-    // Check for minimum supported key size
-    if public_key[pos..].len() < min_len {
+    // Check that the modulus is big enough for the caller.
+    if num.len() < min_len {
         return Err(AlgorithmError::Unsupported);
     }
 
-    let (e, n) = public_key[pos..].split_at(exp_len);
-    Ok((e.to_vec(), n.to_vec()))
+    Ok((exp.to_vec(), num.to_vec()))
 }
 
 /// Encode the RSA exponent and modulus components in DNSKEY record data

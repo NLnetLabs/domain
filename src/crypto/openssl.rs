@@ -188,7 +188,7 @@ impl PublicKey {
                 };
 
                 // The key isn't available in either PEM or DER, so use the
-                // direct RSA verifier.
+                // direct RSA builder.
                 let (e, n) = rsa_exponent_modulus(dnskey, min_bytes)?;
                 let e = BigNum::from_slice(&e)
                     .map_err(|_| AlgorithmError::InvalidData)?;
@@ -316,7 +316,7 @@ impl PublicKey {
                 let alg = if *message_digest == MessageDigest::sha1() {
                     // We have problem. This case can either be RSASHA1 or
                     // RSASHA1_NSEC3_SHA1. We would need an extra flag to
-                    // record which one. Both are almost depricated. Return
+                    // record which one. Both are almost deprecated. Return
                     // RSASHA1_NSEC3_SHA1 because it is newer. If it causes
                     // problems then we need to be explicit.
                     SecAlg::RSASHA1_NSEC3_SHA1
@@ -429,9 +429,7 @@ pub mod sign {
         {
             /// Create a [`BigNum`] from a slice.
             fn num(slice: &[u8]) -> Result<BigNum, FromBytesError> {
-                let mut v = BigNum::new()?;
-                v.copy_from_slice(slice)?;
-                Ok(v)
+                Ok(BigNum::from_slice(slice)?)
             }
 
             /// Create a [`BigNum`] from a slice with secure storage.
