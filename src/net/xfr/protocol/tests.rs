@@ -455,7 +455,7 @@ fn is_finished() {
 }
 
 #[test]
-fn cannot_be_used_once_finsifinished() {
+fn cannot_be_used_once_finished() {
     init_logging();
 
     // Create an AXFR request to reply to.
