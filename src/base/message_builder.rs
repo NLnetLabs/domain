@@ -1416,7 +1416,7 @@ impl<Target: Composer> AdditionalBuilder<Target> {
         F: FnOnce(&mut OptBuilder<Target>) -> Result<(), Target::AppendError>,
     {
         self.authority.answer.builder.push(
-            |target| OptBuilder::new(target)?.build(op).map_err(Into::into),
+            |target| OptBuilder::new(target)?.build(op),
             |counts| counts.inc_arcount(),
         )
     }

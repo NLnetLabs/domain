@@ -879,7 +879,10 @@ impl<Octs> ToLabelIter for Name<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
 {
-    type LabelIter<'a> = NameIter<'a> where Octs: 'a;
+    type LabelIter<'a>
+        = NameIter<'a>
+    where
+        Octs: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()
@@ -1131,7 +1134,7 @@ impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
 
 struct DisplayWithDot<'a>(&'a Name<[u8]>);
 
-impl<'a> fmt::Display for DisplayWithDot<'a> {
+impl fmt::Display for DisplayWithDot<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.0.is_root() {
             f.write_str(".")

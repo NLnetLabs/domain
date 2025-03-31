@@ -81,24 +81,24 @@ where
             f.write_char(ch((chunk[0] & 0x07) << 2))?; // 1
             break;
         }
-        f.write_char(ch((chunk[0] & 0x07) << 2 | chunk[1] >> 6))?; // 1
+        f.write_char(ch(((chunk[0] & 0x07) << 2) | (chunk[1] >> 6)))?; // 1
         f.write_char(ch((chunk[1] & 0x3F) >> 1))?; // 2
         if chunk.len() == 2 {
             f.write_char(ch((chunk[1] & 0x01) << 4))?; // 3
             break;
         }
-        f.write_char(ch((chunk[1] & 0x01) << 4 | chunk[2] >> 4))?; // 3
+        f.write_char(ch(((chunk[1] & 0x01) << 4) | (chunk[2] >> 4)))?; // 3
         if chunk.len() == 3 {
             f.write_char(ch((chunk[2] & 0x0F) << 1))?; // 4
             break;
         }
-        f.write_char(ch((chunk[2] & 0x0F) << 1 | chunk[3] >> 7))?; // 4
+        f.write_char(ch(((chunk[2] & 0x0F) << 1) | (chunk[3] >> 7)))?; // 4
         f.write_char(ch((chunk[3] & 0x7F) >> 2))?; // 5
         if chunk.len() == 4 {
             f.write_char(ch((chunk[3] & 0x03) << 3))?; // 6
             break;
         }
-        f.write_char(ch((chunk[3] & 0x03) << 3 | chunk[4] >> 5))?; // 6
+        f.write_char(ch(((chunk[3] & 0x03) << 3) | (chunk[4] >> 5)))?; // 6
         f.write_char(ch(chunk[4] & 0x1F))?; // 7
     }
     Ok(())
@@ -118,7 +118,7 @@ pub fn encode_display_hex<Octets: AsRef<[u8]>>(
 ) -> impl fmt::Display + '_ {
     struct Display<'a>(&'a [u8]);
 
-    impl<'a> fmt::Display for Display<'a> {
+    impl fmt::Display for Display<'_> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             display_hex(self.0, f)
         }
@@ -319,31 +319,31 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
 
     /// Decodes the zeroth octet in a base 32 sequence.
     fn octet_0(&mut self) {
-        let ch = self.buf[0] << 3 | self.buf[1] >> 2;
+        let ch = (self.buf[0] << 3) | (self.buf[1] >> 2);
         self.append(ch)
     }
 
     /// Decodes the first octet in a base 32 sequence.
     fn octet_1(&mut self) {
-        let ch = self.buf[1] << 6 | self.buf[2] << 1 | self.buf[3] >> 4;
+        let ch = (self.buf[1] << 6) | (self.buf[2] << 1) | (self.buf[3] >> 4);
         self.append(ch)
     }
 
     /// Decodes the second octet in a base 32 sequence.
     fn octet_2(&mut self) {
-        let ch = self.buf[3] << 4 | self.buf[4] >> 1;
+        let ch = (self.buf[3] << 4) | (self.buf[4] >> 1);
         self.append(ch)
     }
 
     /// Decodes the third octet in a base 32 sequence.
     fn octet_3(&mut self) {
-        let ch = self.buf[4] << 7 | self.buf[5] << 2 | self.buf[6] >> 3;
+        let ch = (self.buf[4] << 7) | (self.buf[5] << 2) | (self.buf[6] >> 3);
         self.append(ch)
     }
 
     /// Decodes the forth octet in a base 32 sequence.
     fn octet_4(&mut self) {
-        let ch = self.buf[6] << 5 | self.buf[7];
+        let ch = (self.buf[6] << 5) | self.buf[7];
         self.append(ch)
     }
 
@@ -417,11 +417,15 @@ impl SymbolConverter {
 
         if self.next == 8 {
             self.output = [
-                self.input[0] << 3 | self.input[1] >> 2,
-                self.input[1] << 6 | self.input[2] << 1 | self.input[3] >> 4,
-                self.input[3] << 4 | self.input[4] >> 1,
-                self.input[4] << 7 | self.input[5] << 2 | self.input[6] >> 3,
-                self.input[6] << 5 | self.input[7],
+                (self.input[0] << 3) | (self.input[1] >> 2),
+                (self.input[1] << 6)
+                    | (self.input[2] << 1)
+                    | (self.input[3] >> 4),
+                (self.input[3] << 4) | (self.input[4] >> 1),
+                (self.input[4] << 7)
+                    | (self.input[5] << 2)
+                    | (self.input[6] >> 3),
+                (self.input[6] << 5) | self.input[7],
             ];
             self.next = 0;
             Ok(Some(&self.output))
@@ -459,21 +463,23 @@ where
             1 | 3 | 6 => return Err(Error::custom("short Base 32 input")),
             _ => {}
         }
-        self.output[0] = self.input[0] << 3 | self.input[1] >> 2;
+        self.output[0] = (self.input[0] << 3) | (self.input[1] >> 2);
         if self.next == 2 {
             return Ok(Some(&self.output[0..1]));
         }
-        self.output[1] =
-            self.input[1] << 6 | self.input[2] << 1 | self.input[3] >> 4;
+        self.output[1] = (self.input[1] << 6)
+            | (self.input[2] << 1)
+            | (self.input[3] >> 4);
         if self.next == 4 {
             return Ok(Some(&self.output[0..2]));
         }
-        self.output[2] = self.input[3] << 4 | self.input[4] >> 1;
+        self.output[2] = (self.input[3] << 4) | (self.input[4] >> 1);
         if self.next == 5 {
             return Ok(Some(&self.output[0..3]));
         }
-        self.output[3] =
-            self.input[4] << 7 | self.input[5] << 2 | self.input[6] >> 3;
+        self.output[3] = (self.input[4] << 7)
+            | (self.input[5] << 2)
+            | (self.input[6] >> 3);
         Ok(Some(&self.output[0..4]))
     }
 }
