@@ -455,7 +455,10 @@ impl<Octs: AsRef<[u8]>> hash::Hash for ParsedName<Octs> {
 //--- ToLabelIter and ToName
 
 impl<Octs: AsRef<[u8]>> ToLabelIter for ParsedName<Octs> {
-    type LabelIter<'s> = ParsedNameIter<'s> where Octs: 's;
+    type LabelIter<'s>
+        = ParsedNameIter<'s>
+    where
+        Octs: 's;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()

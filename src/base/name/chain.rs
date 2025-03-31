@@ -126,7 +126,11 @@ impl<L, R> Chain<L, R> {
 //--- ToLabelIter, ToRelativeName, ToName
 
 impl<L: ToRelativeName, R: ToLabelIter> ToLabelIter for Chain<L, R> {
-    type LabelIter<'a> = ChainIter<'a, L, R> where L: 'a, R: 'a;
+    type LabelIter<'a>
+        = ChainIter<'a, L, R>
+    where
+        L: 'a,
+        R: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         ChainIter(self.left.iter_labels().chain(self.right.iter_labels()))
@@ -145,8 +149,11 @@ where
     Octs: AsRef<[u8]>,
     R: ToName,
 {
-    type LabelIter<'a> = UncertainChainIter<'a, Octs, R>
-        where Octs: 'a, R: 'a;
+    type LabelIter<'a>
+        = UncertainChainIter<'a, Octs, R>
+    where
+        Octs: 'a,
+        R: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         match self.left {
@@ -241,7 +248,7 @@ pub struct ChainIter<'a, L: ToLabelIter + 'a, R: ToLabelIter + 'a>(
     iter::Chain<L::LabelIter<'a>, R::LabelIter<'a>>,
 );
 
-impl<'a, L, R> Clone for ChainIter<'a, L, R>
+impl<L, R> Clone for ChainIter<'_, L, R>
 where
     L: ToLabelIter,
     R: ToLabelIter,
@@ -263,7 +270,7 @@ where
     }
 }
 
-impl<'a, L, R> DoubleEndedIterator for ChainIter<'a, L, R>
+impl<L, R> DoubleEndedIterator for ChainIter<'_, L, R>
 where
     L: ToLabelIter,
     R: ToLabelIter,
@@ -281,7 +288,7 @@ pub enum UncertainChainIter<'a, Octets: AsRef<[u8]>, R: ToLabelIter> {
     Relative(ChainIter<'a, UncertainName<Octets>, R>),
 }
 
-impl<'a, Octets, R> Clone for UncertainChainIter<'a, Octets, R>
+impl<Octets, R> Clone for UncertainChainIter<'_, Octets, R>
 where
     Octets: AsRef<[u8]>,
     R: ToLabelIter,
@@ -311,7 +318,7 @@ where
     }
 }
 
-impl<'a, Octets, R> DoubleEndedIterator for UncertainChainIter<'a, Octets, R>
+impl<Octets, R> DoubleEndedIterator for UncertainChainIter<'_, Octets, R>
 where
     Octets: AsRef<[u8]>,
     R: ToLabelIter,
@@ -328,7 +335,7 @@ where
 
 struct DisplayWithDot<'a, L, R>(&'a Chain<L, R>);
 
-impl<'a, L, R> fmt::Display for DisplayWithDot<'a, L, R>
+impl<L, R> fmt::Display for DisplayWithDot<'_, L, R>
 where
     Chain<L, R>: ToLabelIter,
 {

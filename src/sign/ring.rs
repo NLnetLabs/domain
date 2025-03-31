@@ -61,7 +61,7 @@ impl<'a> Key<'a> {
     }
 }
 
-impl<'a> SigningKey for Key<'a> {
+impl SigningKey for Key<'_> {
     type Octets = Vec<u8>;
     type Signature = Signature;
     type Error = Unspecified;

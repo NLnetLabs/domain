@@ -911,7 +911,7 @@ impl<'a> Iter<'a> {
     }
 }
 
-impl<'a> Iterator for Iter<'a> {
+impl Iterator for Iter<'_> {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -929,7 +929,7 @@ impl<'a> Iterator for Iter<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct DisplayQuoted<'a>(&'a CharStr<[u8]>);
 
-impl<'a> fmt::Display for DisplayQuoted<'a> {
+impl fmt::Display for DisplayQuoted<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("\"")?;
         for &ch in self.0.as_ref() {
@@ -947,7 +947,7 @@ impl<'a> fmt::Display for DisplayQuoted<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct DisplayUnquoted<'a>(&'a CharStr<[u8]>);
 
-impl<'a> fmt::Display for DisplayUnquoted<'a> {
+impl fmt::Display for DisplayUnquoted<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for &ch in self.0.as_ref() {
             fmt::Display::fmt(&Symbol::from_octet(ch), f)?;
@@ -978,8 +978,8 @@ impl<'a, Builder> DeserializeCharStrSeed<'a, Builder> {
 }
 
 #[cfg(feature = "serde")]
-impl<'de, 'a, Builder> serde::de::DeserializeSeed<'de>
-    for DeserializeCharStrSeed<'a, Builder>
+impl<'de, Builder> serde::de::DeserializeSeed<'de>
+    for DeserializeCharStrSeed<'_, Builder>
 where
     Builder: OctetsBuilder + AsMut<[u8]>,
 {
@@ -1000,7 +1000,7 @@ where
             DeserializeCharStrSeed<'a, Builder>,
         );
 
-        impl<'de, 'a, Builder> serde::de::Visitor<'de> for NewtypeVisitor<'a, Builder>
+        impl<'de, Builder> serde::de::Visitor<'de> for NewtypeVisitor<'_, Builder>
         where
             Builder: OctetsBuilder + AsMut<[u8]>,
         {
@@ -1027,8 +1027,7 @@ where
             DeserializeCharStrSeed<'a, Builder>,
         );
 
-        impl<'de, 'a, Builder> serde::de::Visitor<'de>
-            for ReadableVisitor<'a, Builder>
+        impl<Builder> serde::de::Visitor<'_> for ReadableVisitor<'_, Builder>
         where
             Builder: OctetsBuilder + AsMut<[u8]>,
         {
@@ -1065,7 +1064,7 @@ where
             DeserializeCharStrSeed<'a, Builder>,
         );
 
-        impl<'de, 'a, Builder> serde::de::Visitor<'de> for BinaryVisitor<'a, Builder>
+        impl<Builder> serde::de::Visitor<'_> for BinaryVisitor<'_, Builder>
         where
             Builder: OctetsBuilder,
         {

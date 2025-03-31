@@ -275,7 +275,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     pub fn client_subnet(
         &mut self,
         source_prefix_len: u8,
