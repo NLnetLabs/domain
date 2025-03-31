@@ -9,7 +9,7 @@ use crate::rdata::ZoneRecordData;
 use crate::zonetree::types::ZoneUpdate;
 
 use super::interpreter::RecordProcessor;
-use super::types::{Error, IterationError, ParsedRecord};
+use super::types::{Error, IterationError, ParsedRecord, XfrType};
 
 //------------ XfrZoneUpdateIterator ------------------------------------------
 
@@ -105,7 +105,24 @@ impl Iterator for XfrZoneUpdateIterator<'_, '_> {
                 }
 
                 None => {
-                    return None;
+                    // "Transport of a query may be by either UDP or TCP.  If
+                    //  an IXFR query is via UDP, the IXFR server may attempt
+                    //  to reply using UDP if the entire response can be
+                    //  contained in a single DNS packet.  If the UDP reply
+                    //  does not fit, the query is responded to with a single
+                    //  SOA record of the server's current version to inform
+                    //  the client that a TCP query should be initiated."
+                    if !self.processor.is_finished()
+                        && self.processor.actual_xfr_type() == XfrType::Ixfr
+                        && self.processor.rr_count() == 1
+                    {
+                        self.processor.finish();
+                        return Some(Err(
+                            IterationError::SingleSoaIxfrTcpRetrySignal,
+                        ));
+                    } else {
+                        return None;
+                    }
                 }
             }
         }

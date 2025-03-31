@@ -414,6 +414,49 @@ fn ixfr_response_with_fallback_to_axfr_generates_expected_updates() {
 }
 
 #[test]
+fn ixfr_response_single_soa_detected_as_udp_to_tcp_upgrade_signal() {
+    init_logging();
+
+    // Create an IXFR request to reply to.
+    let req = mk_request("example.com", Rtype::IXFR);
+    let mut authority = req.authority();
+    let client_serial = Serial::now();
+    let soa = mk_soa(client_serial);
+    add_authority_record(&mut authority, soa);
+    let req = authority.into_message();
+
+    // Create an IXFR response consisting only of a single SOA.
+    //
+    // https://datatracker.ietf.org/doc/html/rfc1995#section-2
+    // 2. Brief Description of the Protocol
+    //    ..
+    //    "Transport of a query may be by either UDP or TCP.  If an IXFR query
+    //     is via UDP, the IXFR server may attempt to reply using UDP if the
+    //     entire response can be contained in a single DNS packet.  If the
+    //     UDP reply does not fit, the query is responded to with a single SOA
+    //     record of the server's current version to inform the client that a
+    //     TCP query should be initiated."
+    let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
+    let serial = Serial::now();
+    let soa = mk_soa(serial);
+    add_answer_record(&req, &mut answer, soa.clone());
+    let resp = answer.into_message();
+
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
+
+    // Process the response.
+    let mut it = interpreter.interpret_response(resp).unwrap();
+
+    // Verify the updates emitted by the XFR interpreter.
+    assert_eq!(
+        it.next(),
+        Some(Err(IterationError::SingleSoaIxfrTcpRetrySignal))
+    );
+    assert!(it.next().is_none());
+}
+
+#[test]
 fn is_finished() {
     init_logging();
 

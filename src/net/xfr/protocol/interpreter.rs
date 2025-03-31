@@ -96,7 +96,7 @@ impl XfrResponseInterpreter {
     pub fn is_finished(&self) -> bool {
         self.inner
             .as_ref()
-            .map(|inner| inner.processor.finished)
+            .map(|inner| inner.processor.is_finished())
             .unwrap_or_default()
     }
 }
@@ -272,6 +272,10 @@ impl RecordProcessor {
         }
     }
 
+    pub(super) fn finish(&mut self) {
+        self.finished = true;
+    }
+
     /// Process a single resource record.
     ///
     /// Returns zero, one or two [`ZoneUpdate`]s that should be emitted for
@@ -434,5 +438,13 @@ impl RecordProcessor {
 
     pub fn rr_count(&self) -> usize {
         self.rr_count
+    }
+
+    pub fn actual_xfr_type(&self) -> XfrType {
+        self.actual_xfr_type
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.finished
     }
 }
