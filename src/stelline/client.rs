@@ -1,4 +1,5 @@
 #![allow(clippy::type_complexity)]
+use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::ops::Deref;
 
 use std::boxed::Box;
@@ -14,6 +15,7 @@ use std::vec::Vec;
 use bytes::Bytes;
 #[cfg(all(feature = "std", test))]
 use mock_instant::thread_local::MockClock;
+use tokio::time::Instant;
 use tracing::{debug, info_span, trace};
 use tracing_subscriber::EnvFilter;
 
@@ -24,6 +26,9 @@ use crate::net::client::request::{
     ComposeRequest, ComposeRequestMulti, Error, GetResponse,
     GetResponseMulti, RequestMessage, RequestMessageMulti, SendRequest,
     SendRequestMulti,
+};
+use crate::net::server::message::{
+    Request, TransportSpecificContext, UdpTransportContext,
 };
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
@@ -127,6 +132,10 @@ pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
         request: R,
     ) -> Result<(), StellineErrorCause> {
         let mut resp: Option<Message<Bytes>> = None;
+        let mock_client_addr =
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0));
+        let mock_transport_ctx =
+            TransportSpecificContext::Udp(UdpTransportContext::new(None));
 
         // Assume steps are in order. Maybe we need to define that.
         for step in &stelline.scenario.steps {
@@ -156,7 +165,18 @@ pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
                         .entry
                         .as_ref()
                         .ok_or(StellineErrorCause::MissingStepEntry)?;
-                    if !match_msg(entry, &answer, true) {
+                    let client_addr = entry
+                        .client_addr
+                        .map(|ip| SocketAddr::new(ip, 0))
+                        .unwrap_or(mock_client_addr);
+                    let req = Request::new(
+                        client_addr,
+                        Instant::now(),
+                        answer,
+                        mock_transport_ctx.clone(),
+                        (),
+                    );
+                    if !match_msg(entry, &req, true) {
                         return Err(StellineErrorCause::MismatchedAnswer);
                     }
                 }
@@ -459,6 +479,11 @@ pub async fn do_client<'a, T: ClientFactory>(
             MockClock::set_system_time(Duration::ZERO);
         }
 
+        let mock_client_addr =
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0));
+        let mock_transport_ctx =
+            TransportSpecificContext::Udp(UdpTransportContext::new(None));
+
         // Assume steps are in order. Maybe we need to define that.
         for step in &stelline.scenario.steps {
             let span =
@@ -500,6 +525,11 @@ pub async fn do_client<'a, T: ClientFactory>(
                     let Some(mut send_request) = last_sent_request else {
                         return Err(StellineErrorCause::MissingResponse);
                     };
+
+                    let client_addr = entry
+                        .client_addr
+                        .map(|ip| SocketAddr::new(ip, 0))
+                        .unwrap_or(mock_client_addr);
 
                     if entry
                         .matches
@@ -563,12 +593,19 @@ pub async fn do_client<'a, T: ClientFactory>(
 
                             trace!("Received answer.");
                             trace!(?resp);
+                            let req = Request::new(
+                                client_addr,
+                                Instant::now(),
+                                resp,
+                                mock_transport_ctx.clone(),
+                                (),
+                            );
 
                             let mut out_entry = Some(vec![]);
                             match_multi_msg(
                                 &entry,
                                 0,
-                                &resp,
+                                &req,
                                 true,
                                 &mut out_entry,
                             );
@@ -642,8 +679,15 @@ pub async fn do_client<'a, T: ClientFactory>(
 
                             trace!("Received answer.");
                             trace!(?resp);
+                            let req = Request::new(
+                                client_addr,
+                                Instant::now(),
+                                resp,
+                                mock_transport_ctx.clone(),
+                                (),
+                            );
                             if !match_multi_msg(
-                                entry, idx, &resp, true, &mut None,
+                                entry, idx, &req, true, &mut None,
                             ) {
                                 return Err(
                                     StellineErrorCause::MismatchedAnswer,
