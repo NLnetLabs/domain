@@ -1,5 +1,19 @@
 # Change Log
 
+## 0.10.4
+
+Released 2025-03-31.
+
+Other changes
+
+* Fix a build issue with [*time*](https://time-rs.github.io/) 0.3.41.
+  ([#505], backported from [#503] by [@PSeitz])
+
+[#503]: https://github.com/NLnetLabs/domain/pull/503
+[#505]: https://github.com/NLnetLabs/domain/pull/505
+[@PSeitz]: https://github.com/PSeitz
+
+
 ## 0.10.3
 
 Released 2024-10-14.

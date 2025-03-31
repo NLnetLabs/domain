@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.10.3"
+version = "0.10.4"
 
 # This is the mimimal Rust version with minimal dependencies as specified
 # below. With latest dependency versions 1.76.0 is currently required.
