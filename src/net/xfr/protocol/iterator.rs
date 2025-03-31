@@ -9,7 +9,7 @@ use crate::rdata::ZoneRecordData;
 use crate::zonetree::types::ZoneUpdate;
 
 use super::interpreter::RecordProcessor;
-use super::types::{Error, IterationError, ParsedRecord, XfrType};
+use super::types::{Error, IterationError, ParsedRecord};
 
 //------------ XfrZoneUpdateIterator ------------------------------------------
 
@@ -18,15 +18,17 @@ use super::types::{Error, IterationError, ParsedRecord, XfrType};
 /// [`XfrResponseInterpreter`]: super::interpreter::XfrResponseInterpreter
 pub struct XfrZoneUpdateIterator<'a, 'b> {
     /// The parent processor.
-    state: &'a mut RecordProcessor,
+    processor: &'a mut RecordProcessor,
 
     /// An iterator over the records in the current response.
     iter: RecordIter<'b, Bytes, ZoneRecordData<Bytes, ParsedName<Bytes>>>,
+
+    held_update: Option<ZoneUpdate<ParsedRecord>>,
 }
 
 impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
     pub(super) fn new(
-        state: &'a mut RecordProcessor,
+        processor: &'a mut RecordProcessor,
         resp: &'b Message<Bytes>,
     ) -> Result<Self, Error> {
         let answer = resp.answer().map_err(Error::ParseError)?;
@@ -48,15 +50,9 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
         // that might be expected to exist in a zone (i.e. not just
         // ZoneRecordData record types).
 
-        let mut iter = answer.limit_to();
+        let iter = answer.limit_to();
 
-        if state.rr_count == 0 {
-            let Some(Ok(_)) = iter.next() else {
-                return Err(Error::Malformed);
-            };
-        }
-
-        Ok(Self { state, iter })
+        Ok(Self { processor, iter, held_update: None })
     }
 }
 
@@ -64,35 +60,46 @@ impl Iterator for XfrZoneUpdateIterator<'_, '_> {
     type Item = Result<ZoneUpdate<ParsedRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.state.rr_count == 0 {
-            // We already skipped the first record in new() above by calling
-            // iter.next(). We didn't reflect that yet in rr_count because we
-            // wanted to still be able to detect the first call to next() and
-            // handle it specially for AXFR.
-            self.state.rr_count += 1;
-
-            if self.state.actual_xfr_type == XfrType::Axfr {
-                // For AXFR we're not making incremental changes to a zone,
-                // we're replacing its entire contents, so before returning
-                // any actual updates to apply first instruct the consumer to
-                // "discard" everything it has.
-                return Some(Ok(ZoneUpdate::DeleteAllRecords));
-            }
+        if let Some(update) = self.held_update.take() {
+            return Some(Ok(update));
         }
 
-        match self.iter.next()? {
-            Ok(record) => {
-                trace!("XFR record {}: {record:?}", self.state.rr_count);
-                let update = self.state.process_record(record);
-                Some(Ok(update))
-            }
+        loop {
+            match self.iter.next() {
+                Some(Ok(record)) => {
+                    trace!("XFR record {}: {record:?}", self.processor.rr_count());
+                    match self.processor.process_record(record) {
+                        None => {
+                            // No update resulted from processing this record.
+                            // Move on to the next record.
+                            continue
+                        }
 
-            Err(err) => {
-                trace!(
-                    "XFR record {}: parsing error: {err}",
-                    self.state.rr_count
-                );
-                Some(Err(IterationError::ParseError(err)))
+                        Some(Ok((update, extra_update))) => {
+                            // One or more updates resulted from processing
+                            // this record. Keep any subsequent update and
+                            // return the first or only update.
+                            self.held_update = extra_update;
+                            return Some(Ok(update));
+                        }
+
+                        Some(Err(err)) => {
+                            return Some(Err(err));
+                        }
+                    }
+                }
+
+                Some(Err(err)) => {
+                    trace!(
+                        "XFR record {}: parsing error: {err}",
+                        self.processor.rr_count()
+                    );
+                    return Some(Err(IterationError::ParseError(err)));
+                }
+
+                None => {
+                    return None;
+                }
             }
         }
     }

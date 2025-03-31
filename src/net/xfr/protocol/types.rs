@@ -113,6 +113,12 @@ impl std::fmt::Display for Error {
 /// [`XfrZoneUpdateIterator`]: super::iterator::XfrZoneUpdateIterator
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IterationError {
-    /// Transfer processing failed.
+    /// XFR record parsing failed.
     ParseError(ParseError),
+
+    /// The mandatory initial SOA record is missing.
+    MissingInitialSoa,
+
+    /// The last XFR record has already been processed.
+    AlreadyFinished,
 }

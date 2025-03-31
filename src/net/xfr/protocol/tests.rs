@@ -113,7 +113,6 @@ fn incomplete_axfr_response_is_accepted() {
     let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify that no updates are output by the XFR interpreter.
-    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(it.next().is_none());
 }
 
@@ -171,7 +170,6 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
-    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(it.next().is_none());
 
     // Create another AXFR response to complete the transfer.
@@ -183,6 +181,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
@@ -322,7 +321,9 @@ fn ixfr_response_generates_expected_updates() {
         )))),
     ];
 
-    assert!(it.eq(expected_updates));
+    for (update, expected_update) in it.zip(expected_updates) {
+        assert_eq!(update, expected_update);
+    }
 }
 
 #[test]
@@ -357,7 +358,7 @@ fn multi_ixfr_response_generates_expected_updates() {
     assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
     assert!(it.next().is_none());
 
-    // Craete a second IXFR response that completes the transfer
+    // Create a second IXFR response that completes the transfer
     let resp = mk_second_ixfr_response(req, new_soa);
 
     // Process the response.
@@ -369,6 +370,46 @@ fn multi_ixfr_response_generates_expected_updates() {
     assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
     assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
+    assert!(it.next().is_none());
+}
+
+#[test]
+fn ixfr_response_with_fallback_to_axfr_generates_expected_updates() {
+    init_logging();
+
+    // Create an IXFR request to reply to.
+    let req = mk_request("example.com", Rtype::IXFR);
+    let mut authority = req.authority();
+    let client_serial = Serial::now();
+    let soa = mk_soa(client_serial);
+    add_authority_record(&mut authority, soa);
+    let req = authority.into_message();
+
+    // Create an AXFR response.
+    let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
+    let serial = Serial::now();
+    let soa = mk_soa(serial);
+    add_answer_record(&req, &mut answer, soa.clone());
+    add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
+    add_answer_record(&req, &mut answer, Aaaa::new(Ipv6Addr::LOCALHOST));
+    add_answer_record(&req, &mut answer, soa);
+    let resp = answer.into_message();
+
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
+
+    // Process the response.
+    let mut it = interpreter.interpret_response(resp).unwrap();
+
+    // Verify the updates emitted by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
+    assert!(
+        matches!(it.next(), Some(Ok(ZoneUpdate::AddRecord(r))) if r.rtype() == Rtype::A)
+    );
+    assert!(
+        matches!(it.next(), Some(Ok(ZoneUpdate::AddRecord(r))) if r.rtype() == Rtype::AAAA)
+    );
+    assert!(matches!(it.next(), Some(Ok(ZoneUpdate::Finished(_)))));
     assert!(it.next().is_none());
 }
 
@@ -411,6 +452,37 @@ fn is_finished() {
     assert!(interpreter.is_finished());
     assert!(responses.is_empty());
     assert_eq!(count, 7);
+}
+
+#[test]
+fn cannot_be_used_once_finsifinished() {
+    init_logging();
+
+    // Create an AXFR request to reply to.
+    let req = mk_request("example.com", Rtype::AXFR).into_message();
+
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
+
+    // Create a complete but minimal AXFR response. A proper AXFR response
+    // has at least two identical SOA records, one at the start and one at
+    // the end, with actual zone records in between. This response has only
+    // the start and end SOA and no content in between. RFC 5936 doesn't
+    // seem to disallow this.
+    let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
+    let soa = mk_soa(Serial::now());
+    add_answer_record(&req, &mut answer, soa.clone());
+    add_answer_record(&req, &mut answer, soa);
+    add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
+    let resp = answer.into_message();
+
+    // Process the response.
+    let mut it = interpreter.interpret_response(resp).unwrap();
+
+    // Verify the updates emitted by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
+    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
+    assert_eq!(it.next(), Some(Err(IterationError::AlreadyFinished)));
 }
 
 fn mk_first_ixfr_response(
