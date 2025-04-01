@@ -184,7 +184,19 @@ impl Zonefile {
     /// any relative names encountered will cause iteration to terminate with
     /// a missing origin error.
     pub fn set_origin(&mut self, origin: Name<Bytes>) {
-        self.origin = Some(origin)
+        self.origin = Some(origin);
+    }
+
+    /// Set a default class to use.
+    ///
+    /// RFC 1035 does not define a default class for zone file records to use,
+    /// it only states that the class field for a record is optional with
+    /// omitted class values defaulting to the last explicitly stated value.
+    ///
+    /// If no last explicitly stated value exists, the class passed to this
+    /// function will be used, otherwise an error will be raised.
+    pub fn set_default_class(&mut self, class: Class) {
+        self.last_class = Some(class);
     }
 
     /// Returns the next entry in the zonefile.
@@ -359,6 +371,10 @@ impl<'a> EntryScanner<'a> {
         }
 
         let class = match (class, self.zonefile.last_class) {
+            // https://www.rfc-editor.org/rfc/rfc1035#section-5.2
+            // 5.2. Use of master files to define zones
+            //      ..
+            //      "1. All RRs in the file should have the same class."
             (Some(class), Some(last_class)) => {
                 if self.zonefile.require_valid && class != last_class {
                     return Err(EntryError::different_class(
@@ -368,17 +384,24 @@ impl<'a> EntryScanner<'a> {
                 class
             }
 
+            // Record lacks a class but a last class is known, use it.
+            //
+            // https://www.rfc-editor.org/rfc/rfc1035#section-5.2
+            // 5.1. Format
+            //      ..
+            //      "Omitted class and TTL values are default to the last
+            //       explicitly stated values."
+            (None, Some(last_class)) => last_class,
+
+            // Record specifies a class, use it.
             (Some(class), None) => {
                 self.zonefile.last_class = Some(class);
                 class
             }
 
-            (None, Some(last_class)) => last_class,
-
-            (None, None) => {
-                self.zonefile.last_class = Some(Class::IN);
-                Class::IN
-            }
+            // Record lacks a class and no last class is known, raise an
+            // error.
+            (None, None) => return Err(EntryError::missing_last_class()),
         };
 
         let ttl = match ttl {
@@ -1517,6 +1540,14 @@ impl EntryError {
         }
     }
 
+    fn missing_last_class() -> Self {
+        EntryError {
+            msg: "missing last class",
+            #[cfg(feature = "std")]
+            context: None,
+        }
+    }
+
     fn missing_origin() -> Self {
         EntryError {
             msg: "missing origin",
@@ -1686,16 +1717,31 @@ mod test {
     #[allow(clippy::type_complexity)]
     struct TestCase {
         origin: Name<Bytes>,
+        default_class: Option<Class>,
         zonefile: std::string::String,
         result: Vec<Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>>>,
+        #[serde(default)]
+        allow_invalid: bool,
+    }
+
+    impl From<&str> for TestCase {
+        fn from(yaml: &str) -> Self {
+            serde_yaml::from_str(yaml).unwrap()
+        }
     }
 
     impl TestCase {
-        fn test(yaml: &str) {
-            let case = serde_yaml::from_str::<Self>(yaml).unwrap();
+        fn test<T: Into<TestCase>>(case: T) {
+            let case = case.into();
             let mut input = case.zonefile.as_bytes();
             let mut zone = Zonefile::load(&mut input).unwrap();
+            if case.allow_invalid == true {
+                zone = zone.allow_invalid();
+            }
             zone.set_origin(case.origin);
+            if let Some(class) = case.default_class {
+                zone.set_default_class(class);
+            }
             let mut result = case.result.as_slice();
             while let Some(entry) = zone.next_entry().unwrap() {
                 match entry {
@@ -1748,6 +1794,30 @@ mod test {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/unknown.yaml"
         ));
+    }
+
+    #[test]
+    fn test_default_and_last_class() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/defaultclass.yaml"
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "different class")]
+    fn test_rfc1035_same_class_validity_check() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/mixedclass.yaml"
+        ));
+    }
+
+    #[test]
+    fn test_rfc1035_validity_checks_override() {
+        let mut case = TestCase::from(include_str!(
+            "../../test-data/zonefiles/mixedclass.yaml"
+        ));
+        case.allow_invalid = true;
+        TestCase::test(case);
     }
 
     #[test]
