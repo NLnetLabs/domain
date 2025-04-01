@@ -132,6 +132,10 @@ name = "client-transports"
 required-features = ["net", "tokio-rustls", "unstable-client-transport"]
 
 [[example]]
+name = "client-cache-transport"
+required-features = ["net", "unstable-client-cache"]
+
+[[example]]
 name = "server-transports"
 required-features = ["net", "tokio-stream", "tracing-subscriber", "unstable-client-transport", "unstable-server-transport"]
 
