@@ -2643,13 +2643,13 @@ impl<Target: Composer> Truncate for HashCompressor<Target> {
 #[derive(Clone, Copy, Debug)]
 pub enum PushError {
     /// Push attempted to exceed a hard limit.
-    /// 
+    ///
     /// For example, attempting to put more than 65,535 records in the
     /// question, answer, authority or additional section of a DNS message.
     CountOverflow,
 
     /// Push attempted to exceed a soft limit.
-    /// 
+    ///
     /// See [`MessageBuilder::set_push_limit()`].
     LimitExceeded,
 
