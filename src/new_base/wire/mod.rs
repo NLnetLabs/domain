@@ -12,7 +12,7 @@
 //!
 //! When a type is defined to represent a component of a network packet, its
 //! internal structure should match the structure of its wire format.  Here's
-//! an example of a question in a DNS record:
+//! an example of a question in a DNS message:
 //!
 //! ```
 //! # use domain::new_base::{QType, QClass, wire::*};
@@ -39,7 +39,10 @@
 //! # use domain::new_base::{Question, name::RevNameBuf, wire::*};
 //! // { qname: "org.", qtype: A, qclass: IN }
 //! let bytes = [3, 111, 114, 103, 0, 0, 1, 0, 1];
+//! // Parse into a new 'Question'.
 //! let question = Question::<RevNameBuf>::parse_bytes(&bytes).unwrap();
+//!
+//! // Build the question back into bytes.
 //! let mut duplicate = [0u8; 9];
 //! let rest = question.build_bytes(&mut duplicate).unwrap();
 //! assert_eq!(*rest, []);
