@@ -131,7 +131,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends the Expire option.
     ///
     /// The Expire option allows an authoritative server to signal its own

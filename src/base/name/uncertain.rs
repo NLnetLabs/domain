@@ -379,7 +379,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for UncertainName<Octets> {
 //--- ToLabelIter
 
 impl<Octs: AsRef<[u8]>> ToLabelIter for UncertainName<Octs> {
-    type LabelIter<'a> = NameIter<'a> where Octs: 'a;
+    type LabelIter<'a>
+        = NameIter<'a>
+    where
+        Octs: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         match *self {

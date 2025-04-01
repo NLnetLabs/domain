@@ -109,6 +109,7 @@ pub use self::serial::Serial;
 
 pub mod charstr;
 pub mod cmp;
+mod dig_printer;
 pub mod header;
 pub mod iana;
 pub mod message;

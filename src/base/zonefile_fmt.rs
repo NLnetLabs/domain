@@ -11,33 +11,54 @@ impl From<fmt::Error> for Error {
 
 pub type Result = core::result::Result<(), Error>;
 
+pub enum DisplayKind {
+    Simple,
+    Tabbed,
+    Multiline,
+}
+
 pub struct ZoneFileDisplay<'a, T: ?Sized> {
     inner: &'a T,
-    pretty: bool,
+    kind: DisplayKind,
 }
 
 impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.pretty {
-            self.inner
-                .fmt(&mut MultiLineWriter::new(f))
-                .map_err(|_| fmt::Error)
-        } else {
-            self.inner
+        match self.kind {
+            DisplayKind::Simple => self
+                .inner
                 .fmt(&mut SimpleWriter::new(f))
-                .map_err(|_| fmt::Error)
+                .map_err(|_| fmt::Error),
+            DisplayKind::Tabbed => self
+                .inner
+                .fmt(&mut TabbedWriter::new(f))
+                .map_err(|_| fmt::Error),
+            DisplayKind::Multiline => self
+                .inner
+                .fmt(&mut MultiLineWriter::new(f))
+                .map_err(|_| fmt::Error),
         }
     }
 }
 
 /// Show a value as zonefile format
 pub trait ZonefileFmt {
+    /// Format the item as zonefile fmt into a [`fmt::Formatter`]
+    ///
+    /// This method is meant for use in a `fmt::Display` implementation.
     fn fmt(&self, p: &mut impl Formatter) -> Result;
 
-    fn display_zonefile(&self, pretty: bool) -> ZoneFileDisplay<'_, Self> {
+    /// Display the item as a zonefile
+    ///
+    /// The returned object will be displayed as zonefile when printed or
+    /// written using `fmt::Display`.
+    fn display_zonefile(
+        &self,
+        display_kind: DisplayKind,
+    ) -> ZoneFileDisplay<'_, Self> {
         ZoneFileDisplay {
             inner: self,
-            pretty,
+            kind: display_kind,
         }
     }
 }
@@ -117,6 +138,67 @@ impl<W: fmt::Write> FormatWriter for SimpleWriter<W> {
     fn newline(&mut self) -> Result {
         self.writer.write_char('\n')?;
         self.first = true;
+        Ok(())
+    }
+}
+
+/// A single line writer that puts tabs between ungrouped tokens
+struct TabbedWriter<W> {
+    first: bool,
+    first_block: bool,
+    blocks: usize,
+    writer: W,
+}
+
+impl<W> TabbedWriter<W> {
+    fn new(writer: W) -> Self {
+        Self {
+            first: true,
+            first_block: true,
+            blocks: 0,
+            writer,
+        }
+    }
+}
+
+impl<W: fmt::Write> FormatWriter for TabbedWriter<W> {
+    fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
+        if !self.first {
+            let c = if self.blocks == 0 {
+                '\t'
+            } else if self.first_block {
+                self.first_block = false;
+                '\t'
+            } else {
+                ' '
+            };
+            self.writer.write_char(c)?;
+        }
+        self.first = false;
+        self.writer.write_fmt(args)?;
+        Ok(())
+    }
+
+    fn begin_block(&mut self) -> Result {
+        self.blocks += 1;
+        Ok(())
+    }
+
+    fn end_block(&mut self) -> Result {
+        self.blocks -= 1;
+        Ok(())
+    }
+
+    fn fmt_comment(&mut self, _args: fmt::Arguments<'_>) -> Result {
+        Ok(())
+    }
+
+    fn newline(&mut self) -> Result {
+        self.writer.write_char('\n')?;
+        self.first = true;
+
+        debug_assert_eq!(self.blocks, 0);
+
         Ok(())
     }
 }
@@ -230,7 +312,7 @@ mod test {
     use std::vec::Vec;
 
     use crate::base::iana::{Class, DigestAlg, SecAlg};
-    use crate::base::zonefile_fmt::ZonefileFmt;
+    use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
     use crate::base::{Name, Record, Ttl};
     use crate::rdata::{Cds, Cname, Ds, Mx, Txt, A};
 
@@ -244,7 +326,7 @@ mod test {
         let record = create_record(A::new("128.140.76.106".parse().unwrap()));
         assert_eq!(
             "example.com. 3600 IN A 128.140.76.106",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(DisplayKind::Simple).to_string()
         );
     }
 
@@ -255,7 +337,7 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN CNAME example.com.",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(DisplayKind::Simple).to_string()
         );
     }
 
@@ -272,7 +354,7 @@ mod test {
         );
         assert_eq!(
             "example.com. 3600 IN DS 5414 15 2 DEADBEEF",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(DisplayKind::Simple).to_string()
         );
         assert_eq!(
             [
@@ -282,7 +364,7 @@ mod test {
                 "                          DEADBEEF )",
             ]
             .join("\n"),
-            record.display_zonefile(true).to_string()
+            record.display_zonefile(DisplayKind::Multiline).to_string()
         );
     }
 
@@ -299,7 +381,7 @@ mod test {
         );
         assert_eq!(
             "example.com. 3600 IN CDS 5414 15 2 DEADBEEF",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(DisplayKind::Simple).to_string()
         );
     }
 
@@ -311,7 +393,7 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN MX 20 example.com.",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(DisplayKind::Simple).to_string()
         );
     }
 
@@ -331,7 +413,7 @@ mod test {
             more like a silly monkey with a typewriter accidentally writing \
             some shakespeare along the way but it feels like I have to type \
             e\" \"ven longer to hit that limit!\"",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(DisplayKind::Simple).to_string()
         );
     }
 
@@ -344,7 +426,44 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN HINFO \"Windows\" \"Windows Server\"",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(DisplayKind::Simple).to_string()
+        );
+    }
+
+    #[test]
+    fn naptr_record() {
+        use crate::rdata::Naptr;
+        let record = create_record(Naptr::<Vec<u8>, &Name<[u8]>>::new(
+            100,
+            50,
+            "a".parse().unwrap(),
+            "z3950+N2L+N2C".parse().unwrap(),
+            r#"!^urn:cid:.+@([^\\.]+\\.)(.*)$!\\2!i"#.parse().unwrap(),
+            Name::from_slice(b"\x09cidserver\x07example\x03com\x00").unwrap(),
+        ));
+        assert_eq!(
+            r#"example.com. 3600 IN NAPTR 100 50 "a" "z3950+N2L+N2C" "!^urn:cid:.+@([^\\.]+\\.)(.*)$!\\2!i" cidserver.example.com."#,
+            record.display_zonefile(DisplayKind::Simple).to_string()
+        );
+    }
+
+    #[test]
+    fn tabbed() {
+        let record = create_record(
+            Cds::new(
+                5414,
+                SecAlg::ED25519,
+                DigestAlg::SHA256,
+                &[0xDE, 0xAD, 0xBE, 0xEF],
+            )
+            .unwrap(),
+        );
+
+        // The name, ttl, class and rtype should be separated by \t, but the
+        // rdata shouldn't.
+        assert_eq!(
+            "example.com.\t3600\tIN\tCDS\t5414 15 2 DEADBEEF",
+            record.display_zonefile(DisplayKind::Tabbed).to_string()
         );
     }
 }

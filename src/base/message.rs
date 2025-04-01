@@ -10,6 +10,7 @@
 //!
 //! [`Message`]: struct.Message.html
 
+use super::dig_printer::DigPrinter;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, OptRcode, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
@@ -516,10 +517,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     //  iterator would break off in this case and we break out with a None
     //  right away.
     pub fn canonical_name(&self) -> Option<ParsedName<Octs::Range<'_>>> {
-        let question = match self.first_question() {
-            None => return None,
-            Some(question) => question,
-        };
+        let question = self.first_question()?;
         let mut name = question.into_qname();
         let answer = match self.answer() {
             Ok(answer) => answer.limit_to::<Cname<_>>(),
@@ -665,6 +663,20 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     }
 }
 
+/// # Printing
+impl<Octs: AsRef<[u8]>> Message<Octs> {
+    /// Create a wrapper that displays the message in a dig style
+    ///
+    /// The dig style resembles a zonefile format (see also [`ZonefileFmt`]),
+    /// with additional lines that are commented out that contain information
+    /// about the header, OPT record and more.
+    ///
+    /// [`ZonefileFmt`]: super::zonefile_fmt::ZonefileFmt
+    pub fn display_dig_style(&self) -> impl core::fmt::Display + '_ {
+        DigPrinter { msg: self }
+    }
+}
+
 //--- AsRef
 
 // Octs here can’t be ?Sized or it’ll conflict with AsRef<[u8]> below.
@@ -804,13 +816,13 @@ impl<'a, Octs: Octets + ?Sized> QuestionSection<'a, Octs> {
 
 //--- Clone and Clone
 
-impl<'a, Octs: ?Sized> Clone for QuestionSection<'a, Octs> {
+impl<Octs: ?Sized> Clone for QuestionSection<'_, Octs> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, Octs: ?Sized> Copy for QuestionSection<'a, Octs> {}
+impl<Octs: ?Sized> Copy for QuestionSection<'_, Octs> {}
 
 //--- Iterator
 
@@ -837,8 +849,8 @@ impl<'a, Octs: Octets + ?Sized> Iterator for QuestionSection<'a, Octs> {
 
 //--- PartialEq
 
-impl<'a, 'o, Octs, Other> PartialEq<QuestionSection<'o, Other>>
-    for QuestionSection<'a, Octs>
+impl<'o, Octs, Other> PartialEq<QuestionSection<'o, Other>>
+    for QuestionSection<'_, Octs>
 where
     Octs: Octets + ?Sized,
     Other: Octets + ?Sized,
@@ -1041,13 +1053,13 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
 
 //--- Clone and Copy
 
-impl<'a, Octs: ?Sized> Clone for RecordSection<'a, Octs> {
+impl<Octs: ?Sized> Clone for RecordSection<'_, Octs> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, Octs: ?Sized> Copy for RecordSection<'a, Octs> {}
+impl<Octs: ?Sized> Copy for RecordSection<'_, Octs> {}
 
 //--- Iterator
 
@@ -1167,7 +1179,7 @@ where
 
 //--- Clone
 
-impl<'a, Octs: ?Sized, Data> Clone for RecordIter<'a, Octs, Data> {
+impl<Octs: ?Sized, Data> Clone for RecordIter<'_, Octs, Data> {
     fn clone(&self) -> Self {
         RecordIter {
             section: self.section,
@@ -1258,7 +1270,7 @@ where
 
 //--- Clone
 
-impl<'a, Octs: ?Sized, Data> Clone for AnyRecordIter<'a, Octs, Data> {
+impl<Octs: ?Sized, Data> Clone for AnyRecordIter<'_, Octs, Data> {
     fn clone(&self) -> Self {
         Self {
             section: self.section,

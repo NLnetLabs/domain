@@ -103,6 +103,21 @@ impl StubResolver {
         &self.options
     }
 
+    /// Adds a new connection to the running resolver.
+    pub async fn add_connection(
+        &self,
+        connection: Box<
+            dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync,
+        >,
+    ) {
+        self.get_transport()
+            .await
+            .expect("The 'redundant::Connection' task should not fail")
+            .add(connection)
+            .await
+            .expect("The 'redundant::Connection' task should not fail");
+    }
+
     pub async fn query<N: ToName, Q: Into<Question<N>>>(
         &self,
         question: Q,
@@ -496,7 +511,7 @@ pub struct SearchIter<'a> {
     pos: usize,
 }
 
-impl<'a> Iterator for SearchIter<'a> {
+impl Iterator for SearchIter<'_> {
     type Item = SearchSuffix;
 
     fn next(&mut self) -> Option<Self::Item> {

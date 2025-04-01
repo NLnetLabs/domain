@@ -602,12 +602,12 @@ where
 /// DNS uses 32 bit timestamps that are conceptionally
 /// viewed as the 32 bit modulus of a larger number space. Because of that,
 /// special rules apply when processing these values.
-
+///
 /// [RFC 4034] defines Timestamps as the number of seconds elepased since
 /// since 1 January 1970 00:00:00 UTC, ignoring leap seconds. Timestamps
 /// are compared using so-called "Serial number arithmetic", as defined in
 /// [RFC 1982].
-
+///
 /// The RFC defines the semantics for doing arithmetics in the
 /// face of these wrap-arounds. This type implements these semantics atop a
 /// native `u32`. The RFC defines two operations: addition and comparison.
@@ -621,7 +621,6 @@ where
 /// pairs of values that are not equal but there still isn’t one value larger
 /// than the other. Since this is neatly implemented by the `PartialOrd`
 /// trait, the type implements that.
-
 ///
 /// [RFC 1982]: https://tools.ietf.org/html/rfc1982
 /// [RFC 4034]: https://tools.ietf.org/html/rfc4034
@@ -1735,7 +1734,7 @@ pub struct Ds<Octs> {
     digest_type: DigestAlg,
     #[cfg_attr(
         feature = "serde",
-        serde(with = "crate::utils::base64::serde")
+        serde(with = "crate::utils::base16::serde")
     )]
     digest: Octs,
 }
@@ -2169,6 +2168,11 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.0.as_ref())
     }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.iter().next().is_none()
+    }
 }
 
 //--- AsRef
@@ -2305,7 +2309,7 @@ where
         if serializer.is_human_readable() {
             struct Inner<'a>(&'a [u8]);
 
-            impl<'a> serde::Serialize for Inner<'a> {
+            impl serde::Serialize for Inner<'_> {
                 fn serialize<S: serde::Serializer>(
                     &self,
                     serializer: S,
@@ -2626,7 +2630,7 @@ impl<'a> RtypeBitmapIter<'a> {
     }
 }
 
-impl<'a> Iterator for RtypeBitmapIter<'a> {
+impl Iterator for RtypeBitmapIter<'_> {
     type Item = Rtype;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -2634,7 +2638,7 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
             return None;
         }
         let res =
-            Rtype::from_int(self.block | (self.octet as u16) << 3 | self.bit);
+            Rtype::from_int(self.block | ((self.octet as u16) << 3) | self.bit);
         self.advance();
         Some(res)
     }
