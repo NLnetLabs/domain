@@ -211,11 +211,11 @@ impl<Variant, Octs: ?Sized> Understood<Variant, Octs> {
     }
 
     /// Returns an iterator over the algorithms in the data.
-    pub fn iter(&self) -> SecurityAlgorithmsIter
+    pub fn iter(&self) -> SecurityAlgorithmIter
     where
         Octs: AsRef<[u8]>,
     {
-        SecurityAlgorithmsIter::new(self.octets.as_ref())
+        SecurityAlgorithmIter::new(self.octets.as_ref())
     }
 }
 
@@ -378,7 +378,7 @@ where
     Octs: AsRef<[u8]> + ?Sized
 {
     type Item = SecurityAlgorithm;
-    type IntoIter = SecurityAlgorithmsIter<'a>;
+    type IntoIter = SecurityAlgorithmIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -530,15 +530,15 @@ impl<Target: Composer> OptBuilder<'_, Target> {
 
 //------------ SecurityAlgorithmsIter ----------------------------------------
 
-pub struct SecurityAlgorithmsIter<'a>(slice::Iter<'a, u8>);
+pub struct SecurityAlgorithmIter<'a>(slice::Iter<'a, u8>);
 
-impl<'a> SecurityAlgorithmsIter<'a> {
+impl<'a> SecurityAlgorithmIter<'a> {
     fn new(slice: &'a [u8]) -> Self {
-        SecurityAlgorithmsIter(slice.iter())
+        SecurityAlgorithmIter(slice.iter())
     }
 }
 
-impl Iterator for SecurityAlgorithmsIter<'_> {
+impl Iterator for SecurityAlgorithmIter<'_> {
     type Item = SecurityAlgorithm;
 
     fn next(&mut self) -> Option<Self::Item> {
