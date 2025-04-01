@@ -543,10 +543,10 @@ impl Scanner for EntryScanner<'_> {
         let mut write = 0;
         let mut builder = None;
         loop {
-            self.convert_one_token(&mut convert, &mut write, &mut builder)?;
             if self.zonefile.buf.is_line_feed() {
                 break;
             }
+            self.convert_one_token(&mut convert, &mut write, &mut builder)?;
         }
         if let Some(data) = convert.process_tail()? {
             self.append_data(data, &mut write, &mut builder);
@@ -564,11 +564,27 @@ impl Scanner for EntryScanner<'_> {
         // trim off everything to the left already.
         self.zonefile.buf.trim_to(self.zonefile.buf.start);
 
+        // Remember if we are inside a quoted value. If so the opening quote
+        // has already been skipped over, it is not part of the value.
+        let is_quoted = self.zonefile.buf.cat == ItemCat::Quoted;
+
         // Skip over symbols that don’t need converting at the beginning.
         while self.zonefile.buf.next_ascii_symbol()?.is_some() {}
 
+        if self.zonefile.buf.cat == ItemCat::None {
+            // The item has ended.  Remove the double quote.
+            let write = if is_quoted {
+                self.zonefile.buf.start - 1
+            } else {
+                self.zonefile.buf.start
+            };
+            self.zonefile.buf.next_item()?;
+            return Ok(self.zonefile.buf.split_to(write).freeze());
+        }
+
         // If we aren’t done yet, we have escaped characters to replace.
         let mut write = self.zonefile.buf.start;
+
         while let Some(sym) = self.zonefile.buf.next_symbol()? {
             self.zonefile.buf.buf[write] = sym.into_octet()?;
             write += 1;
@@ -1384,7 +1400,7 @@ impl SourceBuf {
 //------------ ItemCat -------------------------------------------------------
 
 /// The category of the current item in a source buffer.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ItemCat {
     /// We don’t currently have an item.
     ///
@@ -1534,6 +1550,28 @@ mod test {
     }
 
     #[test]
+    fn scan_octets() {
+        #[track_caller]
+        fn test(zone: &str, tok: impl AsRef<[u8]>) {
+            with_entry(zone, |mut entry| {
+                let res = entry.scan_octets().unwrap();
+                assert_eq!(&res[..], tok.as_ref());
+            });
+        }
+
+        test(" unquoted\r\n", b"unquoted");
+        test(" unquoted  ", b"unquoted");
+        test("unquoted ", b"unquoted");
+        test("unqu\\oted ", b"unquoted");
+        test("unqu\\111ted ", b"unquoted");
+        test(" \"quoted\"\n", b"quoted");
+        test(" \"quoted\" ", b"quoted");
+        test("\"quoted\" ", b"quoted");
+        test("\"qu\\oted\"", b"quoted");
+        test(" \"qu\\\\ot\\\\ed\" ", b"qu\\ot\\ed");
+    }
+
+    #[test]
     fn scan_symbols() {
         fn test(zone: &str, tok: impl AsRef<[u8]>) {
             with_entry(zone, |mut entry| {
@@ -1624,6 +1662,13 @@ mod test {
     fn test_unknown_yaml() {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/unknown.yaml"
+        ));
+    }
+
+    #[test]
+    fn test_unknown_zero_length_yaml() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/unknown-zero-length.yaml"
         ));
     }
 

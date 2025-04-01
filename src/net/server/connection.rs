@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use futures_util::StreamExt;
+use log::{log_enabled, Level};
 use octseq::Octets;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
@@ -17,8 +18,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 use tokio::time::{sleep_until, timeout};
-use tracing::Level;
-use tracing::{debug, enabled, error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
@@ -40,7 +40,7 @@ use super::ServerCommand;
 /// - "A timeout of at least a few seconds is advisable for normal
 ///   operations".
 /// - "Servers MAY use zero timeouts when they are experiencing heavy load or
-///    are under attack".
+///   are under attack".
 /// - "Servers MAY allow idle connections to remain open for longer periods as
 ///   resources permit".
 ///
@@ -129,7 +129,7 @@ impl Config {
     /// - "A timeout of at least a few seconds is advisable for normal
     ///   operations".
     /// - "Servers MAY use zero timeouts when they are experiencing heavy load
-    ///    or are under attack".
+    ///   or are under attack".
     /// - "Servers MAY allow idle connections to remain open for longer
     ///   periods as resources permit".
     ///
@@ -582,7 +582,7 @@ where
         &mut self,
         msg: StreamTarget<Svc::Target>,
     ) -> Result<(), ConnectionEvent> {
-        if enabled!(Level::TRACE) {
+        if log_enabled!(Level::Trace) {
             let bytes = msg.as_dgram_slice();
             let pcap_text = to_pcap_text(bytes, bytes.len());
             trace!(addr = %self.addr, pcap_text, "Sending response");
@@ -647,7 +647,7 @@ where
             Ok(buf) => {
                 let received_at = Instant::now();
 
-                if enabled!(Level::TRACE) {
+                if log_enabled!(Level::Trace) {
                     let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
                     trace!(addr = %self.addr, pcap_text, "Received message");
                 }

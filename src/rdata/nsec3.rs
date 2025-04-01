@@ -11,8 +11,8 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
-use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
@@ -102,8 +102,16 @@ impl<Octs> Nsec3<Octs> {
         &self.next_owner
     }
 
+    pub fn set_next_owner(&mut self, next_owner: OwnerHash<Octs>) {
+        self.next_owner = next_owner;
+    }
+
     pub fn types(&self) -> &RtypeBitmap<Octs> {
         &self.types
+    }
+
+    pub fn set_types(&mut self, types: RtypeBitmap<Octs>) {
+        self.types = types;
     }
 
     pub(super) fn convert_octets<Target>(
@@ -354,7 +362,10 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
             self.hash_algorithm, self.flags, self.iterations, self.salt
         )?;
         base32::display_hex(&self.next_owner, f)?;
-        write!(f, " {}", self.types)
+        if !self.types.is_empty() {
+            write!(f, " {}", self.types)?;
+        }
+        Ok(())
     }
 }
 
@@ -396,6 +407,12 @@ where
 
 //------------ Nsec3Param ----------------------------------------------------
 
+// https://datatracker.ietf.org/doc/html/rfc5155#section-3.2
+// 3.2.  NSEC3 RDATA Wire Format
+//   "Flags field is a single octet, the Opt-Out flag is the least significant
+//    bit"
+const NSEC3_OPT_OUT_FLAG_MASK: u8 = 0b0000_0001;
+
 #[derive(Clone)]
 #[cfg_attr(
     feature = "serde",
@@ -412,8 +429,56 @@ where
 )]
 pub struct Nsec3param<Octs> {
     hash_algorithm: Nsec3HashAlgorithm,
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.1
+    /// 3.1.1.  Hash Algorithm
+    ///   "The Hash Algorithm field identifies the cryptographic hash
+    ///    algorithm used to construct the hash-value."
+    hash_algorithm: Nsec3HashAlg,
+
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.2
+    /// 3.1.2.  Flags
+    ///   "The Flags field contains 8 one-bit flags that can be used to
+    ///   indicate different processing.  All undefined flags must be zero.
+    ///   The only flag defined by this specification is the Opt-Out flag."
+    ///
+    /// 3.1.2.1.  Opt-Out Flag
+    ///   "If the Opt-Out flag is set, the NSEC3 record covers zero or more
+    ///    unsigned delegations.
+    ///    
+    ///    If the Opt-Out flag is clear, the NSEC3 record covers zero unsigned
+    ///    delegations.
+    ///    
+    ///    The Opt-Out Flag indicates whether this NSEC3 RR may cover unsigned
+    ///    delegations.  It is the least significant bit in the Flags field.
+    ///    See Section 6 for details about the use of this flag."
+>>>>>>> main
     flags: u8,
+
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.3
+    /// 3.1.3.  Iterations
+    ///   "The Iterations field defines the number of additional times the
+    ///    hash function has been performed.  More iterations result in
+    ///    greater resiliency of the hash value against dictionary attacks,
+    ///    but at a higher computational cost for both the server and
+    ///    resolver.  See Section 5 for details of the use of this field, and
+    ///    Section 10.3 for limitations on the value."
+    /// 
+    /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
+    /// 3.1. Best Practice for Zone Publishers 
+    ///   "If NSEC3 must be used, then an iterations count of 0 MUST be used
+    ///    to alleviate computational burdens."
     iterations: u16,
+
+    /// https://datatracker.ietf.org/doc/html/rfc5155#section-3.1.5
+    /// 3.1.5.  Salt
+    ///   "The Salt field is appended to the original owner name before
+    ///    hashing in order to defend against pre-calculated dictionary
+    ///    attacks."
+    /// 
+    /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
+    /// 3.1. Best Practice for Zone Publishers 
+    ///   "Operators SHOULD NOT use a salt by indicating a zero-length salt
+    ///   value instead (represented as a "-" in the presentation format)."
     salt: Nsec3Salt<Octs>,
 }
 
@@ -445,12 +510,24 @@ impl<Octs> Nsec3param<Octs> {
         self.flags
     }
 
+    pub fn set_opt_out_flag(&mut self) {
+        self.flags |= NSEC3_OPT_OUT_FLAG_MASK;
+    }
+
+    pub fn opt_out_flag(&self) -> bool {
+        self.flags & NSEC3_OPT_OUT_FLAG_MASK == NSEC3_OPT_OUT_FLAG_MASK
+    }    
+
     pub fn iterations(&self) -> u16 {
         self.iterations
     }
 
     pub fn salt(&self) -> &Nsec3Salt<Octs> {
         &self.salt
+    }
+
+    pub fn into_salt(self) -> Nsec3Salt<Octs> {
+        self.salt
     }
 
     pub(super) fn convert_octets<Target>(
@@ -493,6 +570,35 @@ impl<Octs> Nsec3param<Octs> {
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
         ))
+    }
+}
+
+//--- Default
+
+impl<Octs> Default for Nsec3param<Octs>
+where
+    Octs: From<&'static [u8]>,
+{
+    /// Best practice default values for NSEC3 hashing.
+    ///
+    /// Per [RFC 9276] section 3.1:
+    ///
+    /// - _SHA-1, no extra iterations, empty salt._
+    ///
+    /// Per [RFC 5155] section 4.1.2:
+    ///
+    /// - _The Opt-Out flag is not used and is set to zero._
+    /// - _All other flags are reserved for future use, and must be zero._
+    ///
+    /// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155.html
+    /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
+    fn default() -> Self {
+        Self {
+            hash_algorithm: Nsec3HashAlg::SHA1,
+            flags: 0,
+            iterations: 0,
+            salt: Nsec3Salt::empty(),
+        }
     }
 }
 
@@ -1029,7 +1135,10 @@ impl<Octs: AsRef<[u8]> + ?Sized> ZonefileFmt for Nsec3Salt<Octs> {
             } else {
                 p.write_token(base16::encode_display(self))?;
             }
-            p.write_comment(format_args!("salt (length: {})", self.salt_len()))
+            p.write_comment(format_args!(
+                "salt (length: {})",
+                self.salt_len()
+            ))
         })
     }
 }
@@ -1545,6 +1654,7 @@ mod test {
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
+    use crate::base::zonefile_fmt::DisplayKind;
     use std::vec::Vec;
 
     #[test]
@@ -1568,7 +1678,10 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
-        assert_eq!(&format!("{}", rdata.display_zonefile(false)), "1 10 11 626172 CPNMU A SRV");
+        assert_eq!(
+            &format!("{}", rdata.display_zonefile(DisplayKind::Simple)),
+            "1 10 11 626172 CPNMU A SRV"
+        );
     }
 
     #[test]
@@ -1592,7 +1705,10 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
-        assert_eq!(&format!("{}", rdata.display_zonefile(false)), "1 10 11 - CPNMU A SRV");
+        assert_eq!(
+            &format!("{}", rdata.display_zonefile(DisplayKind::Simple)),
+            "1 10 11 - CPNMU A SRV"
+        );
     }
 
     #[test]

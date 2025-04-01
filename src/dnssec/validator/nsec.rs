@@ -18,6 +18,22 @@ use std::str::{FromStr, Utf8Error};
 use std::sync::Arc;
 use std::vec::Vec;
 
+use bytes::Bytes;
+use moka::future::Cache;
+
+use crate::base::iana::{ExtendedErrorCode, Nsec3HashAlg};
+use crate::base::name::{Label, ToName};
+use crate::base::opt::ExtendedError;
+use crate::base::{Name, ParsedName, Rtype};
+use crate::dep::octseq::Octets;
+use crate::dnssec::common::nsec3_hash;
+use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
+use crate::rdata::{AllRecordData, Nsec, Nsec3};
+
+use super::context::{Config, ValidationState};
+use super::group::ValidatedGroup;
+use super::utilities::{make_ede, star_closest_encloser};
+
 //----------- Nsec functions -------------------------------------------------
 
 /// The result of trying use NSEC records to prove NODATA.
@@ -1018,7 +1034,7 @@ pub async fn cached_nsec3_hash(
     if let Some(ce) = cache.cache.get(&key).await {
         return ce;
     }
-    let hash = nsec3_hash(owner, algorithm, iterations, salt);
+    let hash = nsec3_hash(owner, algorithm, iterations, salt).unwrap();
     let hash = Arc::new(hash);
     cache.cache.insert(key, hash.clone()).await;
     hash
