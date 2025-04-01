@@ -5,6 +5,7 @@
 Breaking changes
 
 * FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
+* Stricter RFC 1035 compliance by default in the `Zonefile` parser. ([#477])
 
 New
 
@@ -86,6 +87,7 @@ Other changes
 [#470]: https://github.com/NLnetLabs/domain/pull/470
 [#472]: https://github.com/NLnetLabs/domain/pull/472
 [#475]: https://github.com/NLnetLabs/domain/pull/475
+[#4775]: https://github.com/NLnetLabs/domain/pull/477
 [@weilence]: https://github.com/weilence
 
 
