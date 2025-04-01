@@ -1589,8 +1589,9 @@ impl fmt::Display for EntryError {
         f.write_str(self.msg)?;
         #[cfg(feature = "std")]
         if let Some(context) = &self.context {
-            write!(f, ": {}", context)?
+            write!(f, ": {}", context)?;
         }
+        Ok(())
     }
 }
 
