@@ -25,7 +25,7 @@ octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
-bytes          = { version = "1.0", optional = true, default-features = false }
+bytes          = { version = "1.2", optional = true, default-features = false }
 chrono         = { version = "0.4.35", optional = true, default-features = false } # 0.4.35 deprecates Duration::seconds()
 futures-util   = { version = "0.3", optional = true }
 hashbrown      = { version = "0.14.2", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
@@ -36,7 +36,7 @@ parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
 openssl        = { version = "0.10.57", optional = true } # 0.10.70 upgrades to 'bitflags' 2.x
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
-ring           = { version = "0.17", optional = true }
+ring           = { version = "0.17.2", optional = true }
 rustversion    = { version = "1", optional = true }
 secrecy        = { version = "0.10", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
@@ -72,11 +72,12 @@ zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
+unstable-crypto = ["bytes"]
+unstable-crypto-sign = ["dep:secrecy", "unstable-crypto"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
-unstable-sign = ["std", "dep:secrecy", "unstable-validate", "time/formatting"]
+unstable-sign = ["std", "dep:smallvec", "dep:serde", "time/formatting", "tracing", "unstable-crypto-sign"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
-unstable-validate = ["bytes", "std", "ring"]
-unstable-validator = ["unstable-validate", "zonefile", "unstable-client-transport"]
+unstable-validator = ["zonefile", "unstable-client-transport", "unstable-crypto"]
 unstable-xfr = ["net"]
 unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]
 
@@ -84,19 +85,20 @@ unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std
 arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
-itertools = "0.13.0"
-lazy_static        = { version = "1.4.0" }
+itertools         = "0.13.0"
+lazy_static       = { version = "1.4.0" }
+pretty_assertions = "1.4.1"
 rstest             = "0.23.0"
-rustls-pemfile     = { version = "2.1.2" }
-serde_test         = "1.0.130"
-serde_json         = "1.0.113"
-serde_yaml         = "0.9"
-socket2            = { version = "0.5.5" }
-tokio              = { version = "1.37", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
-tokio-rustls       = { version = "0.26", default-features = false, features = [ "ring", "logging", "tls12" ] }
-tokio-test         = "0.4"
-tokio-tfo          = { version = "0.2.0" }
-webpki-roots       = { version = "0.26" }
+rustls-pemfile    = { version = "2.1.2" }
+serde_test        = "1.0.130"
+serde_json        = "1.0.113"
+serde_yaml        = "0.9"
+socket2           = { version = "0.5.5" }
+tokio             = { version = "1.37", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
+tokio-rustls      = { version = "0.26", default-features = false, features = [ "ring", "logging", "tls12" ] }
+tokio-test        = "0.4"
+tokio-tfo         = { version = "0.2.0" }
+webpki-roots      = { version = "0.26" }
 
 # For the "mysql-zone" example
 #sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
@@ -154,7 +156,9 @@ required-features = ["net", "unstable-client-transport", "unstable-server-transp
 
 [[example]]
 name = "keyset"
-required-features = ["serde", "unstable-sign"]
+# Note that we have to pick a crypto backend eventhough the example doesn't
+# need one.
+required-features = ["serde", "unstable-sign", "ring"]
 
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible

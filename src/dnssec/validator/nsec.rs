@@ -1,22 +1,25 @@
 //! Helper functions for NSEC and NSEC3 validation.
 
-use super::context::{Config, ValidationState};
-use super::group::ValidatedGroup;
-use super::utilities::{make_ede, star_closest_encloser};
-use crate::base::iana::{ExtendedErrorCode, Nsec3HashAlg};
-use crate::base::name::{Label, ToName};
-use crate::base::opt::ExtendedError;
-use crate::base::{Name, ParsedName, Rtype};
-use crate::dep::octseq::{Octets, OctetsBuilder};
-use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
-use crate::rdata::{AllRecordData, Nsec, Nsec3};
-use bytes::Bytes;
-use moka::future::Cache;
-use ring::digest;
 use std::collections::VecDeque;
 use std::str::{FromStr, Utf8Error};
 use std::sync::Arc;
 use std::vec::Vec;
+
+use bytes::Bytes;
+use moka::future::Cache;
+
+use crate::base::iana::{ExtendedErrorCode, Nsec3HashAlg};
+use crate::base::name::{Label, ToName};
+use crate::base::opt::ExtendedError;
+use crate::base::{Name, ParsedName, Rtype};
+use crate::dep::octseq::Octets;
+use crate::dnssec::common::nsec3_hash;
+use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
+use crate::rdata::{AllRecordData, Nsec, Nsec3};
+
+use super::context::{Config, ValidationState};
+use super::group::ValidatedGroup;
+use super::utilities::{make_ede, star_closest_encloser};
 
 //----------- Nsec functions -------------------------------------------------
 
@@ -957,54 +960,6 @@ pub fn supported_nsec3_hash(h: Nsec3HashAlg) -> bool {
     h == Nsec3HashAlg::SHA1
 }
 
-/// Compute the NSEC3 hash according to Section 5 of RFC 5155:
-///
-/// IH(salt, x, 0) = H(x || salt)
-/// IH(salt, x, k) = H(IH(salt, x, k-1) || salt), if k > 0
-///
-/// Then the calculated hash of an owner name is
-///    IH(salt, owner name, iterations),
-fn nsec3_hash<N, HashOcts>(
-    owner: N,
-    algorithm: Nsec3HashAlg,
-    iterations: u16,
-    salt: &Nsec3Salt<HashOcts>,
-) -> OwnerHash<Vec<u8>>
-where
-    N: ToName,
-    HashOcts: AsRef<[u8]>,
-{
-    let mut buf = Vec::new();
-
-    owner.compose_canonical(&mut buf).expect("infallible");
-    buf.append_slice(salt.as_slice()).expect("infallible");
-
-    let digest_type = if algorithm == Nsec3HashAlg::SHA1 {
-        &digest::SHA1_FOR_LEGACY_USE_ONLY
-    } else {
-        // totest, unsupported NSEC3 hash algorithm
-        // Unsupported.
-        panic!("should not be called with an unsupported algorithm");
-    };
-
-    let mut ctx = digest::Context::new(digest_type);
-    ctx.update(&buf);
-    let mut h = ctx.finish();
-
-    for _ in 0..iterations {
-        buf.truncate(0);
-        buf.append_slice(h.as_ref()).expect("infallible");
-        buf.append_slice(salt.as_slice()).expect("infallible");
-
-        let mut ctx = digest::Context::new(digest_type);
-        ctx.update(&buf);
-        h = ctx.finish();
-    }
-
-    // For normal hash algorithms this should not fail.
-    OwnerHash::from_octets(h.as_ref().to_vec()).expect("should not fail")
-}
-
 /// Return an NSEC3 hash using a cache.
 pub async fn cached_nsec3_hash(
     owner: &Name<Bytes>,
@@ -1018,7 +973,7 @@ pub async fn cached_nsec3_hash(
     if let Some(ce) = cache.cache.get(&key).await {
         return ce;
     }
-    let hash = nsec3_hash(owner, algorithm, iterations, salt);
+    let hash = nsec3_hash(owner, algorithm, iterations, salt).unwrap();
     let hash = Arc::new(hash);
     cache.cache.insert(key, hash.clone()).await;
     hash
