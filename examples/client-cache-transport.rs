@@ -2,12 +2,8 @@
 use domain::base::{MessageBuilder, Name, Rtype};
 use domain::net::client::cache;
 use domain::net::client::protocol::{TcpConnect, UdpConnect};
-use domain::net::client::request::{
-    RequestMessage, SendRequest,
-};
-use domain::net::client::{
-    dgram, dgram_stream, multi_stream, stream,
-};
+use domain::net::client::request::{RequestMessage, SendRequest};
+use domain::net::client::{dgram, dgram_stream, multi_stream, stream};
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
