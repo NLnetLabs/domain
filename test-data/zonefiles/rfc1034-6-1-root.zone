@@ -1,0 +1,36 @@
+.       IN      SOA     SRI-NIC.ARPA. HOSTMASTER.SRI-NIC.ARPA. (
+                        870611          ;serial
+                        1800            ;refresh every 30 min
+                        300             ;retry every 5 min
+                        604800          ;expire after a week
+                        86400)          ;minimum of a day
+                NS      A.ISI.EDU.
+                NS      C.ISI.EDU.
+                NS      SRI-NIC.ARPA.
+
+MIL.    86400   NS      SRI-NIC.ARPA.
+        86400   NS      A.ISI.EDU.
+
+EDU.    86400   NS      SRI-NIC.ARPA.
+        86400   NS      C.ISI.EDU.
+
+SRI-NIC.ARPA.   A       26.0.0.73
+                A       10.0.0.51
+                MX      0 SRI-NIC.ARPA.
+                HINFO   DEC-2060 TOPS20
+
+ACC.ARPA.       A       26.6.0.65
+                HINFO   PDP-11/70 UNIX
+                MX      10 ACC.ARPA.
+
+USC-ISIC.ARPA.  CNAME   C.ISI.EDU.
+
+73.0.0.26.IN-ADDR.ARPA.  PTR    SRI-NIC.ARPA.
+65.0.6.26.IN-ADDR.ARPA.  PTR    ACC.ARPA.
+51.0.0.10.IN-ADDR.ARPA.  PTR    SRI-NIC.ARPA.
+52.0.0.10.IN-ADDR.ARPA.  PTR    C.ISI.EDU.
+103.0.3.26.IN-ADDR.ARPA. PTR    A.ISI.EDU.
+
+A.ISI.EDU. 86400 A      26.3.0.103
+C.ISI.EDU. 86400 A      10.0.0.52
+

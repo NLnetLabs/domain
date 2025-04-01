@@ -432,6 +432,22 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Understood<N3uVariant, Octs> {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<V, Octs: AsRef<[u8]>> serde::Serialize for Understood<V, Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        use serde::ser::SerializeSeq;
+        let mut list = serializer.serialize_seq(None)?;
+        for item in self.iter() {
+            list.serialize_element(&item)?;
+        }
+        list.end()
+    }
+}
+
 //--- Extended Opt and OptBuilder
 
 impl<Octs: Octets> Opt<Octs> {
@@ -458,7 +474,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends a DAU option.
     ///
     /// The DAU option lists the DNSSEC signature algorithms the requester
@@ -522,7 +538,7 @@ impl<'a> SecAlgsIter<'a> {
     }
 }
 
-impl<'a> Iterator for SecAlgsIter<'a> {
+impl Iterator for SecAlgsIter<'_> {
     type Item = SecAlg;
 
     fn next(&mut self) -> Option<Self::Item> {

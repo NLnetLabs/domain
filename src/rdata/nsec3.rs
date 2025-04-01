@@ -12,10 +12,12 @@ use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
+use core::fmt::Write;
 use core::{fmt, hash, mem, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
@@ -100,8 +102,16 @@ impl<Octs> Nsec3<Octs> {
         &self.next_owner
     }
 
+    pub fn set_next_owner(&mut self, next_owner: OwnerHash<Octs>) {
+        self.next_owner = next_owner;
+    }
+
     pub fn types(&self) -> &RtypeBitmap<Octs> {
         &self.types
+    }
+
+    pub fn set_types(&mut self, types: RtypeBitmap<Octs>) {
+        self.types = types;
     }
 
     pub(super) fn convert_octets<Target>(
@@ -352,7 +362,10 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
             self.hash_algorithm, self.flags, self.iterations, self.salt
         )?;
         base32::display_hex(&self.next_owner, f)?;
-        write!(f, " {}", self.types)
+        if !self.types.is_empty() {
+            write!(f, " {}", self.types)?;
+        }
+        Ok(())
     }
 }
 
@@ -369,7 +382,36 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Nsec3<Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_show(self.hash_algorithm)?;
+            p.write_token(self.flags)?;
+            p.write_comment(format_args!(
+                "flags: {}",
+                if self.opt_out() { "opt-out" } else { "<none>" }
+            ))?;
+            p.write_token(self.iterations)?;
+            p.write_comment("iterations")?;
+            p.write_show(&self.salt)?;
+            p.write_token(base32::encode_display_hex(&self.next_owner))?;
+            p.write_show(&self.types)
+        })
+    }
+}
+
 //------------ Nsec3Param ----------------------------------------------------
+
+// https://datatracker.ietf.org/doc/html/rfc5155#section-3.2
+// 3.2.  NSEC3 RDATA Wire Format
+//   "Flags field is a single octet, the Opt-Out flag is the least significant
+//    bit"
+const NSEC3_OPT_OUT_FLAG_MASK: u8 = 0b0000_0001;
 
 #[derive(Clone)]
 #[cfg_attr(
@@ -386,9 +428,55 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     ))
 )]
 pub struct Nsec3param<Octs> {
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.1
+    /// 3.1.1.  Hash Algorithm
+    ///   "The Hash Algorithm field identifies the cryptographic hash
+    ///    algorithm used to construct the hash-value."
     hash_algorithm: Nsec3HashAlg,
+
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.2
+    /// 3.1.2.  Flags
+    ///   "The Flags field contains 8 one-bit flags that can be used to
+    ///   indicate different processing.  All undefined flags must be zero.
+    ///   The only flag defined by this specification is the Opt-Out flag."
+    ///
+    /// 3.1.2.1.  Opt-Out Flag
+    ///   "If the Opt-Out flag is set, the NSEC3 record covers zero or more
+    ///    unsigned delegations.
+    ///    
+    ///    If the Opt-Out flag is clear, the NSEC3 record covers zero unsigned
+    ///    delegations.
+    ///    
+    ///    The Opt-Out Flag indicates whether this NSEC3 RR may cover unsigned
+    ///    delegations.  It is the least significant bit in the Flags field.
+    ///    See Section 6 for details about the use of this flag."
     flags: u8,
+
+    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.3
+    /// 3.1.3.  Iterations
+    ///   "The Iterations field defines the number of additional times the
+    ///    hash function has been performed.  More iterations result in
+    ///    greater resiliency of the hash value against dictionary attacks,
+    ///    but at a higher computational cost for both the server and
+    ///    resolver.  See Section 5 for details of the use of this field, and
+    ///    Section 10.3 for limitations on the value."
+    /// 
+    /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
+    /// 3.1. Best Practice for Zone Publishers 
+    ///   "If NSEC3 must be used, then an iterations count of 0 MUST be used
+    ///    to alleviate computational burdens."
     iterations: u16,
+
+    /// https://datatracker.ietf.org/doc/html/rfc5155#section-3.1.5
+    /// 3.1.5.  Salt
+    ///   "The Salt field is appended to the original owner name before
+    ///    hashing in order to defend against pre-calculated dictionary
+    ///    attacks."
+    /// 
+    /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
+    /// 3.1. Best Practice for Zone Publishers 
+    ///   "Operators SHOULD NOT use a salt by indicating a zero-length salt
+    ///   value instead (represented as a "-" in the presentation format)."
     salt: Nsec3Salt<Octs>,
 }
 
@@ -420,12 +508,24 @@ impl<Octs> Nsec3param<Octs> {
         self.flags
     }
 
+    pub fn set_opt_out_flag(&mut self) {
+        self.flags |= NSEC3_OPT_OUT_FLAG_MASK;
+    }
+
+    pub fn opt_out_flag(&self) -> bool {
+        self.flags & NSEC3_OPT_OUT_FLAG_MASK == NSEC3_OPT_OUT_FLAG_MASK
+    }    
+
     pub fn iterations(&self) -> u16 {
         self.iterations
     }
 
     pub fn salt(&self) -> &Nsec3Salt<Octs> {
         &self.salt
+    }
+
+    pub fn into_salt(self) -> Nsec3Salt<Octs> {
+        self.salt
     }
 
     pub(super) fn convert_octets<Target>(
@@ -468,6 +568,35 @@ impl<Octs> Nsec3param<Octs> {
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
         ))
+    }
+}
+
+//--- Default
+
+impl<Octs> Default for Nsec3param<Octs>
+where
+    Octs: From<&'static [u8]>,
+{
+    /// Best practice default values for NSEC3 hashing.
+    ///
+    /// Per [RFC 9276] section 3.1:
+    ///
+    /// - _SHA-1, no extra iterations, empty salt._
+    ///
+    /// Per [RFC 5155] section 4.1.2:
+    ///
+    /// - _The Opt-Out flag is not used and is set to zero._
+    /// - _All other flags are reserved for future use, and must be zero._
+    ///
+    /// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155.html
+    /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
+    fn default() -> Self {
+        Self {
+            hash_algorithm: Nsec3HashAlg::SHA1,
+            flags: 0,
+            iterations: 0,
+            salt: Nsec3Salt::empty(),
+        }
     }
 }
 
@@ -661,6 +790,21 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Nsec3param<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_show(self.hash_algorithm)?;
+            p.write_token(self.flags)?;
+            p.write_comment("flags")?;
+            p.write_token(self.iterations)?;
+            p.write_comment("iterations")?;
+            p.write_show(&self.salt)
+        })
+    }
+}
+
 //------------ Nsec3Salt -----------------------------------------------------
 
 /// The salt value of an NSEC3 record.
@@ -672,6 +816,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
 /// no whitespace allowed.
 #[derive(Clone)]
 #[repr(transparent)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Nsec3Salt<Octs: ?Sized>(Octs);
 
 impl Nsec3Salt<()> {
@@ -958,7 +1103,15 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for Nsec3Salt<T> {
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        base16::display(self.as_slice(), f)
+        let s = self.as_slice();
+        if s.is_empty() {
+            // https://www.rfc-editor.org/rfc/rfc5155.html#section-3.3
+            //   "The Salt field is represented as "-" (without the quotes)
+            //    when the Salt Length field has a value of 0."
+            f.write_char('-')
+        } else {
+            base16::display(s, f)
+        }
     }
 }
 
@@ -967,6 +1120,24 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
         f.debug_tuple("Nsec3Salt")
             .field(&format_args!("{}", self))
             .finish()
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]> + ?Sized> ZonefileFmt for Nsec3Salt<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            if self.as_slice().is_empty() {
+                p.write_token("-")?;
+            } else {
+                p.write_token(base16::encode_display(self))?;
+            }
+            p.write_comment(format_args!(
+                "salt (length: {})",
+                self.salt_len()
+            ))
+        })
     }
 }
 
@@ -1086,7 +1257,7 @@ where
 ///
 /// This hash is used instead of the actual owner name in an NSEC3 record.
 ///
-/// The hash can never be longer than 255 octets since its lenght is encoded
+/// The hash can never be longer than 255 octets since its length is encoded
 /// as a single octet.
 ///
 /// For its presentation format, the hash uses an unpadded Base 32 encoding
@@ -1481,6 +1652,7 @@ mod test {
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
+    use crate::base::zonefile_fmt::DisplayKind;
     use std::vec::Vec;
 
     #[test]
@@ -1503,6 +1675,37 @@ mod test {
             &["1", "10", "11", "626172", "CPNMU", "A", "SRV"],
             Nsec3::scan,
             &rdata,
+        );
+        assert_eq!(
+            &format!("{}", rdata.display_zonefile(DisplayKind::Simple)),
+            "1 10 11 626172 CPNMU A SRV"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
+    fn nsec3_compose_parse_scan_empty_salt() {
+        let mut rtype = RtypeBitmapBuilder::new_vec();
+        rtype.add(Rtype::A).unwrap();
+        rtype.add(Rtype::SRV).unwrap();
+        let rdata = Nsec3::new(
+            Nsec3HashAlg::SHA1,
+            10,
+            11,
+            Nsec3Salt::empty(),
+            OwnerHash::from_octets(Vec::from("foo")).unwrap(),
+            rtype.finalize(),
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Nsec3::parse(parser));
+        test_scan(
+            &["1", "10", "11", "-", "CPNMU", "A", "SRV"],
+            Nsec3::scan,
+            &rdata,
+        );
+        assert_eq!(
+            &format!("{}", rdata.display_zonefile(DisplayKind::Simple)),
+            "1 10 11 - CPNMU A SRV"
         );
     }
 

@@ -1,23 +1,22 @@
 //! Support for working with DNS messages in servers.
-use core::ops::ControlFlow;
+
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
+
+use bytes::Bytes;
 use core::time::Duration;
 
-use std::net::SocketAddr;
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
+use std::vec::Vec;
 
-use octseq::Octets;
 use tokio::time::Instant;
-use tracing::Level;
-use tracing::{enabled, error, info_span, warn};
 
-use crate::base::Message;
-use crate::net::server::buf::BufSource;
-use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::middleware::chain::MiddlewareChain;
-
-use super::service::{CallResult, Service, ServiceError, Transaction};
-use super::util::start_reply;
-use crate::base::wire::Composer;
+use crate::base::opt::AllOptData;
+use crate::base::{Message, Name};
+use crate::dep::octseq::Octets;
+use crate::net::client::request;
+use crate::net::client::request::{ComposeRequest, RequestMessage};
 
 //------------ UdpTransportContext -------------------------------------------
 
@@ -47,14 +46,14 @@ impl UdpTransportContext {
     /// allowed response size, `Some(n)` otherwise where `n` is the maximum
     /// number of bytes allowed for the response message.
     ///
-    /// The [`EdnsMiddlewareProcessor`] may adjust this limit.
+    /// The [`EdnsMiddlewareSvc`] may adjust this limit.
     ///
-    /// The [`MandatoryMiddlewareProcessor`] enforces this limit.
+    /// The [`MandatoryMiddlewareSvc`] enforces this limit.
     ///
-    /// [`EdnsMiddlewareProcessor`]:
-    ///     crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor
-    /// [`MandatoryMiddlewareProcessor`]:
-    ///     crate::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor
+    /// [`EdnsMiddlewareSvc`]:
+    ///     crate::net::server::middleware::edns::EdnsMiddlewareSvc
+    /// [`MandatoryMiddlewareSvc`]:
+    ///     crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc
     pub fn max_response_size_hint(&self) -> Option<u16> {
         *self.max_response_size_hint.lock().unwrap()
     }
@@ -93,15 +92,15 @@ impl NonUdpTransportContext {
     /// This is provided by the server to indicate what the current timeout
     /// setting in effect is.
     ///
-    /// The [`EdnsMiddlewareProcessor`] may report this timeout value back to
+    /// The [`EdnsMiddlewareSvc`] may report this timeout value back to
     /// clients capable of interpreting it.
     ///
     /// [RFC 7766 section 6.2.3]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
     /// [RFC 78828]: https://www.rfc-editor.org/rfc/rfc7828
     ///
-    /// [`EdnsMiddlewareProcessor`]:
-    ///     crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor
+    /// [`EdnsMiddlewareSvc`]:
+    ///     crate::net::server::middleware::edns::EdnsMiddlewareSvc
     pub fn idle_timeout(&self) -> Option<Duration> {
         self.idle_timeout
     }
@@ -115,9 +114,11 @@ impl NonUdpTransportContext {
 /// correctly. Some kinds of contextual information are only available for
 /// certain transport types.
 ///
-/// Context values may be adjusted by processors in the [`MiddlewareChain`]
+/// Context values may be adjusted by processors in the middleware chain
 /// and/or by the [`Service`] that receives the request, in order to influence
 /// the behaviour of other processors, the service or the server.
+///
+/// [`Service`]: crate::net::server::service::Service
 #[derive(Debug, Clone)]
 pub enum TransportSpecificContext {
     /// Context for a UDP transport.
@@ -165,7 +166,10 @@ impl From<NonUdpTransportContext> for TransportSpecificContext {
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
 #[derive(Debug)]
-pub struct Request<Octs: AsRef<[u8]>> {
+pub struct Request<Octs, Metadata = ()>
+where
+    Octs: AsRef<[u8]> + Send + Sync,
+{
     /// The network address of the connected client.
     client_addr: std::net::SocketAddr,
 
@@ -178,21 +182,44 @@ pub struct Request<Octs: AsRef<[u8]>> {
     /// Properties of the request specific to the server and transport
     /// protocol via which it was received.
     transport_specific: TransportSpecificContext,
+
+    /// The number of bytes to be reserved when generating a response to this
+    /// request so that needed additional data can be added to to the
+    /// generated response.
+    ///
+    /// Note: This is only a hint to code that considers this value, it is
+    /// still possible to generate responses that ignore this value.
+    num_reserved_bytes: u16,
+
+    /// user defined metadata to associate with the request.
+    ///
+    /// For example this could be used to pass data from one [middleware]
+    /// [`Service`] impl to another.
+    ///
+    /// [middleware]: crate::net::server::middleware
+    /// [`Service`]: crate::net::server::service::Service
+    metadata: Metadata,
 }
 
-impl<Octs: AsRef<[u8]>> Request<Octs> {
+impl<Octs, Metadata> Request<Octs, Metadata>
+where
+    Octs: AsRef<[u8]> + Send + Sync,
+{
     /// Creates a new request wrapper around a message along with its context.
     pub fn new(
         client_addr: std::net::SocketAddr,
         received_at: Instant,
         message: Message<Octs>,
         transport_specific: TransportSpecificContext,
+        metadata: Metadata,
     ) -> Self {
         Self {
             client_addr,
             received_at,
             message: Arc::new(message),
             transport_specific,
+            num_reserved_bytes: 0,
+            metadata,
         }
     }
 
@@ -215,334 +242,110 @@ impl<Octs: AsRef<[u8]>> Request<Octs> {
     pub fn message(&self) -> &Arc<Message<Octs>> {
         &self.message
     }
+
+    /// Request that an additional number of bytes be reserved in the response
+    /// to this message.
+    pub fn reserve_bytes(&mut self, len: u16) {
+        self.num_reserved_bytes += len;
+        tracing::trace!(
+            "Reserved {len} bytes: total now = {}",
+            self.num_reserved_bytes
+        );
+    }
+
+    /// The number of bytes to reserve when generating a response to this
+    /// message.
+    pub fn num_reserved_bytes(&self) -> u16 {
+        self.num_reserved_bytes
+    }
+
+    /// Set user defined metadata to associate with this request.
+    pub fn with_new_metadata<T>(self, new_metadata: T) -> Request<Octs, T> {
+        Request::<Octs, T> {
+            client_addr: self.client_addr,
+            received_at: self.received_at,
+            message: self.message,
+            transport_specific: self.transport_specific,
+            num_reserved_bytes: self.num_reserved_bytes,
+            metadata: new_metadata,
+        }
+    }
+
+    /// Get the user defined metadata associated with this request.
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
 }
 
 //--- Clone
 
-impl<Octs: AsRef<[u8]>> Clone for Request<Octs> {
+impl<Octs, Metadata> Clone for Request<Octs, Metadata>
+where
+    Octs: AsRef<[u8]> + Send + Sync,
+    Metadata: Clone,
+{
     fn clone(&self) -> Self {
         Self {
             client_addr: self.client_addr,
             received_at: self.received_at,
             message: Arc::clone(&self.message),
             transport_specific: self.transport_specific.clone(),
+            num_reserved_bytes: self.num_reserved_bytes,
+            metadata: self.metadata.clone(),
         }
     }
 }
 
-//----------- CommonMessageFlow ----------------------------------------------
+//--- TryFrom<Request<Octs>> for RequestMessage<Octs>>
 
-/// Perform processing common to all messages being handled by a DNS server.
-///
-/// All messages received by a DNS server need to pass through the following
-/// processing stages:
-///
-///   - Pre-processing.
-///   - Service processing.
-///   - Post-processing.
-///
-/// The strategy is common but some server specific aspects are delegated to
-/// the server that implements this trait:
-///
-///   - Adding context to a request.
-///   - Finalizing the handling of a response.
-///
-/// Servers implement this trait to benefit from the common processing
-/// required while still handling aspects specific to the server themselves.
-///
-/// Processing starts at [`process_request`].
-///
-/// <div class="warning">
-///
-/// This trait exists as a convenient mechanism for sharing common code
-/// between server implementations. The default function implementations
-/// provided by this trait are not intended to be overridden by consumers of
-/// this library.
-///
-/// </div>
-///
-/// [`process_request`]: Self::process_request()
-pub trait CommonMessageFlow<Buf, Svc>
-where
-    Buf: BufSource,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync,
+impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
+    for RequestMessage<Octs>
 {
-    /// Server-specific data that it chooses to pass along with the request in
-    /// order that it may receive it when `process_call_result()` is
-    /// invoked on the implementing server.
-    type Meta: Clone + Send + Sync + 'static;
+    type Error = request::Error;
 
-    /// Process a DNS request message.
-    ///
-    /// This function consumes the given message buffer and processes the
-    /// contained message, if any, to completion, possibly resulting in a
-    /// response being passed to [`Self::process_call_result`].
-    ///
-    /// The request message is a given as a seqeuence of bytes in `buf`
-    /// originating from client address `addr`.
-    ///
-    /// The [`MiddlewareChain`] and [`Service`] to be used to process the
-    /// message are supplied in the `middleware_chain` and `svc` arguments
-    /// respectively.
-    ///
-    /// Any server specific state to be used and/or updated as part of the
-    /// processing should be supplied via the `state` argument whose type is
-    /// defined by the implementing type.
-    ///
-    /// On error the result will be a [`ServiceError`].
-    #[allow(clippy::too_many_arguments)]
-    fn process_request(
-        &self,
-        buf: Buf::Output,
-        received_at: Instant,
-        addr: SocketAddr,
-        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-        svc: &Svc,
-        metrics: Arc<ServerMetrics>,
-        meta: Self::Meta,
-    ) -> Result<(), ServiceError>
-    where
-        Svc: 'static,
-        Svc::Target: Send + Composer + Default,
-        Svc::Future: Send,
-        Buf::Output: 'static,
-    {
-        boomerang(
-            self,
-            buf,
-            received_at,
-            addr,
-            middleware_chain,
-            metrics,
-            svc,
-            meta,
-        )
-    }
+    fn try_from(req: Request<Octs>) -> Result<Self, Self::Error> {
+        // Copy the ECS option from the message. This is just an example,
+        // there should be a separate plugin that deals with ECS.
 
-    /// Add context to a request.
-    ///
-    /// The server supplies this function to annotate the received message
-    /// with additional information about its origins.
-    fn add_context_to_request(
-        &self,
-        request: Message<Buf::Output>,
-        received_at: Instant,
-        addr: SocketAddr,
-    ) -> Request<Buf::Output>;
+        // We want the ECS options in Bytes. No clue how to do this. Just
+        // convert the message to Bytes and use that.
+        let mut extra_opts: Vec<AllOptData<Bytes, Name<Bytes>>> = vec![];
 
-    /// Finalize a response.
-    ///
-    /// The server supplies this function to handle the response as
-    /// appropriate for the server, e.g. to write the response back to the
-    /// originating client.
-    ///
-    /// The response is the form of a [`CallResult`].
-    fn process_call_result(
-        request: &Request<Buf::Output>,
-        call_result: CallResult<Svc::Target>,
-        state: Self::Meta,
-        metrics: Arc<ServerMetrics>,
-    );
-}
-
-/// Propogate a message through the [`MiddlewareChain`] to the [`Service`] and
-/// flow the response in reverse back down the same path, a bit like throwing
-/// a boomerang.
-#[allow(clippy::too_many_arguments)]
-fn boomerang<Buf, Svc, Server>(
-    server: &Server,
-    buf: <Buf as BufSource>::Output,
-    received_at: Instant,
-    addr: SocketAddr,
-    middleware_chain: MiddlewareChain<
-        <Buf as BufSource>::Output,
-        <Svc as Service<<Buf as BufSource>::Output>>::Target,
-    >,
-    metrics: Arc<ServerMetrics>,
-    svc: &Svc,
-    meta: Server::Meta,
-) -> Result<(), ServiceError>
-where
-    Buf: BufSource,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-    Svc::Future: Send,
-    Svc::Target: Send + Composer + Default,
-    Server: CommonMessageFlow<Buf, Svc> + ?Sized,
-{
-    let message = Message::from_octets(buf).map_err(|err| {
-        warn!("Failed while parsing request message: {err}");
-        ServiceError::InternalError
-    })?;
-
-    let request = server.add_context_to_request(message, received_at, addr);
-
-    let preprocessing_result = do_middleware_preprocessing::<Buf, Svc>(
-        &request,
-        &middleware_chain,
-        &metrics,
-    )?;
-
-    let (txn, aborted_preprocessor_idx) =
-        do_service_call::<Buf, Svc>(preprocessing_result, &request, svc);
-
-    do_middleware_postprocessing::<Buf, Svc, Server>(
-        request,
-        meta,
-        middleware_chain,
-        txn,
-        aborted_preprocessor_idx,
-        metrics,
-    );
-
-    Ok(())
-}
-
-/// Pass a pre-processed request to the [`Service`] to handle.
-///
-/// If [`Service::call`] returns an error this function will produce a DNS
-/// ServFail error response. If the returned error is
-/// [`ServiceError::InternalError`] it will also be logged.
-#[allow(clippy::type_complexity)]
-fn do_service_call<Buf, Svc>(
-    preprocessing_result: ControlFlow<(
-        Transaction<Svc::Target, Svc::Future>,
-        usize,
-    )>,
-    request: &Request<<Buf as BufSource>::Output>,
-    svc: &Svc,
-) -> (Transaction<Svc::Target, Svc::Future>, Option<usize>)
-where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
-    Svc::Target: Composer + Default,
-{
-    match preprocessing_result {
-        ControlFlow::Continue(()) => {
-            let res = if enabled!(Level::INFO) {
-                let span = info_span!("svc-call",
-                    msg_id = request.message().header().id(),
-                    client = %request.client_addr(),
-                );
-                let _guard = span.enter();
-                svc.call(request.clone())
-            } else {
-                svc.call(request.clone())
-            };
-
-            // Handle any error returned by the service.
-            let txn = res.unwrap_or_else(|err| {
-                if matches!(err, ServiceError::InternalError) {
-                    error!("Service error while processing request: {err}");
+        let bytes = Bytes::copy_from_slice(req.message.as_slice());
+        let bytes_msg = Message::from_octets(bytes)?;
+        if let Some(optrec) = bytes_msg.opt() {
+            for opt in optrec.opt().iter::<AllOptData<_, _>>() {
+                let opt = opt?;
+                if let AllOptData::ClientSubnet(_ecs) = opt {
+                    extra_opts.push(opt);
                 }
-
-                let mut response = start_reply(request);
-                response.header_mut().set_rcode(err.rcode());
-                let call_result = CallResult::new(response.additional());
-                Transaction::immediate(Ok(call_result))
-            });
-
-            // Pass the transaction out for post-processing.
-            (txn, None)
+            }
         }
 
-        ControlFlow::Break((txn, aborted_preprocessor_idx)) => {
-            (txn, Some(aborted_preprocessor_idx))
+        // We need to make a copy of message. Somehow we can't use the
+        // message in the Arc directly.
+        let set_do = dnssec_ok(&req.message);
+        let msg = Message::from_octets(req.message.as_octets().clone())?;
+        let mut reqmsg = RequestMessage::new(msg)?;
+
+        // Copy DO bit
+        if set_do {
+            reqmsg.set_dnssec_ok(true);
         }
+
+        // Copy options
+        for opt in &extra_opts {
+            reqmsg.add_opt(opt)?;
+        }
+        Ok(reqmsg)
     }
 }
 
-/// Pre-process a request.
-///
-/// Pre-processing involves parsing a [`Message`] from the byte buffer and
-/// pre-processing it via any supplied [`MiddlewareChain`].
-///
-/// On success the result is an immutable request message and a
-/// [`ControlFlow`] decision about whether to continue with further processing
-/// or to break early with a possible response. If processing failed the
-/// result will be a [`ServiceError`].
-///
-/// On break the result will be one ([`Transaction::single`]) or more
-/// ([`Transaction::stream`]) to post-process.
-#[allow(clippy::type_complexity)]
-fn do_middleware_preprocessing<Buf, Svc>(
-    request: &Request<Buf::Output>,
-    middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
-    metrics: &Arc<ServerMetrics>,
-) -> Result<
-    ControlFlow<(Transaction<Svc::Target, Svc::Future>, usize)>,
-    ServiceError,
->
-where
-    Buf: BufSource,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync,
-    Svc::Future: Send,
-    Svc::Target: Send + Composer + Default + 'static,
-{
-    let span = info_span!("pre-process",
-        msg_id = request.message().header().id(),
-        client = %request.client_addr(),
-    );
-    let _guard = span.enter();
-
-    metrics.inc_num_inflight_requests();
-
-    let pp_res = middleware_chain.preprocess(request);
-
-    Ok(pp_res)
-}
-
-/// Post-process a response in the context of its originating request.
-///
-/// Each response is post-processed in its own Tokio task. Note that there is
-/// no guarantee about the order in which responses will be post-processed. If
-/// the order of a seqence of responses is important it should be provided as
-/// a [`Transaction::stream`] rather than [`Transaction::single`].
-///
-/// Responses are first post-processed by the [`MiddlewareChain`] provided, if
-/// any, then passed to [`Self::process_call_result`] for final processing.
-fn do_middleware_postprocessing<Buf, Svc, Server>(
-    request: Request<Buf::Output>,
-    meta: Server::Meta,
-    middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-    mut response_txn: Transaction<Svc::Target, Svc::Future>,
-    last_processor_id: Option<usize>,
-    metrics: Arc<ServerMetrics>,
-) where
-    Buf: BufSource,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-    Svc::Future: Send,
-    Svc::Target: Send + Composer + Default,
-    Server: CommonMessageFlow<Buf, Svc> + ?Sized,
-{
-    tokio::spawn(async move {
-        let span = info_span!("post-process",
-            msg_id = request.message().header().id(),
-            client = %request.client_addr(),
-        );
-        let _guard = span.enter();
-
-        while let Some(Ok(mut call_result)) = response_txn.next().await {
-            if let Some(response) = call_result.get_response_mut() {
-                middleware_chain.postprocess(
-                    &request,
-                    response,
-                    last_processor_id,
-                );
-            }
-
-            Server::process_call_result(
-                &request,
-                call_result,
-                meta.clone(),
-                metrics.clone(),
-            );
-        }
-
-        metrics.dec_num_inflight_requests();
-    });
+/// Return whether the DO flag is set. This should move to Message.
+fn dnssec_ok<Octs: Octets>(msg: &Message<Octs>) -> bool {
+    if let Some(opt) = msg.opt() {
+        opt.dnssec_ok()
+    } else {
+        false
+    }
 }

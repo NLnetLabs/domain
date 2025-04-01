@@ -1,4 +1,4 @@
-use core::future::Future;
+use core::future::{ready, Ready};
 use core::pin::Pin;
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +14,8 @@ use std::vec::Vec;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::sleep;
 use tokio::time::Instant;
+use tracing::trace;
+use tracing_subscriber::EnvFilter;
 
 use crate::base::MessageBuilder;
 use crate::base::Name;
@@ -22,8 +24,9 @@ use crate::base::StaticCompressor;
 use crate::base::StreamTarget;
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::Request;
+use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use crate::net::server::service::{
-    CallResult, Service, ServiceError, ServiceFeedback, Transaction,
+    CallResult, Service, ServiceError, ServiceFeedback,
 };
 use crate::net::server::sock::AsyncAccept;
 use crate::net::server::stream::StreamServer;
@@ -41,13 +44,18 @@ struct MockStream {
     /// The rate at which messages should be made available to the server.
     new_message_every: Duration,
 
+    /// The number of responses pending.
     pending_responses: usize,
+
+    /// Disconnect while one or more responses are pending?
+    disconnect_with_pending_responses: bool,
 }
 
 impl MockStream {
     fn new(
         messages_to_read: VecDeque<Vec<u8>>,
         new_message_every: Duration,
+        disconnect_with_pending_responses: bool,
     ) -> Self {
         let pending_responses = messages_to_read.len();
         Self {
@@ -55,6 +63,7 @@ impl MockStream {
             messages_to_read: Mutex::new(messages_to_read),
             new_message_every,
             pending_responses,
+            disconnect_with_pending_responses,
         }
     }
 }
@@ -84,10 +93,15 @@ impl AsyncRead for MockStream {
                         return Poll::Ready(Ok(()));
                     } else {
                         // Disconnect once we've sent all of the requests AND received all of the responses.
-                        if self.pending_responses == 0 {
+                        if self.disconnect_with_pending_responses {
                             return Poll::Ready(Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
-                                "mock connection disconnect",
+                                "mock connection premature disconnect",
+                            )));
+                        } else if self.pending_responses == 0 {
+                            return Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::ConnectionAborted,
+                                "mock connection normal disconnect",
                             )));
                         }
                     }
@@ -147,6 +161,7 @@ struct MockClientConfig {
     pub new_message_every: Duration,
     pub messages: VecDeque<Vec<u8>>,
     pub client_port: u16,
+    pub disconnect_with_pending_responses: bool,
 }
 
 /// A mock TCP connection acceptor with a fixed rate at which (mock) client
@@ -220,6 +235,7 @@ impl AsyncAccept for MockListener {
                         new_message_every,
                         messages,
                         client_port,
+                        disconnect_with_pending_responses,
                     }) = streams_to_read.pop_front()
                     {
                         last_accept.replace(Instant::now());
@@ -227,6 +243,7 @@ impl AsyncAccept for MockListener {
                             std::future::ready(Ok(MockStream::new(
                                 messages,
                                 new_message_every,
+                                disconnect_with_pending_responses,
                             ))),
                             format!("192.168.0.1:{}", client_port)
                                 .parse()
@@ -274,25 +291,39 @@ impl BufSource for MockBufSource {
 
 /// A mock single result to be returned by a mock service, just to show that
 /// it is possible to define your own.
-struct MySingle;
+struct MySingle {
+    done: bool,
+}
 
-impl Future for MySingle {
-    type Output = Result<CallResult<Vec<u8>>, ServiceError>;
+impl MySingle {
+    fn new() -> MySingle {
+        Self { done: false }
+    }
+}
 
-    fn poll(
-        self: Pin<&mut Self>,
+impl futures_util::stream::Stream for MySingle {
+    type Item = Result<CallResult<Vec<u8>>, ServiceError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
-        let builder = MessageBuilder::new_stream_vec();
-        let response = builder.additional();
+    ) -> Poll<Option<Self::Item>> {
+        if self.done {
+            Poll::Ready(None)
+        } else {
+            let builder = MessageBuilder::new_stream_vec();
+            let response = builder.additional();
 
-        let command = ServiceFeedback::Reconfigure {
-            idle_timeout: Some(Duration::from_millis(5000)),
-        };
+            let command = ServiceFeedback::Reconfigure {
+                idle_timeout: Some(Duration::from_millis(5000)),
+            };
 
-        let call_result = CallResult::new(response).with_feedback(command);
+            let call_result =
+                CallResult::new(response).with_feedback(command);
+            self.done = true;
 
-        Poll::Ready(Ok(call_result))
+            Poll::Ready(Some(Ok(call_result)))
+        }
     }
 }
 
@@ -308,13 +339,12 @@ impl MyService {
 
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
-    type Future = MySingle;
+    type Stream = MySingle;
+    type Future = Ready<Self::Stream>;
 
-    fn call(
-        &self,
-        _msg: Request<Vec<u8>>,
-    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
-        Ok(Transaction::single(MySingle))
+    fn call(&self, request: Request<Vec<u8>>) -> Self::Future {
+        trace!("Processing request id {}", request.message().header().id());
+        ready(MySingle::new())
     }
 }
 
@@ -347,26 +377,136 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
 // time dependent test to run much faster without actual periods of
 // waiting to allow time to elapse.
 #[tokio::test(flavor = "current_thread", start_paused = true)]
-async fn service_test() {
+async fn tcp_service_test() {
+    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
+    // RUST_LOG=trace.
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
+
     let (srv_handle, server_status_printer_handle) = {
         let fast_client = MockClientConfig {
             new_message_every: Duration::from_millis(100),
             messages: VecDeque::from([
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
             ]),
             client_port: 1,
+            disconnect_with_pending_responses: false,
         };
         let slow_client = MockClientConfig {
             new_message_every: Duration::from_millis(3000),
             messages: VecDeque::from([
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
             ]),
             client_port: 2,
+            disconnect_with_pending_responses: false,
+        };
+        let num_messages =
+            fast_client.messages.len() + slow_client.messages.len();
+        let streams_to_read = VecDeque::from([fast_client, slow_client]);
+        let new_client_every = Duration::from_millis(2000);
+        let listener = MockListener::new(streams_to_read, new_client_every);
+        let ready_flag = listener.get_ready_flag();
+
+        let buf = MockBufSource;
+        let my_service =
+            Arc::new(MandatoryMiddlewareSvc::new(MyService::new()));
+        let srv =
+            Arc::new(StreamServer::new(listener, buf, my_service.clone()));
+
+        let metrics = srv.metrics();
+        let server_status_printer_handle = tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_millis(250)).await;
+                eprintln!(
+                    "Server status: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
+                    metrics.num_connections(),
+                    metrics.num_inflight_requests(),
+                    metrics.num_pending_writes(),
+                    metrics.num_received_requests(),
+                    metrics.num_sent_responses(),
+                );
+            }
+        });
+
+        let spawned_srv = srv.clone();
+        let srv_handle = tokio::spawn(async move { spawned_srv.run().await });
+
+        eprintln!("Clients sleeping");
+        sleep(Duration::from_secs(1)).await;
+
+        eprintln!("Clients connecting");
+        ready_flag.store(true, Ordering::Relaxed);
+
+        // Simulate a wait long enough that all simulated clients had time
+        // to connect, communicate and disconnect.
+        sleep(Duration::from_secs(20)).await;
+
+        // Verify that all simulated clients connected.
+        assert_eq!(0, srv.source().streams_remaining());
+
+        // Verify that no requests or responses are in progress still in
+        // the server.
+        assert_eq!(srv.metrics().num_connections(), 0);
+        assert_eq!(srv.metrics().num_inflight_requests(), 0);
+        assert_eq!(srv.metrics().num_pending_writes(), 0);
+        assert_eq!(srv.metrics().num_received_requests(), num_messages);
+        assert_eq!(srv.metrics().num_sent_responses(), num_messages);
+
+        eprintln!("Shutting down");
+        srv.shutdown().unwrap();
+        eprintln!("Shutdown command sent");
+
+        (srv_handle, server_status_printer_handle)
+    };
+
+    eprintln!("Waiting for service to shutdown");
+    let _ = srv_handle.await;
+
+    // Terminate the task that periodically prints the server status
+    server_status_printer_handle.abort();
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn tcp_client_disconnect_test() {
+    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
+    // RUST_LOG=trace.
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
+
+    let (srv_handle, server_status_printer_handle) = {
+        let fast_client = MockClientConfig {
+            new_message_every: Duration::from_millis(100),
+            messages: VecDeque::from([
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+            ]),
+            client_port: 1,
+            disconnect_with_pending_responses: true,
+        };
+        let slow_client = MockClientConfig {
+            new_message_every: Duration::from_millis(3000),
+            messages: VecDeque::from([
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+            ]),
+            client_port: 2,
+            disconnect_with_pending_responses: false,
         };
         let num_messages =
             fast_client.messages.len() + slow_client.messages.len();
@@ -417,7 +557,7 @@ async fn service_test() {
         assert_eq!(srv.metrics().num_inflight_requests(), 0);
         assert_eq!(srv.metrics().num_pending_writes(), 0);
         assert_eq!(srv.metrics().num_received_requests(), num_messages);
-        assert_eq!(srv.metrics().num_sent_responses(), num_messages);
+        assert!(srv.metrics().num_sent_responses() < num_messages);
 
         eprintln!("Shutting down");
         srv.shutdown().unwrap();

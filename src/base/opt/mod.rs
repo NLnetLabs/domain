@@ -46,6 +46,7 @@ use super::name::{Name, ToName};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
+use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::marker::PhantomData;
@@ -75,6 +76,26 @@ use octseq::parse::Parser;
 #[repr(transparent)]
 pub struct Opt<Octs: ?Sized> {
     octets: Octs,
+}
+
+#[cfg(feature = "serde")]
+impl<O: AsRef<[u8]>> serde::Serialize for Opt<O> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let mut list = serializer.serialize_seq(None)?;
+
+        for rec in self.for_slice_ref().iter::<AllOptData<_, _>>() {
+            let Ok(rec) = rec else {
+                continue;
+            };
+            list.serialize_element(&rec)?;
+        }
+
+        list.end()
+    }
 }
 
 impl Opt<()> {
@@ -358,6 +379,15 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]> + ?Sized> ZonefileFmt for Opt<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        // XXX TODO Print this properly.
+        p.write_token("OPT ...")
+    }
+}
+
 //------------ OptHeader -----------------------------------------------------
 
 /// The header of an OPT record.
@@ -541,8 +571,8 @@ impl<Octs> OptRecord<Octs> {
             Name::root_slice(),
             Class::from_int(self.udp_payload_size),
             Ttl::from_secs(
-                u32::from(self.ext_rcode) << 24
-                    | u32::from(self.version) << 16
+                (u32::from(self.ext_rcode) << 24)
+                    | (u32::from(self.version) << 16)
                     | u32::from(self.flags),
             ),
             self.data.for_slice_ref(),
@@ -866,11 +896,21 @@ pub trait ComposeOptData: OptData {
 ///
 /// This type accepts any option type via its option code and raw data.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UnknownOptData<Octs> {
     /// The option code for the option.
     code: OptionCode,
 
     /// The raw option data.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            serialize_with = "crate::utils::base16::serde::serialize",
+            bound(
+                serialize = "Octs: AsRef<[u8]> + octseq::serde::SerializeOctets",
+            )
+        )
+    )]
     data: Octs,
 }
 

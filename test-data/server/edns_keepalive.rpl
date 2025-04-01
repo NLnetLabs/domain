@@ -1,100 +1,194 @@
 ; Based on: https://github.com/NLnetLabs/unbound/blob/49e425810275917e7fd09a24bae3b97d83b55c13/testdata/edns_keepalive.rpl
+
+;------------ Server configuration --------------------------------------------
+
 server:
-        edns-tcp-keepalive: yes
-        edns-tcp-keepalive-timeout: 30000
-        local-data: "test. TXT test"
+    edns-tcp-keepalive: yes
+    ; specify the timeout that the client should honour, in milliseconds
+    edns-tcp-keepalive-timeout: 30000
+
+    ; Define an in-memory zone to be served by the server.
+    local-data: "test.  3600  IN  SOA  ns.test. hostmaster.test. 1 3600 900 86400 3600"
+    local-data: "test.            TXT  test"
 CONFIG_END
 
-SCENARIO_BEGIN TCP Keepalive
+;------------ Test definition ------------------------------------------------
 
-;; ----------------------------------------
+SCENARIO_BEGIN Test RFC 7828 DNS TCP keep-alive support.
 
-STEP 1 QUERY
+;--- Mock replies
 
-     ENTRY_BEGIN
-        MATCH TCP ednsdata
-        REPLY RD
-        SECTION QUESTION
-                test. IN TXT
-        SECTION ADDITIONAL
-                HEX_EDNSDATA_BEGIN
-                        00 0b           ; Opcode 11
-                        00 02           ; Length 2
-                        00 ff           ; Timeout
-                HEX_EDNSDATA_END
-     ENTRY_END
+; None
 
-STEP 10 CHECK_ANSWER
+;--- Test steps
 
-     ENTRY_BEGIN
-        MATCH TCP
-        REPLY RD FORMERR
-        SECTION QUESTION
-                test. IN TXT
-     ENTRY_END
+; https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
+;   "Clients MUST specify an OPTION-LENGTH of 0 and omit the TIMEOUT
+;    value."
+STEP 10 QUERY
+ENTRY_BEGIN
+MATCH TCP ednsdata
+REPLY RD
+SECTION QUESTION
+    test. IN TXT
+SECTION ADDITIONAL
+HEX_EDNSDATA_BEGIN
+    00 0b  ; Opcode 11
+    00 02  ; Length 2 - this should be zero
+    00 ff  ; Timeout - these bytes should not be present
+HEX_EDNSDATA_END
+ENTRY_END
+; ... get a FORMERR answer.
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH TCP
+REPLY RD FORMERR
+SECTION QUESTION
+    test. IN TXT
+ENTRY_END
 
+; https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.1
+;   "A DNS server that receives a query using UDP transport that includes the
+;    edns-tcp-keepalive option MUST ignore the option."
 STEP 20 QUERY
+ENTRY_BEGIN
+MATCH UDP ednsdata
+REPLY RD
+SECTION QUESTION
+    test. IN TXT
+SECTION ADDITIONAL
+HEX_EDNSDATA_BEGIN
+    00 0b  ; Opcode 11
+    00 00  ; Length 0
+HEX_EDNSDATA_END
+ENTRY_END
+; ... get a FORMERR answer.
+STEP 21 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH UDP
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+    test. IN TXT
+SECTION ANSWER
+    test. IN TXT "test"
+ENTRY_END
 
-     ENTRY_BEGIN
-        MATCH TCP ednsdata
-        REPLY RD
-        SECTION QUESTION
-                test. IN TXT
-        SECTION ADDITIONAL
-                HEX_EDNSDATA_BEGIN
-                        00 0b           ; Opcode 11
-                        00 00           ; Length 0
-                HEX_EDNSDATA_END
-     ENTRY_END
+; https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
+;   "DNS clients MAY include the edns-tcp-keepalive option in the first query
+;    sent to a server using TCP transport to signal their desire to keep the
+;    connection open when idle.
+;    ...
+;    Clients MUST specify an OPTION-LENGTH of 0 and omit the TIMEOUT value."
+STEP 30 QUERY
+ENTRY_BEGIN
+MATCH TCP ednsdata
+REPLY RD
+SECTION QUESTION
+    test. IN TXT
+SECTION ADDITIONAL
+HEX_EDNSDATA_BEGIN
+    00 0b  ; Opcode 11
+    00 00  ; Length 0
+HEX_EDNSDATA_END
+ENTRY_END
+; ... get a NOERROR answer with the servers timeout for this TCP session.
+STEP 31 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH TCP ednsdata
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+    test. IN TXT
+SECTION ANSWER
+    test. IN TXT "test"
+SECTION ADDITIONAL
+HEX_EDNSDATA_BEGIN
+    00 0b  ; Opcode 11
+    00 02  ; Length 2
+    01 2c  ; 300, to be interpreted as 300 * 100ms = 30000ms as configured.
+HEX_EDNSDATA_END
+ENTRY_END
 
-STEP 30 CHECK_ANSWER
+; https://datatracker.ietf.org/doc/html/rfc7828#section-1
+; 1. Introduction
+;   ...
+;   "If a server is to perform adequately with a significant query load received
+;    over TCP, it must manage its available resources to ensure that all
+;    established TCP sessions are well-used, and idle connections are closed
+;    after an appropriate amount of time."
+; And:
+; https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.2
+;   "A DNS client that receives a response using TCP transport that includes the
+;    edns-tcp-keepalive option MAY keep the existing TCP session open when it is
+;    idle.  It SHOULD honour the timeout received in that response (overriding
+;    any previous timeout) and initiate close of the connection before the
+;    timeout expires."
+; And:
+; https://datatracker.ietf.org/doc/html/rfc7828#section-3.4
+;   "DNS clients and servers MAY close a TCP session at any time in order to
+;    manage local resource constraints."
+; And:
+; https://datatracker.ietf.org/doc/html/rfc7828#section-5
+;   "When a DNS server detects abusive behaviour, it SHOULD immediately close
+;    the TCP connection and free the resources used."
+;
+; In our case the edns-tcp-keepalive-timeout value is passed to
+; net::server::stream via the connection::Config::idle_timeout setting, and
+; the server will close the connection after that much idle time has elapsed.
+; So just before the timeout the connection should still be open, and just
+; after it the connection should have been closed.
+ 
+STEP 40 TIME_PASSES ELAPSE 29 ; (25 seconds < 30000 milliseconds)
 
-     ENTRY_BEGIN
-        MATCH TCP ednsdata
-        REPLY QR RD RA NOERROR
-        SECTION QUESTION
-                test. IN TXT
-        SECTION ANSWER
-                test. IN TXT "test"
-        SECTION ADDITIONAL
-                HEX_EDNSDATA_BEGIN
-                        00 0b           ; Opcode 11
-                        00 02           ; Length 2
-                        01 2c           ; 30s = 300 10th secs
-                HEX_EDNSDATA_END
-     ENTRY_END
+STEP 50 QUERY
+ENTRY_BEGIN
+MATCH TCP ednsdata
+REPLY RD
+SECTION QUESTION
+    test. IN TXT
+SECTION ADDITIONAL
+HEX_EDNSDATA_BEGIN
+    00 0b  ; Opcode 11
+    00 00  ; Length 0
+HEX_EDNSDATA_END
+ENTRY_END
+; ... get a NOERROR answer with the servers timeout for this TCP session.
+STEP 51 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH TCP ednsdata
+REPLY QR RD RA NOERROR
+SECTION QUESTION
+    test. IN TXT
+SECTION ANSWER
+    test. IN TXT "test"
+SECTION ADDITIONAL
+HEX_EDNSDATA_BEGIN
+    00 0b  ; Opcode 11
+    00 02  ; Length 2
+    01 2c  ; 300, to be interpreted as 300 * 100ms = 30000ms as configured.
+HEX_EDNSDATA_END
+ENTRY_END
 
-; Check that a subsequent query on the connection without keepalive will
-; generate a keepalive reply because we've already seen one.
+STEP 60 TIME_PASSES ELAPSE 31 ; (31 seconds > 30000 milliseconds)
 
-STEP 40 QUERY
-
-     ENTRY_BEGIN
-        MATCH TCP ednsdata
-        REPLY RD
-        SECTION QUESTION
-                test. IN TXT
-        SECTION ADDITIONAL
-                HEX_EDNSDATA_BEGIN
-                        ; Empty
-                HEX_EDNSDATA_END
-     ENTRY_END
-
-STEP 50 CHECK_ANSWER
-
-     ENTRY_BEGIN
-        MATCH TCP ednsdata
-        REPLY QR RD RA NOERROR
-        SECTION QUESTION
-                test. IN TXT
-        SECTION ANSWER
-                test. IN TXT "test"
-        SECTION ADDITIONAL
-                HEX_EDNSDATA_BEGIN
-                        00 0b           ; Opcode 11
-                        00 02           ; Length 2
-                        01 2c           ; 30s = 300 10th secs
-                HEX_EDNSDATA_END
-     ENTRY_END
+STEP 70 QUERY
+ENTRY_BEGIN
+MATCH TCP ednsdata
+REPLY RD
+SECTION QUESTION
+    test. IN TXT
+SECTION ADDITIONAL
+HEX_EDNSDATA_BEGIN
+    00 0b  ; Opcode 11
+    00 00  ; Length 0
+HEX_EDNSDATA_END
+ENTRY_END
+; ... get a connection closed error.
+STEP 71 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH TCP CONNECTION_CLOSED
+REPLY RD FORMERR
+SECTION QUESTION
+    test. IN TXT
+ENTRY_END
 
 SCENARIO_END

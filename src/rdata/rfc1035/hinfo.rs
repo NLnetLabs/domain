@@ -5,13 +5,12 @@
 use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::rdata::{
-    ComposeRecordData, ParseRecordData, RecordData,
-};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::Scanner;
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
+use core::{fmt, hash};
 #[cfg(feature = "serde")]
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -221,7 +220,12 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Hinfo<Octs> {
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Hinfo<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.cpu, self.os)
+        write!(
+            f,
+            "{} {}",
+            self.cpu.display_quoted(),
+            self.os.display_quoted()
+        )
     }
 }
 
@@ -233,6 +237,19 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Hinfo<Octs> {
             .field("cpu", &self.cpu)
             .field("os", &self.os)
             .finish()
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Hinfo<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.cpu.display_quoted())?;
+            p.write_comment("cpu")?;
+            p.write_token(self.os.display_quoted())?;
+            p.write_comment("os")
+        })
     }
 }
 
@@ -267,5 +284,13 @@ mod test {
         assert_eq!(hinfo.cpu(), hinfo_bytes.cpu());
         assert_eq!(hinfo.os(), hinfo_bytes.os());
     }
-}
 
+    #[test]
+    fn hinfo_display() {
+        let hinfo: Hinfo<Vec<u8>> = Hinfo::new(
+            "Windows".parse().unwrap(),
+            "Windows Server".parse().unwrap(),
+        );
+        assert_eq!(format!("{}", hinfo), r#""Windows" "Windows Server""#);
+    }
+}

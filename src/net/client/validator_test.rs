@@ -1,3 +1,5 @@
+//! Module for testing the validator client transport.
+
 #![cfg(test)]
 
 use std::fs::File;
@@ -20,10 +22,10 @@ use tracing::instrument;
 
 // use domain::net::client::clock::{Clock, FakeClock};
 use crate::base::scan::IterScanner;
+use crate::dnssec::validator::anchor::TrustAnchors;
+use crate::dnssec::validator::context::ValidationContext;
 use crate::net::client::{multi_stream, validator};
 use crate::rdata::dnssec::Timestamp;
-use crate::validator::anchor::TrustAnchors;
-use crate::validator::context::ValidationContext;
 
 use lazy_static::lazy_static;
 

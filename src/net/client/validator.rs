@@ -6,7 +6,7 @@
 //! a validation status to a result code (server failure) and setting or
 //! clearing the AD flag.
 //! For details of the validator see the
-//! [validator](crate::validator) module.
+//! [validator](crate::dnssec::validator) module.
 //!
 //! # Upstream transports
 //!
@@ -24,13 +24,13 @@
 //!
 //! # Caching
 //!
-//! ideally caching should be done before (downstream of) the validator
+//! Ideally caching should be done before (downstream of) the validator
 //! transport. This way validated results are cached. A cache that is
 //! upstream of the validator would avoid network traffic, but would require
 //! some amount of validating for each request.
 //!
 //! The validator has some internal caches (see the
-//! [validator](crate::validator) module) so
+//! [validator](crate::dnssec::validator) module) so
 //! there is no direct need for a cache upstream of the validator. Caching
 //! becomes more complex if there is validator that uses the validator.
 //! in that case, the downstream validator will likely issues requests for
@@ -46,8 +46,8 @@
 //! # use domain::net::client::protocol::{TcpConnect, UdpConnect};
 //! # use domain::net::client::request::{RequestMessage, SendRequest};
 //! # use domain::net::client::validator;
-//! # use domain::validator::anchor::TrustAnchors;
-//! # use domain::validator::context::ValidationContext;
+//! # use domain::dnssec::validator::anchor::TrustAnchors;
+//! # use domain::dnssec::validator::context::ValidationContext;
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # use std::sync::Arc;
@@ -70,7 +70,7 @@
 //! #     let mut msg = msg.question();
 //! #     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
 //! #         .unwrap();
-//!     let req = RequestMessage::new(msg);
+//!     let req = RequestMessage::new(msg).unwrap();
 //!
 //!     let ta = TrustAnchors::from_u8(b". 172800 IN DNSKEY 257 3 8 AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU= ;{id = 20326 (ksk), size = 2048b} ;;state=2 [  VALID  ] ;;count=0 ;;lastchange=1683463064 ;;Sun May  7 12:37:44 2023").unwrap();
 //!     let vc = ValidationContext::new(ta, udptcp_conn.clone());
@@ -87,17 +87,29 @@
 //! }
 //! ```
 
+#![cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
+#![cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    )))
+)]
+
 use crate::base::iana::Rcode;
 use crate::base::opt::{AllOptData, ExtendedError};
 use crate::base::{
     Message, MessageBuilder, ParsedName, Rtype, StaticCompressor,
 };
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
+use crate::dnssec::validator::context::{ValidationContext, ValidationState};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
 use crate::rdata::AllRecordData;
-use crate::validator::context::{ValidationContext, ValidationState};
 use bytes::Bytes;
 use std::boxed::Box;
 use std::fmt::{Debug, Formatter};

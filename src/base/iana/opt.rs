@@ -27,7 +27,7 @@ int_enum! {
     /// currently [draft-sekar-dns-llq].
     ///
     /// [draft-sekar-dns-llq]: https://datatracker.ietf.org/doc/draft-sekar-dns-llq/
-    (LLQ => 1, b"LLQ")
+    (LLQ => 1, "LLQ")
 
     /// Update lease (UL, 2).
     ///
@@ -36,7 +36,7 @@ int_enum! {
     /// has since expired. The code is considered ‘on hold.’
     ///
     /// [draft-sekar-dns-ul]: http://files.dns-sd.org/draft-sekar-dns-ul.txt
-    (UL => 2, b"UL")
+    (UL => 2, "UL")
 
     /// Name server identifier (NSID, 3).
     ///
@@ -44,7 +44,7 @@ int_enum! {
     /// answer for diagnostic purposes. The options in defined in [RFC 5001].
     ///
     /// [RFC 5001]: https://tools.ietf.org/html/rfc5001
-    (NSID => 3, b"NSID")
+    (NSID => 3, "NSID")
 
     /// DNSSEC algorithm understood (DAU, 5).
     ///
@@ -53,7 +53,7 @@ int_enum! {
     /// in [RFC 6975].
     ///
     /// [RFC 6075]: https://tools.ietf.org/html/rfc6975
-    (DAU => 5, b"DAU")
+    (DAU => 5, "DAU")
 
     /// DS hash understood (DHU, 6).
     ///
@@ -62,7 +62,7 @@ int_enum! {
     /// in [RFC 6975].
     ///
     /// [RFC 6075]: https://tools.ietf.org/html/rfc6975
-    (DHU => 6, b"DHU")
+    (DHU => 6, "DHU")
 
     /// NSEC3 hash understood (N3U, 7).
     ///
@@ -71,7 +71,7 @@ int_enum! {
     /// in [RFC 6975].
     ///
     /// [RFC 6075]: https://tools.ietf.org/html/rfc6975
-    (N3U => 7, b"N3U")
+    (N3U => 7, "N3U")
 
     /// EDNS client subnet (8),
     ///
@@ -80,7 +80,7 @@ int_enum! {
     /// answer. This option is defined in [RFC 7871].
     ///
     /// [RFC 7871]: https://tools.ietf.org/html/rfc7871
-    (CLIENT_SUBNET => 8, b"edns-client-subnet")
+    (CLIENT_SUBNET => 8, "edns-client-subnet")
 
     /// Expire (9).
     ///
@@ -89,7 +89,7 @@ int_enum! {
     /// primary. The option is defined in [RFC 7314].
     ///
     /// [RFC 7314]: https://tools.ietf.org/html/rfc7314
-    (EXPIRE => 9, b"EDNS EXPIRE")
+    (EXPIRE => 9, "EDNS EXPIRE")
 
     /// DNS Cookie (10).
     ///
@@ -98,7 +98,7 @@ int_enum! {
     /// amplification attacks. The option is defined in [RFC 7873].
     ///
     /// [RFC 7873]: https://tools.ietf.org/html/rfc7873
-    (COOKIE => 10, b"COOKIE")
+    (COOKIE => 10, "COOKIE")
 
     /// edns-tcp-keepalive (11).
     ///
@@ -106,7 +106,7 @@ int_enum! {
     /// may hold open a TCP connection. The option is defined in [RFC 7828].
     ///
     /// [RFC 7828]: https://tools.ietf.org/html/rfc7828
-    (TCP_KEEPALIVE => 11, b"edns-tcp-keepalive")
+    (TCP_KEEPALIVE => 11, "edns-tcp-keepalive")
 
     /// Padding (12).
     ///
@@ -115,7 +115,7 @@ int_enum! {
     /// The option is defined in [RFC 7830].
     ///
     /// [RFC 7830]: https://tools.ietf.org/html/rfc7830
-    (PADDING => 12, b"Padding")
+    (PADDING => 12, "Padding")
 
     /// CHAIN query requests (13).
     ///
@@ -124,7 +124,7 @@ int_enum! {
     /// the answer. The option is defined in [RFC 7901].
     ///
     /// [RFC 7901]: https://tools.ietf.org/html/rfc7901
-    (CHAIN => 13, b"CHAIN")
+    (CHAIN => 13, "CHAIN")
 
     /// EDNS key tag (14).
     ///
@@ -133,7 +133,7 @@ int_enum! {
     /// [RFC 8145].
     ///
     /// [RFC 8145]: https://tools.ietf.org/html/rfc8145
-    (KEY_TAG => 14, b"edns-key-tag")
+    (KEY_TAG => 14, "edns-key-tag")
 
     /// Extended DNS Error (15).
     ///
@@ -142,7 +142,7 @@ int_enum! {
     /// processing of RCODEs. The option is defined in [RFC 8914].
     ///
     /// [RFC 8914]: https://tools.ietf.org/html/rfc8914
-    (EXTENDED_ERROR => 15, b"Extended DNS Error")
+    (EXTENDED_ERROR => 15, "Extended DNS Error")
 
     /// EDNS client tag (16).
     ///
@@ -151,7 +151,7 @@ int_enum! {
     /// [draft-bellis-dnsop-edns-tags].
     ///
     /// [draft-bellis-dnsop-edns-tags]: https://datatracker.ietf.org/doc/draft-bellis-dnsop-edns-tags/
-    (CLIENT_TAG => 16, b"EDNS-Client-Tag")
+    (CLIENT_TAG => 16, "EDNS-Client-Tag")
 
     /// EDNS server tag (16).
     ///
@@ -160,17 +160,18 @@ int_enum! {
     /// [draft-bellis-dnsop-edns-tags].
     ///
     /// [draft-bellis-dnsop-edns-tags]: https://datatracker.ietf.org/doc/draft-bellis-dnsop-edns-tags/
-    (SERVER_TAG => 17, b"EDNS-Server-Tag")
+    (SERVER_TAG => 17, "EDNS-Server-Tag")
 
     /// DeviceID (26946).
     ///
     /// Ths option is used by the [Cisco Umbrella network device API].
     ///
     /// [Cisco Umbrella network device API]: https://docs.umbrella.com/developer/networkdevices-api/identifying-dns-traffic2
-    (DEVICE_ID => 26946, b"DeviceId")
+    (DEVICE_ID => 26946, "DeviceId")
 }
 
 int_enum_str_with_decimal!(OptionCode, u16, "unknown option code");
+int_enum_zonefile_fmt_with_decimal!(OptionCode);
 
 //============ Tests =========================================================
 

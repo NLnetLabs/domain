@@ -19,6 +19,7 @@ use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
 use super::wire::{Compose, Composer, ParseError};
+use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::fmt;
@@ -39,7 +40,7 @@ pub trait RecordData {
     fn rtype(&self) -> Rtype;
 }
 
-impl<'a, T: RecordData> RecordData for &'a T {
+impl<T: RecordData> RecordData for &T {
     fn rtype(&self) -> Rtype {
         (*self).rtype()
     }
@@ -125,7 +126,7 @@ where
     }
 }
 
-impl<'a, T: ComposeRecordData> ComposeRecordData for &'a T {
+impl<T: ComposeRecordData> ComposeRecordData for &T {
     fn rdlen(&self, compress: bool) -> Option<u16> {
         (*self).rdlen(compress)
     }
@@ -474,6 +475,26 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
         f.write_str("UnknownRecordData(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for UnknownRecordData<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        struct Data<'a>(&'a [u8]);
+
+        impl fmt::Display for Data<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "\\# {}", self.0.len())?;
+                for ch in self.0 {
+                    write!(f, " {:02x}", *ch)?
+                }
+                Ok(())
+            }
+        }
+
+        p.write_token(Data(self.data.as_ref()))
     }
 }
 

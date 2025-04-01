@@ -4,33 +4,275 @@
 
 Breaking changes
 
+* FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
+* Stricter RFC 1035 compliance by default in the `Zonefile` parser. ([#477])
+
 New
+
+* Added `HashCompressor`, an unlimited name compressor that uses a hash map
+  rather than a tree. ([#396])
+* Changed `fmt::Display` for `HINFO` records to a show a quoted string.
+  ([#421])
+* Added support for `NAPTR` record type. ([#427] by [@weilence])
+* Added initial fuzz testing support for some types via a new `arbitrary`
+  feature (not enabled by default). ([#441])
+* Added `StubResolver::add_connection()` to allow adding a connection to the
+  running resolver. In combination with `ResolvConf::new()` this can also be
+  used to control the connections made when testing code that uses the stub
+  resolver. ([#440])
+* Add `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
+  [#463])
+
+Bug fixes
+
+* NSEC records should include themselves in the generated bitmap. ([#417])
+* Trailing double quote wrongly preserved when parsing record data. ([#470],
+  [#472])
+* Don't error with unexpected end of entry for RFC 3597 RDATA of length zero. ([475])
+
+Unstable features
+
+* New unstable feature `unstable-crypto` that enable cryptography support
+  for features that do not rely on secret keys. This feature needs either
+  or both of the features `ring` and `openssl` ([#416])
+* New unstable feature `unstable-crypto-sign` that enable cryptography support
+  including features that rely on secret keys. This feature needs either
+  or both of the features `ring` and `openssl` ([#416])
+
+* `unstable-server-transport`
+  * The trait `SingleService` which is a simplified service trait for
+    requests that should generate a single response ([#353]).
+  * The trait `ComposeReply` and an implementation of the trait
+    (`ReplyMessage`) to assist in capturing EDNS(0) options that should be
+    included in a response message ([#353]).
+  * Adapters to implement `Service` for `SingleService` and to implement
+    `SingleService` for `SendRequest` ([#353]).
+  * Conversion of a `Request` to a `RequestMessage` ([#353]).
+  * A sample query router, called `QnameRouter`, that routes requests based
+    on the QNAME field in the request ([#353]).
+
+* `unstable-client-transport`
+  * introduce timeout option in multi_stream ([#424]).
+  * improve probing in redundant ([#424]).
+  * restructure configuration for multi_stream and redundant ([#424]).
+  * introduce a load balancer client transport. This transport tries to
+    distribute requests equally over upstream transports ([#425]).
+
+* `unstable-sign`
+  * add key lifecycle management ([#459]).
+  * add support for adding NSEC3 records when signing.
+  * add support for ZONEMD.
+
+* `unstable-validator`
+  * The `validate` crate is moved to `dnssec::validator::base`.
+  * The `validator` crate is moved to `dnssec::validator`.
+
+Other changes
+
+[#353]: https://github.com/NLnetLabs/domain/pull/353
+[#379]: https://github.com/NLnetLabs/domain/pull/379
+[#396]: https://github.com/NLnetLabs/domain/pull/396
+[#416]: https://github.com/NLnetLabs/domain/pull/416
+[#417]: https://github.com/NLnetLabs/domain/pull/417
+[#421]: https://github.com/NLnetLabs/domain/pull/421
+[#423]: https://github.com/NLnetLabs/domain/pull/423
+[#424]: https://github.com/NLnetLabs/domain/pull/424
+[#425]: https://github.com/NLnetLabs/domain/pull/425
+[#427]: https://github.com/NLnetLabs/domain/pull/427
+[#440]: https://github.com/NLnetLabs/domain/pull/440
+[#441]: https://github.com/NLnetLabs/domain/pull/441
+[#446]: https://github.com/NLnetLabs/domain/pull/446
+[#459]: https://github.com/NLnetLabs/domain/pull/459
+[#463]: https://github.com/NLnetLabs/domain/pull/463
+[#470]: https://github.com/NLnetLabs/domain/pull/470
+[#472]: https://github.com/NLnetLabs/domain/pull/472
+[#475]: https://github.com/NLnetLabs/domain/pull/475
+[#4775]: https://github.com/NLnetLabs/domain/pull/477
+[@weilence]: https://github.com/weilence
+
+
+## 0.10.4
+
+Released 2025-03-31.
+
+Other changes
+
+* Fix a build issue with [*time*](https://time-rs.github.io/) 0.3.41.
+  ([#505], backported from [#503] by [@PSeitz])
+
+[#503]: https://github.com/NLnetLabs/domain/pull/503
+[#505]: https://github.com/NLnetLabs/domain/pull/505
+[@PSeitz]: https://github.com/PSeitz
+
+
+## 0.10.3
+
+Released 2024-10-14.
+
+New
+
+* Added `Deserialize` impl for the `base::net::nostd::Ipv6Addr` and fixed
+  the impl for `Ipv4Addr`. ([#413])
+
+Bug fixes
+
+* Fixed an incorrect feature gate that blocks compilation if only `"net"`
+  is enabled. ([#412])
+* Added (all? most?) missing feature dependencies for all features.
+* Fixed `Deserialize` impls for `ParsedName` and `ExtendedError` to compile
+  and work without `std`. ([#413])
+
+[#412]: https://github.com/NLnetLabs/domain/pull/412
+[#413]: https://github.com/NLnetLabs/domain/pull/413
+
+
+## 0.10.2
+
+Released 2024-10-10.
+
+New
+
+* Added an optional push size limit to `MessageBuilder`. ([#348])
+* Added `FromStr` impls for `Rcode` and `OptRcode`. ([#357])
+* Added `OptRcode::is_ext` to check if the code is an extended code.
+  ([#358])
+* Added `Rtype::is_glue` to check if the Rtype may be used as glue. ([#363])
+* Added `MessageBuilder::start_error`, like `start_answer` but infallible. ([#369])
+* Added `AnswerBuilder::push_ref`, like `push` but takes the record by
+  reference. ([#383])
+* Added `Rtype::NXNAME` and `ExtendedErrorCode::INVALID_QUERY_TYPE`. ([#392])
+* Added a `Serialize` impl to `AllRecordData` and as a consequence to
+  the OPT record and all OPT options, as well as `ParsedName`. ([#343])
+* Added `Display` impl to `tsig::Key`. ([#397])
 
 Bug fixes
 
 * Fixed a mistake in the tsig module while calculating the start of
   the TSIG record when there were other records in the additional section,
   causing the TSIG code to fail if OPT records were in use. ([#333])
+* Fixed the mnemonic for the `NOTAUTH` rcode – it was `NOAUTH`. ([#360])
+* Fixed the way the `Txt<_> `record data implements comparison-related
+  traits. They now directly compare the underlying octets, i.e., the wire
+  format bytes. ([#374] by [@dklbreitling])
+* Fixed the `tsig` module to reject messages with multiple TSIG records.
+  ([#334])
+* Fixed Display rendering of empty NSEC3 salt to be '-' per RFC 5155
+  section 3.3. ([#407])
 
 Unstable features
 
 * New unstable feature `unstable-validator` that adds a DNSSEC validator.
   ([#328])
+* New unstable feature `unstable-xfr` that adds `XfrResponseInterpreter` for
+  iterating over XFR responses as a sequence of high level `ZoneUpdate`s, and
+  `XfrMiddlewareSvc` and `XfrDataProvider` for responding to received XFR
+  requests. ([#375], [#384])
 * `unstable-client-transport`:
   * Fixed an issue with slow responses in the
     `multi_stream` transport by not waiting in the first iteration if an
     underlying stream reports its connection being closed. ([#338])
+  * Added an option called `idle_timeout` to stream that allows a TCP or
+    TLS connection to stay open even if no TcpKeepalive option is received
+    from the server. ([#341])
+  * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
+  * Added support for requests that may result in multiple responses. This
+    adds `ComposeRequestMulti` and other `*Multi` types. The main change is to
+    the stream transport, which is the only transport that implements
+    `SendRequestMulti`. ([#377])
+  * Added a TSIG request signing and response validating passthrough
+    transport in `net::client:tsig`. ([#373])
 * `unstable-server-transport`
-  * The `CookiesMiddlewareProcessor` now allows requests with invalid
-    cookies to proceed if they are authenticated or not required to
-    authenticate. ([#336])
+  * Breaking changes to the `Service` and middleware traits. ([#369])
+  * Added `TsigMiddlewareSvc` request validating and response signing
+    middleware in `net::server::middleware::tsig`. ([#380])
+  * Added `NotifyMiddlewareSvc` in `net::server::middleware::notify` to parse
+    and acknowledge SOA NOTIFY requests, for use by secondary nameservers to
+    detect outdated zones compared to the primary. ([#382])
+  * `CookiesMiddlewareSvc` now allows requests with invalid cookies to proceed
+    if they are authenticated or not required to authenticate. ([#336])
+  * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
+  * Added trait `ResourceRecordBatcher` and impl `CallbackBatcher` in
+    `net::server::batcher` for pushing as many records into a response as will
+    fit according to defined limits. ([#383])
+  * Enforce dgram max response size limit. ([#398])
+  * Extended MandatoryMiddlewareSvc with an RFC 9619 check for opcode QUERY
+    with QDCOUNT > 1. ([#365])
+  * Added blanket `SendRequest` and `SendRequestMulti` impls for boxes. ([#397])
+  * `EdnsMiddlewareSvc` fixes: ([#355])
+    * Reply with FORMERR if an OPT RR cannot be parsed.
+    * Don't reply with FORMERR if an edns-tcp-keepalive option is received via
+      UDP, instead ignore it per RFC 7828 3.2.1.
+    * Only reserve space for an edns-tcp-keepalive option for TCP requests,
+      not UDP requests.
+    * Always reserve space for an OPT RR in the response for any request that
+      has an OPT RR, not just TCP requests.
+  * Servers now drop received DNS response messages. ([#381])
+  * Improved handling of errors while sending TCP responses. ([#309])
+  * Correctly reserve space for OPT in `EdnsMiddlewareSvc`. ([#403])
+* `unstable-zonetree`:
+  * Added `ZoneUpdate`. ([#375])
+  * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
+    `InMemoryZoneDiff` and improved `ZoneUpdate`. ([#376], [#384])
+  * Improved zonefile parsing error messages. ([#362]). 
+  * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
+    errors instead of logging and ignoring them. ([#362])
+  * Allow both glue (A/AAAA) and zone cuts at the same owner when zone
+    parsing. ([#363])
+  * Altered the logic in `Versioned::remove_all()` (formerly
+    `Versioned::clean()`) as it made destructive changes to the zone that
+    would have impacted readers of the current zone version while the new zone
+    version was being created. ([#376])
+  * Removed / renamed references to `clean` in `zonetree::in_memory` to
+    `remove`. ([#376])
+  * Fixed zone walking to include non-leaf CNAMEs. ([#352])
+  * Fixed zone walking to pass the correct owner name to the callback.
+    ([#384])
+  * Added an `as_any` method and `Clone` and `Debug` impls to various zonetree
+    types. ([#397])
+  * Added `AsRef<dyn ZoneStore>` to `Zone`. ([#397])
+  * Added handling of the AA flag and additional records to answer generation.
+    ([#400])
+  * Zone walking now includes glue records. A new flag `at_zone_cut` was
+    added to the callback interface. ([#401])
 
-Other changes
-
+[#309]: https://github.com/NLnetLabs/domain/pull/309
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
+[#334]: https://github.com/NLnetLabs/domain/pull/334
 [#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
+[#341]: https://github.com/NLnetLabs/domain/pull/341
+[#343]: https://github.com/NLnetLabs/domain/pull/343
+[#348]: https://github.com/NLnetLabs/domain/pull/348
+[#352]: https://github.com/NLnetLabs/domain/pull/352
+[#354]: https://github.com/NLnetLabs/domain/pull/354
+[#355]: https://github.com/NLnetLabs/domain/pull/355
+[#357]: https://github.com/NLnetLabs/domain/pull/357
+[#358]: https://github.com/NLnetLabs/domain/pull/358
+[#360]: https://github.com/NLnetLabs/domain/pull/360
+[#362]: https://github.com/NLnetLabs/domain/pull/362
+[#363]: https://github.com/NLnetLabs/domain/pull/363
+[#365]: https://github.com/NLnetLabs/domain/pull/365
+[#369]: https://github.com/NLnetLabs/domain/pull/369
+[#373]: https://github.com/NLnetLabs/domain/pull/373
+[#374]: https://github.com/NLnetLabs/domain/pull/374
+[#375]: https://github.com/NLnetLabs/domain/pull/375
+[#376]: https://github.com/NLnetLabs/domain/pull/376
+[#377]: https://github.com/NLnetLabs/domain/pull/377
+[#380]: https://github.com/NLnetLabs/domain/pull/380
+[#381]: https://github.com/NLnetLabs/domain/pull/381
+[#382]: https://github.com/NLnetLabs/domain/pull/382
+[#383]: https://github.com/NLnetLabs/domain/pull/383
+[#384]: https://github.com/NLnetLabs/domain/pull/384
+[#392]: https://github.com/NLnetLabs/domain/pull/392
+[#397]: https://github.com/NLnetLabs/domain/pull/397
+[#398]: https://github.com/NLnetLabs/domain/pull/398
+[#400]: https://github.com/NLnetLabs/domain/pull/400
+[#401]: https://github.com/NLnetLabs/domain/pull/401
+[#403]: https://github.com/NLnetLabs/domain/pull/403
+[#407]: https://github.com/NLnetLabs/domain/pull/407
+[@dklbreitling]: https://github.com/dklbreitling
+
 
 ## 0.10.1
 
@@ -62,13 +304,18 @@ Unstable features
 
 * New unstable feature `unstable-stelline` for the Stelline testing
   framework as a “normal” module of _domain._ ([#315])
-* Renamed the domain name types in `zonetree` from `Dname` to `Name`.
-  ([#308])
+* `unstable-server-transport`:
+  *  Redesigned the service trait and changes middleware processors as
+     services that take an upstream service to pass requests on to. ([#307])
+* `unstable-zonetree`:
+  * Renamed the domain name types in `zonetree` from `Dname` to `Name`.
+    ([#308])
 
 Other changes
 
 * The minimum Rust version is now 1.78. ([#320])
 
+[#307]: https://github.com/NLnetLabs/domain/pull/307
 [#308]: https://github.com/NLnetLabs/domain/pull/308
 [#310]: https://github.com/NLnetLabs/domain/pull/310
 [#312]: https://github.com/NLnetLabs/domain/pull/312

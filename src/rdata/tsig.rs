@@ -4,21 +4,27 @@
 //!
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845
 
+use core::cmp::Ordering;
+use core::{fmt, hash};
+
+#[cfg(all(feature = "std", not(test)))]
+use std::time::SystemTime;
+
+#[cfg(all(feature = "std", test))]
+use mock_instant::thread_local::SystemTime;
+use octseq::builder::OctetsBuilder;
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
+
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
-    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
-use core::cmp::Ordering;
-use core::{fmt, hash};
-use octseq::builder::OctetsBuilder;
-use octseq::octets::{Octets, OctetsFrom, OctetsInto};
-use octseq::parse::Parser;
-#[cfg(feature = "std")]
-use std::time::SystemTime;
 
 //------------ Tsig ----------------------------------------------------------
 
@@ -600,6 +606,31 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<O: AsRef<[u8]>, N: ToName> ZonefileFmt for Tsig<O, N> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.algorithm.fmt_with_dot())?;
+            p.write_comment("algorithm")?;
+            p.write_token(self.time_signed)?;
+            p.write_comment("time signed")?;
+            p.write_token(self.fudge)?;
+            p.write_comment("fudge")?;
+            p.write_token(base64::encode_display(&self.mac))?;
+            p.write_comment("mac")?;
+            p.write_token(self.original_id)?;
+            p.write_comment("original id")?;
+            p.write_token(self.error)?;
+            p.write_comment("error")?;
+            p.write_token(format_args!(
+                "\"{}\"",
+                base64::encode_display(&self.other))
+            )
+        })
+    }
+}
+
 //------------ Time48 --------------------------------------------------------
 
 /// A 48-bit Unix timestamp.
@@ -610,7 +641,7 @@ pub struct Time48(u64);
 impl Time48 {
     /// Returns the timestamp of the current moment.
     ///
-    /// The funtion will panic if for whatever reason the current moment is
+    /// The function will panic if for whatever reason the current moment is
     /// too far in the future to fit into this type. For a correctly set
     /// clock, this will happen in December 8,921,556, so should be fine.
     #[cfg(feature = "std")]

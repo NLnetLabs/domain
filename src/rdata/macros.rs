@@ -499,6 +499,28 @@ macro_rules! rdata_types {
             }
         }
 
+        ///--- ZonefileFmt
+
+        impl<O, N> $crate::base::zonefile_fmt::ZonefileFmt for ZoneRecordData<O, N>
+        where
+            O: AsRef<[u8]>,
+            N: ToName,
+        {
+            fn fmt(
+                &self,
+                p: &mut impl $crate::base::zonefile_fmt::Formatter
+            ) -> $crate::base::zonefile_fmt::Result {
+                match *self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(ref inner) => {
+                            inner.fmt(p)
+                        }
+                    )* )* )*
+                    ZoneRecordData::Unknown(ref inner) => inner.fmt(p),
+                }
+            }
+        }
+
         //------------- AllRecordData ----------------------------------------
 
         /// Record data for all record types.
@@ -506,6 +528,17 @@ macro_rules! rdata_types {
         /// This enum collects the record data types for all currently
         /// implemented record types.
         #[derive(Clone)]
+        #[cfg_attr(
+            feature = "serde",
+            derive(serde::Serialize),
+            serde(bound(
+                serialize = "
+                    O: AsRef<[u8]> + octseq::serde::SerializeOctets,
+                    N: serde::Serialize,
+                ",
+            )),
+            serde(rename_all = "UPPERCASE")
+        )]
         #[non_exhaustive]
         pub enum AllRecordData<O, N> {
             $( $( $(
@@ -1102,6 +1135,29 @@ macro_rules! rdata_types {
             }
         }
 
+        //--- ZonefileFmt
+
+        impl<O, N> $crate::base::zonefile_fmt::ZonefileFmt for AllRecordData<O, N>
+        where O: Octets, N: ToName {
+            fn fmt(
+                &self, f: &mut impl $crate::base::zonefile_fmt::Formatter
+            ) -> $crate::base::zonefile_fmt::Result {
+                match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            inner.fmt(f)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            inner.fmt(f)
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(ref inner) => inner.fmt(f),
+                    AllRecordData::Unknown(ref inner) => inner.fmt(f),
+                }
+            }
+        }
     }
 }
 
@@ -1286,6 +1342,14 @@ macro_rules! name_type_base {
         impl<N: fmt::Display> fmt::Display for $target<N> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 write!(f, "{}.", self.$field)
+            }
+        }
+
+        //--- ZonefileFmt
+
+        impl<N: ToName> $crate::base::zonefile_fmt::ZonefileFmt for $target<N> {
+            fn fmt(&self, p: &mut impl $crate::base::zonefile_fmt::Formatter) -> $crate::base::zonefile_fmt::Result {
+                p.write_token(self.$field.fmt_with_dot())
             }
         }
     }

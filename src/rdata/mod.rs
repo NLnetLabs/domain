@@ -105,6 +105,11 @@ rdata_types! {
             Ds<O>,
         }
     }
+    naptr::{
+        zone {
+            Naptr<O, N>,
+        }
+    }
     nsec3::{
         zone {
             Nsec3<O>,

@@ -455,7 +455,10 @@ impl<Octs: AsRef<[u8]>> hash::Hash for ParsedName<Octs> {
 //--- ToLabelIter and ToName
 
 impl<Octs: AsRef<[u8]>> ToLabelIter for ParsedName<Octs> {
-    type LabelIter<'s> = ParsedNameIter<'s> where Octs: 's;
+    type LabelIter<'s>
+        = ParsedNameIter<'s>
+    where
+        Octs: 's;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()
@@ -515,6 +518,18 @@ impl<Octs: AsRef<[u8]>> fmt::Display for ParsedName<Octs> {
 impl<Octs: AsRef<[u8]>> fmt::Debug for ParsedName<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ParsedName({}.)", self)
+    }
+}
+
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<Octs: AsRef<[u8]>> serde::Serialize for ParsedName<Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(self)
     }
 }
 

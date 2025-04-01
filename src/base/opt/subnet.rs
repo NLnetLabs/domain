@@ -38,6 +38,7 @@ use octseq::parse::Parser;
 /// The option is defined in [RFC 7871](https://tools.ietf.org/html/rfc7871)
 /// which also includes some guidance on its use.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ClientSubnet {
     /// The source prefix length.
     source_prefix_len: u8,
@@ -274,7 +275,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     pub fn client_subnet(
         &mut self,
         source_prefix_len: u8,
@@ -291,7 +292,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 
 /// Returns the number of bytes needed for a prefix of a given length
 fn prefix_bytes(bits: u8) -> usize {
-    (usize::from(bits) + 7) / 8
+    usize::from(bits).div_ceil(8)
 }
 
 /// Only keeps the left-most `mask` bits and zeros out the rest.

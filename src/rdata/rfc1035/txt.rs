@@ -14,6 +14,7 @@ use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
 use crate::base::wire::{Composer, FormError, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
@@ -104,7 +105,7 @@ impl<Octs: FromBuilder> Txt<Octs> {
     {
         let mut builder = TxtBuilder::<Octs::Builder>::new();
         builder.append_slice(text)?;
-        builder.finish().map_err(Into::into)
+        builder.finish()
     }
 }
 
@@ -161,7 +162,7 @@ impl Txt<[u8]> {
     /// Checks that a slice contains correctly encoded TXT data.
     fn check_slice(mut slice: &[u8]) -> Result<(), TxtError> {
         if slice.is_empty() {
-            return Err(TxtError(TxtErrorInner::Empty))
+            return Err(TxtError(TxtErrorInner::Empty));
         }
         LongRecordData::check_len(slice.len())?;
         while let Some(&len) = slice.first() {
@@ -331,9 +332,7 @@ where
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Txt<Other>) -> bool {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .eq(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().eq(other.0.as_ref())
     }
 }
 
@@ -347,9 +346,7 @@ where
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Txt<Other>) -> Option<Ordering> {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .partial_cmp(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().partial_cmp(other.0.as_ref())
     }
 }
 
@@ -359,26 +356,13 @@ where
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Txt<Other>) -> Ordering {
-        // Canonical comparison requires TXT RDATA to be canonically
-        // sorted in the wire format.
-        // The TXT has each label prefixed by length, which must be
-        // taken into account.
-        for (a, b) in self.iter().zip(other.iter()) {
-            match (a.len(), a).cmp(&(b.len(), b)) {
-                Ordering::Equal => continue,
-                r => return r,
-            }
-        }
-
-        Ordering::Equal
+        self.0.as_ref().cmp(other.0.as_ref())
     }
 }
 
 impl<Octs: AsRef<[u8]>> Ord for Txt<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .cmp(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().cmp(other.0.as_ref())
     }
 }
 
@@ -386,9 +370,7 @@ impl<Octs: AsRef<[u8]>> Ord for Txt<Octs> {
 
 impl<Octs: AsRef<[u8]>> hash::Hash for Txt<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .for_each(|c| c.hash(state))
+        self.0.as_ref().hash(state)
     }
 }
 
@@ -464,6 +446,22 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs> ZonefileFmt for Txt<Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            for slice in self.iter_charstrs() {
+                p.write_token(slice.display_quoted())?;
+            }
+            Ok(())
+        })
+    }
+}
+
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
@@ -479,7 +477,7 @@ where
 
         struct TxtSeq<'a, Octs>(&'a Txt<Octs>);
 
-        impl<'a, Octs> serde::Serialize for TxtSeq<'a, Octs>
+        impl<Octs> serde::Serialize for TxtSeq<'_, Octs>
         where
             Octs: AsRef<[u8]> + SerializeOctets,
         {
@@ -1033,6 +1031,29 @@ mod test {
         for (a, b) in records.iter().zip(sorted.iter()) {
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn txt_strings_eq() {
+        let records = [["foo", "bar"], ["foob", "ar"], ["foo", "bar"]];
+
+        let records = records
+            .iter()
+            .map(|strings| {
+                let mut builder = TxtBuilder::<Vec<u8>>::new();
+                for string in strings {
+                    builder
+                        .append_charstr(
+                            CharStr::from_slice(string.as_bytes()).unwrap(),
+                        )
+                        .unwrap();
+                }
+                builder.finish().unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_ne!(records[0], records[1]);
+        assert_eq!(records[0], records[2]);
     }
 
     #[cfg(all(feature = "serde", feature = "std"))]

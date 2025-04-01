@@ -28,6 +28,7 @@ use octseq::parse::Parser;
 /// furthest away from the root to which the requesting resolver already has
 /// all necessary records.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[repr(transparent)]
 pub struct Chain<Name: ?Sized> {
     /// The start name AKA ‘closest trust point.’
@@ -198,7 +199,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends the CHAIN option.
     ///
     /// The CHAIN option allows a client to request that all records that

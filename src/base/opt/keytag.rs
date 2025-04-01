@@ -323,7 +323,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends a edns-key-tag option.
     ///
     /// The option contains a list of the key tags of the trust anchor keys
@@ -335,6 +335,24 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<Octs: AsRef<[u8]>> serde::Serialize for KeyTag<Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        use serde::ser::SerializeSeq;
+
+        let mut list = serializer.serialize_seq(None)?;
+
+        for i in self.as_ref().iter() {
+            list.serialize_element(i)?;
+        }
+
+        list.end()
+    }
+}
 
 //------------ KeyTagIter ----------------------------------------------------
 
@@ -345,7 +363,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 #[derive(Clone, Copy, Debug)]
 pub struct KeyTagIter<'a>(&'a [u8]);
 
-impl<'a> Iterator for KeyTagIter<'a> {
+impl Iterator for KeyTagIter<'_> {
     type Item = u16;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -179,7 +179,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Padding<Octs> {
 
 //--- Extended OptBuilder
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     pub fn padding( &mut self, len: u16) -> Result<(), Target::AppendError> {
         self.push_raw_option(
             OptionCode::PADDING,
@@ -210,3 +210,15 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     }
 }
 
+
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<Octs: AsRef<[u8]>> serde::Serialize for Padding<Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        use octseq::serde::SerializeOctets;
+        self.octets.as_ref().serialize_octets(serializer)
+    }
+}

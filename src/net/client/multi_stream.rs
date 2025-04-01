@@ -6,9 +6,10 @@
 use crate::base::Message;
 use crate::net::client::protocol::AsyncConnect;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
+    ComposeRequest, Error, GetResponse, RequestMessageMulti, SendRequest,
 };
 use crate::net::client::stream;
+use crate::utils::config::DefMinMax;
 use bytes::Bytes;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
@@ -19,9 +20,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec::Vec;
 use tokio::io;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::timeout;
 use tokio::time::{sleep_until, Instant};
 
 //------------ Constants -----------------------------------------------------
@@ -32,16 +35,42 @@ const DEF_CHAN_CAP: usize = 8;
 /// Error messafe when the connection is closed.
 const ERR_CONN_CLOSED: &str = "connection closed";
 
+//------------ Configuration Constants ----------------------------------------
+
+/// Default response timeout.
+const RESPONSE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(30),
+    Duration::from_millis(1),
+    Duration::from_secs(600),
+);
+
 //------------ Config ---------------------------------------------------------
 
 /// Configuration for an multi-stream transport.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Config {
+    /// Response timeout currently in effect.
+    response_timeout: Duration,
+
     /// Configuration of the underlying stream transport.
     stream: stream::Config,
 }
 
 impl Config {
+    /// Returns the response timeout.
+    ///
+    /// This is the amount of time to wait for a request to complete.
+    pub fn response_timeout(&self) -> Duration {
+        self.response_timeout
+    }
+
+    /// Sets the response timeout.
+    ///
+    /// Excessive values are quietly trimmed.
+    pub fn set_response_timeout(&mut self, timeout: Duration) {
+        self.response_timeout = RESPONSE_TIMEOUT.limit(timeout);
+    }
+
     /// Returns the underlying stream config.
     pub fn stream(&self) -> &stream::Config {
         &self.stream
@@ -55,7 +84,19 @@ impl Config {
 
 impl From<stream::Config> for Config {
     fn from(stream: stream::Config) -> Self {
-        Self { stream }
+        Self {
+            stream,
+            response_timeout: RESPONSE_TIMEOUT.default(),
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            stream: Default::default(),
+            response_timeout: RESPONSE_TIMEOUT.default(),
+        }
     }
 }
 
@@ -66,6 +107,9 @@ impl From<stream::Config> for Config {
 pub struct Connection<Req> {
     /// The sender half of the connection request channel.
     sender: mpsc::Sender<ChanReq<Req>>,
+
+    /// Maximum amount of time to wait for a response.
+    response_timeout: Duration,
 }
 
 impl<Req> Connection<Req> {
@@ -79,8 +123,15 @@ impl<Req> Connection<Req> {
         remote: Remote,
         config: Config,
     ) -> (Self, Transport<Remote, Req>) {
+        let response_timeout = config.response_timeout;
         let (sender, transport) = Transport::new(remote, config);
-        (Self { sender }, transport)
+        (
+            Self {
+                sender,
+                response_timeout,
+            },
+            transport,
+        )
     }
 }
 
@@ -146,6 +197,7 @@ impl<Req> Clone for Connection<Req> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
+            response_timeout: self.response_timeout,
         }
     }
 }
@@ -174,6 +226,9 @@ struct Request<Req> {
     /// It is kept so we can compare a response with it.
     request_msg: Req,
 
+    /// Start time of the request.
+    start: Instant,
+
     /// Current state of the query.
     state: QueryState<Req>,
 
@@ -197,7 +252,7 @@ enum QueryState<Req> {
     ReceiveConn(oneshot::Receiver<ChanResp<Req>>),
 
     /// Start a query using the given stream transport.
-    StartQuery(Arc<stream::Connection<Req>>),
+    StartQuery(Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>),
 
     /// Get the result of the query.
     GetResult(stream::Request),
@@ -222,7 +277,7 @@ struct ChanRespOk<Req> {
     id: u64,
 
     /// The new stream transport to use for sending a request.
-    conn: Arc<stream::Connection<Req>>,
+    conn: Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>,
 }
 
 impl<Req> Request<Req> {
@@ -231,6 +286,7 @@ impl<Req> Request<Req> {
         Self {
             conn,
             request_msg,
+            start: Instant::now(),
             state: QueryState::RequestConn,
             conn_id: None,
             delayed_retry_count: 0,
@@ -245,9 +301,20 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
     /// it is resolved, you can call it again to get a new future.
     pub async fn get_response(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
+            let elapsed = self.start.elapsed();
+            if elapsed >= self.conn.response_timeout {
+                return Err(Error::StreamReadTimeout);
+            }
+            let remaining = self.conn.response_timeout - elapsed;
+
             match self.state {
                 QueryState::RequestConn => {
-                    let rx = match self.conn.new_conn(self.conn_id).await {
+                    let to =
+                        timeout(remaining, self.conn.new_conn(self.conn_id))
+                            .await
+                            .map_err(|_| Error::StreamReadTimeout)?;
+
+                    let rx = match to {
                         Ok(rx) => rx,
                         Err(err) => {
                             self.state = QueryState::Done;
@@ -257,7 +324,10 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                     self.state = QueryState::ReceiveConn(rx);
                 }
                 QueryState::ReceiveConn(ref mut receiver) => {
-                    let res = match receiver.await {
+                    let to = timeout(remaining, receiver)
+                        .await
+                        .map_err(|_| Error::StreamReadTimeout)?;
+                    let res = match to {
                         Ok(res) => res,
                         Err(_) => {
                             // Assume receive error
@@ -293,8 +363,10 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                     continue;
                 }
                 QueryState::GetResult(ref mut query) => {
-                    let res = query.get_response().await;
-                    match res {
+                    let to = timeout(remaining, query.get_response())
+                        .await
+                        .map_err(|_| Error::StreamReadTimeout)?;
+                    match to {
                         Ok(reply) => {
                             return Ok(reply);
                         }
@@ -331,7 +403,12 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                     }
                 }
                 QueryState::Delay(instant, duration) => {
-                    sleep_until(instant + duration).await;
+                    if timeout(remaining, sleep_until(instant + duration))
+                        .await
+                        .is_err()
+                    {
+                        return Err(Error::StreamReadTimeout);
+                    };
                     self.state = QueryState::RequestConn;
                 }
                 QueryState::Done => {
@@ -409,7 +486,7 @@ enum SingleConnState3<Req> {
     None,
 
     /// Current stream transport.
-    Some(Arc<stream::Connection<Req>>),
+    Some(Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>),
 
     /// State that deals with an error getting a new octet stream from
     /// a connection stream.

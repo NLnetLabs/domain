@@ -84,7 +84,7 @@ async fn test_transport_error() {
     let mut msg = msg.question();
     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
-    let req = RequestMessage::new(msg);
+    let req = RequestMessage::new(msg).unwrap();
 
     let mut request = cached.send_request(req.clone());
     let reply = request.get_response().await;

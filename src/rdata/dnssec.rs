@@ -13,6 +13,7 @@ use crate::base::rdata::{
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::Ttl;
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
@@ -431,6 +432,32 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Dnskey<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        let revoked = self.is_revoked();
+        let sep = self.is_secure_entry_point();
+        let zone_key = self.is_zone_key();
+
+        p.block(|p| {
+            p.write_token(self.flags)?;
+            p.write_comment(format_args!(
+                "flags:{}{}{}{}",
+                if revoked { " revoked" } else { "" },
+                if sep { " sep" } else { "" },
+                if zone_key { " zone_key" } else { "" },
+                if self.flags == 0 { " <none>" } else { "" },
+            ))?;
+            p.write_token(self.protocol)?;
+            p.write_comment("protocol")?;
+            p.write_show(self.algorithm)?;
+            p.write_token(base64::encode_display(&self.public_key))?;
+            p.write_comment(format_args!("key tag: {}", self.key_tag()))
+        })
+    }
+}
+
 //------------ ProtoRrsig ----------------------------------------------------
 
 /// The RRSIG RDATA to be included when creating the signature.
@@ -575,12 +602,12 @@ where
 /// DNS uses 32 bit timestamps that are conceptionally
 /// viewed as the 32 bit modulus of a larger number space. Because of that,
 /// special rules apply when processing these values.
-
+///
 /// [RFC 4034] defines Timestamps as the number of seconds elepased since
 /// since 1 January 1970 00:00:00 UTC, ignoring leap seconds. Timestamps
 /// are compared using so-called "Serial number arithmetic", as defined in
 /// [RFC 1982].
-
+///
 /// The RFC defines the semantics for doing arithmetics in the
 /// face of these wrap-arounds. This type implements these semantics atop a
 /// native `u32`. The RFC defines two operations: addition and comparison.
@@ -594,7 +621,6 @@ where
 /// pairs of values that are not equal but there still isn’t one value larger
 /// than the other. Since this is neatly implemented by the `PartialOrd`
 /// trait, the type implements that.
-
 ///
 /// [RFC 1982]: https://tools.ietf.org/html/rfc1982
 /// [RFC 4034]: https://tools.ietf.org/html/rfc4034
@@ -754,6 +780,14 @@ impl str::FromStr for Timestamp {
 impl fmt::Display for Timestamp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+//--- ZonefileFmt
+
+impl ZonefileFmt for Timestamp {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.write_token(self.0)
     }
 }
 
@@ -1354,6 +1388,34 @@ where
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs, Name> ZonefileFmt for Rrsig<Octs, Name>
+where
+    Octs: AsRef<[u8]>,
+    Name: ToName,
+{
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_show(self.type_covered)?;
+            p.write_show(self.algorithm)?;
+            p.write_token(self.labels)?;
+            p.write_comment("labels")?;
+            p.write_show(self.original_ttl)?;
+            p.write_comment("original ttl")?;
+            p.write_show(self.expiration)?;
+            p.write_comment("expiration")?;
+            p.write_show(self.inception)?;
+            p.write_comment("inception")?;
+            p.write_token(self.key_tag)?;
+            p.write_comment("key tag")?;
+            p.write_token(self.signer_name.fmt_with_dot())?;
+            p.write_comment("signer name")?;
+            p.write_token(base64::encode_display(&self.signature))
+        })
+    }
+}
+
 //------------ Nsec ----------------------------------------------------------
 
 #[derive(Clone)]
@@ -1634,6 +1696,21 @@ where
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs, Name> ZonefileFmt for Nsec<Octs, Name>
+where
+    Octs: AsRef<[u8]>,
+    Name: ToName,
+{
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.next_name.fmt_with_dot())?;
+            p.write_show(&self.types)
+        })
+    }
+}
+
 //------------ Ds -----------------------------------------------------------
 
 #[derive(Clone)]
@@ -1657,7 +1734,7 @@ pub struct Ds<Octs> {
     digest_type: DigestAlg,
     #[cfg_attr(
         feature = "serde",
-        serde(with = "crate::utils::base64::serde")
+        serde(with = "crate::utils::base16::serde")
     )]
     digest: Octs,
 }
@@ -1967,6 +2044,20 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Ds<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.key_tag)?;
+            p.write_comment("key tag")?;
+            p.write_show(self.algorithm)?;
+            p.write_show(self.digest_type)?;
+            p.write_token(base16::encode_display(&self.digest))
+        })
+    }
+}
+
 //------------ RtypeBitmap ---------------------------------------------------
 
 #[derive(Clone)]
@@ -2077,6 +2168,11 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.0.as_ref())
     }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.iter().next().is_none()
+    }
 }
 
 //--- AsRef
@@ -2169,10 +2265,21 @@ impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut iter = self.iter();
         if let Some(rtype) = iter.next() {
-            rtype.fmt(f)?;
+            fmt::Display::fmt(&rtype, f)?;
         }
         for rtype in iter {
             write!(f, " {}", rtype)?
+        }
+        Ok(())
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for RtypeBitmap<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        for rtype in self {
+            p.write_token(rtype)?;
         }
         Ok(())
     }
@@ -2202,7 +2309,7 @@ where
         if serializer.is_human_readable() {
             struct Inner<'a>(&'a [u8]);
 
-            impl<'a> serde::Serialize for Inner<'a> {
+            impl serde::Serialize for Inner<'_> {
                 fn serialize<S: serde::Serializer>(
                     &self,
                     serializer: S,
@@ -2432,8 +2539,8 @@ where
         let buf_len = self.buf.as_ref().len();
         for src_pos in (0..buf_len).step_by(34) {
             let chunk_len = (self.buf.as_ref()[src_pos + 1] as usize) + 2;
-                let buf = self.buf.as_mut();
-            buf.copy_within(src_pos..src_pos+chunk_len, dst_pos);
+            let buf = self.buf.as_mut();
+            buf.copy_within(src_pos..src_pos + chunk_len, dst_pos);
             dst_pos += chunk_len;
         }
         self.buf.truncate(dst_pos);
@@ -2523,7 +2630,7 @@ impl<'a> RtypeBitmapIter<'a> {
     }
 }
 
-impl<'a> Iterator for RtypeBitmapIter<'a> {
+impl Iterator for RtypeBitmapIter<'_> {
     type Item = Rtype;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -2531,7 +2638,7 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
             return None;
         }
         let res =
-            Rtype::from_int(self.block | (self.octet as u16) << 3 | self.bit);
+            Rtype::from_int(self.block | ((self.octet as u16) << 3) | self.bit);
         self.advance();
         Some(res)
     }
@@ -2648,7 +2755,7 @@ mod test {
         let rdata = Dnskey::new(10, 11, SecAlg::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
-        test_scan(&["10", "11", "RSASHA1", "a2V5MA=="], Dnskey::scan, &rdata);
+        test_scan(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
     }
 
     //--- Rrsig
@@ -2673,7 +2780,7 @@ mod test {
         test_scan(
             &[
                 "A",
-                "RSASHA1",
+                "5",
                 "3",
                 "12",
                 "13",
@@ -2720,7 +2827,7 @@ mod test {
             Ds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
-        test_scan(&["10", "RSASHA1", "2", "6b6579"], Ds::scan, &rdata);
+        test_scan(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
     }
 
     //--- RtypeBitmape
