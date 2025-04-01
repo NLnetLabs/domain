@@ -6,6 +6,7 @@ use core::{
     fmt,
     hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
+    str::FromStr,
 };
 
 use domain_macros::*;
@@ -20,7 +21,7 @@ use crate::{
     utils::CloneFrom,
 };
 
-use super::{CanonicalName, LabelIter};
+use super::{CanonicalName, Label, LabelBuf, LabelIter, LabelParseError};
 
 //----------- Name -----------------------------------------------------------
 
@@ -501,6 +502,45 @@ impl NameBuf {
             .copy_from_slice(bytes);
         self.size += bytes.len() as u8;
     }
+
+    /// Append a label to this buffer.
+    ///
+    /// This is an internal convenience function used while building buffers.
+    fn append_label(&mut self, label: &Label) {
+        self.buffer[self.size as usize] = label.len() as u8;
+        self.buffer[self.size as usize + 1..][..label.len()]
+            .copy_from_slice(label.as_bytes());
+        self.size += 1 + label.len() as u8;
+    }
+}
+
+//--- Parsing from strings
+
+impl FromStr for NameBuf {
+    type Err = NameParseError;
+
+    /// Parse a name from a string.
+    ///
+    /// This is intended for easily constructing hard-coded domain names.  The
+    /// labels in the name should be given in the conventional order (i.e. not
+    /// reversed), and should be separated by ASCII periods.  The labels will
+    /// be parsed using [`LabelBuf::from_str()`]; see its documentation.  This
+    /// function cannot parse all valid domain names; if an exceptional name
+    /// needs to be parsed, use [`Name::from_bytes_unchecked()`].  If the
+    /// input is empty, the root name is returned.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut this = Self::empty();
+        for label in s.split('.') {
+            let label =
+                label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
+            if 255 - this.size < 2 + label.len() as u8 {
+                return Err(NameParseError::Overlong);
+            }
+            this.append_label(&label);
+        }
+        this.append_label(Label::ROOT);
+        Ok(this)
+    }
 }
 
 //--- Access to the underlying 'Name'
@@ -584,5 +624,38 @@ impl fmt::Display for NameBuf {
 impl fmt::Debug for NameBuf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+//------------ NameParseError ------------------------------------------------
+
+/// An error in parsing a [`Name`] from a string.
+///
+/// This can be returned by [`NameBuf::from_str()`].  It is not used when
+/// parsing names from the zonefile format, which uses a different mechanism.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NameParseError {
+    /// The name was too large.
+    ///
+    /// Valid names are between 1 and 255 bytes, inclusive.
+    Overlong,
+
+    /// A label in the name could not be parsed.
+    Label(LabelParseError),
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for NameParseError {}
+
+impl fmt::Display for NameParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Overlong => "the domain name was too long",
+            Self::Label(LabelParseError::Overlong) => "a label was too long",
+            Self::Label(LabelParseError::Empty) => "a label was empty",
+            Self::Label(LabelParseError::InvalidChar) => {
+                "the domain name contained an invalid character"
+            }
+        })
     }
 }

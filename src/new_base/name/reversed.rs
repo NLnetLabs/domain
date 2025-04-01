@@ -6,6 +6,7 @@ use core::{
     fmt,
     hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
+    str::FromStr,
 };
 
 use domain_macros::UnsizedClone;
@@ -21,7 +22,7 @@ use crate::{
     utils::CloneFrom,
 };
 
-use super::LabelIter;
+use super::{Label, LabelBuf, LabelIter, NameParseError};
 
 //----------- RevName --------------------------------------------------------
 
@@ -355,7 +356,7 @@ fn parse_segment<'a>(
         match *bytes {
             [0, ref rest @ ..] => {
                 // Found the root, stop.
-                buffer.prepend(&[0u8]);
+                buffer.prepend_bytes(&[0u8]);
                 return Ok((None, rest));
             }
 
@@ -372,7 +373,7 @@ fn parse_segment<'a>(
                 }
 
                 let (label, rest) = bytes.split_at(1 + l as usize);
-                buffer.prepend(label);
+                buffer.prepend_bytes(label);
                 bytes = rest;
             }
 
@@ -441,10 +442,50 @@ impl RevNameBuf {
     /// Prepend bytes to this buffer.
     ///
     /// This is an internal convenience function used while building buffers.
-    fn prepend(&mut self, label: &[u8]) {
+    fn prepend_bytes(&mut self, bytes: &[u8]) {
+        self.offset -= bytes.len() as u8;
+        self.buffer[self.offset as usize..][..bytes.len()]
+            .copy_from_slice(bytes);
+    }
+
+    /// Prepend a label to this buffer.
+    ///
+    /// This is an internal convenience function used while building buffers.
+    fn prepend_label(&mut self, label: &Label) {
         self.offset -= label.len() as u8;
         self.buffer[self.offset as usize..][..label.len()]
-            .copy_from_slice(label);
+            .copy_from_slice(label.as_bytes());
+        self.offset -= 1;
+        self.buffer[self.offset as usize] = label.len() as u8;
+    }
+}
+
+//--- Parsing from strings
+
+impl FromStr for RevNameBuf {
+    type Err = NameParseError;
+
+    /// Parse a name from a string.
+    ///
+    /// This is intended for easily constructing hard-coded domain names.  The
+    /// labels in the name should be given in the conventional order (i.e. not
+    /// reversed), and should be separated by ASCII periods.  The labels will
+    /// be parsed using [`LabelBuf::from_str()`]; see its documentation.  This
+    /// function cannot parse all valid domain names; if an exceptional name
+    /// needs to be parsed, use [`RevName::from_bytes_unchecked()`].  If the
+    /// input is empty, the root name is returned.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut this = Self::empty();
+        for label in s.split('.') {
+            let label =
+                label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
+            if this.offset < 2 + label.len() as u8 {
+                return Err(NameParseError::Overlong);
+            }
+            this.prepend_label(&label);
+        }
+        this.prepend_label(Label::ROOT);
+        Ok(this)
     }
 }
 

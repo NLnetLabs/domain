@@ -21,10 +21,10 @@ use super::wire::{BuildBytes, TruncationError};
 //--- Submodules
 
 mod label;
-pub use label::{Label, LabelBuf, LabelIter};
+pub use label::{Label, LabelBuf, LabelIter, LabelParseError};
 
 mod absolute;
-pub use absolute::{Name, NameBuf};
+pub use absolute::{Name, NameBuf, NameParseError};
 
 mod reversed;
 pub use reversed::{RevName, RevNameBuf};

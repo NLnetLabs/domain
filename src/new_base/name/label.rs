@@ -7,6 +7,7 @@ use core::{
     hash::{Hash, Hasher},
     iter::FusedIterator,
     ops::{Deref, DerefMut},
+    str::FromStr,
 };
 
 use domain_macros::{AsBytes, UnsizedClone};
@@ -311,6 +312,35 @@ impl CloneFrom for LabelBuf {
     }
 }
 
+//--- Parsing from strings
+
+impl FromStr for LabelBuf {
+    type Err = LabelParseError;
+
+    /// Parse a label from a string.
+    ///
+    /// This is intended for easily constructing hard-coded labels.  The input
+    /// is not expected to be in the zonefile format; it should simply contain
+    /// 1 to 63 characters, each being a plain ASCII alphanumeric or a hyphen.
+    /// To construct a label containing bytes outside this range, use
+    /// [`Label::from_bytes_unchecked()`].  To construct a root label, use
+    /// [`Label::ROOT`].
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            Err(LabelParseError::InvalidChar)
+        } else if s.is_empty() {
+            Err(LabelParseError::Empty)
+        } else if s.len() > 63 {
+            Err(LabelParseError::Overlong)
+        } else {
+            let bytes = s.as_bytes();
+            // SAFETY: 'bytes' is 63 bytes in size or smaller.
+            let label = unsafe { Label::from_bytes_unchecked(bytes) };
+            Ok(Self::copy_from(label))
+        }
+    }
+}
+
 //--- Parsing from DNS messages
 
 impl ParseMessageBytes<'_> for LabelBuf {
@@ -504,5 +534,45 @@ impl fmt::Debug for LabelIter<'_> {
         }
 
         f.debug_tuple("LabelIter").field(&Labels(self)).finish()
+    }
+}
+
+//------------ LabelParseError -----------------------------------------------
+
+/// An error in parsing a [`Label`] from a string.
+///
+/// This can be returned by [`LabelBuf::from_str()`].  It is not used when
+/// parsing labels from the zonefile format, which uses a different mechanism.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LabelParseError {
+    /// The label was too large.
+    ///
+    /// Valid labels are between 1 and 63 bytes, inclusive.
+    Overlong,
+
+    /// The label was empty.
+    ///
+    /// While root labels do exist, they can only be found at the end of a
+    /// domain name, and cannot be parsed using [`LabelBuf::from_str()`].
+    Empty,
+
+    /// An invalid character was used.
+    ///
+    /// Only alphanumeric characters and hyphens are allowed in labels.  This
+    /// prevents the encoding of perfectly valid labels containing non-ASCII
+    /// bytes, but they're fairly rare anyway.
+    InvalidChar,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for LabelParseError {}
+
+impl fmt::Display for LabelParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Overlong => "the label was too large",
+            Self::Empty => "the label was empty",
+            Self::InvalidChar => "the label contained an invalid character",
+        })
     }
 }
