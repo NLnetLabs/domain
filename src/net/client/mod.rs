@@ -35,8 +35,20 @@
 //!   pass through transport. The tsig transport works with any upstream
 //!   transports so long as they don't modify the message once signed nor
 //!   modify the response before it can be verified.
-#![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
-#![cfg_attr(not(feature = "unstable-validator",), doc = "* validator:")]
+#![cfg_attr(
+    all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    ),
+    doc = "* [validator]:"
+)]
+#![cfg_attr(
+    not(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    )),
+    doc = "* validator:"
+)]
 //!   This is a DNSSEC validator provided as a pass through transport.
 //!   The validator works with any of the other transports.
 //!
@@ -242,8 +254,6 @@ pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
-#[cfg(feature = "tsig")]
 pub mod tsig;
-#[cfg(feature = "unstable-validator")]
 pub mod validator;
 pub mod validator_test;

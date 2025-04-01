@@ -1734,7 +1734,7 @@ pub struct Ds<Octs> {
     digest_type: DigestAlg,
     #[cfg_attr(
         feature = "serde",
-        serde(with = "crate::utils::base64::serde")
+        serde(with = "crate::utils::base16::serde")
     )]
     digest: Octs,
 }
@@ -2167,6 +2167,11 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.0.as_ref())
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.iter().next().is_none()
     }
 }
 
@@ -2633,7 +2638,7 @@ impl Iterator for RtypeBitmapIter<'_> {
             return None;
         }
         let res =
-            Rtype::from_int(self.block | (self.octet as u16) << 3 | self.bit);
+            Rtype::from_int(self.block | ((self.octet as u16) << 3) | self.bit);
         self.advance();
         Some(res)
     }

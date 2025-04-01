@@ -5,6 +5,7 @@
 //! or evaluated results.
 
 use super::anchor::{TrustAnchor, TrustAnchors};
+use super::base::{supported_algorithm, supported_digest, DnskeyExt};
 use super::group::{Group, GroupSet, SigCache, ValidatedGroup};
 use super::nsec::{
     cached_nsec3_hash, nsec3_for_nodata, nsec3_for_nodata_wildcard,
@@ -35,8 +36,6 @@ use crate::net::client::request::{
 };
 use crate::rdata::{AllRecordData, Dnskey, Ds, ZoneRecordData};
 use crate::utils::config::DefMinMax;
-use crate::validate::DnskeyExt;
-use crate::validate::{supported_algorithm, supported_digest};
 use crate::zonefile::inplace;
 use bytes::Bytes;
 use moka::future::Cache;
@@ -2286,7 +2285,7 @@ where
 //----------- Error ----------------------------------------------------------
 
 /// Various errors that can be returned by function in the
-/// [validator](crate::validator) module.
+/// [validator](crate::dnssec::validator) module.
 #[derive(Clone, Debug)]
 pub enum Error {
     /// Badly formed DNS message.

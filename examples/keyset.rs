@@ -1,6 +1,6 @@
 //! Demonstrate the use of key sets.
 use domain::base::Name;
-use domain::sign::keyset::{
+use domain::dnssec::sign::keys::keyset::{
     Action, Error, KeySet, KeyType, RollType, UnixTime,
 };
 use itertools::{Either, Itertools};
