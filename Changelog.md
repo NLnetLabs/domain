@@ -5,6 +5,7 @@
 Breaking changes
 
 * FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
+* FIX: NSEC3 salt strings should only be accepted if within the salt size limit. (#431)
 * Stricter RFC 1035 compliance by default in the `Zonefile` parser. ([#477])
 
 New
@@ -79,6 +80,7 @@ Other changes
 [#424]: https://github.com/NLnetLabs/domain/pull/424
 [#425]: https://github.com/NLnetLabs/domain/pull/425
 [#427]: https://github.com/NLnetLabs/domain/pull/427
+[#431]: https://github.com/NLnetLabs/domain/pull/431
 [#440]: https://github.com/NLnetLabs/domain/pull/440
 [#441]: https://github.com/NLnetLabs/domain/pull/441
 [#446]: https://github.com/NLnetLabs/domain/pull/446
