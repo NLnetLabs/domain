@@ -1586,18 +1586,10 @@ impl From<BadSymbol> for EntryError {
 
 impl fmt::Display for EntryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        #[cfg(not(feature = "std"))]
-        {
-            f.write_str(self.msg)
-        }
-
+        f.write_str(self.msg)?;
         #[cfg(feature = "std")]
-        {
-            if let Some(context) = &self.context {
-                f.write_fmt(format_args!("{}: {}", self.msg, context))
-            } else {
-                f.write_str(self.msg)
-            }
+        if let Some(context) = &self.context {
+            write!(f, ": {}", context)?;
         }
     }
 }
