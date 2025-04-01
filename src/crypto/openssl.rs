@@ -28,7 +28,7 @@ use openssl::sign::Verifier;
 use super::common::{
     rsa_encode, rsa_exponent_modulus, AlgorithmError, DigestType,
 };
-use crate::base::iana::SecAlg;
+use crate::base::iana::SecurityAlgorithm;
 use crate::rdata::Dnskey;
 
 //============ Error Types ===================================================
@@ -174,16 +174,21 @@ impl PublicKey {
     ) -> Result<Self, AlgorithmError> {
         let sec_alg = dnskey.algorithm();
         match sec_alg {
-            SecAlg::RSASHA1
-            | SecAlg::RSASHA1_NSEC3_SHA1
-            | SecAlg::RSASHA256
-            | SecAlg::RSASHA512 => {
+            SecurityAlgorithm::RSASHA1
+            | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+            | SecurityAlgorithm::RSASHA256
+            | SecurityAlgorithm::RSASHA512 => {
                 let (digest_algorithm, min_bytes) = match sec_alg {
-                    SecAlg::RSASHA1 | SecAlg::RSASHA1_NSEC3_SHA1 => {
+                    SecurityAlgorithm::RSASHA1
+                    | SecurityAlgorithm::RSASHA1_NSEC3_SHA1 => {
                         (MessageDigest::sha1(), 1024 / 8)
                     }
-                    SecAlg::RSASHA256 => (MessageDigest::sha256(), 1024 / 8),
-                    SecAlg::RSASHA512 => (MessageDigest::sha512(), 1024 / 8),
+                    SecurityAlgorithm::RSASHA256 => {
+                        (MessageDigest::sha256(), 1024 / 8)
+                    }
+                    SecurityAlgorithm::RSASHA512 => {
+                        (MessageDigest::sha512(), 1024 / 8)
+                    }
                     _ => unreachable!(),
                 };
 
@@ -204,12 +209,13 @@ impl PublicKey {
                     dnskey.flags(),
                 ))
             }
-            SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+            SecurityAlgorithm::ECDSAP256SHA256
+            | SecurityAlgorithm::ECDSAP384SHA384 => {
                 let (digest_algorithm, group_id) = match sec_alg {
-                    SecAlg::ECDSAP256SHA256 => {
+                    SecurityAlgorithm::ECDSAP256SHA256 => {
                         (MessageDigest::sha256(), Nid::X9_62_PRIME256V1)
                     }
-                    SecAlg::ECDSAP384SHA384 => {
+                    SecurityAlgorithm::ECDSAP384SHA384 => {
                         (MessageDigest::sha384(), Nid::SECP384R1)
                     }
                     _ => unreachable!(),
@@ -238,7 +244,7 @@ impl PublicKey {
                     dnskey.flags(),
                 ))
             }
-            SecAlg::ED25519 => {
+            SecurityAlgorithm::ED25519 => {
                 let public_key = PKey::public_key_from_raw_bytes(
                     dnskey.public_key().as_ref(),
                     Id::ED25519,
@@ -246,7 +252,7 @@ impl PublicKey {
                 .map_err(|_| AlgorithmError::InvalidData)?;
                 Ok(PublicKey::NoDigest(public_key, dnskey.flags()))
             }
-            SecAlg::ED448 => {
+            SecurityAlgorithm::ED448 => {
                 let public_key = PKey::public_key_from_raw_bytes(
                     dnskey.public_key().as_ref(),
                     Id::ED448,
@@ -319,11 +325,11 @@ impl PublicKey {
                     // record which one. Both are almost deprecated. Return
                     // RSASHA1_NSEC3_SHA1 because it is newer. If it causes
                     // problems then we need to be explicit.
-                    SecAlg::RSASHA1_NSEC3_SHA1
+                    SecurityAlgorithm::RSASHA1_NSEC3_SHA1
                 } else if *message_digest == MessageDigest::sha256() {
-                    SecAlg::RSASHA256
+                    SecurityAlgorithm::RSASHA256
                 } else if *message_digest == MessageDigest::sha512() {
-                    SecAlg::RSASHA512
+                    SecurityAlgorithm::RSASHA512
                 } else {
                     unreachable!();
                 };
@@ -337,8 +343,8 @@ impl PublicKey {
             }
             PublicKey::NoDigest(public_key, flags) => {
                 let alg = match public_key.id() {
-                    Id::ED25519 => SecAlg::ED25519,
-                    Id::ED448 => SecAlg::ED448,
+                    Id::ED25519 => SecurityAlgorithm::ED25519,
+                    Id::ED448 => SecurityAlgorithm::ED448,
                     _ => unreachable!(),
                 };
 
@@ -348,9 +354,9 @@ impl PublicKey {
             }
             PublicKey::EcDsa(message_digest, public_key, flags) => {
                 let alg = if *message_digest == MessageDigest::sha256() {
-                    SecAlg::ECDSAP256SHA256
+                    SecurityAlgorithm::ECDSAP256SHA256
                 } else if *message_digest == MessageDigest::sha384() {
-                    SecAlg::ECDSAP384SHA384
+                    SecurityAlgorithm::ECDSAP384SHA384
                 } else {
                     unreachable!();
                 };
@@ -381,7 +387,7 @@ pub mod sign {
     use std::boxed::Box;
     use std::vec::Vec;
 
-    use crate::base::iana::SecAlg;
+    use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::sign::{
         GenerateParams, RsaSecretKeyBytes, SecretKeyBytes, SignError,
         SignRaw, Signature,
@@ -407,7 +413,7 @@ pub mod sign {
     #[derive(Clone, Debug)]
     pub struct KeyPair {
         /// The algorithm used by the key.
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
 
         /// Flags from [`Dnskey`].
         flags: u16,
@@ -571,7 +577,7 @@ pub mod sign {
         pub fn to_bytes(&self) -> SecretKeyBytes {
             // TODO: Consider security implications of secret data in 'Vec's.
             match self.algorithm {
-                SecAlg::RSASHA256 => {
+                SecurityAlgorithm::RSASHA256 => {
                     let key = self.pkey.rsa().unwrap();
                     SecretKeyBytes::RsaSha256(RsaSecretKeyBytes {
                         n: key.n().to_vec().into(),
@@ -584,24 +590,24 @@ pub mod sign {
                         q_i: key.iqmp().unwrap().to_vec().into(),
                     })
                 }
-                SecAlg::ECDSAP256SHA256 => {
+                SecurityAlgorithm::ECDSAP256SHA256 => {
                     let key = self.pkey.ec_key().unwrap();
                     let key = key.private_key().to_vec_padded(32).unwrap();
                     let key: Box<[u8; 32]> = key.try_into().unwrap();
                     SecretKeyBytes::EcdsaP256Sha256(key.into())
                 }
-                SecAlg::ECDSAP384SHA384 => {
+                SecurityAlgorithm::ECDSAP384SHA384 => {
                     let key = self.pkey.ec_key().unwrap();
                     let key = key.private_key().to_vec_padded(48).unwrap();
                     let key: Box<[u8; 48]> = key.try_into().unwrap();
                     SecretKeyBytes::EcdsaP384Sha384(key.into())
                 }
-                SecAlg::ED25519 => {
+                SecurityAlgorithm::ED25519 => {
                     let key = self.pkey.raw_private_key().unwrap();
                     let key: Box<[u8; 32]> = key.try_into().unwrap();
                     SecretKeyBytes::Ed25519(key.into())
                 }
-                SecAlg::ED448 => {
+                SecurityAlgorithm::ED448 => {
                     let key = self.pkey.raw_private_key().unwrap();
                     let key: Box<[u8; 57]> = key.try_into().unwrap();
                     SecretKeyBytes::Ed448(key.into())
@@ -620,14 +626,14 @@ pub mod sign {
             use openssl::sign::Signer;
 
             match self.algorithm {
-                SecAlg::RSASHA256 => {
+                SecurityAlgorithm::RSASHA256 => {
                     let mut s =
                         Signer::new(MessageDigest::sha256(), &self.pkey)?;
                     s.set_rsa_padding(openssl::rsa::Padding::PKCS1)?;
                     s.sign_oneshot_to_vec(data)
                 }
 
-                SecAlg::ECDSAP256SHA256 => {
+                SecurityAlgorithm::ECDSAP256SHA256 => {
                     let mut s =
                         Signer::new(MessageDigest::sha256(), &self.pkey)?;
                     let signature = s.sign_oneshot_to_vec(data)?;
@@ -638,7 +644,7 @@ pub mod sign {
                     r.append(&mut s);
                     Ok(r)
                 }
-                SecAlg::ECDSAP384SHA384 => {
+                SecurityAlgorithm::ECDSAP384SHA384 => {
                     let mut s =
                         Signer::new(MessageDigest::sha384(), &self.pkey)?;
                     let signature = s.sign_oneshot_to_vec(data)?;
@@ -650,11 +656,11 @@ pub mod sign {
                     Ok(r)
                 }
 
-                SecAlg::ED25519 => {
+                SecurityAlgorithm::ED25519 => {
                     let mut s = Signer::new_without_digest(&self.pkey)?;
                     s.sign_oneshot_to_vec(data)
                 }
-                SecAlg::ED448 => {
+                SecurityAlgorithm::ED448 => {
                     let mut s = Signer::new_without_digest(&self.pkey)?;
                     s.sign_oneshot_to_vec(data)
                 }
@@ -667,13 +673,13 @@ pub mod sign {
     //--- SignRaw
 
     impl SignRaw for KeyPair {
-        fn algorithm(&self) -> SecAlg {
+        fn algorithm(&self) -> SecurityAlgorithm {
             self.algorithm
         }
 
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
             match self.algorithm {
-                SecAlg::RSASHA256 => {
+                SecurityAlgorithm::RSASHA256 => {
                     let key = self.pkey.rsa().expect("should not fail");
                     let n = key.n().to_owned().expect("should not fail");
                     let e = key.e().to_owned().expect("should not fail");
@@ -687,12 +693,13 @@ pub mod sign {
                     );
                     public.dnskey()
                 }
-                SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+                SecurityAlgorithm::ECDSAP256SHA256
+                | SecurityAlgorithm::ECDSAP384SHA384 => {
                     let (digest_algorithm, group_id) = match self.algorithm {
-                        SecAlg::ECDSAP256SHA256 => {
+                        SecurityAlgorithm::ECDSAP256SHA256 => {
                             (MessageDigest::sha256(), Nid::X9_62_PRIME256V1)
                         }
-                        SecAlg::ECDSAP384SHA384 => {
+                        SecurityAlgorithm::ECDSAP384SHA384 => {
                             (MessageDigest::sha384(), Nid::SECP384R1)
                         }
                         _ => unreachable!(),
@@ -712,10 +719,10 @@ pub mod sign {
                     );
                     public.dnskey()
                 }
-                SecAlg::ED25519 | SecAlg::ED448 => {
+                SecurityAlgorithm::ED25519 | SecurityAlgorithm::ED448 => {
                     let id = match self.algorithm {
-                        SecAlg::ED25519 => Id::ED25519,
-                        SecAlg::ED448 => Id::ED448,
+                        SecurityAlgorithm::ED25519 => Id::ED25519,
+                        SecurityAlgorithm::ED448 => Id::ED448,
                         _ => unreachable!(),
                     };
 
@@ -737,22 +744,24 @@ pub mod sign {
                 .map_err(|_| SignError)?;
 
             match self.algorithm {
-                SecAlg::RSASHA256 => Ok(Signature::RsaSha256(signature)),
+                SecurityAlgorithm::RSASHA256 => {
+                    Ok(Signature::RsaSha256(signature))
+                }
 
-                SecAlg::ECDSAP256SHA256 => signature
+                SecurityAlgorithm::ECDSAP256SHA256 => signature
                     .try_into()
                     .map(Signature::EcdsaP256Sha256)
                     .map_err(|_| SignError),
-                SecAlg::ECDSAP384SHA384 => signature
+                SecurityAlgorithm::ECDSAP384SHA384 => signature
                     .try_into()
                     .map(Signature::EcdsaP384Sha384)
                     .map_err(|_| SignError),
 
-                SecAlg::ED25519 => signature
+                SecurityAlgorithm::ED25519 => signature
                     .try_into()
                     .map(Signature::Ed25519)
                     .map_err(|_| SignError),
-                SecAlg::ED448 => signature
+                SecurityAlgorithm::ED448 => signature
                     .try_into()
                     .map(Signature::Ed448)
                     .map_err(|_| SignError),
@@ -801,35 +810,35 @@ pub mod sign {
         use std::string::ToString;
         use std::vec::Vec;
 
-        use crate::base::iana::SecAlg;
+        use crate::base::iana::SecurityAlgorithm;
         use crate::crypto::sign::{GenerateParams, SecretKeyBytes, SignRaw};
         use crate::dnssec::common::parse_from_bind;
 
         use super::KeyPair;
 
-        const KEYS: &[(SecAlg, u16)] = &[
-            (SecAlg::RSASHA256, 60616),
-            (SecAlg::ECDSAP256SHA256, 42253),
-            (SecAlg::ECDSAP384SHA384, 33566),
-            (SecAlg::ED25519, 56037),
-            (SecAlg::ED448, 7379),
+        const KEYS: &[(SecurityAlgorithm, u16)] = &[
+            (SecurityAlgorithm::RSASHA256, 60616),
+            (SecurityAlgorithm::ECDSAP256SHA256, 42253),
+            (SecurityAlgorithm::ECDSAP384SHA384, 33566),
+            (SecurityAlgorithm::ED25519, 56037),
+            (SecurityAlgorithm::ED448, 7379),
         ];
 
         #[test]
         fn generate() {
             for &(algorithm, _) in KEYS {
                 let params = match algorithm {
-                    SecAlg::RSASHA256 => {
+                    SecurityAlgorithm::RSASHA256 => {
                         GenerateParams::RsaSha256 { bits: 3072 }
                     }
-                    SecAlg::ECDSAP256SHA256 => {
+                    SecurityAlgorithm::ECDSAP256SHA256 => {
                         GenerateParams::EcdsaP256Sha256
                     }
-                    SecAlg::ECDSAP384SHA384 => {
+                    SecurityAlgorithm::ECDSAP384SHA384 => {
                         GenerateParams::EcdsaP384Sha384
                     }
-                    SecAlg::ED25519 => GenerateParams::Ed25519,
-                    SecAlg::ED448 => GenerateParams::Ed448,
+                    SecurityAlgorithm::ED25519 => GenerateParams::Ed25519,
+                    SecurityAlgorithm::ED448 => GenerateParams::Ed448,
                     _ => unreachable!(),
                 };
 
@@ -841,17 +850,17 @@ pub mod sign {
         fn generated_roundtrip() {
             for &(algorithm, _) in KEYS {
                 let params = match algorithm {
-                    SecAlg::RSASHA256 => {
+                    SecurityAlgorithm::RSASHA256 => {
                         GenerateParams::RsaSha256 { bits: 3072 }
                     }
-                    SecAlg::ECDSAP256SHA256 => {
+                    SecurityAlgorithm::ECDSAP256SHA256 => {
                         GenerateParams::EcdsaP256Sha256
                     }
-                    SecAlg::ECDSAP384SHA384 => {
+                    SecurityAlgorithm::ECDSAP384SHA384 => {
                         GenerateParams::EcdsaP384Sha384
                     }
-                    SecAlg::ED25519 => GenerateParams::Ed25519,
-                    SecAlg::ED448 => GenerateParams::Ed448,
+                    SecurityAlgorithm::ED25519 => GenerateParams::Ed25519,
+                    SecurityAlgorithm::ED448 => GenerateParams::Ed448,
                     _ => unreachable!(),
                 };
 

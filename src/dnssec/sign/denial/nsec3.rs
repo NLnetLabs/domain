@@ -12,7 +12,7 @@ use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::OctetsFrom;
 use tracing::{debug, trace};
 
-use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
+use crate::base::iana::{Class, Nsec3HashAlgorithm, Rtype};
 use crate::base::name::{ToLabelIter, ToName};
 use crate::base::{CanonicalOrd, Name, NameBuilder, Record, Ttl};
 use crate::dnssec::common::{nsec3_hash, Nsec3HashError};
@@ -627,7 +627,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn mk_nsec3<N, Octs>(
     name: &N,
-    alg: Nsec3HashAlg,
+    alg: Nsec3HashAlgorithm,
     flags: u8,
     iterations: u16,
     salt: &Nsec3Salt<Octs>,
@@ -672,7 +672,7 @@ where
 
 pub fn mk_hashed_nsec3_owner_name<N, Octs, SaltOcts>(
     name: &N,
-    alg: Nsec3HashAlg,
+    alg: Nsec3HashAlgorithm,
     iterations: u16,
     salt: &Nsec3Salt<SaltOcts>,
     apex_owner: &N,
@@ -710,7 +710,7 @@ where
 
 fn mk_base32hex_label_for_name<N, SaltOcts>(
     name: &N,
-    alg: Nsec3HashAlg,
+    alg: Nsec3HashAlgorithm,
     iterations: u16,
     salt: &Nsec3Salt<SaltOcts>,
 ) -> Result<String, Nsec3HashError>
@@ -1020,7 +1020,7 @@ mod tests {
         // These NSEC3 settings match those of the NSEC3PARAM record shown in
         // https://datatracker.ietf.org/doc/html/rfc5155#appendix-A.
         let nsec3params = Nsec3param::new(
-            Nsec3HashAlg::SHA1,
+            Nsec3HashAlgorithm::SHA1,
             1, // opt-out
             12,
             Nsec3Salt::from_str("aabbccdd").unwrap(),

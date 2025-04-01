@@ -6,7 +6,7 @@ use std::vec::Vec;
 
 use bytes::Bytes;
 
-use crate::base::iana::{Class, SecAlg};
+use crate::base::iana::{Class, SecurityAlgorithm};
 use crate::base::name::{FlattenInto, Name};
 use crate::base::{Record, Rtype, Serial, ToName, Ttl};
 use crate::dnssec::common::nsec3_hash;
@@ -65,7 +65,7 @@ where
 pub(crate) fn mk_dnskey_rr<R>(
     owner: &str,
     flags: u16,
-    algorithm: SecAlg,
+    algorithm: SecurityAlgorithm,
     public_key: &Bytes,
 ) -> Record<StoredName, R>
 where
@@ -205,7 +205,7 @@ where
 pub(crate) fn mk_rrsig_rr<R>(
     owner: &str,
     covered_rtype: Rtype,
-    algorithm: &SecAlg,
+    algorithm: &SecurityAlgorithm,
     labels: u8,
     expiration: u32,
     inception: u32,

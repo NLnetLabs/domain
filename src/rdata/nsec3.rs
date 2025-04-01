@@ -428,12 +428,11 @@ const NSEC3_OPT_OUT_FLAG_MASK: u8 = 0b0000_0001;
     ))
 )]
 pub struct Nsec3param<Octs> {
-    hash_algorithm: Nsec3HashAlgorithm,
     /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.1
     /// 3.1.1.  Hash Algorithm
     ///   "The Hash Algorithm field identifies the cryptographic hash
     ///    algorithm used to construct the hash-value."
-    hash_algorithm: Nsec3HashAlg,
+    hash_algorithm: Nsec3HashAlgorithm,
 
     /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.2
     /// 3.1.2.  Flags
@@ -451,7 +450,6 @@ pub struct Nsec3param<Octs> {
     ///    The Opt-Out Flag indicates whether this NSEC3 RR may cover unsigned
     ///    delegations.  It is the least significant bit in the Flags field.
     ///    See Section 6 for details about the use of this flag."
->>>>>>> main
     flags: u8,
 
     /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.3
@@ -594,7 +592,7 @@ where
     /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
     fn default() -> Self {
         Self {
-            hash_algorithm: Nsec3HashAlg::SHA1,
+            hash_algorithm: Nsec3HashAlgorithm::SHA1,
             flags: 0,
             iterations: 0,
             salt: Nsec3Salt::empty(),
