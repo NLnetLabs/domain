@@ -1735,7 +1735,7 @@ mod test {
             let case = case.into();
             let mut input = case.zonefile.as_bytes();
             let mut zone = Zonefile::load(&mut input).unwrap();
-            if case.allow_invalid == true {
+            if case.allow_invalid {
                 zone = zone.allow_invalid();
             }
             zone.set_origin(case.origin);
