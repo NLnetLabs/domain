@@ -31,6 +31,13 @@ Bug fixes
 
 Unstable features
 
+* New unstable feature `unstable-crypto` that enable cryptography support
+  for features that do not rely on secret keys. This feature needs either
+  or both of the features `ring` and `openssl` ([#416])
+* New unstable feature `unstable-crypto-sign` that enable cryptography support
+  including features that rely on secret keys. This feature needs either
+  or both of the features `ring` and `openssl` ([#416])
+
 * `unstable-server-transport`
   * The trait `SingleService` which is a simplified service trait for
     requests that should generate a single response ([#353]).
@@ -52,12 +59,19 @@ Unstable features
 
 * `unstable-sign`
   * add key lifecycle management ([#459]).
+  * add support for adding NSEC3 records when signing.
+  * add support for ZONEMD.
+
+* `unstable-validator`
+  * The `validate` crate is moved to `dnssec::validator::base`.
+  * The `validator` crate is moved to `dnssec::validator`.
 
 Other changes
 
 [#353]: https://github.com/NLnetLabs/domain/pull/353
 [#379]: https://github.com/NLnetLabs/domain/pull/379
 [#396]: https://github.com/NLnetLabs/domain/pull/396
+[#416]: https://github.com/NLnetLabs/domain/pull/416
 [#417]: https://github.com/NLnetLabs/domain/pull/417
 [#421]: https://github.com/NLnetLabs/domain/pull/421
 [#423]: https://github.com/NLnetLabs/domain/pull/423
