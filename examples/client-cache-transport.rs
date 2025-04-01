@@ -71,7 +71,7 @@ async fn main() {
     let mut request = cache.send_request(req.clone());
 
     // Get the reply
-    println!("Wating for cache reply");
+    println!("Waiting for cache reply");
     let reply = request.get_response().await;
     println!("Cache reply: {reply:?}");
 
