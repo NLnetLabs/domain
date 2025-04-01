@@ -2,7 +2,7 @@ origin: example.com.
 default_class: CH
 zonefile: |
   classless     3600      TXT  \# 4 03 66 6f 6f
-  ch            3600  IN  A    192.168.0.1
+  ch            3600  CH  A    192.168.0.1
   defaultclass  3600      A    192.168.0.2
 result:
   - owner: classless.example.com.

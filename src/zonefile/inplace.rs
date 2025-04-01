@@ -1796,6 +1796,7 @@ mod test {
         ));
     }
 
+    #[test]
     fn test_unknown_zero_length_yaml() {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/unknown-zero-length.yaml"
@@ -1806,6 +1807,7 @@ mod test {
     fn test_default_and_last_class() {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/defaultclass.yaml"
+        ));
     }
 
     #[test]
