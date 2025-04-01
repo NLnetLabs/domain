@@ -292,7 +292,7 @@ impl<Target: Composer> OptBuilder<'_, Target> {
 
 /// Returns the number of bytes needed for a prefix of a given length
 fn prefix_bytes(bits: u8) -> usize {
-    (usize::from(bits) + 7) / 8
+    usize::from(bits).div_ceil(8)
 }
 
 /// Only keeps the left-most `mask` bits and zeros out the rest.

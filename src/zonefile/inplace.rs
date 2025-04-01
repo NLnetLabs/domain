@@ -597,10 +597,10 @@ impl Scanner for EntryScanner<'_> {
         let mut write = 0;
         let mut builder = None;
         loop {
-            self.convert_one_token(&mut convert, &mut write, &mut builder)?;
             if self.zonefile.buf.is_line_feed() {
                 break;
             }
+            self.convert_one_token(&mut convert, &mut write, &mut builder)?;
         }
         if let Some(data) = convert.process_tail()? {
             self.append_data(data, &mut write, &mut builder);
@@ -1796,11 +1796,16 @@ mod test {
         ));
     }
 
+    fn test_unknown_zero_length_yaml() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/unknown-zero-length.yaml"
+        ));
+    }
+
     #[test]
     fn test_default_and_last_class() {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/defaultclass.yaml"
-        ));
     }
 
     #[test]
