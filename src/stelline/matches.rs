@@ -372,7 +372,7 @@ impl Entry {
         }
 
         if self.matches.fl_do {
-            let do_set = msg.opt().map_or(false, |o| o.dnssec_ok());
+            let do_set = msg.opt().is_some_and(|o| o.dnssec_ok());
             if !do_set {
                 trace!("match_msg: DO not set");
                 return Err(DidNotMatch);
