@@ -49,7 +49,7 @@ where `id` is a positive integer, `type` on of the step types mentioned above, a
 
 Steps of types `QUERY` and `CHECK_ANSWER` have entries associated with them, which are textual representations of DNS messages. These entries are simply put aafter the `STEP` declaration.
 
-A `QUERY` step sends a query to the tested program. It can optionally have data declaring its `ADDRESS` and `KEY`:
+A `QUERY` step queries a server process. It can optionally have data declaring its `ADDRESS` and `KEY`:
 
 ```rpl
 STEP 1 QUERY
