@@ -622,6 +622,7 @@ mod tests {
     use crate::base::{
         Message, MessageBuilder, Name, ParsedName, Record, Serial, Ttl,
     };
+    use crate::logging::init_logging;
     use crate::net::xfr::protocol::XfrResponseInterpreter;
     use crate::rdata::{Ns, Soa, A};
     use crate::zonetree::ZoneBuilder;
@@ -1238,18 +1239,6 @@ mod tests {
     }
 
     //------------ Helper functions -------------------------------------------
-
-    fn init_logging() {
-        // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
-        // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
-        // numbers and types as they are being executed.
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .with_thread_ids(true)
-            .without_time()
-            .try_init()
-            .ok();
-    }
 
     fn mk_empty_zone(apex_name: &str) -> Zone {
         ZoneBuilder::new(Name::from_str(apex_name).unwrap(), Class::IN)

@@ -198,3 +198,5 @@ pub mod tsig;
 pub mod utils;
 pub mod zonefile;
 pub mod zonetree;
+
+mod logging;
