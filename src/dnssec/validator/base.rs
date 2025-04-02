@@ -1,6 +1,6 @@
 //! Base functions for DNSSEC validation.
 
-use crate::base::iana::{DigestAlg, SecAlg};
+use crate::base::iana::{DigestAlgorithm, SecurityAlgorithm};
 use crate::base::rdata::ComposeRecordData;
 use crate::base::wire::{Compose, Composer};
 use crate::base::{CanonicalOrd, Name, Record, RecordData, ToName};
@@ -39,7 +39,7 @@ pub trait DnskeyExt {
     fn digest<N: ToName>(
         &self,
         name: &N,
-        algorithm: DigestAlg,
+        algorithm: DigestAlgorithm,
     ) -> Result<Digest, AlgorithmError>;
 
     /// Return the key size in bits or an error if the algorithm is not
@@ -72,7 +72,7 @@ where
     fn digest<N: ToName>(
         &self,
         name: &N,
-        algorithm: DigestAlg,
+        algorithm: DigestAlgorithm,
     ) -> Result<Digest, AlgorithmError> {
         let mut buf: Vec<u8> = Vec::new();
         with_infallible(|| {
@@ -81,9 +81,9 @@ where
         });
 
         let mut ctx = match algorithm {
-            DigestAlg::SHA1 => DigestBuilder::new(DigestType::Sha1),
-            DigestAlg::SHA256 => DigestBuilder::new(DigestType::Sha256),
-            DigestAlg::SHA384 => DigestBuilder::new(DigestType::Sha384),
+            DigestAlgorithm::SHA1 => DigestBuilder::new(DigestType::Sha1),
+            DigestAlgorithm::SHA256 => DigestBuilder::new(DigestType::Sha256),
+            DigestAlgorithm::SHA384 => DigestBuilder::new(DigestType::Sha384),
             _ => {
                 return Err(AlgorithmError::Unsupported);
             }
@@ -99,10 +99,10 @@ where
     /// other algorithms, it is the size of the fixed-width public key.
     fn key_size(&self) -> Result<usize, AlgorithmError> {
         match self.algorithm() {
-            SecAlg::RSASHA1
-            | SecAlg::RSASHA1_NSEC3_SHA1
-            | SecAlg::RSASHA256
-            | SecAlg::RSASHA512 => {
+            SecurityAlgorithm::RSASHA1
+            | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+            | SecurityAlgorithm::RSASHA256
+            | SecurityAlgorithm::RSASHA512 => {
                 let data = self.public_key().as_ref();
                 // The exponent length is encoded as 1 or 3 bytes.
                 let (exp_len, off) = if data[0] != 0 {
@@ -117,11 +117,12 @@ where
                 let n = &data[off + exp_len..];
                 Ok(n.len() * 8 - n[0].leading_zeros() as usize)
             }
-            SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
+            SecurityAlgorithm::ECDSAP256SHA256
+            | SecurityAlgorithm::ECDSAP384SHA384 => {
                 // ECDSA public keys have two points.
                 Ok(self.public_key().as_ref().len() / 2 * 8)
             }
-            SecAlg::ED25519 | SecAlg::ED448 => {
+            SecurityAlgorithm::ED25519 | SecurityAlgorithm::ED448 => {
                 // EdDSA public key sizes are measured in encoded form.
                 Ok(self.public_key().as_ref().len() * 8)
             }
@@ -130,12 +131,12 @@ where
     }
 }
 
-/// Return whether a DigestAlg is supported or not.
+/// Return whether a DigestAlgorithm is supported or not.
 // This needs to match the digests supported in digest.
-pub fn supported_digest(d: &DigestAlg) -> bool {
-    *d == DigestAlg::SHA1
-        || *d == DigestAlg::SHA256
-        || *d == DigestAlg::SHA384
+pub fn supported_digest(d: &DigestAlgorithm) -> bool {
+    *d == DigestAlgorithm::SHA1
+        || *d == DigestAlgorithm::SHA256
+        || *d == DigestAlgorithm::SHA384
 }
 
 //------------ Rrsig ---------------------------------------------------------
@@ -313,12 +314,12 @@ impl<Octets: AsRef<[u8]>, TN: ToName> RrsigExt for Rrsig<Octets, TN> {
 
 /// Report whether an algorithm is supported or not.
 // This needs to match the algorithms supported in signed_data.
-pub fn supported_algorithm(a: &SecAlg) -> bool {
-    *a == SecAlg::RSASHA1
-        || *a == SecAlg::RSASHA1_NSEC3_SHA1
-        || *a == SecAlg::RSASHA256
-        || *a == SecAlg::RSASHA512
-        || *a == SecAlg::ECDSAP256SHA256
+pub fn supported_algorithm(a: &SecurityAlgorithm) -> bool {
+    *a == SecurityAlgorithm::RSASHA1
+        || *a == SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+        || *a == SecurityAlgorithm::RSASHA256
+        || *a == SecurityAlgorithm::RSASHA512
+        || *a == SecurityAlgorithm::ECDSAP256SHA256
 }
 
 //============ Test ==========================================================
@@ -327,7 +328,7 @@ pub fn supported_algorithm(a: &SecAlg) -> bool {
 #[cfg(feature = "std")]
 mod test {
     use super::*;
-    use crate::base::iana::{Class, Rtype, SecAlg};
+    use crate::base::iana::{Class, Rtype, SecurityAlgorithm};
     use crate::base::scan::{IterScanner, Scanner};
     use crate::base::Ttl;
     use crate::dnssec::common::parse_from_bind;
@@ -365,8 +366,8 @@ mod test {
         )
         .unwrap();
         (
-            Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
-            Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
+            Dnskey::new(257, 3, SecurityAlgorithm::RSASHA256, ksk).unwrap(),
+            Dnskey::new(256, 3, SecurityAlgorithm::RSASHA256, zsk).unwrap(),
         )
     }
 
@@ -381,8 +382,8 @@ mod test {
         )
         .unwrap();
         (
-            Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
-            Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
+            Dnskey::new(257, 3, SecurityAlgorithm::RSASHA256, ksk).unwrap(),
+            Dnskey::new(256, 3, SecurityAlgorithm::RSASHA256, zsk).unwrap(),
         )
     }
 
@@ -392,8 +393,8 @@ mod test {
         let owner = Name::root();
         let expected = Ds::new(
             20326,
-            SecAlg::RSASHA256,
-            DigestAlg::SHA256,
+            SecurityAlgorithm::RSASHA256,
+            DigestAlgorithm::SHA256,
             base64::decode::<Vec<u8>>(
                 "4G1EuAuPHTmpXAsNfGXQhFjogECbvGg0VxBCN8f47I0=",
             )
@@ -401,7 +402,10 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            dnskey.digest(&owner, DigestAlg::SHA256).unwrap().as_ref(),
+            dnskey
+                .digest(&owner, DigestAlgorithm::SHA256)
+                .unwrap()
+                .as_ref(),
             expected.digest()
         );
     }
@@ -412,7 +416,7 @@ mod test {
         let (ksk, zsk) = root_pubkey();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::RSASHA256,
+            SecurityAlgorithm::RSASHA256,
             0,
             Ttl::from_secs(172800),
             1560211200.into(),
@@ -430,7 +434,7 @@ mod test {
         let (ksk, zsk) = net_pubkey();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::RSASHA256,
+            SecurityAlgorithm::RSASHA256,
             1,
             Ttl::from_secs(86400),
             Timestamp::from_str("20210921162830").unwrap(),
@@ -450,7 +454,8 @@ mod test {
         )
         .unwrap();
 
-        let short_key = Dnskey::new(256, 3, SecAlg::RSASHA256, data).unwrap();
+        let short_key =
+            Dnskey::new(256, 3, SecurityAlgorithm::RSASHA256, data).unwrap();
         let err = rrsig
             .verify_signed_data(&short_key, &vec![0; 100])
             .unwrap_err();
@@ -463,7 +468,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::ECDSAP256SHA256,
+                SecurityAlgorithm::ECDSAP256SHA256,
                 base64::decode::<Vec<u8>>(
                     "mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAe\
                     F+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
@@ -474,7 +479,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::ECDSAP256SHA256,
+                SecurityAlgorithm::ECDSAP256SHA256,
                 base64::decode::<Vec<u8>>(
                     "oJMRESz5E4gYzS/q6XDrvU1qMPYIjCWzJaOau8XNEZeqCYKD5ar0IR\
                     d8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA==",
@@ -487,7 +492,7 @@ mod test {
         let owner = Name::from_str("cloudflare.com.").unwrap();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::ECDSAP256SHA256,
+            SecurityAlgorithm::ECDSAP256SHA256,
             2,
             Ttl::from_secs(3600),
             1560314494.into(),
@@ -510,7 +515,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::ED25519,
+                SecurityAlgorithm::ED25519,
                 base64::decode::<Vec<u8>>(
                     "m1NELLVVQKl4fHVn/KKdeNO0PrYKGT3IGbYseT8XcKo=",
                 )
@@ -520,7 +525,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::ED25519,
+                SecurityAlgorithm::ED25519,
                 base64::decode::<Vec<u8>>(
                     "2tstZAjgmlDTePn0NVXrAHBJmg84LoaFVxzLl1anjGI=",
                 )
@@ -534,7 +539,7 @@ mod test {
                 .unwrap();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::ED25519,
+            SecurityAlgorithm::ED25519,
             2,
             Ttl::from_secs(3600),
             1559174400.into(),
@@ -556,7 +561,7 @@ mod test {
         let (ksk, zsk) = root_pubkey();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
-            SecAlg::RSASHA256,
+            SecurityAlgorithm::RSASHA256,
             0,
             Ttl::from_secs(172800),
             1560211200.into(),
@@ -604,7 +609,7 @@ mod test {
         let key = Dnskey::new(
             256,
             3,
-            SecAlg::RSASHA1,
+            SecurityAlgorithm::RSASHA1,
             base64::decode::<Vec<u8>>(
                 "AQOy1bZVvpPqhg4j7EJoM9rI3ZmyEx2OzDBVrZy/lvI5CQePxX\
                 HZS4i8dANH4DX3tbHol61ek8EFMcsGXxKciJFHyhl94C+NwILQd\
@@ -616,7 +621,7 @@ mod test {
         .unwrap();
         let rrsig = Rrsig::new(
             Rtype::MX,
-            SecAlg::RSASHA1,
+            SecurityAlgorithm::RSASHA1,
             2,
             Ttl::from_secs(3600),
             Timestamp::from_str("20040509183619").unwrap(),
@@ -683,17 +688,17 @@ mod test {
     fn dnskey_digest_unsupported() {
         let (dnskey, _) = root_pubkey();
         let owner = Name::root();
-        assert!(dnskey.digest(&owner, DigestAlg::GOST).is_err());
+        assert!(dnskey.digest(&owner, DigestAlgorithm::GOST).is_err());
     }
 
-    const KEYS: &[(SecAlg, u16, usize)] = &[
-        (SecAlg::RSASHA1, 439, 2048),
-        (SecAlg::RSASHA1_NSEC3_SHA1, 22204, 2048),
-        (SecAlg::RSASHA256, 60616, 2048),
-        (SecAlg::ECDSAP256SHA256, 42253, 256),
-        (SecAlg::ECDSAP384SHA384, 33566, 384),
-        (SecAlg::ED25519, 56037, 256),
-        (SecAlg::ED448, 7379, 456),
+    const KEYS: &[(SecurityAlgorithm, u16, usize)] = &[
+        (SecurityAlgorithm::RSASHA1, 439, 2048),
+        (SecurityAlgorithm::RSASHA1_NSEC3_SHA1, 22204, 2048),
+        (SecurityAlgorithm::RSASHA256, 60616, 2048),
+        (SecurityAlgorithm::ECDSAP256SHA256, 42253, 256),
+        (SecurityAlgorithm::ECDSAP384SHA384, 33566, 384),
+        (SecurityAlgorithm::ED25519, 56037, 256),
+        (SecurityAlgorithm::ED448, 7379, 456),
     ];
 
     #[test]

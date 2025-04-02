@@ -351,7 +351,7 @@ mod tests {
     use core::str::FromStr;
     use pretty_assertions::assert_eq;
 
-    use crate::base::iana::SecAlg;
+    use crate::base::iana::SecurityAlgorithm;
     use crate::base::Serial;
     use crate::crypto::sign::{KeyPair, SignError, Signature};
     use crate::dnssec::sign::records::SortedRecords;
@@ -1166,13 +1166,14 @@ mod tests {
     struct TestKey([u8; 32]);
 
     impl SignRaw for TestKey {
-        fn algorithm(&self) -> SecAlg {
-            SecAlg::ED25519
+        fn algorithm(&self) -> SecurityAlgorithm {
+            SecurityAlgorithm::ED25519
         }
 
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
             let flags = 0;
-            Dnskey::new(flags, 3, SecAlg::ED25519, self.0.to_vec()).unwrap()
+            Dnskey::new(flags, 3, SecurityAlgorithm::ED25519, self.0.to_vec())
+                .unwrap()
         }
 
         fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {

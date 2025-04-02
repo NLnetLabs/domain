@@ -1,4 +1,4 @@
-use crate::base::iana::SecAlg;
+use crate::base::iana::SecurityAlgorithm;
 use crate::base::Name;
 use crate::crypto::sign::SignRaw;
 use crate::rdata::Dnskey;
@@ -118,7 +118,7 @@ where
     }
 
     /// The signing algorithm used.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         self.inner.algorithm()
     }
 

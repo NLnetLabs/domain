@@ -5,7 +5,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-use crate::base::iana::{Class, Nsec3HashAlg};
+use crate::base::iana::{Class, Nsec3HashAlgorithm};
 use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::Composer;
 use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
@@ -108,7 +108,7 @@ where
 /// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155
 pub fn nsec3_hash<N, SaltOcts, HashOcts>(
     owner: N,
-    algorithm: Nsec3HashAlg,
+    algorithm: Nsec3HashAlgorithm,
     iterations: u16,
     salt: &Nsec3Salt<SaltOcts>,
 ) -> Result<OwnerHash<HashOcts>, Nsec3HashError>
@@ -118,7 +118,7 @@ where
     HashOcts: AsRef<[u8]> + EmptyBuilder + OctetsBuilder + Truncate,
     for<'a> HashOcts: From<&'a [u8]>,
 {
-    if algorithm != Nsec3HashAlg::SHA1 {
+    if algorithm != Nsec3HashAlgorithm::SHA1 {
         return Err(Nsec3HashError::UnsupportedAlgorithm);
     }
 
@@ -236,7 +236,7 @@ where
 // - The DNSKEY record data, which has the following sub-fields:
 //   - The key flags, which describe the key's uses.
 //   - The protocol used (expected to be `3`).
-//   - The key algorithm (see [`SecAlg`]).
+//   - The key algorithm (see [`SecurityAlgorithm`]).
 //   - The public key encoded as a Base64 string.
 
 /// Serialize this key in the conventional format used by BIND.
@@ -307,17 +307,17 @@ mod test {
     use std::string::ToString;
     use std::vec::Vec;
 
-    use crate::base::iana::SecAlg;
+    use crate::base::iana::SecurityAlgorithm;
     use crate::dnssec::common::{display_as_bind, parse_from_bind};
 
-    const KEYS: &[(SecAlg, u16, usize)] = &[
-        (SecAlg::RSASHA1, 439, 2048),
-        (SecAlg::RSASHA1_NSEC3_SHA1, 22204, 2048),
-        (SecAlg::RSASHA256, 60616, 2048),
-        (SecAlg::ECDSAP256SHA256, 42253, 256),
-        (SecAlg::ECDSAP384SHA384, 33566, 384),
-        (SecAlg::ED25519, 56037, 256),
-        (SecAlg::ED448, 7379, 456),
+    const KEYS: &[(SecurityAlgorithm, u16, usize)] = &[
+        (SecurityAlgorithm::RSASHA1, 439, 2048),
+        (SecurityAlgorithm::RSASHA1_NSEC3_SHA1, 22204, 2048),
+        (SecurityAlgorithm::RSASHA256, 60616, 2048),
+        (SecurityAlgorithm::ECDSAP256SHA256, 42253, 256),
+        (SecurityAlgorithm::ECDSAP384SHA384, 33566, 384),
+        (SecurityAlgorithm::ED25519, 56037, 256),
+        (SecurityAlgorithm::ED448, 7379, 456),
     ];
 
     #[test]
