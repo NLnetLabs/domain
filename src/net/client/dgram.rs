@@ -229,7 +229,7 @@ where
         mut request: Req,
     ) -> Result<Message<Bytes>, Error> {
         // Acquire the semaphore or wait for it.
-        let _ = self
+        let _permit = self
             .state
             .semaphore
             .acquire()
