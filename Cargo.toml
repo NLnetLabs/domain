@@ -71,13 +71,14 @@ tsig        = ["bytes", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
+unstable-client-cache = ["unstable-client-transport", "moka"]
 unstable-client-transport = ["moka", "net", "tracing"]
 unstable-crypto = ["bytes"]
 unstable-crypto-sign = ["dep:secrecy", "unstable-crypto"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
 unstable-sign = ["std", "dep:smallvec", "dep:serde", "time/formatting", "tracing", "unstable-crypto-sign"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
-unstable-validator = ["zonefile", "unstable-client-transport", "unstable-crypto"]
+unstable-validator = ["zonefile", "unstable-client-transport", "unstable-crypto", "moka"]
 unstable-xfr = ["net"]
 unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]
 
@@ -129,6 +130,10 @@ required-features = ["std", "rand"]
 [[example]]
 name = "client-transports"
 required-features = ["net", "tokio-rustls", "unstable-client-transport"]
+
+[[example]]
+name = "client-cache-transport"
+required-features = ["net", "unstable-client-cache"]
 
 [[example]]
 name = "server-transports"
