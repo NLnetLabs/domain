@@ -41,6 +41,8 @@ Unstable features
 * New unstable feature `unstable-crypto-sign` that enable cryptography support
   including features that rely on secret keys. This feature needs either
   or both of the features `ring` and `openssl` ([#416])
+* New unstable feature 'unstable-client-cache' that enable the client transport
+  cache. The reason is that the client cache uses the `moka` crate.
 
 * `unstable-server-transport`
   * The trait `SingleService` which is a simplified service trait for
@@ -60,6 +62,7 @@ Unstable features
   * restructure configuration for multi_stream and redundant ([#424]).
   * introduce a load balancer client transport. This transport tries to
     distribute requests equally over upstream transports ([#425]).
+  * the client cache now has it's own feature `unstable-client-cache`.
 
 * `unstable-sign`
   * add key lifecycle management ([#459]).
