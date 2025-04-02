@@ -36,11 +36,15 @@
 //! Now, this type can be read from and written to bytes very easily:
 //!
 //! ```
-//! # use domain::new_base::{Question, name::RevNameBuf, wire::*};
+//! # use domain::new_base::{Question, QType, QClass, name::RevNameBuf, wire::*};
 //! // { qname: "org.", qtype: A, qclass: IN }
 //! let bytes = [3, 111, 114, 103, 0, 0, 1, 0, 1];
+//!
 //! // Parse into a new 'Question'.
 //! let question = Question::<RevNameBuf>::parse_bytes(&bytes).unwrap();
+//! assert_eq!(question.qname, "org".parse::<RevNameBuf>().unwrap());
+//! assert_eq!(question.qtype, QType::A);
+//! assert_eq!(question.qclass, QClass::IN);
 //!
 //! // Build the question back into bytes.
 //! let mut duplicate = [0u8; 9];
@@ -71,6 +75,19 @@
 //!   into an instance of the target type in place.
 //!
 //! - [`AsBytes`]: Allows interpreting an object as a byte string in place.
+//!
+//! # Primitive Types
+//!
+//! Wire-format support has been implemented for a number of built-in types.
+//! Notably, [`u8`], slices, and arrays can be parsed into and built from.
+//! These form the basic building blocks for every other wire-format type.
+//!
+//! After [`u8`], primitive integer types get somewhat more complicated.  To
+//! facilitate zero-copy parsing, it should be possible to transmute an input
+//! byte sequence into a wire-format type in place.  This is not possible with
+//! Rust's built-in integer types, since they have alignment requirements and
+//! use the platform's native endianness.  Instead, the custom types [`U16`],
+//! [`U32`], and [`U64`] are provided; these can be used in the wire format.
 
 mod build;
 pub use build::{AsBytes, BuildBytes, TruncationError};
