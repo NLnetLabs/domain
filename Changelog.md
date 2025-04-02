@@ -7,6 +7,8 @@ Breaking changes
 * FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
 * FIX: NSEC3 salt strings should only be accepted if within the salt size limit. (#431)
 * Stricter RFC 1035 compliance by default in the `Zonefile` parser. ([#477])
+* Rename {DigestAlg, Nsec3HashAlg, SecAlg, ZonemdAlg} to
+  {DigestAlgorithm, Nsec3HashAlgorithm, SecurityAlgorithm, ZonemdAlgorithm}
 
 New
 
