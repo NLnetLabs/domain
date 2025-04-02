@@ -2,7 +2,7 @@ use core::fmt;
 
 use crate::rdata::AllRecordData;
 
-use super::zonefile_fmt::ZonefileFmt;
+use super::zonefile_fmt::{DisplayKind, ZonefileFmt};
 use super::ParsedRecord;
 use super::{opt::AllOptData, Message, Rtype};
 
@@ -13,7 +13,7 @@ pub(super) struct DigPrinter<'a, Octs> {
     pub msg: &'a Message<Octs>,
 }
 
-impl<'a, Octs: AsRef<[u8]>> fmt::Display for DigPrinter<'a, Octs> {
+impl<Octs: AsRef<[u8]>> fmt::Display for DigPrinter<'_, Octs> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = self.msg.for_slice_ref();
 
@@ -24,7 +24,7 @@ impl<'a, Octs: AsRef<[u8]>> fmt::Display for DigPrinter<'a, Octs> {
         writeln!(
             f,
             ";; ->>HEADER<<- opcode: {}, rcode: {}, id: {}",
-            header.opcode().display_zonefile(false),
+            header.opcode().display_zonefile(DisplayKind::Simple),
             header.rcode(),
             header.id()
         )?;
@@ -161,7 +161,9 @@ fn write_record_item(
     let parsed = item.to_any_record::<AllRecordData<_, _>>();
 
     match parsed {
-        Ok(item) => writeln!(f, "{}", item.display_zonefile(false)),
+        Ok(item) => {
+            writeln!(f, "{}", item.display_zonefile(DisplayKind::Simple))
+        }
         Err(_) => writeln!(
             f,
             "; {} {} {} {} <invalid data>",

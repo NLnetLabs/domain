@@ -471,7 +471,7 @@ pub trait ComposeRecord {
     ) -> Result<(), Target::AppendError>;
 }
 
-impl<'a, T: ComposeRecord> ComposeRecord for &'a T {
+impl<T: ComposeRecord> ComposeRecord for &T {
     fn compose_record<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -1026,8 +1026,8 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
 
 //--- PartialEq and Eq
 
-impl<'a, 'o, Octs, Other> PartialEq<ParsedRecord<'o, Other>>
-    for ParsedRecord<'a, Octs>
+impl<'o, Octs, Other> PartialEq<ParsedRecord<'o, Other>>
+    for ParsedRecord<'_, Octs>
 where
     Octs: Octets + ?Sized,
     Other: Octets + ?Sized,
@@ -1041,7 +1041,7 @@ where
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Eq for ParsedRecord<'a, Octs> {}
+impl<Octs: Octets + ?Sized> Eq for ParsedRecord<'_, Octs> {}
 
 //------------ RecordParseError ----------------------------------------------
 
@@ -1096,7 +1096,7 @@ const SECS_PER_DAY: u32 = 86400;
 ///
 /// Two reasons make [`std::time::Duration`] not suited for representing DNS TTL values:
 /// 1. According to [RFC 2181](https://datatracker.ietf.org/doc/html/rfc2181#section-8) TTL values have second-level precision while [`std::time::Duration`] can represent time down to the nanosecond level.
-///     This amount of precision is simply not needed and might cause confusion when sending `Duration`s over the network.
+///    This amount of precision is simply not needed and might cause confusion when sending `Duration`s over the network.
 /// 2. When working with DNS TTL values it's common to want to know a time to live in minutes or hours. [`std::time::Duration`] does not expose easy to use methods for this purpose, while `Ttl` does.
 ///
 /// `Ttl` provides two methods [`Ttl::from_duration_lossy`] and [`Ttl::into_duration`] to convert between `Duration` and `Ttl`.

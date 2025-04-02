@@ -4,6 +4,8 @@
 
 Breaking changes
 
+* FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
+
 New
 
 * Added `HashCompressor`, an unlimited name compressor that uses a hash map
@@ -11,10 +13,20 @@ New
 * Changed `fmt::Display` for `HINFO` records to a show a quoted string.
   ([#421])
 * Added support for `NAPTR` record type. ([#427] by [@weilence])
+* Added initial fuzz testing support for some types via a new `arbitrary`
+  feature (not enabled by default). ([#441])
+* Added `StubResolver::add_connection()` to allow adding a connection to the
+  running resolver. In combination with `ResolvConf::new()` this can also be
+  used to control the connections made when testing code that uses the stub
+  resolver. ([#440])
+* Add `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
+  [#463])
 
 Bug fixes
 
 * NSEC records should include themselves in the generated bitmap. ([#417])
+* Trailing double quote wrongly preserved when parsing record data. ([#470],
+  [#472])
 
 Unstable features
 
@@ -30,13 +42,34 @@ Unstable features
   * A sample query router, called `QnameRouter`, that routes requests based
     on the QNAME field in the request ([#353]).
 
+* `unstable-client-transport`
+  * introduce timeout option in multi_stream ([#424]).
+  * improve probing in redundant ([#424]).
+  * restructure configuration for multi_stream and redundant ([#424]).
+  * introduce a load balancer client transport. This transport tries to
+    distribute requests equally over upstream transports ([#425]).
+
+* `unstable-sign`
+  * add key lifecycle management ([#459]).
+
 Other changes
 
 [#353]: https://github.com/NLnetLabs/domain/pull/353
+[#379]: https://github.com/NLnetLabs/domain/pull/379
 [#396]: https://github.com/NLnetLabs/domain/pull/396
 [#417]: https://github.com/NLnetLabs/domain/pull/417
 [#421]: https://github.com/NLnetLabs/domain/pull/421
+[#423]: https://github.com/NLnetLabs/domain/pull/423
+[#424]: https://github.com/NLnetLabs/domain/pull/424
+[#425]: https://github.com/NLnetLabs/domain/pull/425
 [#427]: https://github.com/NLnetLabs/domain/pull/427
+[#440]: https://github.com/NLnetLabs/domain/pull/440
+[#441]: https://github.com/NLnetLabs/domain/pull/441
+[#446]: https://github.com/NLnetLabs/domain/pull/446
+[#459]: https://github.com/NLnetLabs/domain/pull/459
+[#463]: https://github.com/NLnetLabs/domain/pull/463
+[#470]: https://github.com/NLnetLabs/domain/pull/470
+[#472]: https://github.com/NLnetLabs/domain/pull/472
 [@weilence]: https://github.com/weilence
 
 ## 0.10.3

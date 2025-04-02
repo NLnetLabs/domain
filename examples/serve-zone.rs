@@ -317,12 +317,12 @@ impl ZoneTreeWithDiffs {
     }
 }
 
-impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTreeWithDiffs {
+impl XfrDataProvider<Option<Key>> for ZoneTreeWithDiffs {
     type Diff = InMemoryZoneDiff;
 
     fn request<Octs>(
         &self,
-        req: &Request<Octs, RequestMeta>,
+        req: &Request<Octs, Option<Key>>,
         diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -338,6 +338,10 @@ impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTreeWithDiffs {
     where
         Octs: Octets + Send + Sync,
     {
+        if req.metadata().is_none() {
+            eprintln!("Rejecting");
+            return Box::pin(ready(Err(XfrDataProviderError::Refused)));
+        }
         let res = req
             .message()
             .sole_question()

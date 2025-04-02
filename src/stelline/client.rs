@@ -39,7 +39,7 @@ pub struct StellineError<'a> {
     cause: StellineErrorCause,
 }
 
-impl<'a> std::fmt::Display for StellineError<'a> {
+impl std::fmt::Display for StellineError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "Stelline test failed at step {} with error: {}",
@@ -769,13 +769,13 @@ struct RawOptData<'a> {
     bytes: &'a [u8],
 }
 
-impl<'a> OptData for RawOptData<'a> {
+impl OptData for RawOptData<'_> {
     fn code(&self) -> OptionCode {
         u16::from_be_bytes(self.bytes[0..2].try_into().unwrap()).into()
     }
 }
 
-impl<'a> ComposeOptData for RawOptData<'a> {
+impl ComposeOptData for RawOptData<'_> {
     fn compose_len(&self) -> u16 {
         u16::from_be_bytes(self.bytes[2..4].try_into().unwrap())
     }
