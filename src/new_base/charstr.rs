@@ -100,7 +100,7 @@ impl<'a> ParseBytes<'a> for &'a CharStr {
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl BuildBytes for CharStr {
     fn build_bytes<'b>(

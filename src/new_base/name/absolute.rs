@@ -46,26 +46,26 @@ impl Name {
 //--- Construction
 
 impl Name {
-    /// Assume a byte string is a valid [`Name`].
+    /// Assume a byte sequence is a valid [`Name`].
     ///
     /// # Safety
     ///
-    /// The byte string must represent a valid uncompressed domain name in the
-    /// conventional wire format (a sequence of labels terminating with a root
-    /// label, totalling 255 bytes or less).
+    /// The byte sequence must represent a valid uncompressed domain name in
+    /// the conventional wire format (a sequence of labels terminating with a
+    /// root label, totalling 255 bytes or less).
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'Name' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'Name' is sound.
         core::mem::transmute(bytes)
     }
 
-    /// Assume a mutable byte string is a valid [`Name`].
+    /// Assume a mutable byte sequence is a valid [`Name`].
     ///
     /// # Safety
     ///
-    /// The byte string must represent a valid uncompressed domain name in the
-    /// conventional wire format (a sequence of labels terminating with a root
-    /// label, totalling 255 bytes or less).
+    /// The byte sequence must represent a valid uncompressed domain name in
+    /// the conventional wire format (a sequence of labels terminating with a
+    /// root label, totalling 255 bytes or less).
     pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'Name' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'Name' is sound.
@@ -93,9 +93,6 @@ impl Name {
     }
 
     /// The labels in the [`Name`].
-    ///
-    /// Note that labels appear in reverse order to the _conventional_ format
-    /// (it thus starts with the root label).
     pub const fn labels(&self) -> LabelIter<'_> {
         // SAFETY: A 'Name' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
@@ -143,14 +140,8 @@ impl<'a> SplitBytes<'a> for &'a Name {
                     return Ok((name, rest));
                 }
 
-                [l, ..] if l < 64 => {
+                [l @ 1..=63, ref rest @ ..] if rest.len() >= l as usize => {
                     // This looks like a regular label.
-
-                    if bytes.len() < offset + 1 + l as usize {
-                        // The input doesn't contain the whole label.
-                        return Err(ParseError);
-                    }
-
                     offset += 1 + l as usize;
                 }
 
@@ -165,16 +156,17 @@ impl<'a> SplitBytes<'a> for &'a Name {
 //--- Equality
 
 impl PartialEq for Name {
-    fn eq(&self, that: &Self) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         // Instead of iterating labels, blindly iterate bytes.  The locations
         // of labels don't matter since we're testing everything for equality.
 
         // NOTE: Label lengths (which are less than 64) aren't affected by
         // 'to_ascii_lowercase', so this method can be applied uniformly.
-        let this = self.as_bytes().iter().map(u8::to_ascii_lowercase);
-        let that = that.as_bytes().iter().map(u8::to_ascii_lowercase);
+        // This gives the compiler opportunities to vectorize the code.
+        let lhs = self.as_bytes().iter().map(u8::to_ascii_lowercase);
+        let rhs = other.as_bytes().iter().map(u8::to_ascii_lowercase);
 
-        this.eq(that)
+        lhs.eq(rhs)
     }
 }
 
@@ -480,7 +472,7 @@ impl<'a> ParseBytes<'a> for NameBuf {
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl BuildBytes for NameBuf {
     fn build_bytes<'b>(

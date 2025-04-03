@@ -49,7 +49,7 @@ impl Message {
     pub fn slice_to(&self, size: usize) -> &Self {
         let bytes = &self.as_bytes()[..12 + size];
         Self::parse_bytes_by_ref(bytes)
-            .expect("A 12-or-more byte string is a valid 'Message'")
+            .expect("A 12-or-more byte sequence is a valid 'Message'")
     }
 
     /// Truncate the contents of this message to the given size, mutably.
@@ -58,7 +58,7 @@ impl Message {
     pub fn slice_to_mut(&mut self, size: usize) -> &mut Self {
         let bytes = &mut self.as_bytes_mut()[..12 + size];
         Self::parse_bytes_by_mut(bytes)
-            .expect("A 12-or-more byte string is a valid 'Message'")
+            .expect("A 12-or-more byte sequence is a valid 'Message'")
     }
 
     /// Truncate the contents of this message to the given size, by pointer.

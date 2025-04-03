@@ -5,12 +5,15 @@ use core::mem::MaybeUninit;
 
 //----------- ParseBytes -----------------------------------------------------
 
-/// Parsing from a byte string.
+/// Parsing from a byte sequence.
 pub trait ParseBytes<'a>: Sized {
-    /// Parse a value of [`Self`] from the given byte string.
+    /// Parse a value of [`Self`] from the given byte sequence.
     ///
-    /// If parsing is successful, the parsed value is returned.  Otherwise, a
-    /// [`ParseError`] is returned.
+    /// The returned value may borrow from the byte sequence.  This allows it
+    /// to avoid copying data unnecessarily.
+    ///
+    /// The entirety of the input must be used.  If some input bytes would be
+    /// left over, [`ParseError`] should be returned.
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError>;
 }
 
@@ -36,6 +39,20 @@ impl<'a, T: SplitBytes<'a>, const N: usize> ParseBytes<'a> for [T; N] {
             Ok((this, &[])) => Ok(this),
             _ => Err(ParseError),
         }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a> ParseBytes<'a> for std::vec::Vec<u8> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        Ok(bytes.to_vec())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a> ParseBytes<'a> for std::string::String {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        str::parse_bytes_by_ref(bytes).map(std::string::String::from)
     }
 }
 
@@ -75,24 +92,41 @@ pub use domain_macros::ParseBytes;
 
 //----------- SplitBytes -----------------------------------------------------
 
-/// Parsing from the start of a byte string.
+/// Parsing from the start of a byte sequence.
 pub trait SplitBytes<'a>: Sized + ParseBytes<'a> {
-    /// Parse a value of [`Self`] from the start of the byte string.
+    /// Parse a value of [`Self`] from the start of the byte sequence.
     ///
-    /// If parsing is successful, the parsed value and the rest of the string
-    /// are returned.  Otherwise, a [`ParseError`] is returned.
+    /// If parsing is successful, the parsed value and the rest of the input
+    /// (the part that was not parsed) are returned.  On failure, a
+    /// [`ParseError`] is returned.
+    ///
+    /// ## Non-Greedy Parsing
+    ///
+    /// This function is _non-greedy_.  This can be interpreted in several
+    /// equivalent ways:
+    ///
+    /// - If `split_bytes()` returns successfully for some input sequence, it
+    ///   would return exactly the same `Self` value if more bytes were added
+    ///   to the end of the input.
+    ///
+    /// - The unparsed part of the input (that is returned on success) does
+    ///   not influence the function; those bytes are not examined.
+    ///
+    /// - `Self` has an intrinsic length to it; this may be a constant, or it
+    ///   may be determined by examining the parsed part of the input (e.g.
+    ///   for size-prefixed data).
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError>;
-}
-
-impl<'a, T: ?Sized + SplitBytesByRef> SplitBytes<'a> for &'a T {
-    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        T::split_bytes_by_ref(bytes).map_err(|_| ParseError)
-    }
 }
 
 impl<'a> SplitBytes<'a> for u8 {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         bytes.split_first().map(|(&f, r)| (f, r)).ok_or(ParseError)
+    }
+}
+
+impl<'a, T: ?Sized + SplitBytesByRef> SplitBytes<'a> for &'a T {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        T::split_bytes_by_ref(bytes).map_err(|_| ParseError)
     }
 }
 
@@ -176,7 +210,7 @@ pub use domain_macros::SplitBytes;
 
 //----------- ParseBytesByRef ------------------------------------------------
 
-/// Zero-copy parsing from a byte string.
+/// Zero-copy parsing from a byte sequence.
 ///
 /// # Safety
 ///
@@ -189,13 +223,13 @@ pub use domain_macros::SplitBytes;
 ///
 /// Implementing types must also have no alignment (i.e. a valid instance of
 /// [`Self`] can occur at any address).  This eliminates the possibility of
-/// padding bytes, even when [`Self`] is part of a larger aggregate type.
+/// padding bytes when [`Self`] is part of a larger aggregate type.
 pub unsafe trait ParseBytesByRef {
-    /// Interpret a byte string as an instance of [`Self`].
+    /// Interpret a byte sequence as an instance of [`Self`].
     ///
-    /// The byte string will be validated and re-interpreted as a reference to
-    /// [`Self`].  The whole byte string will be used.  If the input is not a
-    /// valid instance of [`Self`], a [`ParseError`] is returned.
+    /// The byte sequence will be validated and re-interpreted as a reference
+    /// to [`Self`].  The whole byte sequence must be used.  If the input is
+    /// not a valid instance of [`Self`], a [`ParseError`] is returned.
     ///
     /// ## Invariants
     ///
@@ -205,11 +239,11 @@ pub unsafe trait ParseBytesByRef {
     /// - `bytes.len() == core::mem::size_of_val(this)`.
     fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError>;
 
-    /// Interpret a byte string as an instance of [`Self`], mutably.
+    /// Interpret a byte sequence as an instance of [`Self`], mutably.
     ///
-    /// The byte string will be validated and re-interpreted as a reference to
-    /// [`Self`].  The whole byte string will be used.  If the input is not a
-    /// valid instance of [`Self`], a [`ParseError`] is returned.
+    /// The byte sequence will be validated and re-interpreted as a reference
+    /// to [`Self`].  The whole byte sequence must be used.  If the input is
+    /// not a valid instance of [`Self`], a [`ParseError`] is returned.
     ///
     /// ## Invariants
     ///
@@ -395,12 +429,28 @@ pub use domain_macros::ParseBytesByRef;
 
 //----------- SplitBytesByRef ------------------------------------------------
 
-/// Zero-copy parsing from the start of a byte string.
+/// Zero-copy parsing from the start of a byte sequence.
 ///
 /// This is an extension of [`ParseBytesByRef`] for types which can determine
 /// their own length when parsing.  It is usually implemented by [`Sized`]
 /// types (where the length is just the size of the type), although it can be
 /// sometimes implemented by unsized types.
+///
+/// # Non-Greedy Parsing
+///
+/// This parsing functions provided by this trait are _non-greedy_.  This can
+/// be interpreted in several equivalent ways:
+///
+/// - If `split_bytes_by_{ref,mut}()` returns successfully for some input
+///   sequence, it would return exactly the same `Self` value if more bytes
+///   were added to the end of the input.
+///
+/// - The unparsed part of the input (that is returned on success) does
+///   not influence the function; those bytes are not examined.
+///
+/// - `Self` has an intrinsic length to it; this may be a constant, or it
+///   may be determined by examining the parsed part of the input (e.g.
+///   for size-prefixed data).
 ///
 /// # Safety
 ///
@@ -413,13 +463,13 @@ pub use domain_macros::ParseBytesByRef;
 /// Note that [`ParseBytesByRef`], required by this trait, also has several
 /// invariants that need to be considered with care.
 pub unsafe trait SplitBytesByRef: ParseBytesByRef {
-    /// Interpret a byte string as an instance of [`Self`], mutably.
+    /// Interpret a byte sequence as an instance of [`Self`], mutably.
     ///
-    /// The byte string will be validated and re-interpreted as a reference to
-    /// [`Self`].  The length of [`Self`] will be determined, possibly based
-    /// on the contents (but not the length!) of the input, and the remaining
-    /// bytes will be returned.  If the input does not begin with a valid
-    /// instance of [`Self`], a [`ParseError`] is returned.
+    /// The byte sequence will be validated and re-interpreted as a reference
+    /// to [`Self`].  The length of [`Self`] will be determined, possibly
+    /// based on the contents (but not the length!) of the input, and the
+    /// remaining bytes will be returned.  If the input does not begin with a
+    /// valid instance of [`Self`], a [`ParseError`] is returned.
     ///
     /// ## Invariants
     ///
@@ -431,13 +481,13 @@ pub unsafe trait SplitBytesByRef: ParseBytesByRef {
     fn split_bytes_by_ref(bytes: &[u8])
         -> Result<(&Self, &[u8]), ParseError>;
 
-    /// Interpret a byte string as an instance of [`Self`].
+    /// Interpret a byte sequence as an instance of [`Self`].
     ///
-    /// The byte string will be validated and re-interpreted as a reference to
-    /// [`Self`].  The length of [`Self`] will be determined, possibly based
-    /// on the contents (but not the length!) of the input, and the remaining
-    /// bytes will be returned.  If the input does not begin with a valid
-    /// instance of [`Self`], a [`ParseError`] is returned.
+    /// The byte sequence will be validated and re-interpreted as a reference
+    /// to [`Self`].  The length of [`Self`] will be determined, possibly
+    /// based on the contents (but not the length!) of the input, and the
+    /// remaining bytes will be returned.  If the input does not begin with a
+    /// valid instance of [`Self`], a [`ParseError`] is returned.
     ///
     /// ## Invariants
     ///

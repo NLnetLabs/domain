@@ -55,26 +55,26 @@ impl RevName {
 //--- Construction
 
 impl RevName {
-    /// Assume a byte string is a valid [`RevName`].
+    /// Assume a byte sequence is a valid [`RevName`].
     ///
     /// # Safety
     ///
-    /// The byte string must begin with a root label (0-value byte).  It must
-    /// be followed by any number of encoded labels, as long as the size of
-    /// the whole string is 255 bytes or less.
+    /// The byte sequence must begin with a root label (0-value byte).  It
+    /// must be followed by any number of encoded labels, as long as the size
+    /// of the whole string is 255 bytes or less.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'RevName' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'RevName' is sound.
         core::mem::transmute(bytes)
     }
 
-    /// Assume a mutable byte string is a valid [`RevName`].
+    /// Assume a mutable byte sequence is a valid [`RevName`].
     ///
     /// # Safety
     ///
-    /// The byte string must begin with a root label (0-value byte).  It must
-    /// be followed by any number of encoded labels, as long as the size of
-    /// the whole string is 255 bytes or less.
+    /// The byte sequence must begin with a root label (0-value byte).  It
+    /// must be followed by any number of encoded labels, as long as the size
+    /// of the whole string is 255 bytes or less.
     pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'RevName' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'RevName' is sound.
@@ -126,7 +126,7 @@ impl BuildIntoMessage for RevName {
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl BuildBytes for RevName {
     fn build_bytes<'b>(
@@ -425,7 +425,7 @@ impl<'a> ParseBytes<'a> for RevNameBuf {
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl BuildBytes for RevNameBuf {
     fn build_bytes<'b>(

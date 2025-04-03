@@ -4,11 +4,11 @@ use core::fmt;
 
 //----------- BuildBytes -----------------------------------------------------
 
-/// Serializing into a byte string.
+/// Serializing into a byte sequence.
 pub trait BuildBytes {
-    /// Serialize into a byte string.
+    /// Serialize into a byte sequence.
     ///
-    /// `self` is serialized into a byte string and written to the given
+    /// `self` is serialized into a byte sequence and written to the given
     /// buffer.  If the buffer is large enough, the whole object is written
     /// and the remaining (unmodified) part of the buffer is returned.
     ///
@@ -76,12 +76,29 @@ impl<T: BuildBytes> BuildBytes for [T] {
 impl<T: BuildBytes, const N: usize> BuildBytes for [T; N] {
     fn build_bytes<'b>(
         &self,
-        mut bytes: &'b mut [u8],
+        bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        for elem in self {
-            bytes = elem.build_bytes(bytes)?;
-        }
-        Ok(bytes)
+        self.as_slice().build_bytes(bytes)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: BuildBytes> BuildBytes for std::vec::Vec<T> {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.as_slice().build_bytes(bytes)
+    }
+}
+
+#[cfg(feature = "std")]
+impl BuildBytes for std::string::String {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.as_str().build_bytes(bytes)
     }
 }
 
@@ -122,7 +139,7 @@ pub use domain_macros::BuildBytes;
 
 //----------- AsBytes --------------------------------------------------------
 
-/// Interpreting a value as a byte string.
+/// Interpreting a value as a byte sequence.
 ///
 /// # Safety
 ///

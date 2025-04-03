@@ -151,7 +151,7 @@ where
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl<N, D> BuildBytes for Record<N, D>
 where
@@ -463,7 +463,7 @@ pub trait ParseRecordData<'a>: Sized {
         Self::parse_record_data_bytes(&contents[start..], rtype)
     }
 
-    /// Parse DNS record data of the given type from a byte string.
+    /// Parse DNS record data of the given type from a byte sequence.
     fn parse_record_data_bytes(
         bytes: &'a [u8],
         rtype: RType,
@@ -495,7 +495,7 @@ pub trait CanonicalRecordData: BuildBytes {
     /// Compare record data in the canonical form.
     ///
     /// This is equivalent to serializing both record data instances using
-    /// [`build_canonical_bytes()`] and comparing the resulting byte strings.
+    /// [`build_canonical_bytes()`] and comparing the resulting byte sequences.
     ///
     /// [`build_canonical_bytes()`]: Self::build_canonical_bytes()
     fn cmp_canonical(&self, other: &Self) -> Ordering;
@@ -511,11 +511,11 @@ pub struct UnparsedRecordData([u8]);
 //--- Construction
 
 impl UnparsedRecordData {
-    /// Assume a byte string is a valid [`UnparsedRecordData`].
+    /// Assume a byte sequence is a valid [`UnparsedRecordData`].
     ///
     /// # Safety
     ///
-    /// The byte string must be 65,535 bytes or shorter.
+    /// The byte sequence must be 65,535 bytes or shorter.
     pub const unsafe fn new_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'UnparsedRecordData' is 'repr(transparent)' to '[u8]', so
         // casting a '[u8]' into an 'UnparsedRecordData' is sound.

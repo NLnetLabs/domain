@@ -129,7 +129,7 @@ impl<'a> ParseBytes<'a> for &'a Label {
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl BuildBytes for Label {
     fn build_bytes<'b>(
@@ -370,7 +370,7 @@ impl BuildIntoMessage for LabelBuf {
     }
 }
 
-//--- Parsing from byte strings
+//--- Parsing from byte sequences
 
 impl ParseBytes<'_> for LabelBuf {
     fn parse_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
@@ -385,7 +385,7 @@ impl SplitBytes<'_> for LabelBuf {
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl BuildBytes for LabelBuf {
     fn build_bytes<'b>(
@@ -486,7 +486,7 @@ impl<'a> LabelIter<'a> {
     ///
     /// # Safety
     ///
-    /// The byte string must contain a sequence of valid encoded labels.
+    /// The byte sequence must contain a sequence of valid encoded labels.
     pub const unsafe fn new_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
     }

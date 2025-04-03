@@ -37,7 +37,7 @@ pub use unparsed::UnparsedName;
 /// DNSSEC-conformant operations for domain names.
 ///
 /// As specified by [RFC 4034, section 6], domain names are used in two
-/// different ways: they can be serialized into byte strings or compared.
+/// different ways: they can be serialized into byte sequences or compared.
 ///
 /// - In record data, they are serialized following the regular wire format
 ///   (specifically without name compression).  However, in some record data
@@ -46,7 +46,7 @@ pub use unparsed::UnparsedName;
 /// - In record owner names, they are compared from the root label outwards,
 ///   with the contents of each label being compared case-insensitively.
 ///
-/// - In record data, they are compared as serialized byte strings.  As
+/// - In record data, they are compared as serialized byte sequences.  As
 ///   explained above, there are two different valid serializations (i.e. the
 ///   labels may be lowercased, or the original case may be retained).
 ///
@@ -55,7 +55,7 @@ pub use unparsed::UnparsedName;
 /// If a domain name type implements [`CanonicalName`], then [`BuildBytes`]
 /// will serialize the name in the wire format (without changing the case of
 /// its labels).  [`Ord`] will compare domain names as if they were the owner
-/// names of records (i.e. not as if they were serialized byte strings).
+/// names of records (i.e. not as if they were serialized byte sequences).
 pub trait CanonicalName: BuildBytes + Ord {
     /// Serialize a domain name with lowercased labels.
     ///
@@ -79,8 +79,9 @@ pub trait CanonicalName: BuildBytes + Ord {
     /// Compare domain names as if they were in the wire format.
     ///
     /// This is equivalent to serializing both domain names in the wire format
-    /// using [`BuildBytes`] and comparing the resulting byte strings.  It is
-    /// implemented automatically, but it could be overriden for performance.
+    /// using [`BuildBytes`] and comparing the resulting byte sequences.
+    /// It is implemented automatically, but it could be overriden for
+    /// performance.
     fn cmp_composed(&self, other: &Self) -> Ordering {
         // Build both names into byte arrays.
 
@@ -98,7 +99,7 @@ pub trait CanonicalName: BuildBytes + Ord {
             .len();
         let that = &that[..that.len() - rest_len];
 
-        // Compare the byte strings.
+        // Compare the byte sequences.
         this.cmp(that)
     }
 
@@ -106,7 +107,7 @@ pub trait CanonicalName: BuildBytes + Ord {
     ///
     /// This is equivalent to serializing both domain names in the wire format
     /// using [`build_lowercased_bytes()`] and comparing the resulting byte
-    /// strings.  It is implemented automatically, but it could be overriden
+    /// sequences.  It is implemented automatically, but it could be overriden
     /// for performance.
     ///
     /// [`build_lowercased_bytes()`]: Self::build_lowercased_bytes()
@@ -127,7 +128,7 @@ pub trait CanonicalName: BuildBytes + Ord {
             .len();
         let that = &that[..that.len() - rest_len];
 
-        // Compare the byte strings.
+        // Compare the byte sequences.
         this.cmp(that)
     }
 }
