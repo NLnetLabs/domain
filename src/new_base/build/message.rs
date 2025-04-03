@@ -69,7 +69,7 @@ impl MessageBuilder<'_, '_> {
     /// The message built thus far.
     #[must_use]
     pub fn message(&self) -> &Message {
-        self.message.slice_to(self.context.size)
+        self.message.truncate(self.context.size)
     }
 
     /// The message built thus far, mutably.
@@ -80,7 +80,7 @@ impl MessageBuilder<'_, '_> {
     /// This can invalidate name compression state.
     #[must_use]
     pub unsafe fn message_mut(&mut self) -> &mut Message {
-        self.message.slice_to_mut(self.context.size)
+        self.message.truncate_mut(self.context.size)
     }
 
     /// The builder context.
@@ -99,7 +99,7 @@ impl<'b> MessageBuilder<'b, '_> {
     /// arbitrarily; avoid modifying the message beyond the header.
     #[must_use]
     pub fn finish(self) -> &'b mut Message {
-        self.message.slice_to_mut(self.context.size)
+        self.message.truncate_mut(self.context.size)
     }
 
     /// Reborrow the builder with a shorter lifetime.
@@ -128,7 +128,7 @@ impl<'b> MessageBuilder<'b, '_> {
             debug_assert!(size < 12 + self.message.contents.len());
             let message = unsafe { core::ptr::read(&self.message) };
             // NOTE: Precondition checked, will not panic.
-            let message = message.slice_to_mut(size - 12);
+            let message = message.truncate_mut(size - 12);
             unsafe { core::ptr::write(&mut self.message, message) };
             Ok(())
         } else {

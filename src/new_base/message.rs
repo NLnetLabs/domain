@@ -46,19 +46,19 @@ impl Message {
     /// Truncate the contents of this message to the given size.
     ///
     /// The returned value will have a `contents` field of the given size.
-    pub fn slice_to(&self, size: usize) -> &Self {
+    pub fn truncate(&self, size: usize) -> &Self {
         let bytes = &self.as_bytes()[..12 + size];
-        Self::parse_bytes_by_ref(bytes)
-            .expect("A 12-or-more byte sequence is a valid 'Message'")
+        // SAFETY: 'bytes' is at least 12 bytes, making it a valid 'Message'.
+        unsafe { Self::parse_bytes_by_ref(bytes).unwrap_unchecked() }
     }
 
     /// Truncate the contents of this message to the given size, mutably.
     ///
     /// The returned value will have a `contents` field of the given size.
-    pub fn slice_to_mut(&mut self, size: usize) -> &mut Self {
+    pub fn truncate_mut(&mut self, size: usize) -> &mut Self {
         let bytes = &mut self.as_bytes_mut()[..12 + size];
-        Self::parse_bytes_by_mut(bytes)
-            .expect("A 12-or-more byte sequence is a valid 'Message'")
+        // SAFETY: 'bytes' is at least 12 bytes, making it a valid 'Message'.
+        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
     }
 
     /// Truncate the contents of this message to the given size, by pointer.
@@ -71,9 +71,14 @@ impl Message {
     /// pointer to some allocated object".  There must be at least 12 bytes
     /// between `self` and the end of that allocated object.  A reference to
     /// `Message` will always result in a pointer satisfying this.
-    pub unsafe fn ptr_slice_to(this: *mut Message, size: usize) -> *mut Self {
-        let bytes = unsafe { core::ptr::addr_of_mut!((*this).contents) };
-        let len = unsafe { &*(bytes as *mut [()]) }.len();
+    pub unsafe fn truncate_ptr(this: *mut Message, size: usize) -> *mut Self {
+        // Extract the metadata from 'this'.  We know it's slice metadata.
+        //
+        // SAFETY: '[()]' is a zero-sized type and references to it can be
+        // created from arbitrary pointers, since every pointer is valid for
+        // zero-sized reads.
+        let len = unsafe { &*(this as *mut [()]) }.len();
+        // Replicate the range check performed by normal indexing operations.
         debug_assert!(size <= len);
         core::ptr::slice_from_raw_parts_mut(this.cast::<u8>(), size)
             as *mut Self
