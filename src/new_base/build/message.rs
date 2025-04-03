@@ -140,7 +140,7 @@ impl<'b> MessageBuilder<'b, '_> {
     ///
     /// This will remove all message contents and mark it as truncated.
     pub fn truncate(&mut self) {
-        self.message.header.flags.set_truncated(true);
+        self.message.header.flags.set_tc(true);
         *self.context = BuilderContext::default();
     }
 

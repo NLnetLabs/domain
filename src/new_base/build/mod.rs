@@ -25,9 +25,10 @@
 //!     id: U16::new(1234),
 //!     // A recursive query for authoritative data.
 //!     flags: *HeaderFlags::default()
-//!         .query(0)
-//!         .set_authoritative(true)
-//!         .request_recursion(true),
+//!         .set_qr(false)
+//!         .set_opcode(0)
+//!         .set_aa(true)
+//!         .set_rd(true),
 //!     counts: Default::default(),
 //! };
 //!
