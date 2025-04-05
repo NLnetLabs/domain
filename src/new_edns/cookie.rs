@@ -5,20 +5,22 @@
 //! [RFC 7873]: https://datatracker.ietf.org/doc/html/rfc7873
 //! [RFC 9018]: https://datatracker.ietf.org/doc/html/rfc9018
 
-use core::fmt;
+use core::{
+    borrow::{Borrow, BorrowMut},
+    fmt,
+    hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
+};
 
-#[cfg(all(feature = "std", feature = "siphasher"))]
-use core::ops::Range;
-
-#[cfg(all(feature = "std", feature = "siphasher"))]
-use std::net::IpAddr;
+#[cfg(feature = "siphasher")]
+use core::{net::IpAddr, ops::Range};
 
 use domain_macros::*;
 
-use crate::new_base::Serial;
-
-#[cfg(all(feature = "std", feature = "siphasher"))]
-use crate::new_base::wire::{AsBytes, TruncationError};
+use crate::new_base::{
+    wire::{AsBytes, ParseBytesByRef},
+    Serial,
+};
 
 //----------- ClientCookie ---------------------------------------------------
 
@@ -57,35 +59,25 @@ impl ClientCookie {
 impl ClientCookie {
     /// Build a [`Cookie`] in response to this request.
     ///
-    /// A 24-byte version-1 interoperable cookie will be generated and written
-    /// to the given buffer.  If the buffer is big enough, the remaining part
-    /// of the buffer is returned.
-    #[cfg(all(feature = "std", feature = "siphasher"))]
-    pub fn respond_into<'b>(
-        &self,
-        addr: IpAddr,
-        secret: &[u8; 16],
-        mut bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        use core::hash::Hasher;
-
+    /// A 24-byte version-1 interoperable cookie will be returned.
+    #[cfg(feature = "siphasher")]
+    pub fn respond(&self, addr: IpAddr, secret: &[u8; 16]) -> CookieBuf {
         use siphasher::sip::SipHasher24;
 
-        use crate::new_base::wire::BuildBytes;
+        // Construct a buffer to write into.
+        let mut bytes = [0u8; 24];
 
-        // Build and hash the cookie simultaneously.
-        let mut hasher = SipHasher24::new_with_key(secret);
-
-        bytes = self.build_bytes(bytes)?;
-        hasher.write(self.as_bytes());
+        bytes[0..8].copy_from_slice(self.as_bytes());
 
         // The version number and the reserved octets.
-        bytes = [1, 0, 0, 0].build_bytes(bytes)?;
-        hasher.write(&[1, 0, 0, 0]);
+        bytes[8..12].copy_from_slice(&[1, 0, 0, 0]);
 
         let timestamp = Serial::unix_time();
-        bytes = timestamp.build_bytes(bytes)?;
-        hasher.write(timestamp.as_bytes());
+        bytes[12..16].copy_from_slice(timestamp.as_bytes());
+
+        // Hash the cookie.
+        let mut hasher = SipHasher24::new_with_key(secret);
+        hasher.write(&bytes[0..16]);
 
         match addr {
             IpAddr::V4(addr) => hasher.write(&addr.octets()),
@@ -93,9 +85,11 @@ impl ClientCookie {
         }
 
         let hash = hasher.finish().to_le_bytes();
-        bytes = hash.build_bytes(bytes)?;
+        bytes[16..24].copy_from_slice(&hash);
 
-        Ok(bytes)
+        let cookie = Cookie::parse_bytes_by_ref(&bytes)
+            .expect("Any 24-byte string is a valid 'Cookie'");
+        CookieBuf::copy_from(cookie)
     }
 }
 
@@ -201,7 +195,7 @@ impl Cookie {
     /// valid.
     ///
     /// [RFC 9018]: https://datatracker.ietf.org/doc/html/rfc9018
-    #[cfg(all(feature = "std", feature = "siphasher"))]
+    #[cfg(feature = "siphasher")]
     pub fn verify(
         &self,
         addr: IpAddr,
@@ -233,6 +227,99 @@ impl Cookie {
         } else {
             Err(CookieError)
         }
+    }
+}
+
+//----------- CookieBuf ------------------------------------------------------
+
+/// A 41-byte buffer holding a [`Cookie`].
+#[derive(Clone)]
+pub struct CookieBuf {
+    /// The size of the cookie, in bytes.
+    ///
+    /// This value is between 24 and 40, inclusive.
+    size: u8,
+
+    /// The cookie data, as raw bytes.
+    data: [u8; 40],
+}
+
+//--- Construction
+
+impl CookieBuf {
+    /// Copy a [`Cookie`] into a [`CookieBuf`].
+    pub fn copy_from(cookie: &Cookie) -> Self {
+        let mut data = [0u8; 40];
+        let cookie = cookie.as_bytes();
+        data[..cookie.len()].copy_from_slice(cookie);
+        let size = cookie.len() as u8;
+        Self { size, data }
+    }
+}
+
+//--- Access to the underlying 'Cookie'
+
+impl Deref for CookieBuf {
+    type Target = Cookie;
+
+    fn deref(&self) -> &Self::Target {
+        let bytes = &self.data[..self.size as usize];
+        // SAFETY: A 'CookieBuf' always contains a valid 'Cookie'.
+        unsafe { Cookie::parse_bytes_by_ref(bytes).unwrap_unchecked() }
+    }
+}
+
+impl DerefMut for CookieBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        let bytes = &mut self.data[..self.size as usize];
+        // SAFETY: A 'CookieBuf' always contains a valid 'Cookie'.
+        unsafe { Cookie::parse_bytes_by_mut(bytes).unwrap_unchecked() }
+    }
+}
+
+impl Borrow<Cookie> for CookieBuf {
+    fn borrow(&self) -> &Cookie {
+        self
+    }
+}
+
+impl BorrowMut<Cookie> for CookieBuf {
+    fn borrow_mut(&mut self) -> &mut Cookie {
+        self
+    }
+}
+
+impl AsRef<Cookie> for CookieBuf {
+    fn as_ref(&self) -> &Cookie {
+        self
+    }
+}
+
+impl AsMut<Cookie> for CookieBuf {
+    fn as_mut(&mut self) -> &mut Cookie {
+        self
+    }
+}
+
+//--- Forwarding formatting, equality and hashing
+
+impl fmt::Debug for CookieBuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+impl PartialEq for CookieBuf {
+    fn eq(&self, that: &Self) -> bool {
+        **self == **that
+    }
+}
+
+impl Eq for CookieBuf {}
+
+impl Hash for CookieBuf {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (**self).hash(state)
     }
 }
 

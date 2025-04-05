@@ -23,6 +23,14 @@ pub struct CharStr {
     pub octets: [u8],
 }
 
+//--- Associated constants
+
+impl CharStr {
+    /// A zero-length [`CharStr`].
+    pub const EMPTY: &'static Self =
+        unsafe { core::mem::transmute(&[0u8] as &[u8]) };
+}
+
 //--- Inspection
 
 impl CharStr {
