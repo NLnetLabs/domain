@@ -22,7 +22,8 @@
 //! more specific features that are not required in all applications. In order
 //! to keep the amount of code to be compiled and the number of dependencies
 //! small, these are hidden behind feature flags through which they can be
-//! enabled if required. The flags have the same names as the modules.
+//! enabled if required. The flags have the same names as the modules or the
+//! name prefixed with 'unstable-' if the module is still under development.
 //!
 //! Currently, there are the following modules:
 //!
@@ -33,18 +34,14 @@
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
 //!   [Tokio](https://tokio.rs/) async runtime.
-#![cfg_attr(feature = "unstable-sign", doc = "* [sign]:")]
-#![cfg_attr(not(feature = "unstable-sign"), doc = "* sign:")]
-//!   Experimental support for DNSSEC signing.
+#![cfg_attr(feature = "unstable-crypto", doc = "* [crypto]:")]
+#![cfg_attr(not(feature = "unstable-crypto"), doc = "* crypto:")]
+//!   Experimental support for cryptographic backends, key generation and
+//!   import.
+//! * [dnssec]: DNSSEC signing and validation.
 #![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
 #![cfg_attr(not(feature = "tsig"), doc = "* tsig:")]
 //!   Support for securing DNS transactions with TSIG records.
-#![cfg_attr(feature = "unstable-validate", doc = "* [validate]:")]
-#![cfg_attr(not(feature = "unstable-validate"), doc = "* validate:")]
-//!   Experimental support for DNSSEC validation.
-#![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
-#![cfg_attr(not(feature = "unstable-validator"), doc = "* validator:")]
-//!   A DNSSEC validator.
 #![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
 #![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
 //!   Experimental reading and writing of zone files, i.e. the textual
@@ -152,16 +149,18 @@
 //!   a client perspective; primarily the `net::client` module.
 //! * `unstable-server-transport`: receiving and sending DNS messages from
 //!   a server perspective; primarily the `net::server` module.
+//! * `unstable-crypto`: this feature flag needs to be combined with one or
+//!   more feature flags that enable cryptographic backends (currently `ring`
+//!   and `openssl`). This feature flags enables all parts of the crypto
+//!   module except for private key generation and signing.
+//! * `unstable-crypto-sign`: this feature flag needs to be combined with one
+//!   or more feature flags that enable cryptographic backends. This feature
+//!   flag enables all parts of the crypto module.
 //! * `unstable-sign`: basic DNSSEC signing support. This will enable the
-#![cfg_attr(feature = "unstable-sign", doc = "  [sign]")]
-#![cfg_attr(not(feature = "unstable-sign"), doc = "  sign")]
+//!   `dnssec::sign`
 //!   module and requires the `std` feature. In order to actually perform any
 //!   signing, also enable one or more cryptographic backend modules (`ring`
-//!   and `openssl`).
-//! * `unstable-validate`: basic DNSSEC validation support. This enables the
-#![cfg_attr(feature = "unstable-validate", doc = "  [validate]")]
-#![cfg_attr(not(feature = "unstable-validate"), doc = "  validate")]
-//!   module and currently also enables the `std` and `ring` features.
+//!   and `openssl`). Enabling this will also enable `unstable-crypto-sign`.
 //! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
 //!   and the `net::client::validator` modules.
 //! * `unstable-xfr`: zone transfer related functionality..
@@ -197,19 +196,20 @@ extern crate self as domain;
 pub use core as __core;
 
 pub mod base;
+pub mod crypto;
 pub mod dep;
+pub mod dnssec;
 pub mod net;
 pub mod rdata;
 pub mod resolv;
-pub mod sign;
 pub mod stelline;
 pub mod tsig;
 pub mod utils;
-pub mod validate;
-pub mod validator;
 pub mod zonefile;
 pub mod zonetree;
 
 pub mod new_base;
 pub mod new_edns;
 pub mod new_rdata;
+
+mod logging;
