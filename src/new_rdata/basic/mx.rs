@@ -10,6 +10,9 @@ use crate::new_base::{
     CanonicalRecordData,
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Mx -------------------------------------------------------------
 
 /// A host that can exchange mail for this domain.
@@ -25,6 +28,8 @@ use crate::new_base::{
     BuildBytes,
     ParseBytes,
     SplitBytes,
+    ParseBytesByRef,
+    SplitBytesByRef,
     UnsizedClone,
 )]
 #[repr(C)]
@@ -105,5 +110,78 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
         builder.append_bytes(self.preference.as_bytes())?;
         self.exchange.build_into_message(builder.delegate())?;
         Ok(builder.commit())
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for Mx<N> {
+    /// Scan the data for an MX record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-mx = u16 ws+ name ws*
+    /// # An unsigned 16-bit integer.
+    /// u16 = [0-9]+
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let preference = u16::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let exchange = N::scan(scanner, alloc, buffer)?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self {
+                preference,
+                exchange,
+            })
+        } else {
+            Err(ScanError::Custom("unexpected data at end of MX record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_base::name::RevNameBuf;
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::Mx;
+
+        let cases = [
+            (
+                b"20 example.org." as &[u8],
+                Ok((20, b"\x00\x03org\x07example" as &[u8])),
+            ),
+            (b"20" as &[u8], Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut tmp = None;
+            assert_eq!(
+                <Mx<RevNameBuf>>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|s| (
+                        s.preference.get(),
+                        tmp.insert(s.exchange).as_bytes()
+                    )),
+                expected
+            );
+        }
     }
 }

@@ -23,6 +23,9 @@ use crate::{
     utils::CloneFrom,
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Label ----------------------------------------------------------
 
 /// A label in a domain name.
@@ -140,6 +143,26 @@ impl BuildBytes for Label {
         let rest = self.as_bytes().build_bytes(data)?;
         *size = self.len() as u8;
         Ok(rest)
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a Label {
+    /// Scan a domain name label.
+    ///
+    /// This parses a domain name label, following the [specification].
+    ///
+    /// [specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let label = LabelBuf::scan(scanner, alloc, buffer)?;
+        let bytes = alloc.alloc_slice_copy(label.as_bytes());
+        Ok(unsafe { Label::from_bytes_unchecked(bytes) })
     }
 }
 
@@ -304,6 +327,17 @@ impl LabelBuf {
         data[..size as usize].copy_from_slice(label.as_bytes());
         Self { size, data }
     }
+
+    /// Create an empty [`Label`].
+    ///
+    /// This is intended for building up a label incrementally.
+    #[cfg(feature = "zonefile")]
+    const fn empty() -> Self {
+        Self {
+            size: 0,
+            data: [0u8; 63],
+        }
+    }
 }
 
 impl CloneFrom for LabelBuf {
@@ -312,34 +346,21 @@ impl CloneFrom for LabelBuf {
     }
 }
 
-//--- Parsing from strings
+//--- Interaction
 
-impl FromStr for LabelBuf {
-    type Err = LabelParseError;
-
-    /// Parse a label from a string.
+impl LabelBuf {
+    /// Append some bytes to the [`Label`].
     ///
-    /// This is intended for easily constructing hard-coded labels.  The input
-    /// is not expected to be in the zonefile format; it should simply contain
-    /// 1 to 63 characters, each being a plain ASCII alphanumeric or a hyphen.
-    /// To construct a label containing bytes outside this range, use
-    /// [`Label::from_bytes_unchecked()`].  To construct a root label, use
-    /// [`Label::ROOT`].
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == "*" {
-            Ok(Self::copy_from(Label::WILDCARD))
-        } else if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
-            Err(LabelParseError::InvalidChar)
-        } else if s.is_empty() {
-            Err(LabelParseError::Empty)
-        } else if s.len() > 63 {
-            Err(LabelParseError::Overlong)
-        } else {
-            let bytes = s.as_bytes();
-            // SAFETY: 'bytes' is 63 bytes in size or smaller.
-            let label = unsafe { Label::from_bytes_unchecked(bytes) };
-            Ok(Self::copy_from(label))
+    /// If the label would grow too large, [`TruncationError`] is returned.
+    #[cfg(feature = "zonefile")]
+    fn append(&mut self, bytes: &[u8]) -> Result<(), TruncationError> {
+        if self.size as usize + bytes.len() > 63 {
+            return Err(TruncationError);
         }
+
+        self.data[self.size as usize..][..bytes.len()].copy_from_slice(bytes);
+        self.size += bytes.len() as u8;
+        Ok(())
     }
 }
 
@@ -395,6 +416,101 @@ impl BuildBytes for LabelBuf {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         (**self).build_bytes(bytes)
+    }
+}
+
+//--- Parsing from strings
+
+impl FromStr for LabelBuf {
+    type Err = LabelParseError;
+
+    /// Parse a label from a string.
+    ///
+    /// This is intended for easily constructing hard-coded labels.  The input
+    /// is not expected to be in the zonefile format; it should simply contain
+    /// 1 to 63 characters, each being a plain ASCII alphanumeric or a hyphen.
+    /// To construct a label containing bytes outside this range, use
+    /// [`Label::from_bytes_unchecked()`].  To construct a root label, use
+    /// [`Label::ROOT`].
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "*" {
+            Ok(Self::copy_from(Label::WILDCARD))
+        } else if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            Err(LabelParseError::InvalidChar)
+        } else if s.is_empty() {
+            Err(LabelParseError::Empty)
+        } else if s.len() > 63 {
+            Err(LabelParseError::Overlong)
+        } else {
+            let bytes = s.as_bytes();
+            // SAFETY: 'bytes' is 63 bytes in size or smaller.
+            let label = unsafe { Label::from_bytes_unchecked(bytes) };
+            Ok(Self::copy_from(label))
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for LabelBuf {
+    /// Scan a domain name label.
+    ///
+    /// This parses a domain name label, following the [specification].
+    ///
+    /// [specification]: crate::new_zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Try parsing a wildcard label.
+        if let [b'*', b' ' | b'\t' | b'\r' | b'\n' | b'.', ..] | [b'*'] =
+            scanner.remaining()
+        {
+            scanner.consume(1);
+            return Ok(Self::copy_from(Label::WILDCARD));
+        }
+
+        // The buffer we'll fill into.
+        let mut this = Self::empty();
+
+        // Loop through non-special chunks and special sequences.
+        loop {
+            let (chunk, first) = scanner.scan_unquoted_chunk(|&c| {
+                !c.is_ascii_alphanumeric() && !b"-_".contains(&c)
+            });
+
+            // Copy the non-special chunk into the buffer.
+            this.append(chunk).map_err(|_| {
+                ScanError::Custom("a domain label exceeded 63 bytes")
+            })?;
+
+            // Determine the nature of the special sequence.
+            match first {
+                Some(b'"') => {
+                    return Err(ScanError::Custom(
+                        "a domain label was quoted",
+                    ))
+                }
+
+                Some(b'\\') => {
+                    // An escape sequence.
+                    scanner.consume(1);
+                    this.append(&[scanner.scan_escape()?]).map_err(|_| {
+                        ScanError::Custom("a domain label exceeded 63 bytes")
+                    })?;
+                }
+
+                _ => break,
+            }
+        }
+
+        // Parse the result as a label.
+        if this.size == 0 {
+            return Err(ScanError::Custom("a domain label was empty"));
+        }
+        Ok(this)
     }
 }
 
@@ -576,5 +692,48 @@ impl fmt::Display for LabelParseError {
             Self::Empty => "the label was empty",
             Self::InvalidChar => "the label contained an invalid character",
         })
+    }
+}
+
+//============ Unit tests ====================================================
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::LabelBuf;
+
+        let cases = [
+            (
+                b"" as &[u8],
+                Err(ScanError::Custom("a domain label was empty")),
+            ),
+            (b"a", Ok(b"a" as &[u8])),
+            (b"xn--hello", Ok(b"xn--hello")),
+            (b"a\\010b", Ok(b"a\nb")),
+            (b"a\\000", Ok(b"a\0")),
+            (b"a\\", Err(ScanError::IncompleteEscape)),
+            (b"a\\00", Err(ScanError::IncompleteEscape)),
+            (b"a\\256", Err(ScanError::InvalidDecimalEscape)),
+            (b"\\065", Ok(b"A")),
+            (b"a ", Ok(b"a")),
+            (
+                b"\"hello\"",
+                Err(ScanError::Custom("a domain label was quoted")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut label_buf = None;
+            let actual = LabelBuf::scan(&mut scanner, &alloc, &mut buffer)
+                .map(|label| label_buf.insert(label).as_bytes());
+            assert_eq!(actual, expected, "input {:?}", input);
+        }
     }
 }
