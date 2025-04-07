@@ -326,7 +326,9 @@ impl FromStr for LabelBuf {
     /// [`Label::from_bytes_unchecked()`].  To construct a root label, use
     /// [`Label::ROOT`].
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        if s == "*" {
+            Ok(Self::copy_from(Label::WILDCARD))
+        } else if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
             Err(LabelParseError::InvalidChar)
         } else if s.is_empty() {
             Err(LabelParseError::Empty)
