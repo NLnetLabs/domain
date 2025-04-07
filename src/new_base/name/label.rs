@@ -327,11 +327,40 @@ impl LabelBuf {
         data[..size as usize].copy_from_slice(label.as_bytes());
         Self { size, data }
     }
+
+    /// Create an empty [`Label`].
+    ///
+    /// This is intended for building up a label incrementally.
+    #[cfg(feature = "zonefile")]
+    const fn empty() -> Self {
+        Self {
+            size: 0,
+            data: [0u8; 63],
+        }
+    }
 }
 
 impl CloneFrom for LabelBuf {
     fn clone_from(value: &Self::Target) -> Self {
         Self::copy_from(value)
+    }
+}
+
+//--- Interaction
+
+impl LabelBuf {
+    /// Append some bytes to the [`Label`].
+    ///
+    /// If the label would grow too large, [`TruncationError`] is returned.
+    #[cfg(feature = "zonefile")]
+    fn append(&mut self, bytes: &[u8]) -> Result<(), TruncationError> {
+        if self.size as usize + bytes.len() > 63 {
+            return Err(TruncationError);
+        }
+
+        self.data[self.size as usize..][..bytes.len()].copy_from_slice(bytes);
+        self.size += bytes.len() as u8;
+        Ok(())
     }
 }
 
@@ -433,10 +462,18 @@ impl Scan<'_> for LabelBuf {
     fn scan(
         scanner: &mut Scanner<'_>,
         _alloc: &'_ bumpalo::Bump,
-        buffer: &mut std::vec::Vec<u8>,
+        _buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
-        // Allow the buffer to have previous content.
-        let start = buffer.len();
+        // Try parsing a wildcard label.
+        if let [b'*', b' ' | b'\t' | b'\r' | b'\n' | b'.', ..] | [b'*'] =
+            scanner.remaining()
+        {
+            scanner.consume(1);
+            return Ok(Self::copy_from(Label::WILDCARD));
+        }
+
+        // The buffer we'll fill into.
+        let mut this = Self::empty();
 
         // Loop through non-special chunks and special sequences.
         loop {
@@ -445,7 +482,9 @@ impl Scan<'_> for LabelBuf {
             });
 
             // Copy the non-special chunk into the buffer.
-            buffer.extend_from_slice(chunk);
+            this.append(chunk).map_err(|_| {
+                ScanError::Custom("a domain label exceeded 63 bytes")
+            })?;
 
             // Determine the nature of the special sequence.
             match first {
@@ -458,7 +497,9 @@ impl Scan<'_> for LabelBuf {
                 Some(b'\\') => {
                     // An escape sequence.
                     scanner.consume(1);
-                    buffer.push(scanner.scan_escape()?);
+                    this.append(&[scanner.scan_escape()?]).map_err(|_| {
+                        ScanError::Custom("a domain label exceeded 63 bytes")
+                    })?;
                 }
 
                 _ => break,
@@ -466,21 +507,10 @@ impl Scan<'_> for LabelBuf {
         }
 
         // Parse the result as a label.
-        let label = &buffer[start..];
-        if label.len() > 63 {
-            return Err(ScanError::Custom(
-                "a domain label exceeded 63 bytes",
-            ));
-        } else if label.is_empty() {
-            return Err(ScanError::Custom(
-                "a domain label was explicitly empty",
-            ));
+        if this.size == 0 {
+            return Err(ScanError::Custom("a domain label was empty"));
         }
-        // SAFETY: The label is a valid length.
-        let label = unsafe { Label::from_bytes_unchecked(label) };
-        let label = Self::copy_from(label);
-        buffer.truncate(start);
-        Ok(label)
+        Ok(this)
     }
 }
 
