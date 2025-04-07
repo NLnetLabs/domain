@@ -99,7 +99,7 @@
 //! # If an origin name is necessary but unknown, an error occurs.
 //! name = (label ".")* label "."? | "@"
 //!   # Must contain at most 63 bytes (after escapes are processed).
-//!   label = ([a-zA-Z0-9-] | "\\" ascii-printable)+ | quoted-string
+//!   label = ([a-zA-Z0-9-] | "\\" ascii-printable)+
 //!
 //! # All printable / graphic ASCII characters.
 //! ascii-printable = '!'..='~'

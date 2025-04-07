@@ -515,7 +515,7 @@ impl Scan<'_> for RevNameBuf {
                 break;
             }
 
-            if !c.is_ascii_alphanumeric() && !b"\\-_\"".contains(&c) {
+            if !c.is_ascii_alphanumeric() && !b"\\-_".contains(&c) {
                 return Err(ScanError::Custom(
                     "irregular character in domain name",
                 ));

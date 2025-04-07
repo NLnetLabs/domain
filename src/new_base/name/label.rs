@@ -406,43 +406,30 @@ impl Scan<'_> for LabelBuf {
         // Allow the buffer to have previous content.
         let start = buffer.len();
 
-        // Try parsing a quoted label string.
-        if scanner.remaining().starts_with(b"\"") {
-            scanner.consume(1);
-            let _ = scanner.scan_quoted(buffer)?;
-            if scanner.remaining().first().is_some_and(|&c| {
-                c.is_ascii_alphanumeric() || c == b'-' || c == b'\\'
-            }) {
-                return Err(ScanError::Custom(
-                    "a domain label was only partially quoted",
-                ));
-            }
-        } else {
-            // Loop through non-special chunks and special sequences.
-            loop {
-                let (chunk, first) = scanner.scan_unquoted_chunk(|&c| {
-                    !c.is_ascii_alphanumeric() && !b"-_".contains(&c)
-                });
+        // Loop through non-special chunks and special sequences.
+        loop {
+            let (chunk, first) = scanner.scan_unquoted_chunk(|&c| {
+                !c.is_ascii_alphanumeric() && !b"-_".contains(&c)
+            });
 
-                // Copy the non-special chunk into the buffer.
-                buffer.extend_from_slice(chunk);
+            // Copy the non-special chunk into the buffer.
+            buffer.extend_from_slice(chunk);
 
-                // Determine the nature of the special sequence.
-                match first {
-                    Some(b'"') => {
-                        return Err(ScanError::Custom(
-                            "a domain label was only partially quoted",
-                        ))
-                    }
-
-                    Some(b'\\') => {
-                        // An escape sequence.
-                        scanner.consume(1);
-                        buffer.push(scanner.scan_escape()?);
-                    }
-
-                    _ => break,
+            // Determine the nature of the special sequence.
+            match first {
+                Some(b'"') => {
+                    return Err(ScanError::Custom(
+                        "a domain label was only partially quoted",
+                    ))
                 }
+
+                Some(b'\\') => {
+                    // An escape sequence.
+                    scanner.consume(1);
+                    buffer.push(scanner.scan_escape()?);
+                }
+
+                _ => break,
             }
         }
 
@@ -631,17 +618,9 @@ mod test {
             (b"a\\256", Err(ScanError::InvalidDecimalEscape)),
             (b"\\065", Ok(b"A")),
             (b"a ", Ok(b"a")),
-            (b"\"hello\"", Ok(b"hello")),
-            (b"\"hello \"", Ok(b"hello ")),
             (
-                b"\"\"",
-                Err(ScanError::Custom("a domain label was explicitly empty")),
-            ),
-            (
-                b"a\"b\"c",
-                Err(ScanError::Custom(
-                    "a domain label was only partially quoted",
-                )),
+                b"\"hello\"",
+                Err(ScanError::Custom("a domain label was quoted")),
             ),
         ];
 
