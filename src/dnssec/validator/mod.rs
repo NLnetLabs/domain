@@ -1,6 +1,16 @@
 // Validator
 
-#![cfg(feature = "unstable-validator")]
+#![cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
+#![cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    )))
+)]
 
 //! This module provides a DNSSEC validator as described in RFCs
 //! [4033](https://www.rfc-editor.org/info/rfc4033),
@@ -17,6 +27,9 @@
 //! The validation context provides the
 //! method [validate_msg()](context::ValidationContext::validate_msg()) to
 //! validate a reply message.
+//!
+//! Low-level operations for computing the hash of a DNSKEY or verifying an
+//! RRSIG record are provided by the module [`base`].
 //!
 //! # Caching
 //! The validator has four caches:
@@ -58,8 +71,8 @@
 //! # use domain::net::client::dgram_stream;
 //! # use domain::net::client::protocol::{TcpConnect, UdpConnect};
 //! # use domain::net::client::request::{ComposeRequest, RequestMessage, SendRequest};
-//! # use domain::validator::anchor::TrustAnchors;
-//! # use domain::validator::context::{Config, ValidationContext};
+//! # use domain::dnssec::validator::anchor::TrustAnchors;
+//! # use domain::dnssec::validator::context::{Config, ValidationContext};
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! #
@@ -106,6 +119,7 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 pub mod anchor;
+pub mod base;
 pub mod context;
 mod group;
 mod nsec;

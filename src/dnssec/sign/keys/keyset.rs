@@ -1,13 +1,13 @@
 //! Maintain the state of a collection keys used to sign a zone.
 //!
-//! A key set is a collection of keys used to sign a sigle zone.
-//! This module support the management of key sets including key rollover.
+//! A key set is a collection of keys used to sign a sigle zone. This module
+//! supports the management of key sets including key rollover.
 //!
 //! # Example
 //!
 //! ```no_run
 //! use domain::base::Name;
-//! use domain::sign::keyset::{KeySet, RollType, UnixTime};
+//! use domain::dnssec::sign::keys::keyset::{KeySet, RollType, UnixTime};
 //! use std::fs::File;
 //! use std::io::Write;
 //! use std::str::FromStr;
@@ -1517,7 +1517,9 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use crate::base::Name;
-    use crate::sign::keyset::{Action, KeySet, KeyType, RollType, UnixTime};
+    use crate::dnssec::sign::keys::keyset::{
+        Action, KeySet, KeyType, RollType, UnixTime,
+    };
     use crate::std::string::ToString;
     use mock_instant::global::MockClock;
     use std::str::FromStr;

@@ -1,8 +1,11 @@
-use core::fmt;
+use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
-use crate::new_base::wire::U16;
+use crate::new_base::{
+    wire::{AsBytes, U16},
+    CanonicalRecordData,
+};
 
 #[cfg(feature = "zonefile")]
 use crate::{new_base::wire::ParseBytesByRef, utils::decoding::Base16Dec};
@@ -31,6 +34,14 @@ pub struct Ds {
 
     /// A serialized digest of the signing key.
     pub digest: [u8],
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for Ds {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.as_bytes().cmp(other.as_bytes())
+    }
 }
 
 //--- Scanning from the zonefile format

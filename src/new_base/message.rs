@@ -9,7 +9,7 @@ use super::wire::{AsBytes, ParseBytesByRef, U16};
 //----------- Message --------------------------------------------------------
 
 /// A DNS message.
-#[derive(AsBytes, BuildBytes, ParseBytesByRef)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone)]
 #[repr(C, packed)]
 pub struct Message {
     /// The message header.
@@ -46,19 +46,19 @@ impl Message {
     /// Truncate the contents of this message to the given size.
     ///
     /// The returned value will have a `contents` field of the given size.
-    pub fn slice_to(&self, size: usize) -> &Self {
+    pub fn truncate(&self, size: usize) -> &Self {
         let bytes = &self.as_bytes()[..12 + size];
-        Self::parse_bytes_by_ref(bytes)
-            .expect("A 12-or-more byte string is a valid 'Message'")
+        // SAFETY: 'bytes' is at least 12 bytes, making it a valid 'Message'.
+        unsafe { Self::parse_bytes_by_ref(bytes).unwrap_unchecked() }
     }
 
     /// Truncate the contents of this message to the given size, mutably.
     ///
     /// The returned value will have a `contents` field of the given size.
-    pub fn slice_to_mut(&mut self, size: usize) -> &mut Self {
+    pub fn truncate_mut(&mut self, size: usize) -> &mut Self {
         let bytes = &mut self.as_bytes_mut()[..12 + size];
-        Self::parse_bytes_by_mut(bytes)
-            .expect("A 12-or-more byte string is a valid 'Message'")
+        // SAFETY: 'bytes' is at least 12 bytes, making it a valid 'Message'.
+        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
     }
 
     /// Truncate the contents of this message to the given size, by pointer.
@@ -71,9 +71,14 @@ impl Message {
     /// pointer to some allocated object".  There must be at least 12 bytes
     /// between `self` and the end of that allocated object.  A reference to
     /// `Message` will always result in a pointer satisfying this.
-    pub unsafe fn ptr_slice_to(this: *mut Message, size: usize) -> *mut Self {
-        let bytes = unsafe { core::ptr::addr_of_mut!((*this).contents) };
-        let len = unsafe { &*(bytes as *mut [()]) }.len();
+    pub unsafe fn truncate_ptr(this: *mut Message, size: usize) -> *mut Self {
+        // Extract the metadata from 'this'.  We know it's slice metadata.
+        //
+        // SAFETY: '[()]' is a zero-sized type and references to it can be
+        // created from arbitrary pointers, since every pointer is valid for
+        // zero-sized reads.
+        let len = unsafe { &*(this as *mut [()]) }.len();
+        // Replicate the range check performed by normal indexing operations.
         debug_assert!(size <= len);
         core::ptr::slice_from_raw_parts_mut(this.cast::<u8>(), size)
             as *mut Self
@@ -145,96 +150,116 @@ pub struct HeaderFlags {
 
 impl HeaderFlags {
     /// Get the specified flag bit.
-    fn get_flag(&self, pos: u32) -> bool {
+    const fn get_flag(&self, pos: u32) -> bool {
         self.inner.get() & (1 << pos) != 0
     }
 
     /// Set the specified flag bit.
-    fn set_flag(mut self, pos: u32, value: bool) -> Self {
+    fn set_flag(&mut self, pos: u32, value: bool) -> &mut Self {
         self.inner &= !(1 << pos);
         self.inner |= (value as u16) << pos;
         self
     }
 
     /// The raw flags bits.
-    pub fn bits(&self) -> u16 {
+    pub const fn bits(&self) -> u16 {
         self.inner.get()
     }
 
-    /// Whether this is a query.
-    pub fn is_query(&self) -> bool {
-        !self.get_flag(15)
-    }
-
-    /// Whether this is a response.
-    pub fn is_response(&self) -> bool {
+    /// The QR bit.
+    pub const fn qr(&self) -> bool {
         self.get_flag(15)
     }
 
-    /// The operation code.
-    pub fn opcode(&self) -> u8 {
+    /// Set the QR bit.
+    pub fn set_qr(&mut self, value: bool) -> &mut Self {
+        self.set_flag(15, value)
+    }
+
+    /// The OPCODE field.
+    pub const fn opcode(&self) -> u8 {
         (self.inner.get() >> 11) as u8 & 0xF
     }
 
-    /// The response code.
-    pub fn rcode(&self) -> u8 {
-        self.inner.get() as u8 & 0xF
-    }
-
-    /// Construct a query.
-    pub fn query(mut self, opcode: u8) -> Self {
-        assert!(opcode < 16);
+    /// Set the OPCODE field.
+    pub fn set_opcode(&mut self, value: u8) -> &mut Self {
+        debug_assert!(value < 16);
         self.inner &= !(0xF << 11);
-        self.inner |= (opcode as u16) << 11;
-        self.set_flag(15, false)
+        self.inner |= (value as u16) << 11;
+        self
     }
 
-    /// Construct a response.
-    pub fn respond(mut self, rcode: u8) -> Self {
-        assert!(rcode < 16);
-        self.inner &= !0xF;
-        self.inner |= rcode as u16;
-        self.set_flag(15, true)
-    }
-
-    /// Whether this is an authoritative answer.
-    pub fn is_authoritative(&self) -> bool {
+    /// The AA bit.
+    pub fn aa(&self) -> bool {
         self.get_flag(10)
     }
 
-    /// Mark this as an authoritative answer.
-    pub fn set_authoritative(self, value: bool) -> Self {
+    /// Set the AA bit.
+    pub fn set_aa(&mut self, value: bool) -> &mut Self {
         self.set_flag(10, value)
     }
 
-    /// Whether this message is truncated.
-    pub fn is_truncated(&self) -> bool {
+    /// The TC bit.
+    pub fn tc(&self) -> bool {
         self.get_flag(9)
     }
 
-    /// Mark this message as truncated.
-    pub fn set_truncated(self, value: bool) -> Self {
+    /// Set the TC bit.
+    pub fn set_tc(&mut self, value: bool) -> &mut Self {
         self.set_flag(9, value)
     }
 
-    /// Whether the server should query recursively.
-    pub fn should_recurse(&self) -> bool {
+    /// The RD bit.
+    pub fn rd(&self) -> bool {
         self.get_flag(8)
     }
 
-    /// Direct the server to query recursively.
-    pub fn request_recursion(self, value: bool) -> Self {
+    /// Set the RD bit.
+    pub fn set_rd(&mut self, value: bool) -> &mut Self {
         self.set_flag(8, value)
     }
 
-    /// Whether the server supports recursion.
-    pub fn can_recurse(&self) -> bool {
+    /// The RA bit.
+    pub fn ra(&self) -> bool {
         self.get_flag(7)
     }
 
-    /// Indicate support for recursive queries.
-    pub fn support_recursion(self, value: bool) -> Self {
+    /// Set the RA bit.
+    pub fn set_ra(&mut self, value: bool) -> &mut Self {
         self.set_flag(7, value)
+    }
+
+    /// The AD bit.
+    pub fn ad(&self) -> bool {
+        self.get_flag(5)
+    }
+
+    /// Set the AD bit.
+    pub fn set_ad(&mut self, value: bool) -> &mut Self {
+        self.set_flag(5, value)
+    }
+
+    /// The CD bit.
+    pub fn cd(&self) -> bool {
+        self.get_flag(4)
+    }
+
+    /// Set the CD bit.
+    pub fn set_cd(&mut self, value: bool) -> &mut Self {
+        self.set_flag(4, value)
+    }
+
+    /// The RCODE field.
+    pub const fn rcode(&self) -> u8 {
+        self.inner.get() as u8 & 0xF
+    }
+
+    /// Set the RCODE field.
+    pub fn set_rcode(&mut self, value: u8) -> &mut Self {
+        debug_assert!(value < 16);
+        self.inner &= !0xF;
+        self.inner |= value as u16;
+        self
     }
 }
 
@@ -243,12 +268,12 @@ impl HeaderFlags {
 impl fmt::Debug for HeaderFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HeaderFlags")
-            .field("is_response (qr)", &self.is_response())
+            .field("qr", &self.qr())
             .field("opcode", &self.opcode())
-            .field("is_authoritative (aa)", &self.is_authoritative())
-            .field("is_truncated (tc)", &self.is_truncated())
-            .field("should_recurse (rd)", &self.should_recurse())
-            .field("can_recurse (ra)", &self.can_recurse())
+            .field("aa", &self.aa())
+            .field("tc", &self.tc())
+            .field("rd", &self.rd())
+            .field("ra", &self.ra())
             .field("rcode", &self.rcode())
             .field("bits", &self.bits())
             .finish()
@@ -257,22 +282,28 @@ impl fmt::Debug for HeaderFlags {
 
 impl fmt::Display for HeaderFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_query() {
-            if self.should_recurse() {
+        if !self.qr() {
+            if self.rd() {
                 f.write_str("recursive ")?;
             }
             write!(f, "query (opcode {})", self.opcode())?;
+            if self.cd() {
+                f.write_str(" (checking disabled)")?;
+            }
         } else {
-            if self.is_authoritative() {
+            if self.ad() {
+                f.write_str("authentic ")?;
+            }
+            if self.aa() {
                 f.write_str("authoritative ")?;
             }
-            if self.should_recurse() && self.can_recurse() {
+            if self.rd() && self.ra() {
                 f.write_str("recursive ")?;
             }
             write!(f, "response (rcode {})", self.rcode())?;
         }
 
-        if self.is_truncated() {
+        if self.tc() {
             f.write_str(" (message truncated)")?;
         }
 
@@ -310,7 +341,7 @@ pub struct SectionCounts {
     pub authorities: U16,
 
     /// The number of additional records in the message.
-    pub additional: U16,
+    pub additionals: U16,
 }
 
 //--- Interaction
@@ -339,7 +370,7 @@ impl fmt::Display for SectionCounts {
             (self.questions.get(), "question", "questions"),
             (self.answers.get(), "answer", "answers"),
             (self.authorities.get(), "authority", "authorities"),
-            (self.additional.get(), "additional", "additional"),
+            (self.additionals.get(), "additional", "additionals"),
         ] {
             // Add a comma if we have printed something before.
             if some && num > 0 {

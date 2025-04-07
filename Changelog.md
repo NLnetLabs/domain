@@ -5,6 +5,10 @@
 Breaking changes
 
 * FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
+* FIX: NSEC3 salt strings should only be accepted if within the salt size limit. (#431)
+* Stricter RFC 1035 compliance by default in the `Zonefile` parser. ([#477])
+* Rename {DigestAlg, Nsec3HashAlg, SecAlg, ZonemdAlg} to
+  {DigestAlgorithm, Nsec3HashAlgorithm, SecurityAlgorithm, ZonemdAlgorithm}
 
 New
 
@@ -27,8 +31,18 @@ Bug fixes
 * NSEC records should include themselves in the generated bitmap. ([#417])
 * Trailing double quote wrongly preserved when parsing record data. ([#470],
   [#472])
+* Don't error with unexpected end of entry for RFC 3597 RDATA of length zero. ([475])
 
 Unstable features
+
+* New unstable feature `unstable-crypto` that enable cryptography support
+  for features that do not rely on secret keys. This feature needs either
+  or both of the features `ring` and `openssl` ([#416])
+* New unstable feature `unstable-crypto-sign` that enable cryptography support
+  including features that rely on secret keys. This feature needs either
+  or both of the features `ring` and `openssl` ([#416])
+* New unstable feature 'unstable-client-cache' that enable the client transport
+  cache. The reason is that the client cache uses the `moka` crate.
 
 * `unstable-server-transport`
   * The trait `SingleService` which is a simplified service trait for
@@ -48,21 +62,30 @@ Unstable features
   * restructure configuration for multi_stream and redundant ([#424]).
   * introduce a load balancer client transport. This transport tries to
     distribute requests equally over upstream transports ([#425]).
+  * the client cache now has it's own feature `unstable-client-cache`.
 
 * `unstable-sign`
   * add key lifecycle management ([#459]).
+  * add support for adding NSEC3 records when signing.
+  * add support for ZONEMD.
+
+* `unstable-validator`
+  * The `validate` crate is moved to `dnssec::validator::base`.
+  * The `validator` crate is moved to `dnssec::validator`.
 
 Other changes
 
 [#353]: https://github.com/NLnetLabs/domain/pull/353
 [#379]: https://github.com/NLnetLabs/domain/pull/379
 [#396]: https://github.com/NLnetLabs/domain/pull/396
+[#416]: https://github.com/NLnetLabs/domain/pull/416
 [#417]: https://github.com/NLnetLabs/domain/pull/417
 [#421]: https://github.com/NLnetLabs/domain/pull/421
 [#423]: https://github.com/NLnetLabs/domain/pull/423
 [#424]: https://github.com/NLnetLabs/domain/pull/424
 [#425]: https://github.com/NLnetLabs/domain/pull/425
 [#427]: https://github.com/NLnetLabs/domain/pull/427
+[#431]: https://github.com/NLnetLabs/domain/pull/431
 [#440]: https://github.com/NLnetLabs/domain/pull/440
 [#441]: https://github.com/NLnetLabs/domain/pull/441
 [#446]: https://github.com/NLnetLabs/domain/pull/446
@@ -70,7 +93,24 @@ Other changes
 [#463]: https://github.com/NLnetLabs/domain/pull/463
 [#470]: https://github.com/NLnetLabs/domain/pull/470
 [#472]: https://github.com/NLnetLabs/domain/pull/472
+[#475]: https://github.com/NLnetLabs/domain/pull/475
+[#4775]: https://github.com/NLnetLabs/domain/pull/477
 [@weilence]: https://github.com/weilence
+
+
+## 0.10.4
+
+Released 2025-03-31.
+
+Other changes
+
+* Fix a build issue with [*time*](https://time-rs.github.io/) 0.3.41.
+  ([#505], backported from [#503] by [@PSeitz])
+
+[#503]: https://github.com/NLnetLabs/domain/pull/503
+[#505]: https://github.com/NLnetLabs/domain/pull/505
+[@PSeitz]: https://github.com/PSeitz
+
 
 ## 0.10.3
 

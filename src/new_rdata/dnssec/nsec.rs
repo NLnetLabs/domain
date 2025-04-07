@@ -1,14 +1,11 @@
-use core::{fmt, iter::FusedIterator, mem, ops::Range};
-
-#[cfg(feature = "zonefile")]
-use std::vec::Vec;
+use core::{cmp::Ordering, fmt, iter::FusedIterator, mem, ops::Range};
 
 use domain_macros::*;
 
 use crate::new_base::{
-    name::Name,
-    wire::{ParseBytesByRef, ParseError},
-    RType,
+    name::{CanonicalName, Name},
+    wire::{AsBytes, ParseBytesByRef, ParseError},
+    CanonicalRecordData, RType,
 };
 
 #[cfg(feature = "zonefile")]
@@ -29,7 +26,7 @@ pub struct NSec<'a> {
 //--- Interaction
 
 impl NSec<'_> {
-    /// Copy referenced data into the given [`Bump`] allocator.
+    /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> NSec<'r> {
         use crate::utils::clone_to_bump;
@@ -41,12 +38,24 @@ impl NSec<'_> {
     }
 }
 
+//--- Canonical operations
+
+impl CanonicalRecordData for NSec<'_> {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.next
+            .cmp_composed(other.next)
+            .then_with(|| self.types.as_bytes().cmp(other.types.as_bytes()))
+    }
+}
+
+//--- Parsing from the zonefile format
+
 #[cfg(feature = "zonefile")]
 impl<'a> Scan<'a> for NSec<'a> {
     fn scan(
         scanner: &mut Scanner<'_>,
         alloc: &'a bumpalo::Bump,
-        buffer: &mut Vec<u8>,
+        buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
         let next = <&'a Name>::scan(scanner, alloc, buffer)?;
         if !scanner.skip_ws() {
@@ -233,7 +242,7 @@ impl<'a> Scan<'a> for &'a TypeBitmaps {
         buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
         // TODO: Re-use 'buffer' here.
-        let mut rtypes = Vec::<RType>::new();
+        let mut rtypes = std::vec::Vec::<RType>::new();
 
         loop {
             rtypes.push(RType::scan(scanner, alloc, buffer)?);

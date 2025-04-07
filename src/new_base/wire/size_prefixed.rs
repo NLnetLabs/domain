@@ -21,20 +21,47 @@ use super::{
 
 //----------- SizePrefixed ---------------------------------------------------
 
-/// A wrapper adding a size prefix to a message.
+/// A wrapper adding a size prefix during serialization.
 ///
-/// This is a common element in DNS messages (e.g. for record data and EDNS
-/// options).  When serialized as bytes, the inner value is prefixed with an
-/// integer (often a [`U16`](super::U16)) indicating the length of the inner
-/// value in bytes.
+/// DNS messages often contain size-prefixed data.  Record data is prefixed by
+/// a [`U16`](super::U16), indicating its size in bytes, and NSEC3 salts are
+/// prefixed by a [`u8`] with the same meaning.  [`SizePrefixed`] wraps such
+/// data and handles the logic for (de)serialization.
+///
+/// *Warning:* in order to implement zero-copy (de)serialization, this type
+/// has a `size` field which always holds the size of `T` (or the size of the
+/// currently stored object, if `T` is `?Sized`).  If this size overflows `S`,
+/// a panic will occur.  This can occur even if `T` is only used serialized
+/// via [`ParseBytes`] / [`BuildBytes`], which don't use the `size` field.
+/// Thus, a 300-byte `T` cannot be used with a `u8` size prefix, even if the
+/// `T` serializes into 20 bytes.  This almost never occurs in practice.
+///
+/// ## Bounds
+///
+/// `S` must satisfy various bounds for use in (de)serialization.
+///
+/// - `S` should almost always implement `TryFrom<usize>`.  This is needed to
+///   initialize it manually, e.g. from the size of `T`.  It can be omitted
+///   for the zero-copy traits [`ParseBytesByRef`], [`SplitBytesByRef`], and
+///   [`AsBytes`].
+///
+/// - During parsing, `S` should implement [`SplitMessageBytes`],
+///   [`SplitBytes`], or [`SplitBytesByRef`].  It should also implement
+///   `Into<usize>`; this is used to read the right number of bytes for the
+///   actual size-prefixed data.
+///
+/// - During building, `S` should implement [`BuildIntoMessage`],
+///   [`BuildBytes`], or [`AsBytes`].  For the first two, it should also
+///   implement [`Default`]; this is used to temporarily initialize it, to be
+///   overwritten once the actual size-prefixed data is built (and its size is
+///   determined).
 #[derive(Copy, Clone, AsBytes, UnsizedClone)]
 #[repr(C)]
 pub struct SizePrefixed<S, T: ?Sized> {
     /// The size prefix (needed for 'ParseBytesByRef' / 'AsBytes').
     ///
-    /// This value is always consistent with the size of 'data' if it is
-    /// (de)serialized in-place.  By the bounds on 'ParseBytesByRef' and
-    /// 'AsBytes', the serialized size is the same as 'size_of_val(&data)'.
+    /// This field is only used by the zero-copy (de)serialization traits.  As
+    /// such, this field should always be consistent with the size of `data`.
     size: S,
 
     /// The inner data.
@@ -51,26 +78,21 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the data size does not fit in `S`.
+    /// Panics if the size of `data` in memory cannot fit in `S`.  This is
+    /// necessary for `SizePrefixed` to correctly implement [`AsBytes`] and
+    /// [`ParseBytesByRef`] / [`SplitBytesByRef`].
     pub fn new(data: T) -> Self {
         let size = core::mem::size_of::<T>();
         Self {
             size: S::try_from(size).unwrap_or_else(|_| {
-                panic!("`data.len()` does not fit in the size field")
+                panic!(
+                    "`data.len()` ({} bytes) overflows {}",
+                    size,
+                    core::any::type_name::<S>(),
+                )
             }),
             data,
         }
-    }
-}
-
-//--- Conversion from the inner data
-
-impl<S, T> From<T> for SizePrefixed<S, T>
-where
-    S: TryFrom<usize>,
-{
-    fn from(value: T) -> Self {
-        Self::new(value)
     }
 }
 
@@ -151,15 +173,14 @@ impl<S, T: ?Sized + fmt::Debug> fmt::Debug for SizePrefixed<S, T> {
 impl<'b, S, T: ParseMessageBytes<'b>> ParseMessageBytes<'b>
     for SizePrefixed<S, T>
 where
-    S: SplitMessageBytes<'b> + TryFrom<usize> + TryInto<usize>,
+    S: SplitMessageBytes<'b> + TryFrom<usize> + Into<usize>,
 {
     fn parse_message_bytes(
         contents: &'b [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
         let (size, rest) = S::split_message_bytes(contents, start)?;
-        let size = size.try_into().map_err(|_| ParseError)?;
-        if rest + size != contents.len() {
+        if rest + size.into() != contents.len() {
             return Err(ParseError);
         }
         T::parse_message_bytes(contents, rest).map(Self::new)
@@ -169,15 +190,14 @@ where
 impl<'b, S, T: ParseMessageBytes<'b>> SplitMessageBytes<'b>
     for SizePrefixed<S, T>
 where
-    S: SplitMessageBytes<'b> + TryFrom<usize> + TryInto<usize>,
+    S: SplitMessageBytes<'b> + TryFrom<usize> + Into<usize>,
 {
     fn split_message_bytes(
         contents: &'b [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let (size, rest) = S::split_message_bytes(contents, start)?;
-        let size = size.try_into().map_err(|_| ParseError)?;
-        let (start, rest) = (rest, rest + size);
+        let (start, rest) = (rest, rest + size.into());
         let contents = contents.get(..rest).ok_or(ParseError)?;
         let data = T::parse_message_bytes(contents, start)?;
         Ok((Self::new(data), rest))
@@ -188,12 +208,11 @@ where
 
 impl<'b, S, T: ParseBytes<'b>> ParseBytes<'b> for SizePrefixed<S, T>
 where
-    S: SplitBytes<'b> + TryFrom<usize> + TryInto<usize>,
+    S: SplitBytes<'b> + TryFrom<usize> + Into<usize>,
 {
     fn parse_bytes(bytes: &'b [u8]) -> Result<Self, ParseError> {
         let (size, rest) = S::split_bytes(bytes)?;
-        let size = size.try_into().map_err(|_| ParseError)?;
-        if rest.len() != size {
+        if rest.len() != size.into() {
             return Err(ParseError);
         }
         T::parse_bytes(bytes).map(Self::new)
@@ -202,11 +221,12 @@ where
 
 impl<'b, S, T: ParseBytes<'b>> SplitBytes<'b> for SizePrefixed<S, T>
 where
-    S: SplitBytes<'b> + TryFrom<usize> + TryInto<usize>,
+    S: SplitBytes<'b> + TryFrom<usize> + Into<usize>,
 {
     fn split_bytes(bytes: &'b [u8]) -> Result<(Self, &'b [u8]), ParseError> {
         let (size, rest) = S::split_bytes(bytes)?;
-        let size = size.try_into().map_err(|_| ParseError)?;
+        let size: usize = size.into();
+        // TODO(1.80): Use 'slice::split_at_checked()'.
         if rest.len() < size {
             return Err(ParseError);
         }
@@ -219,41 +239,55 @@ where
 unsafe impl<S, T: ?Sized + ParseBytesByRef> ParseBytesByRef
     for SizePrefixed<S, T>
 where
-    S: SplitBytesByRef + Copy + TryFrom<usize> + TryInto<usize>,
+    S: SplitBytesByRef + Copy + Into<usize>,
 {
     fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
         let addr = bytes.as_ptr();
-        let (&size, rest) = S::split_bytes_by_ref(bytes)?;
-        let size = size.try_into().map_err(|_| ParseError)?;
-        if rest.len() != size {
+        let (size, rest) = S::split_bytes_by_ref(bytes)?;
+        if rest.len() != (*size).into() {
             return Err(ParseError);
         }
         let last = T::parse_bytes_by_ref(rest)?;
         let ptr = last.ptr_with_address(addr as *const ());
 
         // SAFETY:
-        // - 'bytes' is a 'U16' followed by a 'T'.
-        // - 'T' is 'ParseBytesByRef' and so is unaligned.
-        // - 'Self' is 'repr(C)' and so has no alignment or padding.
-        // - The layout of 'Self' is identical to '(U16, T)'.
+        //
+        // - 'addr_of!((*(ptr as *const Self)).size) == size as *const S'.
+        //   The 'size' field of 'ptr' is thus valid for reads for the
+        //   lifetime of 'size', which is the same as the lifetime of 'bytes'.
+        //
+        // - 'addr_of!((*(ptr as *const Self)).data) == last as *const T'.
+        //   The 'data' field of 'ptr' is thus valid for reads for the
+        //   lifetime of 'last', which is the same as the lifetime of 'bytes'.
+        //
+        // - Thus, 'ptr' is valid for reads of 'Self' for the lifetime of
+        //   'bytes'.
         Ok(unsafe { &*(ptr as *const Self) })
     }
 
     fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError> {
         let addr = bytes.as_ptr();
-        let (&mut size, rest) = S::split_bytes_by_mut(bytes)?;
-        let size = size.try_into().map_err(|_| ParseError)?;
-        if rest.len() != size {
+        let (size, rest) = S::split_bytes_by_mut(bytes)?;
+        if rest.len() != (*size).into() {
             return Err(ParseError);
         }
         let last = T::parse_bytes_by_mut(rest)?;
         let ptr = last.ptr_with_address(addr as *const ());
 
         // SAFETY:
-        // - 'bytes' is a 'U16' followed by a 'T'.
-        // - 'T' is 'ParseBytesByRef' and so is unaligned.
-        // - 'Self' is 'repr(C)' and so has no alignment or padding.
-        // - The layout of 'Self' is identical to '(U16, T)'.
+        //
+        // - 'addr_of_mut!((*(ptr as *mut Self)).size) == size as *mut S'.
+        //   The 'size' field of 'ptr' is thus valid for reads and writes for
+        //   the lifetime of 'size', which is the same as the lifetime of
+        //   'bytes'.
+        //
+        // - 'addr_of_mut!((*(ptr as *mut Self)).data) == last as *mut T'.
+        //   The 'data' field of 'ptr' is thus valid for reads and writes for
+        //   the lifetime of 'last', which is the same as the lifetime of
+        //   'bytes'.
+        //
+        // - Thus, 'ptr' is valid for reads and writes of 'Self' for the
+        //   lifetime of 'bytes'.
         Ok(unsafe { &mut *(ptr as *const Self as *mut Self) })
     }
 
@@ -265,26 +299,32 @@ where
 unsafe impl<S, T: ?Sized + ParseBytesByRef> SplitBytesByRef
     for SizePrefixed<S, T>
 where
-    S: SplitBytesByRef + Copy + TryFrom<usize> + TryInto<usize>,
+    S: SplitBytesByRef + Copy + Into<usize>,
 {
     fn split_bytes_by_ref(
         bytes: &[u8],
     ) -> Result<(&Self, &[u8]), ParseError> {
         let addr = bytes.as_ptr();
         let (&size, rest) = S::split_bytes_by_ref(bytes)?;
-        let size = size.try_into().map_err(|_| ParseError)?;
-        if rest.len() < size {
+        if rest.len() < size.into() {
             return Err(ParseError);
         }
-        let (data, rest) = rest.split_at(size);
+        let (data, rest) = rest.split_at(size.into());
         let last = T::parse_bytes_by_ref(data)?;
         let ptr = last.ptr_with_address(addr as *const ());
 
         // SAFETY:
-        // - 'bytes' is a 'U16' followed by a 'T'.
-        // - 'T' is 'ParseBytesByRef' and so is unaligned.
-        // - 'Self' is 'repr(C)' and so has no alignment or padding.
-        // - The layout of 'Self' is identical to '(U16, T)'.
+        //
+        // - 'addr_of!((*(ptr as *const Self)).size) == size as *const S'.
+        //   The 'size' field of 'ptr' is thus valid for reads for the
+        //   lifetime of 'size', which is the same as the lifetime of 'bytes'.
+        //
+        // - 'addr_of!((*(ptr as *const Self)).data) == last as *const T'.
+        //   The 'data' field of 'ptr' is thus valid for reads for the
+        //   lifetime of 'last', which is the same as the lifetime of 'bytes'.
+        //
+        // - Thus, 'ptr' is valid for reads of 'Self' for the lifetime of
+        //   'bytes'.
         Ok((unsafe { &*(ptr as *const Self) }, rest))
     }
 
@@ -293,19 +333,27 @@ where
     ) -> Result<(&mut Self, &mut [u8]), ParseError> {
         let addr = bytes.as_ptr();
         let (&mut size, rest) = S::split_bytes_by_mut(bytes)?;
-        let size = size.try_into().map_err(|_| ParseError)?;
-        if rest.len() < size {
+        if rest.len() < size.into() {
             return Err(ParseError);
         }
-        let (data, rest) = rest.split_at_mut(size);
+        let (data, rest) = rest.split_at_mut(size.into());
         let last = T::parse_bytes_by_mut(data)?;
         let ptr = last.ptr_with_address(addr as *const ());
 
         // SAFETY:
-        // - 'bytes' is a 'U16' followed by a 'T'.
-        // - 'T' is 'ParseBytesByRef' and so is unaligned.
-        // - 'Self' is 'repr(C)' and so has no alignment or padding.
-        // - The layout of 'Self' is identical to '(U16, T)'.
+        //
+        // - 'addr_of_mut!((*(ptr as *mut Self)).size) == size as *mut S'.
+        //   The 'size' field of 'ptr' is thus valid for reads and writes for
+        //   the lifetime of 'size', which is the same as the lifetime of
+        //   'bytes'.
+        //
+        // - 'addr_of_mut!((*(ptr as *mut Self)).data) == last as *mut T'.
+        //   The 'data' field of 'ptr' is thus valid for reads and writes for
+        //   the lifetime of 'last', which is the same as the lifetime of
+        //   'bytes'.
+        //
+        // - Thus, 'ptr' is valid for reads and writes of 'Self' for the
+        //   lifetime of 'bytes'.
         Ok((unsafe { &mut *(ptr as *const Self as *mut Self) }, rest))
     }
 }
@@ -326,11 +374,23 @@ where
         self.data.build_into_message(builder.delegate())?;
         let size = builder.uncommitted().len() - size_size;
         let size = S::try_from(size).unwrap_or_else(|_| {
-            panic!("`data.len()` does not fit in the size field")
+            panic!(
+                "`data.len()` ({} bytes) overflows {}",
+                size,
+                core::any::type_name::<S>(),
+            )
         });
-        // SAFETY: An 'S' is being modified, not a domain name.
+
+        // SAFETY:
+        //
+        // - 'S' was built using 'builder.append_bytes()', and so has not
+        //   interacted with the name compressor.
+        //
+        // - It is sound to modify the built 'S', as this cannot break the
+        //   name compression logic.
         let size_buf = unsafe { &mut builder.uncommitted_mut()[..size_size] };
         size_buf.copy_from_slice(size.as_bytes());
+
         Ok(builder.commit())
     }
 }
@@ -355,7 +415,11 @@ where
         let rest = self.data.build_bytes(data_buf)?;
         let size = data_buf_len - rest.len();
         let size = S::try_from(size).unwrap_or_else(|_| {
-            panic!("`data.len()` does not fit in the size field")
+            panic!(
+                "`data.len()` ({} bytes) overflows {}",
+                size,
+                core::any::type_name::<S>(),
+            )
         });
         size_buf.copy_from_slice(size.as_bytes());
         Ok(rest)

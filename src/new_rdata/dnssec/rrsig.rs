@@ -1,9 +1,15 @@
+use core::cmp::Ordering;
+
 use domain_macros::*;
 
 #[cfg(feature = "zonefile")]
 use time::{Date, Month, PrimitiveDateTime, Time};
 
-use crate::new_base::{name::Name, wire::U16, RType, Serial, TTL};
+use crate::new_base::{
+    name::{CanonicalName, Name},
+    wire::{AsBytes, U16},
+    CanonicalRecordData, RType, Serial, TTL,
+};
 
 #[cfg(feature = "zonefile")]
 use crate::{
@@ -49,7 +55,7 @@ pub struct RRSig<'a> {
 //--- Interaction
 
 impl RRSig<'_> {
-    /// Copy referenced data into the given [`Bump`] allocator.
+    /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> RRSig<'r> {
         use crate::utils::clone_to_bump;
@@ -59,6 +65,35 @@ impl RRSig<'_> {
             signature: bump.alloc_slice_copy(self.signature),
             ..self.clone()
         }
+    }
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for RRSig<'_> {
+    fn cmp_canonical(&self, that: &Self) -> Ordering {
+        let this_initial = (
+            self.rtype,
+            self.algorithm,
+            self.labels,
+            self.ttl,
+            self.expiration.as_bytes(),
+            self.inception.as_bytes(),
+            self.keytag,
+        );
+        let that_initial = (
+            that.rtype,
+            that.algorithm,
+            that.labels,
+            that.ttl,
+            that.expiration.as_bytes(),
+            that.inception.as_bytes(),
+            that.keytag,
+        );
+        this_initial
+            .cmp(&that_initial)
+            .then_with(|| self.signer.cmp_lowercase_composed(that.signer))
+            .then_with(|| self.signature.cmp(that.signature))
     }
 }
 

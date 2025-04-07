@@ -1,12 +1,15 @@
-use core::fmt;
+use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
-use crate::new_base::wire::{SizePrefixed, U16};
+use crate::new_base::{
+    wire::{AsBytes, SizePrefixed, U16},
+    CanonicalRecordData,
+};
 
 #[cfg(feature = "zonefile")]
 use crate::{
-    new_base::wire::{AsBytes, ParseBytesByRef},
+    new_base::wire::ParseBytesByRef,
     utils::decoding::{Base16Dec, Base32HexDec},
 };
 
@@ -42,7 +45,7 @@ pub struct NSec3<'a> {
 //--- Interaction
 
 impl NSec3<'_> {
-    /// Copy referenced data into the given [`Bump`] allocator.
+    /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> NSec3<'r> {
         use crate::utils::clone_to_bump;
@@ -58,7 +61,35 @@ impl NSec3<'_> {
     }
 }
 
-//--- Scanning from the zonefile format
+//--- Canonical operations
+
+impl CanonicalRecordData for NSec3<'_> {
+    fn cmp_canonical(&self, that: &Self) -> Ordering {
+        let this = (
+            self.algorithm,
+            self.flags.as_bytes(),
+            self.iterations,
+            self.salt.len(),
+            self.salt,
+            self.next.len(),
+            self.next,
+            self.types.as_bytes(),
+        );
+        let that = (
+            that.algorithm,
+            that.flags.as_bytes(),
+            that.iterations,
+            that.salt.len(),
+            that.salt,
+            that.next.len(),
+            that.next,
+            that.types.as_bytes(),
+        );
+        this.cmp(&that)
+    }
+}
+
+//--- Parsing from the zonefile format
 
 #[cfg(feature = "zonefile")]
 impl<'a> Scan<'a> for NSec3<'a> {
@@ -159,7 +190,15 @@ pub struct NSec3Param {
     pub salt: SizePrefixed<u8, [u8]>,
 }
 
-//--- Scanning from the zonefile format
+//--- Canonical operations
+
+impl CanonicalRecordData for NSec3Param {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.as_bytes().cmp(other.as_bytes())
+    }
+}
+
+//--- Parsing from the zonefile format
 
 #[cfg(feature = "zonefile")]
 impl<'a> Scan<'a> for &'a NSec3Param {

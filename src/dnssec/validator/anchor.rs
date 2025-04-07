@@ -1,6 +1,7 @@
 //! Create DNSSEC trust anchors.
 
 use super::context::Error;
+use crate::base::iana::Class;
 use crate::base::name::{Chain, Name, ToName};
 use crate::base::{Record, RelativeName};
 use crate::rdata::ZoneRecordData;
@@ -118,6 +119,7 @@ impl TrustAnchors {
         let mut new_self = Self(Vec::new());
 
         let mut zonefile = Zonefile::new();
+        zonefile.set_default_class(Class::IN);
         zonefile.extend_from_slice(str);
         zonefile.extend_from_slice(b"\n");
         for e in zonefile {
@@ -137,6 +139,7 @@ impl TrustAnchors {
     /// zonefile format.
     pub fn add_u8(&mut self, str: &[u8]) -> Result<(), Error> {
         let mut zonefile = Zonefile::new();
+        zonefile.set_default_class(Class::IN);
         zonefile.extend_from_slice(str);
         zonefile.extend_from_slice("\n".as_bytes());
         for e in zonefile {

@@ -1,3 +1,4 @@
+#![doc = include_str!("README.md")]
 #![cfg(feature = "unstable-stelline")]
 mod matches;
 

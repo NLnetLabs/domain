@@ -42,13 +42,13 @@ impl UnparsedName {
 //--- Construction
 
 impl UnparsedName {
-    /// Assume a byte string is a valid [`UnparsedName`].
+    /// Assume a byte sequence is a valid [`UnparsedName`].
     ///
     /// # Safety
     ///
-    /// The byte string must contain any number of encoded labels, ending with
-    /// a root label or a compression pointer, as long as the size of the
-    /// whole string is 256 bytes or less.
+    /// The byte sequence must contain any number of encoded labels, ending
+    /// with a root label or a compression pointer, as long as the size of the
+    /// whole sequence is 256 bytes or less.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'UnparsedName' is 'repr(transparent)' to '[u8]', so casting
         // a '[u8]' into an 'UnparsedName' is sound.

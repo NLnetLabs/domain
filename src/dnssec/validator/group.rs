@@ -17,15 +17,15 @@ use crate::base::name::ToName;
 use crate::base::opt::exterr::ExtendedError;
 use crate::base::rdata::ComposeRecordData;
 use crate::base::{Name, ParsedName, ParsedRecord, Record, Rtype, Ttl};
+use crate::crypto::common::{DigestBuilder, DigestType};
 use crate::dep::octseq::builder::with_infallible;
 use crate::dep::octseq::{Octets, OctetsFrom};
+use crate::dnssec::validator::base::RrsigExt;
 use crate::net::client::request::{RequestMessage, SendRequest};
 use crate::rdata::dnssec::Timestamp;
 use crate::rdata::{AllRecordData, Dnskey, Rrsig};
-use crate::validate::RrsigExt;
 use bytes::Bytes;
 use moka::future::Cache;
-use ring::digest;
 use std::cmp::{max, min};
 use std::fmt::Debug;
 use std::slice::Iter;
@@ -651,13 +651,13 @@ impl Group {
 
         let mut buf: Vec<u8> = Vec::new();
         with_infallible(|| key.compose_canonical_rdata(&mut buf));
-        let mut ctx = digest::Context::new(&digest::SHA256);
+        let mut ctx = DigestBuilder::new(DigestType::Sha256);
         ctx.update(&buf);
         let key_hash = ctx.finish();
 
         let mut buf: Vec<u8> = Vec::new();
         with_infallible(|| sig.data().compose_canonical_rdata(&mut buf));
-        let mut ctx = digest::Context::new(&digest::SHA256);
+        let mut ctx = DigestBuilder::new(DigestType::Sha256);
         ctx.update(&buf);
         let sig_hash = ctx.finish();
 

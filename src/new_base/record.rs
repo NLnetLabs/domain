@@ -1,6 +1,6 @@
 //! DNS records.
 
-use core::{borrow::Borrow, fmt, ops::Deref};
+use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
@@ -154,7 +154,7 @@ where
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl<N, D> BuildBytes for Record<N, D>
 where
@@ -259,6 +259,55 @@ impl RType {
 
     /// The type of an [`NSec3Param`](crate::new_rdata::NSec3Param) record.
     pub const NSEC3PARAM: Self = Self::new(51);
+}
+
+//--- Interaction
+
+impl RType {
+    /// Whether this type uses lowercased domain names in canonical form.
+    ///
+    /// As specified by [RFC 4034, section 6.2] (and updated by [RFC 6840,
+    /// section 5.1]), the canonical form of the record data of any of the
+    /// following types will have its domain names lowercased:
+    ///
+    /// - [`NS`](RType::NS)
+    /// - `MD` (obsolete)
+    /// - `MF` (obsolete)
+    /// - [`CNAME`](RType::CNAME)
+    /// - [`SOA`](RType::SOA)
+    /// - `MB`
+    /// - `MG`
+    /// - `MR`
+    /// - [`PTR`](RType::PTR)
+    /// - `MINFO`
+    /// - [`MX`](RType::MX)
+    /// - `RP`
+    /// - `AFSDB`
+    /// - `RT`
+    /// - `SIG` (obsolete)
+    /// - `PX`
+    /// - `NXT` (obsolete)
+    /// - `NAPTR`
+    /// - `KX`
+    /// - `SRV`
+    /// - `DNAME`
+    /// - `A6` (obsolete)
+    /// - [`RRSIG`](RType::RRSIG)
+    ///
+    /// [RFC 4034, section 6.2]: https://datatracker.ietf.org/doc/html/rfc4034#section-6.2
+    /// [RFC 6840, section 5.1]: https://datatracker.ietf.org/doc/html/rfc6840#section-5.1
+    pub const fn uses_lowercase_canonical_form(&self) -> bool {
+        // TODO: Update this as more types are added.
+        matches!(
+            *self,
+            Self::NS
+                | Self::CNAME
+                | Self::SOA
+                | Self::PTR
+                | Self::MX
+                | Self::RRSIG
+        )
+    }
 }
 
 //--- Conversion to and from 'u16'
@@ -525,11 +574,42 @@ pub trait ParseRecordData<'a>: Sized {
         Self::parse_record_data_bytes(&contents[start..], rtype)
     }
 
-    /// Parse DNS record data of the given type from a byte string.
+    /// Parse DNS record data of the given type from a byte sequence.
     fn parse_record_data_bytes(
         bytes: &'a [u8],
         rtype: RType,
     ) -> Result<Self, ParseError>;
+}
+
+//----------- CanonicalRecordData --------------------------------------------
+
+/// DNSSEC-conformant operations for resource records.
+///
+/// As specified by [RFC 4034, section 6], there is a "canonical form" for
+/// DNS resource records, used for ordering records and computing signatures.
+/// This trait defines operations for working with the canonical form.
+///
+/// [RFC 4034, section 6]: https://datatracker.ietf.org/doc/html/rfc4034#section-6
+pub trait CanonicalRecordData: BuildBytes {
+    /// Serialize record data in the canonical form.
+    ///
+    /// This is subtly different from [`BuildBytes`]: for certain special
+    /// record data types, it causes embedded domain names to be lowercased.
+    /// By default, it will fall back to [`BuildBytes`].
+    fn build_canonical_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        self.build_bytes(bytes)
+    }
+
+    /// Compare record data in the canonical form.
+    ///
+    /// This is equivalent to serializing both record data instances using
+    /// [`build_canonical_bytes()`] and comparing the resulting byte sequences.
+    ///
+    /// [`build_canonical_bytes()`]: Self::build_canonical_bytes()
+    fn cmp_canonical(&self, other: &Self) -> Ordering;
 }
 
 //----------- UnparsedRecordData ---------------------------------------------
@@ -542,11 +622,11 @@ pub struct UnparsedRecordData([u8]);
 //--- Construction
 
 impl UnparsedRecordData {
-    /// Assume a byte string is a valid [`UnparsedRecordData`].
+    /// Assume a byte sequence is a valid [`UnparsedRecordData`].
     ///
     /// # Safety
     ///
-    /// The byte string must be 65,535 bytes or shorter.
+    /// The byte sequence must be 65,535 bytes or shorter.
     pub const unsafe fn new_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'UnparsedRecordData' is 'repr(transparent)' to '[u8]', so
         // casting a '[u8]' into an 'UnparsedRecordData' is sound.

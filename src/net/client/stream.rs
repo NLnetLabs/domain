@@ -1336,7 +1336,7 @@ impl<T> Queries<T> {
         // index needs to fit in an u16. For efficiency we want to
         // keep the vector half empty. So we return a failure if
         // 2*count > u16::MAX
-        if 2 * self.count > u16::MAX.into() {
+        if 2 * self.count > u16::MAX as usize {
             return Err(req);
         }
 

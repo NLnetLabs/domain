@@ -1,8 +1,12 @@
-use core::{fmt, net::Ipv4Addr, str::FromStr};
+use core::cmp::Ordering;
+use core::fmt;
+use core::net::Ipv4Addr;
+use core::str::FromStr;
 
 use domain_macros::*;
 
 use crate::new_base::wire::AsBytes;
+use crate::new_base::CanonicalRecordData;
 
 #[cfg(feature = "zonefile")]
 use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
@@ -48,7 +52,15 @@ impl From<A> for Ipv4Addr {
     }
 }
 
-//--- Parsing from a string
+//--- Canonical operations
+
+impl CanonicalRecordData for A {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.octets.cmp(&other.octets)
+    }
+}
+
+//--- Parsing from strings
 
 impl FromStr for A {
     type Err = <Ipv4Addr as FromStr>::Err;

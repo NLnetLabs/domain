@@ -17,11 +17,12 @@ use super::wire::{ParseBytesByRef, SplitBytesByRef};
 
 /// A type that can be parsed from a DNS message.
 pub trait SplitMessageBytes<'a>: Sized + ParseMessageBytes<'a> {
-    /// Parse a value from the start of a byte string within a DNS message.
+    /// Parse a value from the start of a byte sequence within a DNS message.
     ///
-    /// The contents of the DNS message is provided as `contents`.
-    /// `contents[start..]` is the beginning of the input to be parsed.  The
-    /// earlier bytes are provided for resolving compressed domain names.
+    /// The contents of the DNS message (i.e. without the 12-byte header) is
+    /// provided as `contents`.  `contents[start..]` is the beginning of the
+    /// input to be parsed.  The earlier bytes are provided for resolving
+    /// compressed domain names.
     ///
     /// If parsing is successful, the parsed value and the offset for the rest
     /// of the input are returned.  If `len` bytes were parsed to form `self`,
@@ -37,11 +38,9 @@ pub trait ParseMessageBytes<'a>: Sized {
     /// Parse a value from bytes in a DNS message.
     ///
     /// The contents of the DNS message (up to and including the actual bytes
-    /// to be parsed) is provided as `contents`.  `contents[start..]` is the
-    /// input to be parsed.  The earlier bytes are provided for resolving
-    /// compressed domain names.
-    ///
-    /// If parsing is successful, the parsed value is returned.
+    /// to be parsed) is provided as `contents`.  The 12-byte message header
+    /// is not included.  `contents[start..]` is the input to be parsed.  The
+    /// earlier bytes are provided for resolving compressed domain names.
     fn parse_message_bytes(
         contents: &'a [u8],
         start: usize,

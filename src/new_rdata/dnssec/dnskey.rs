@@ -1,14 +1,14 @@
-use core::fmt;
+use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
-use crate::new_base::wire::U16;
+use crate::new_base::{
+    wire::{AsBytes, U16},
+    CanonicalRecordData,
+};
 
 #[cfg(feature = "zonefile")]
-use crate::{
-    new_base::wire::{AsBytes, ParseBytesByRef},
-    utils::decoding::Base64Dec,
-};
+use crate::{new_base::wire::ParseBytesByRef, utils::decoding::Base64Dec};
 
 #[cfg(feature = "zonefile")]
 use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
@@ -34,6 +34,14 @@ pub struct DNSKey {
 
     /// The serialized public key.
     pub key: [u8],
+}
+
+//--- Canonical operations
+
+impl CanonicalRecordData for DNSKey {
+    fn cmp_canonical(&self, other: &Self) -> Ordering {
+        self.as_bytes().cmp(other.as_bytes())
+    }
 }
 
 //--- Scanning from the zonefile format

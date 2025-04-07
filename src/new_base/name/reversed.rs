@@ -6,6 +6,7 @@ use core::{
     fmt,
     hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
+    str::FromStr,
 };
 
 use domain_macros::UnsizedClone;
@@ -24,7 +25,7 @@ use crate::{
 #[cfg(feature = "zonefile")]
 use crate::new_zonefile::scanner::{Scan, ScanError, Scanner};
 
-use super::{Label, LabelBuf, LabelIter};
+use super::{Label, LabelBuf, LabelIter, NameParseError};
 
 //----------- RevName --------------------------------------------------------
 
@@ -57,26 +58,26 @@ impl RevName {
 //--- Construction
 
 impl RevName {
-    /// Assume a byte string is a valid [`RevName`].
+    /// Assume a byte sequence is a valid [`RevName`].
     ///
     /// # Safety
     ///
-    /// The byte string must begin with a root label (0-value byte).  It must
-    /// be followed by any number of encoded labels, as long as the size of
-    /// the whole string is 255 bytes or less.
+    /// The byte sequence must begin with a root label (0-value byte).  It
+    /// must be followed by any number of encoded labels, as long as the size
+    /// of the whole string is 255 bytes or less.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'RevName' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'RevName' is sound.
         core::mem::transmute(bytes)
     }
 
-    /// Assume a mutable byte string is a valid [`RevName`].
+    /// Assume a mutable byte sequence is a valid [`RevName`].
     ///
     /// # Safety
     ///
-    /// The byte string must begin with a root label (0-value byte).  It must
-    /// be followed by any number of encoded labels, as long as the size of
-    /// the whole string is 255 bytes or less.
+    /// The byte sequence must begin with a root label (0-value byte).  It
+    /// must be followed by any number of encoded labels, as long as the size
+    /// of the whole string is 255 bytes or less.
     pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'RevName' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'RevName' is sound.
@@ -128,7 +129,7 @@ impl BuildIntoMessage for RevName {
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl BuildBytes for RevName {
     fn build_bytes<'b>(
@@ -447,7 +448,7 @@ impl<'a> ParseBytes<'a> for RevNameBuf {
     }
 }
 
-//--- Building into byte strings
+//--- Building into byte sequences
 
 impl BuildBytes for RevNameBuf {
     fn build_bytes<'b>(
@@ -479,6 +480,35 @@ impl RevNameBuf {
             .copy_from_slice(label.as_bytes());
         self.offset -= 1;
         self.buffer[self.offset as usize] = label.len() as u8;
+    }
+}
+
+//--- Parsing from strings
+
+impl FromStr for RevNameBuf {
+    type Err = NameParseError;
+
+    /// Parse a name from a string.
+    ///
+    /// This is intended for easily constructing hard-coded domain names.  The
+    /// labels in the name should be given in the conventional order (i.e. not
+    /// reversed), and should be separated by ASCII periods.  The labels will
+    /// be parsed using [`LabelBuf::from_str()`]; see its documentation.  This
+    /// function cannot parse all valid domain names; if an exceptional name
+    /// needs to be parsed, use [`RevName::from_bytes_unchecked()`].  If the
+    /// input is empty, the root name is returned.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut this = Self::empty();
+        for label in s.split('.') {
+            let label =
+                label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
+            if this.offset < 2 + label.len() as u8 {
+                return Err(NameParseError::Overlong);
+            }
+            this.prepend_label(&label);
+        }
+        this.prepend_label(Label::ROOT);
+        Ok(this)
     }
 }
 

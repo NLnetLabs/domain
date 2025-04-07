@@ -1655,7 +1655,7 @@ mod test {
     #[cfg(feature = "bytes")]
     fn ds_octets_into() {
         use super::*;
-        use crate::base::iana::{Class, DigestAlg, SecAlg};
+        use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
         use crate::base::name::Name;
         use crate::rdata::Ds;
         use bytes::Bytes;
@@ -1667,8 +1667,8 @@ mod test {
             Ttl::from_secs(86400),
             Ds::new(
                 12,
-                SecAlg::RSASHA256,
-                DigestAlg::SHA256,
+                SecurityAlgorithm::RSASHA256,
+                DigestAlgorithm::SHA256,
                 b"something".as_ref(),
             )
             .unwrap(),
