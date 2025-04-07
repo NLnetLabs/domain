@@ -2,11 +2,7 @@
 //!
 //! See [RFC 1982](https://datatracker.ietf.org/doc/html/rfc1982).
 
-use core::{
-    cmp::Ordering,
-    fmt,
-    ops::{Add, AddAssign},
-};
+use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
@@ -47,19 +43,21 @@ impl Serial {
     }
 }
 
-//--- Addition
+//--- Interaction
 
-impl Add<i32> for Serial {
-    type Output = Self;
-
-    fn add(self, rhs: i32) -> Self::Output {
-        self.0.get().wrapping_add_signed(rhs).into()
-    }
-}
-
-impl AddAssign<i32> for Serial {
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 = self.0.get().wrapping_add_signed(rhs).into();
+impl Serial {
+    /// Increment this by a non-negative number.
+    ///
+    /// The number must be in the range `[0, 2^31 - 1]`.  An [`i32`] is used
+    /// instead of a [`u32`] because it is easier to understand and implement
+    /// a non-negative check versus the upper range check.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number is negative.
+    pub fn inc(self, num: i32) -> Self {
+        assert!(num >= 0, "Cannot subtract from a `Serial`");
+        self.0.get().wrapping_add_signed(num).into()
     }
 }
 
@@ -120,7 +118,7 @@ mod test {
     #[test]
     fn operations() {
         // TODO: Use property-based testing.
-        assert_eq!(u32::from(Serial::from(1) + 1), 2);
-        assert_eq!(u32::from(Serial::from(u32::MAX) + 1), 0);
+        assert_eq!(u32::from(Serial::from(1).inc(1)), 2);
+        assert_eq!(u32::from(Serial::from(u32::MAX).inc(1)), 0);
     }
 }
