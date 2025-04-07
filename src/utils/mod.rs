@@ -16,6 +16,26 @@ pub(crate) mod config;
 
 /// The ability to clone a (possibly unsized) value.
 ///
+/// This is a custom version of [`Clone`] that works on types without the need
+/// for the [`Sized`] trait.  It has been implemented on the various DST types
+/// in the [`new_base`](crate::new_base) module, allowing them to be copied
+/// around easily.
+///
+/// # Usage
+///
+/// This trait should be used in conjunction with [`CloneFrom`].  Containers
+/// need to implement [`CloneFrom`] (or some manual method) to support cloning
+/// data using [`UnsizedClone`].  [`unsized_clone_into()`] can be convenient
+/// to clone into a [`CloneFrom`] type, particularly when the return type can
+/// be inferred.
+///
+/// [`unsized_clone_into()`]: UnsizedClone::unsized_clone_into()
+///
+#[cfg_attr(
+    feature = "bumpalo",
+    doc = "The [`clone_to_bump()`] function is useful for cloning data into [`bumpalo`]-based allocations."
+)]
+///
 /// # Safety
 ///
 /// If `unsized_clone()` returns successfully (i.e. without panicking), `dst`
@@ -72,6 +92,15 @@ pub unsafe trait UnsizedClone {
     /// - `result as usize == addr as usize`.
     /// - `core::ptr::metadata(result) == core::ptr::metadata(ptr)`.
     fn ptr_with_address(&self, addr: *mut ()) -> *mut Self;
+
+    /// Clone this value into a container of the given type.
+    ///
+    /// This is a convenience method that forwards to
+    /// [`CloneFrom::clone_from()`].
+    #[inline]
+    fn unsized_clone_into<T: CloneFrom<Target = Self>>(&self) -> T {
+        T::clone_from(self)
+    }
 }
 
 macro_rules! impl_primitive_unsized_clone {
