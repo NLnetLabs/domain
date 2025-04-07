@@ -162,7 +162,7 @@ impl MessageState {
                 *self = Self::Authorities;
             }
             Self::MidAdditional { .. } => {
-                counts.additional += 1;
+                counts.additionals += 1;
                 *self = Self::Additionals;
             }
             _ => {}

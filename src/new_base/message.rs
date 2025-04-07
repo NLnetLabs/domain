@@ -341,7 +341,7 @@ pub struct SectionCounts {
     pub authorities: U16,
 
     /// The number of additional records in the message.
-    pub additional: U16,
+    pub additionals: U16,
 }
 
 //--- Interaction
@@ -370,7 +370,7 @@ impl fmt::Display for SectionCounts {
             (self.questions.get(), "question", "questions"),
             (self.answers.get(), "answer", "answers"),
             (self.authorities.get(), "authority", "authorities"),
-            (self.additional.get(), "additional", "additional"),
+            (self.additionals.get(), "additional", "additionals"),
         ] {
             // Add a comma if we have printed something before.
             if some && num > 0 {
