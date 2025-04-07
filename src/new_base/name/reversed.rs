@@ -702,7 +702,7 @@ mod test {
                 Ok(&[b"", b"org", b"sld", b"hello.world"]),
             ),
             (b"a\\046b.c.", Ok(&[b"", b"c", b"a.b"])),
-            (b"a.\"b c\".d", Ok(&[b"", b"org", b"d", b"b c", b"a"])),
+            (b"a.b\\ c.d", Ok(&[b"", b"org", b"d", b"b c", b"a"])),
         ];
 
         let alloc = bumpalo::Bump::new();

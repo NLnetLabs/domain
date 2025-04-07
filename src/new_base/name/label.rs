@@ -490,7 +490,7 @@ impl Scan<'_> for LabelBuf {
             match first {
                 Some(b'"') => {
                     return Err(ScanError::Custom(
-                        "a domain label was only partially quoted",
+                        "a domain label was quoted",
                     ))
                 }
 
@@ -709,7 +709,7 @@ mod test {
         let cases = [
             (
                 b"" as &[u8],
-                Err(ScanError::Custom("a domain label was explicitly empty")),
+                Err(ScanError::Custom("a domain label was empty")),
             ),
             (b"a", Ok(b"a" as &[u8])),
             (b"xn--hello", Ok(b"xn--hello")),
