@@ -39,7 +39,7 @@ pub use dnssec::{
 #[non_exhaustive]
 pub enum RecordData<'a, N> {
     /// The IPv4 address of a host responsible for this domain.
-    A(&'a A),
+    A(A),
 
     /// The authoritative name server for this domain.
     Ns(Ns<N>),
@@ -66,7 +66,7 @@ pub enum RecordData<'a, N> {
     Txt(&'a Txt),
 
     /// The IPv6 address of a host responsible for this domain.
-    Aaaa(&'a Aaaa),
+    Aaaa(Aaaa),
 
     /// Extended DNS options.
     Opt(&'a Opt),
@@ -98,7 +98,7 @@ pub enum RecordData<'a, N> {
 impl<N> RecordData<'_, N> {
     /// The type of this record data.
     pub const fn rtype(&self) -> RType {
-        match self {
+        match *self {
             Self::A(..) => RType::A,
             Self::Ns(..) => RType::NS,
             Self::CName(..) => RType::CNAME,
@@ -116,7 +116,7 @@ impl<N> RecordData<'_, N> {
             Self::DNSKey(..) => RType::DNSKEY,
             Self::NSec3(..) => RType::NSEC3,
             Self::NSec3Param(..) => RType::NSEC3PARAM,
-            Self::Unknown(rtype, _) => *rtype,
+            Self::Unknown(rtype, _) => rtype,
         }
     }
 }
@@ -154,7 +154,7 @@ impl<'a, N> RecordData<'a, N> {
         f: F,
     ) -> RecordData<'r, R> {
         match self {
-            Self::A(r) => RecordData::A(r),
+            Self::A(r) => RecordData::A(*r),
             Self::Ns(r) => RecordData::Ns(r.map_name_by_ref(f)),
             Self::CName(r) => RecordData::CName(r.map_name_by_ref(f)),
             Self::Soa(r) => RecordData::Soa(r.map_names_by_ref(f)),
@@ -163,7 +163,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::HInfo(r) => RecordData::HInfo(r.clone()),
             Self::Mx(r) => RecordData::Mx(r.map_name_by_ref(f)),
             Self::Txt(r) => RecordData::Txt(r),
-            Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::Aaaa(r) => RecordData::Aaaa(*r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
             Self::RRSig(r) => RecordData::RRSig(r.clone()),
@@ -187,7 +187,7 @@ impl<'a, N> RecordData<'a, N> {
         use crate::utils::clone_to_bump;
 
         match self {
-            Self::A(&r) => RecordData::A(bump.alloc(r)),
+            Self::A(r) => RecordData::A(*r),
             Self::Ns(r) => RecordData::Ns(r.clone()),
             Self::CName(r) => RecordData::CName(r.clone()),
             Self::Soa(r) => RecordData::Soa(r.clone()),
@@ -196,7 +196,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::HInfo(r) => RecordData::HInfo(r.clone_to_bump(bump)),
             Self::Mx(r) => RecordData::Mx(r.clone()),
             Self::Txt(r) => RecordData::Txt(clone_to_bump(*r, bump)),
-            Self::Aaaa(&r) => RecordData::Aaaa(bump.alloc(r)),
+            Self::Aaaa(r) => RecordData::Aaaa(*r),
             Self::Opt(r) => RecordData::Opt(clone_to_bump(*r, bump)),
             Self::Ds(r) => RecordData::Ds(clone_to_bump(*r, bump)),
             Self::RRSig(r) => RecordData::RRSig(r.clone_to_bump(bump)),
@@ -268,7 +268,7 @@ impl<N: CanonicalName> CanonicalRecordData for RecordData<'_, N> {
                 (Self::Unknown(_, l), Self::Unknown(_, r)) => {
                     l.cmp_canonical(r)
                 }
-                _ => unreachable!(),
+                _ => unreachable!("'self' and 'other' had the same rtype but were different enum variants"),
             })
     }
 }
@@ -285,7 +285,7 @@ where
         rtype: RType,
     ) -> Result<Self, ParseError> {
         match rtype {
-            RType::A => <&A>::parse_bytes(&contents[start..]).map(Self::A),
+            RType::A => A::parse_bytes(&contents[start..]).map(Self::A),
             RType::NS => {
                 Ns::parse_message_bytes(contents, start).map(Self::Ns)
             }
@@ -311,7 +311,7 @@ where
                 <&Txt>::parse_bytes(&contents[start..]).map(Self::Txt)
             }
             RType::AAAA => {
-                <&Aaaa>::parse_bytes(&contents[start..]).map(Self::Aaaa)
+                Aaaa::parse_bytes(&contents[start..]).map(Self::Aaaa)
             }
             RType::OPT => {
                 <&Opt>::parse_bytes(&contents[start..]).map(Self::Opt)
@@ -343,7 +343,7 @@ where
         rtype: RType,
     ) -> Result<Self, ParseError> {
         match rtype {
-            RType::A => <&A>::parse_bytes(bytes).map(Self::A),
+            RType::A => A::parse_bytes(bytes).map(Self::A),
             RType::NS => Ns::parse_bytes(bytes).map(Self::Ns),
             RType::CNAME => CName::parse_bytes(bytes).map(Self::CName),
             RType::SOA => Soa::parse_bytes(bytes).map(Self::Soa),
@@ -352,7 +352,7 @@ where
             RType::HINFO => HInfo::parse_bytes(bytes).map(Self::HInfo),
             RType::MX => Mx::parse_bytes(bytes).map(Self::Mx),
             RType::TXT => <&Txt>::parse_bytes(bytes).map(Self::Txt),
-            RType::AAAA => <&Aaaa>::parse_bytes(bytes).map(Self::Aaaa),
+            RType::AAAA => Aaaa::parse_bytes(bytes).map(Self::Aaaa),
             RType::OPT => <&Opt>::parse_bytes(bytes).map(Self::Opt),
             RType::DS => <&Ds>::parse_bytes(bytes).map(Self::Ds),
             RType::RRSIG => RRSig::parse_bytes(bytes).map(Self::RRSig),
