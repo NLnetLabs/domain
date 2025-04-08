@@ -29,7 +29,7 @@ pub use edns::{EdnsOptionsIter, Opt};
 mod dnssec;
 pub use dnssec::{
     DNSKey, DNSKeyFlags, DigestType, Ds, NSec, NSec3, NSec3Flags,
-    NSec3HashAlg, NSec3Param, RRSig, SecAlg,
+    NSec3HashAlg, NSec3Param, RRSig, SecAlg, TypeBitmaps,
 };
 
 //----------- RecordData -----------------------------------------------------
