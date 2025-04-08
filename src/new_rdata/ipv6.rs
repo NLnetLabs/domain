@@ -3,11 +3,9 @@
 //! See [RFC 3596](https://datatracker.ietf.org/doc/html/rfc3596).
 
 use core::cmp::Ordering;
-#[cfg(feature = "std")]
-use core::{fmt, str::FromStr};
-
-#[cfg(feature = "std")]
-use std::net::Ipv6Addr;
+use core::fmt;
+use core::net::Ipv6Addr;
+use core::str::FromStr;
 
 use domain_macros::*;
 
@@ -44,7 +42,6 @@ pub struct Aaaa {
 
 //--- Converting to and from 'Ipv6Addr'
 
-#[cfg(feature = "std")]
 impl From<Ipv6Addr> for Aaaa {
     fn from(value: Ipv6Addr) -> Self {
         Self {
@@ -53,7 +50,6 @@ impl From<Ipv6Addr> for Aaaa {
     }
 }
 
-#[cfg(feature = "std")]
 impl From<Aaaa> for Ipv6Addr {
     fn from(value: Aaaa) -> Self {
         Self::from(value.octets)
@@ -70,7 +66,6 @@ impl CanonicalRecordData for Aaaa {
 
 //--- Parsing from a string
 
-#[cfg(feature = "std")]
 impl FromStr for Aaaa {
     type Err = <Ipv6Addr as FromStr>::Err;
 
@@ -81,7 +76,6 @@ impl FromStr for Aaaa {
 
 //--- Formatting
 
-#[cfg(feature = "std")]
 impl fmt::Display for Aaaa {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Ipv6Addr::from(*self).fmt(f)
