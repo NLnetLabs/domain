@@ -1,3 +1,5 @@
+//! The DNSKEY record data type.
+
 use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
@@ -57,6 +59,7 @@ impl CanonicalRecordData for DNSKey {
 )]
 #[repr(transparent)]
 pub struct DNSKeyFlags {
+    /// The raw flag bits.
     inner: U16,
 }
 

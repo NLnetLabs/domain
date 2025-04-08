@@ -2,6 +2,9 @@
 //!
 //! See [RFC 6891](https://datatracker.ietf.org/doc/html/rfc6891).
 
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
 use core::fmt;
 
 use domain_macros::*;
@@ -139,6 +142,7 @@ impl BuildBytes for EdnsRecord<'_> {
 )]
 #[repr(transparent)]
 pub struct EdnsFlags {
+    /// The raw flag bits.
     inner: U16,
 }
 
@@ -332,6 +336,7 @@ pub struct OptionCode {
 //--- Associated Constants
 
 impl OptionCode {
+    /// Create a new [`OptionCode`].
     const fn new(code: u16) -> Self {
         Self {
             code: U16::new(code),

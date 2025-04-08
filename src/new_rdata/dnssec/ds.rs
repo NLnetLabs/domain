@@ -1,3 +1,5 @@
+//! The DS record data type.
+
 use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;

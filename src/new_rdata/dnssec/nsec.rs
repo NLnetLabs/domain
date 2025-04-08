@@ -1,3 +1,5 @@
+//! The NSEC record data type.
+
 use core::{cmp::Ordering, fmt, mem};
 
 use domain_macros::*;
@@ -51,6 +53,7 @@ impl CanonicalRecordData for NSec<'_> {
 #[derive(PartialEq, Eq, AsBytes, BuildBytes, UnsizedClone)]
 #[repr(transparent)]
 pub struct TypeBitmaps {
+    /// The bitmap data, encoded in the wire format.
     octets: [u8],
 }
 
@@ -92,6 +95,7 @@ impl fmt::Debug for TypeBitmaps {
 //--- Parsing
 
 impl TypeBitmaps {
+    /// Validate the given bytes as a bitmap in the wire format.
     fn validate_bytes(mut octets: &[u8]) -> Result<(), ParseError> {
         // At least one bitmap is mandatory.
         let mut num = octets.first().ok_or(ParseError)?;
@@ -108,6 +112,7 @@ impl TypeBitmaps {
         Ok(())
     }
 
+    /// Validate the given bytes as a bitmap window in the wire format.
     fn validate_window_bytes(octets: &[u8]) -> Result<&[u8], ParseError> {
         let &[_num, len, ref rest @ ..] = octets else {
             return Err(ParseError);

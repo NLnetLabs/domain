@@ -200,6 +200,7 @@ pub struct RType {
 //--- Associated Constants
 
 impl RType {
+    /// Create a new [`RType`].
     const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
@@ -377,6 +378,7 @@ pub struct RClass {
 //--- Associated Constants
 
 impl RClass {
+    /// Create a new [`RType`].
     const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),

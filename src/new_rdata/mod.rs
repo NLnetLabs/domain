@@ -1,5 +1,8 @@
 //! Record data types.
 
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
 use core::cmp::Ordering;
 
 use domain_macros::*;

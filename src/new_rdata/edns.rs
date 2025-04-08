@@ -1,4 +1,4 @@
-//! Record data types for Extended DNS.
+//! Record data types for EDNS (Extension Mechanism for DNS).
 //!
 //! See [RFC 6891](https://datatracker.ietf.org/doc/html/rfc6891).
 

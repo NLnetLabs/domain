@@ -1,3 +1,5 @@
+//! The RRSIG record data type.
+
 use core::cmp::Ordering;
 
 use domain_macros::*;

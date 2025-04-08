@@ -132,6 +132,7 @@ pub struct QType {
 //--- Associated Constants
 
 impl QType {
+    /// Create a new [`QType`].
     const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
@@ -216,6 +217,7 @@ pub struct QClass {
 //--- Associated Constants
 
 impl QClass {
+    /// Create a new [`QClass`].
     const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),

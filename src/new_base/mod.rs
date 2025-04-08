@@ -4,6 +4,9 @@
 //! with DNS.  Most importantly, it provides functionality for parsing and
 //! building DNS messages on the wire.
 
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
 //--- DNS messages
 
 mod message;
@@ -44,6 +47,7 @@ pub mod wire;
 /// deprecation message to help users switch to the right tools.
 pub mod compat {
     #![allow(deprecated)]
+    #![allow(missing_docs)]
 
     #[deprecated = "use 'crate::new_base::HeaderFlags' instead."]
     pub use header::Flags;

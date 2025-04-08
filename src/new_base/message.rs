@@ -143,6 +143,7 @@ impl fmt::Display for Header {
 )]
 #[repr(transparent)]
 pub struct HeaderFlags {
+    /// The raw flag bits.
     inner: U16,
 }
 

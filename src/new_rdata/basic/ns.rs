@@ -1,3 +1,5 @@
+//! The NS record data type.
+
 use core::cmp::Ordering;
 
 use domain_macros::*;

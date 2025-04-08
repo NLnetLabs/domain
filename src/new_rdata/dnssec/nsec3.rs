@@ -1,3 +1,5 @@
+//! The NSEC3 and NSEC3PARAM record data types.
+
 use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
@@ -175,6 +177,7 @@ impl fmt::Debug for NSec3HashAlg {
 )]
 #[repr(transparent)]
 pub struct NSec3Flags {
+    /// The raw flag bits.
     inner: u8,
 }
 

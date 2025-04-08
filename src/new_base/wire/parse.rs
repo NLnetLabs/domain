@@ -146,7 +146,10 @@ impl<'a, T: SplitBytes<'a>, const N: usize> SplitBytes<'a> for [T; N] {
 
         /// A guard for dropping initialized elements on panic / failure.
         struct Guard<T, const N: usize> {
+            /// The array of elements being built up.
             buffer: [MaybeUninit<T>; N],
+
+            /// The number of elements currently initialized.
             initialized: usize,
         }
 
