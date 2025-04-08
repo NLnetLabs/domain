@@ -43,6 +43,13 @@ impl<'a, T: SplitBytes<'a>, const N: usize> ParseBytes<'a> for [T; N] {
 }
 
 #[cfg(feature = "std")]
+impl<'a, T: ParseBytes<'a>> ParseBytes<'a> for std::boxed::Box<T> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        T::parse_bytes(bytes).map(std::boxed::Box::new)
+    }
+}
+
+#[cfg(feature = "std")]
 impl<'a> ParseBytes<'a> for std::vec::Vec<u8> {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         Ok(bytes.to_vec())
@@ -171,6 +178,14 @@ impl<'a, T: SplitBytes<'a>, const N: usize> SplitBytes<'a> for [T; N] {
         // because 'MaybeUninit<T>' and 'T' have the same layout, because it
         // is documented in the standard library.
         Ok((unsafe { core::mem::transmute_copy(&guard.buffer) }, bytes))
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a, T: SplitBytes<'a>> SplitBytes<'a> for std::boxed::Box<T> {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        T::split_bytes(bytes)
+            .map(|(this, rest)| (std::boxed::Box::new(this), rest))
     }
 }
 

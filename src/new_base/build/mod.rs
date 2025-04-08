@@ -104,6 +104,20 @@ impl<T: BuildIntoMessage, const N: usize> BuildIntoMessage for [T; N] {
     }
 }
 
+#[cfg(feature = "std")]
+impl<T: ?Sized + BuildIntoMessage> BuildIntoMessage for std::boxed::Box<T> {
+    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
+        T::build_into_message(self, builder)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: BuildIntoMessage> BuildIntoMessage for std::vec::Vec<T> {
+    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
+        self.as_slice().build_into_message(builder)
+    }
+}
+
 //----------- BuildResult ----------------------------------------------------
 
 /// The result of building into a DNS message.
