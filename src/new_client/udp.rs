@@ -49,18 +49,18 @@
 
 use core::net::SocketAddr;
 use core::time::Duration;
+use std::boxed::Box;
 use std::io;
 
 use tokio::net::UdpSocket;
 use tokio::sync::Semaphore;
 use tracing::trace;
 
-use crate::new_base::build::BuilderContext;
 use crate::new_base::wire::{AsBytes, ParseBytesByRef};
 use crate::new_base::Message;
+use crate::utils::CloneFrom;
 
-use super::exchange::{Exchange, ParsedMessage};
-use super::{Client, ClientError, SocketError};
+use super::{Client, ClientError, ExtendedMessageBuilder, SocketError};
 
 #[derive(Clone, Debug)]
 pub struct UdpConfig {
@@ -101,10 +101,10 @@ impl UdpClient {
 }
 
 impl Client for UdpClient {
-    async fn request<'a>(
+    async fn request(
         &self,
-        exchange: &mut Exchange<'a>,
-    ) -> Result<(), ClientError> {
+        mut request: ExtendedMessageBuilder<'_, '_>,
+    ) -> Result<Box<Message>, ClientError> {
         let _permit = self
             .semaphore
             .acquire()
@@ -112,27 +112,22 @@ impl Client for UdpClient {
             .expect("the semaphore is never closed and not exposed");
 
         if let Some(size) = self.config.udp_payload_size {
-            exchange.request.set_max_udp_payload_size(size);
+            request.set_udp_max_payload_size(size);
         }
 
-        let mut buffer = vec![0u8; 65536];
-        let mut context = BuilderContext::default();
-        let mut request_builder = exchange
-            .request
-            .build(&mut context, &mut buffer)
-            .map_err(|_| ClientError::TruncatedRequest)?;
+        // XXX: remove unwrap
+        let request = request.build().unwrap();
 
         let mut response_buffer = vec![0u8; self.config.recv_size];
         for _ in 0..(1 + self.config.max_retries) {
-            request_builder.header_mut().id.set(rand::random());
-            let request_message = request_builder.message();
+            request.header.id.set(rand::random());
 
             // We create a new UDP socket for each retry, to follow
             // RFC 5452's recommendations of using unpredictable source port
             // numbers.
             let response_result = send_udp_request(
                 &mut *response_buffer,
-                request_message,
+                request,
                 self.addr,
                 self.config.read_timeout,
             )
@@ -145,16 +140,7 @@ impl Client for UdpClient {
 
             let response_message = response_result?;
 
-            let Ok(parsed) =
-                ParsedMessage::parse(response_message, &mut exchange.alloc)
-            else {
-                // The message turned out to be garbage, continue the loop
-                // to ask the server again.
-                continue;
-            };
-
-            exchange.response = parsed;
-            return Ok(());
+            return Ok(CloneFrom::clone_from(response_message));
         }
 
         drop(_permit);
