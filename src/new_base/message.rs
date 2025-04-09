@@ -129,6 +129,91 @@ impl fmt::Display for Header {
 //----------- HeaderFlags ----------------------------------------------------
 
 /// DNS message header flags.
+///
+/// This 16-bit field provides information about the containing DNS message.
+/// Its contents define the purpose of the message, e.g. whether it is a query
+/// or a response.  Due to its small size, it doesn't cover everything; the
+/// OPT record may provide additional information, if it is present.
+///
+/// # Specification
+///
+// TODO: Update regularly.
+//
+/// The header field has been updated by several RFCs and the interpretation
+/// of its bits has changed in some places.  The following is a collection of
+/// the relevant RFC notes; it is up-to-date as of *2025-04-03*.
+///
+/// The descriptions here are specific to the `QUERY` opcode, which is by far
+/// the most common.  Other opcodes can change the interpretation of the bits
+/// here.
+///
+/// ```text
+///   15   14   13   12   11   10    9    8
+/// +----+----+----+----+----+----+----+----+
+/// | QR |       OPCODE      | AA | TC | RD |  } MSB
+/// +----+----+----+----+----+----+----+----+
+/// | RA |    | AD | CD |       RCODE       |  } LSB
+/// +----+----+----+----+----+----+----+----+
+///    7    6    5    4    3    2    1    0
+/// ```
+///
+/// Here is a short description of each field.
+///
+/// - `QR` (Query or Response): set if and only if the message is a response.
+///
+///   Specified by [RFC 1035, section 4.1.1].
+///
+/// - `OPCODE`: the specific operation requested by the DNS client.
+///
+///   Specified by [RFC 1035, section 4.1.1].
+///
+/// - `AA`: whether the DNS server is authoritative for the primary answer.
+///
+///   Specified by [RFC 1035, section 4.1.1].
+///
+/// - `TC`: whether the response is truncated (due to channel limitations).
+///
+///   Specified by [RFC 1035, section 4.1.1].  Behaviour clarified by [RFC
+///   2181, section 9].  Behaviour for DNSSEC servers specified by [RFC 4035,
+///   section 3.1].
+///
+/// - `RD`: whether the DNS client wishes for a recursively resolved answer.
+///
+///   Specified by [RFC 1035, section 4.1.1].
+///
+/// - `RA`: whether the DNS server supports recursive resolution.
+///
+///   Specified by [RFC 1035, section 4.1.1].
+///
+/// - `AD`: whether the DNS server has authenticated the answer.
+///
+///   Defined by [RFC 2535, section 6.1].  Behaviour for authoritative name
+///   servers specified by [RFC 4035, section 3.1.6].  Behaviour for recursive
+///   name servers specified by [RFC 4035, section 3.2.3] and updated by [RFC
+///   6840, section 5.8].  Behaviour for DNS clients specified by [RFC 6840,
+///   section 5.7].
+///
+/// - `CD`: whether the DNS server should avoid authenticating the answer.
+///
+///   Defined by [RFC 2535, section 6.1].  Behaviour for authoritative name
+///   servers specified by [RFC 4035, section 3.1.6].  Behaviour for recursive
+///   name servers specified by [RFC 4035, section 3.2.2] and updated by [RFC
+///   6840, section 5.9].
+///
+/// - `RCODE`: the response status of the DNS server.
+///
+///   Specified by [RFC 1035, section 4.1.1].
+///
+/// [RFC 1035, section 4.1.1]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
+/// [RFC 2181, section 9]: https://datatracker.ietf.org/doc/html/rfc2181#section-9
+/// [RFC 2535, section 6.1]: https://datatracker.ietf.org/doc/html/rfc2535#section-6.1
+/// [RFC 4035, section 3.1]: https://datatracker.ietf.org/doc/html/rfc4035#section-3.1
+/// [RFC 4035, section 3.1.6]: https://datatracker.ietf.org/doc/html/rfc4035#section-3.1.6
+/// [RFC 4035, section 3.2.2]: https://datatracker.ietf.org/doc/html/rfc4035#section-3.2.2
+/// [RFC 4035, section 3.2.3]: https://datatracker.ietf.org/doc/html/rfc4035#section-3.2.3
+/// [RFC 6840, section 5.7]: https://datatracker.ietf.org/doc/html/rfc6840#section-5.7
+/// [RFC 6840, section 5.8]: https://datatracker.ietf.org/doc/html/rfc6840#section-5.8
+/// [RFC 6840, section 5.9]: https://datatracker.ietf.org/doc/html/rfc6840#section-5.9
 #[derive(
     Copy,
     Clone,
