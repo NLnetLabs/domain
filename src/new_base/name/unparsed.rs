@@ -4,7 +4,7 @@ use domain_macros::*;
 
 use crate::new_base::{
     parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{ParseError, SplitBytes},
+    wire::{ParseBytes, ParseError, SplitBytes},
 };
 
 use super::Label;
@@ -50,6 +50,19 @@ impl UnparsedName {
     /// with a root label or a compression pointer, as long as the size of the
     /// whole sequence is 256 bytes or less.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
+        // SAFETY: 'UnparsedName' is 'repr(transparent)' to '[u8]', so casting
+        // a '[u8]' into an 'UnparsedName' is sound.
+        core::mem::transmute(bytes)
+    }
+
+    /// Assume a mutable byte sequence is a valid [`UnparsedName`].
+    ///
+    /// # Safety
+    ///
+    /// The byte sequence must contain any number of encoded labels, ending
+    /// with a root label or a compression pointer, as long as the size of the
+    /// whole sequence is 256 bytes or less.
+    pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'UnparsedName' is 'repr(transparent)' to '[u8]', so casting
         // a '[u8]' into an 'UnparsedName' is sound.
         core::mem::transmute(bytes)
@@ -110,21 +123,21 @@ impl<'a> SplitMessageBytes<'a> for &'a UnparsedName {
     ) -> Result<(Self, usize), ParseError> {
         let bytes = &contents[start..];
         let mut offset = 0;
-        let offset = loop {
-            match bytes[offset..] {
+        while offset < 255 {
+            match *bytes.get(offset..).ok_or(ParseError)? {
                 // This is the root label.
-                [0, ..] => break offset + 1,
+                [0, ..] => {
+                    offset += 1;
+                    let bytes = &bytes[..offset];
+                    return Ok((
+                        unsafe { UnparsedName::from_bytes_unchecked(bytes) },
+                        start + offset,
+                    ));
+                }
 
                 // This looks like a regular label.
-                [l, ref rest @ ..] if (1..64).contains(&l) => {
-                    let length = l as usize;
-
-                    if rest.len() < length || offset + 2 + length > 255 {
-                        // The name is incomplete or too big.
-                        return Err(ParseError);
-                    }
-
-                    offset += 1 + length;
+                [l @ 1..=63, ref rest @ ..] if rest.len() >= l as usize => {
+                    offset += 1 + l as usize;
                 }
 
                 // This is a compression pointer.
@@ -133,16 +146,19 @@ impl<'a> SplitMessageBytes<'a> for &'a UnparsedName {
                     if usize::from(ptr - 0xC000) >= start {
                         return Err(ParseError);
                     }
-                    break offset + 2;
+
+                    offset += 2;
+                    let bytes = &bytes[..offset];
+                    return Ok((
+                        unsafe { UnparsedName::from_bytes_unchecked(bytes) },
+                        start + offset,
+                    ));
                 }
 
                 _ => return Err(ParseError),
             }
-        };
-
-        let bytes = &bytes[..offset];
-        let rest = start + offset;
-        Ok((unsafe { UnparsedName::from_bytes_unchecked(bytes) }, rest))
+        }
+        Err(ParseError)
     }
 }
 
@@ -153,6 +169,54 @@ impl<'a> ParseMessageBytes<'a> for &'a UnparsedName {
     ) -> Result<Self, ParseError> {
         match Self::split_message_bytes(contents, start) {
             Ok((this, rest)) if rest == contents.len() => Ok(this),
+            _ => Err(ParseError),
+        }
+    }
+}
+
+//--- Parsing from byte sequences
+
+impl<'a> SplitBytes<'a> for &'a UnparsedName {
+    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+        let mut offset = 0;
+        while offset < 255 {
+            match *bytes.get(offset..).ok_or(ParseError)? {
+                // This is the root label.
+                [0, ..] => {
+                    offset += 1;
+                    let (bytes, rest) = bytes.split_at(offset);
+                    return Ok((
+                        unsafe { UnparsedName::from_bytes_unchecked(bytes) },
+                        rest,
+                    ));
+                }
+
+                // This looks like a regular label.
+                [l @ 1..=63, ref rest @ ..] if rest.len() >= l as usize => {
+                    offset += 1 + l as usize;
+                }
+
+                // This is a compression pointer.
+                [hi, _lo, ..] if hi >= 0xC0 => {
+                    offset += 2;
+                    let (bytes, rest) = bytes.split_at(offset);
+                    return Ok((
+                        unsafe { UnparsedName::from_bytes_unchecked(bytes) },
+                        rest,
+                    ));
+                }
+
+                _ => return Err(ParseError),
+            }
+        }
+        Err(ParseError)
+    }
+}
+
+impl<'a> ParseBytes<'a> for &'a UnparsedName {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        match Self::split_bytes(bytes) {
+            Ok((this, &[])) => Ok(this),
             _ => Err(ParseError),
         }
     }
