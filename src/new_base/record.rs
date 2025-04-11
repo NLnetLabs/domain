@@ -33,9 +33,6 @@ pub struct Record<N, D> {
     pub rdata: D,
 }
 
-/// An unparsed DNS record.
-pub type UnparsedRecord<'a> = Record<RevNameBuf, &'a UnparsedRecordData>;
-
 //--- Construction
 
 impl<N, D> Record<N, D> {

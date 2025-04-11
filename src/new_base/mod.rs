@@ -1,8 +1,8 @@
 //! Basic DNS.
 //!
 //! This module provides the essential types and functionality for working
-//! with DNS.  Most importantly, it provides functionality for parsing and
-//! building DNS messages on the wire.
+//! with DNS.  Crucially, it provides functionality for parsing and building
+//! DNS messages on the wire.
 
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
@@ -18,7 +18,7 @@ pub use question::{QClass, QType, Question, UnparsedQuestion};
 mod record;
 pub use record::{
     CanonicalRecordData, ParseRecordData, RClass, RType, Record,
-    UnparsedRecord, UnparsedRecordData, TTL,
+    UnparsedRecordData, TTL,
 };
 
 //--- Elements of DNS messages
