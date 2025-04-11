@@ -57,6 +57,21 @@ impl<N, D> Record<N, D> {
     }
 }
 
+//--- Interaction
+
+impl<N, D> Record<N, D> {
+    /// Map the record name to a different type.
+    pub fn map_name<R, F: FnOnce(N) -> R>(self, f: F) -> Record<R, D> {
+        Record {
+            rname: (f)(self.rname),
+            rtype: self.rtype,
+            rclass: self.rclass,
+            ttl: self.ttl,
+            rdata: self.rdata,
+        }
+    }
+}
+
 //--- Parsing from DNS messages
 
 impl<'a, N, D> SplitMessageBytes<'a> for Record<N, D>
