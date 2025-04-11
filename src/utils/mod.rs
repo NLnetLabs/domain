@@ -41,6 +41,17 @@ pub(crate) mod config;
 /// If `unsized_clone()` returns successfully (i.e. without panicking), `dst`
 /// is initialized to a valid instance of `Self`.
 pub unsafe trait UnsizedClone {
+    /// A type with the same alignment as this.
+    ///
+    /// Types which don't have a [`Sized`] bound (which is the primary use
+    /// case for [`UnsizedClone`]) don't have an alignment known at compile
+    /// time, because they include trait objects.  Trait objects cannot be
+    /// used with [`UnsizedClone`], as they cannot (currently) implement
+    /// [`UnsizedClone::ptr_with_address()`], so this restriction does not
+    /// matter.  As a workaround, implementors must provide this type, which
+    /// must have exactly the same alignment as `Self`.
+    type Alignment: Sized;
+
     /// Clone this value into the given space.
     ///
     /// # Safety
@@ -106,6 +117,8 @@ pub unsafe trait UnsizedClone {
 macro_rules! impl_primitive_unsized_clone {
     ($type:ty) => {
         unsafe impl UnsizedClone for $type {
+            type Alignment = Self;
+
             unsafe fn unsized_clone(&self, dst: *mut ()) {
                 let this = self.clone();
                 unsafe { dst.cast::<Self>().write(this) };
@@ -139,6 +152,8 @@ impl_primitive_unsized_clone!(f32);
 impl_primitive_unsized_clone!(f64);
 
 unsafe impl<T: ?Sized> UnsizedClone for &T {
+    type Alignment = Self;
+
     unsafe fn unsized_clone(&self, dst: *mut ()) {
         unsafe { dst.cast::<Self>().write(*self) };
     }
@@ -149,6 +164,9 @@ unsafe impl<T: ?Sized> UnsizedClone for &T {
 }
 
 unsafe impl UnsizedClone for str {
+    // 'str' has an identical layout to '[u8]'.
+    type Alignment = u8;
+
     unsafe fn unsized_clone(&self, dst: *mut ()) {
         unsafe {
             self.as_bytes()
@@ -170,6 +188,9 @@ unsafe impl UnsizedClone for str {
 }
 
 unsafe impl<T: Clone> UnsizedClone for [T] {
+    // Slices have the same alignment as their element type.
+    type Alignment = T;
+
     unsafe fn unsized_clone(&self, dst: *mut ()) {
         /// A drop guard.
         struct Guard<T> {
@@ -210,6 +231,9 @@ unsafe impl<T: Clone> UnsizedClone for [T] {
 }
 
 unsafe impl<T: Clone, const N: usize> UnsizedClone for [T; N] {
+    // Arrays have the same alignment as their element type.
+    type Alignment = T;
+
     unsafe fn unsized_clone(&self, dst: *mut ()) {
         let this = self.clone();
         unsafe { dst.cast::<Self>().write(this) };
@@ -227,6 +251,9 @@ macro_rules! impl_unsized_clone_tuple {
         unsafe impl
         <$($type: Clone,)* $last_type: ?Sized + UnsizedClone>
         UnsizedClone for ($($type,)* $last_type,) {
+            // Replace the last field with its alignment type.
+            type Alignment = ($($type,)* <$last_type>::Alignment,);
+
             unsafe fn unsized_clone(&self, dst: *mut ()) {
                 let dst: *mut Self = self.ptr_with_address(dst);
                 unsafe {
@@ -271,6 +298,62 @@ impl<T: ?Sized + UnsizedClone> CloneFrom for Box<T> {
         unsafe { value.unsized_clone(ptr.cast()) };
         let ptr = value.ptr_with_address(ptr.cast());
         unsafe { Box::from_raw(ptr) }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: ?Sized + UnsizedClone> CloneFrom for std::rc::Rc<T> {
+    fn clone_from(value: &Self::Target) -> Self {
+        use core::mem::MaybeUninit;
+
+        /// A [`u8`] with a custom alignment.
+        #[derive(Copy, Clone)]
+        #[repr(C)]
+        struct AlignedU8<T>([T; 0], u8);
+
+        // TODO(1.82): Use 'Rc::new_uninit_slice()'.
+        // 'impl FromIterator for Rc' describes performance characteristics.
+        // For efficiency, the iterator should implement 'TrustedLen', which
+        // is (currently) a nightly-only trait.  However, we can use the
+        // existing 'std' types which happen to implement it.
+        let size = core::mem::size_of_val(value);
+        let rc: std::rc::Rc<[MaybeUninit<AlignedU8<T::Alignment>>]> =
+            (0..size).map(|_| MaybeUninit::uninit()).collect();
+
+        let ptr = std::rc::Rc::into_raw(rc).cast_mut();
+        // SAFETY: 'rc' was just constructed and has never been cloned.
+        unsafe { value.unsized_clone(ptr.cast()) };
+
+        let ptr = value.ptr_with_address(ptr.cast());
+        unsafe { std::rc::Rc::from_raw(ptr) }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: ?Sized + UnsizedClone> CloneFrom for std::sync::Arc<T> {
+    fn clone_from(value: &Self::Target) -> Self {
+        use core::mem::MaybeUninit;
+
+        /// A [`u8`] with a custom alignment.
+        #[derive(Copy, Clone)]
+        #[repr(C)]
+        struct AlignedU8<T>([T; 0], u8);
+
+        // TODO(1.82): Use 'Arc::new_uninit_slice()'.
+        // 'impl FromIterator for Arc' describes performance characteristics.
+        // For efficiency, the iterator should implement 'TrustedLen', which
+        // is (currently) a nightly-only trait.  However, we can use the
+        // existing 'std' types which happen to implement it.
+        let size = core::mem::size_of_val(value);
+        let arc: std::sync::Arc<[MaybeUninit<AlignedU8<T::Alignment>>]> =
+            (0..size).map(|_| MaybeUninit::uninit()).collect();
+
+        let ptr = std::sync::Arc::into_raw(arc).cast_mut();
+        // SAFETY: 'arc' was just constructed and has never been cloned.
+        unsafe { value.unsized_clone(ptr.cast()) };
+
+        let ptr = value.ptr_with_address(ptr.cast());
+        unsafe { std::sync::Arc::from_raw(ptr) }
     }
 }
 
