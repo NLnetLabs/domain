@@ -13,7 +13,7 @@ mod message;
 pub use message::{Header, HeaderFlags, Message, SectionCounts};
 
 mod question;
-pub use question::{QClass, QType, Question, UnparsedQuestion};
+pub use question::{QClass, QType, Question};
 
 mod record;
 pub use record::{

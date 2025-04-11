@@ -6,7 +6,6 @@ use domain_macros::*;
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
-    name::RevNameBuf,
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{AsBytes, ParseError, U16},
 };
@@ -25,9 +24,6 @@ pub struct Question<N> {
     /// The class of the requested records.
     pub qclass: QClass,
 }
-
-/// An unparsed DNS question.
-pub type UnparsedQuestion = Question<RevNameBuf>;
 
 //--- Construction
 
