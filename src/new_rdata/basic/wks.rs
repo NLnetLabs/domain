@@ -1,3 +1,5 @@
+//! The WKS record data type.
+
 use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;

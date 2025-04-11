@@ -83,6 +83,16 @@ impl<T: BuildBytes, const N: usize> BuildBytes for [T; N] {
 }
 
 #[cfg(feature = "std")]
+impl<T: ?Sized + BuildBytes> BuildBytes for std::boxed::Box<T> {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        T::build_bytes(self, bytes)
+    }
+}
+
+#[cfg(feature = "std")]
 impl<T: BuildBytes> BuildBytes for std::vec::Vec<T> {
     fn build_bytes<'b>(
         &self,

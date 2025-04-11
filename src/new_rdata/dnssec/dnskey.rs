@@ -1,3 +1,5 @@
+//! The DNSKEY record data type.
+
 use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
@@ -114,6 +116,7 @@ impl<'a> Scan<'a> for &'a DNSKey {
 )]
 #[repr(transparent)]
 pub struct DNSKeyFlags {
+    /// The raw flag bits.
     inner: U16,
 }
 

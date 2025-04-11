@@ -6,7 +6,6 @@ use domain_macros::*;
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
-    name::RevNameBuf,
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{AsBytes, ParseError, U16},
 };
@@ -25,9 +24,6 @@ pub struct Question<N> {
     /// The class of the requested records.
     pub qclass: QClass,
 }
-
-/// An unparsed DNS question.
-pub type UnparsedQuestion = Question<RevNameBuf>;
 
 //--- Construction
 
@@ -132,40 +128,41 @@ pub struct QType {
 //--- Associated Constants
 
 impl QType {
+    /// Create a new [`QType`].
     const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
         }
     }
 
-    /// The type of an [`A`](crate::new_rdata::A) record.
+    /// The type of queries for [`A`](crate::new_rdata::A) records.
     pub const A: Self = Self::new(1);
 
-    /// The type of an [`Ns`](crate::new_rdata::Ns) record.
+    /// The type of queries for [`Ns`](crate::new_rdata::Ns) records.
     pub const NS: Self = Self::new(2);
 
-    /// The type of a [`CName`](crate::new_rdata::CName) record.
+    /// The type of queries for [`CName`](crate::new_rdata::CName) records.
     pub const CNAME: Self = Self::new(5);
 
-    /// The type of an [`Soa`](crate::new_rdata::Soa) record.
+    /// The type of queries for [`Soa`](crate::new_rdata::Soa) records.
     pub const SOA: Self = Self::new(6);
 
-    /// The type of a [`Wks`](crate::new_rdata::Wks) record.
+    /// The type of queries for [`Wks`](crate::new_rdata::Wks) records.
     pub const WKS: Self = Self::new(11);
 
-    /// The type of a [`Ptr`](crate::new_rdata::Ptr) record.
+    /// The type of queries for [`Ptr`](crate::new_rdata::Ptr) records.
     pub const PTR: Self = Self::new(12);
 
-    /// The type of a [`HInfo`](crate::new_rdata::HInfo) record.
+    /// The type of queries for [`HInfo`](crate::new_rdata::HInfo) records.
     pub const HINFO: Self = Self::new(13);
 
-    /// The type of a [`Mx`](crate::new_rdata::Mx) record.
+    /// The type of queries for [`Mx`](crate::new_rdata::Mx) records.
     pub const MX: Self = Self::new(15);
 
-    /// The type of a [`Txt`](crate::new_rdata::Txt) record.
+    /// The type of queries for [`Txt`](crate::new_rdata::Txt) records.
     pub const TXT: Self = Self::new(16);
 
-    /// The type of an [`Aaaa`](crate::new_rdata::Aaaa) record.
+    /// The type of queries for [`Aaaa`](crate::new_rdata::Aaaa) records.
     pub const AAAA: Self = Self::new(28);
 }
 
@@ -216,16 +213,17 @@ pub struct QClass {
 //--- Associated Constants
 
 impl QClass {
+    /// Create a new [`QClass`].
     const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
         }
     }
 
-    /// The Internet class.
+    /// The type of queries in the Internet class.
     pub const IN: Self = Self::new(1);
 
-    /// The CHAOS class.
+    /// The type of queries in the CHAOS class.
     pub const CH: Self = Self::new(3);
 }
 

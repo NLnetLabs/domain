@@ -4,7 +4,6 @@ use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
-    name::RevNameBuf,
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{
         AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
@@ -36,9 +35,6 @@ pub struct Record<N, D> {
     pub rdata: D,
 }
 
-/// An unparsed DNS record.
-pub type UnparsedRecord<'a> = Record<RevNameBuf, &'a UnparsedRecordData>;
-
 //--- Construction
 
 impl<N, D> Record<N, D> {
@@ -56,6 +52,21 @@ impl<N, D> Record<N, D> {
             rclass,
             ttl,
             rdata,
+        }
+    }
+}
+
+//--- Interaction
+
+impl<N, D> Record<N, D> {
+    /// Map the record name to a different type.
+    pub fn map_name<R, F: FnOnce(N) -> R>(self, f: F) -> Record<R, D> {
+        Record {
+            rname: (f)(self.rname),
+            rtype: self.rtype,
+            rclass: self.rclass,
+            ttl: self.ttl,
+            rdata: self.rdata,
         }
     }
 }
@@ -127,7 +138,7 @@ where
 impl<'a, N, D> SplitBytes<'a> for Record<N, D>
 where
     N: SplitBytes<'a>,
-    D: ParseRecordData<'a>,
+    D: ParseRecordDataBytes<'a>,
 {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (rname, rest) = N::split_bytes(bytes)?;
@@ -144,7 +155,7 @@ where
 impl<'a, N, D> ParseBytes<'a> for Record<N, D>
 where
     N: SplitBytes<'a>,
-    D: ParseRecordData<'a>,
+    D: ParseRecordDataBytes<'a>,
 {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         match Self::split_bytes(bytes) {
@@ -203,6 +214,7 @@ pub struct RType {
 //--- Associated Constants
 
 impl RType {
+    /// Create a new [`RType`].
     const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
@@ -418,6 +430,7 @@ pub struct RClass {
 //--- Associated Constants
 
 impl RClass {
+    /// Create a new [`RType`].
     const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
@@ -564,7 +577,7 @@ impl Scan<'_> for TTL {
 //----------- ParseRecordData ------------------------------------------------
 
 /// Parsing DNS record data.
-pub trait ParseRecordData<'a>: Sized {
+pub trait ParseRecordData<'a>: ParseRecordDataBytes<'a> {
     /// Parse DNS record data of the given type from a DNS message.
     fn parse_record_data(
         contents: &'a [u8],
@@ -573,7 +586,10 @@ pub trait ParseRecordData<'a>: Sized {
     ) -> Result<Self, ParseError> {
         Self::parse_record_data_bytes(&contents[start..], rtype)
     }
+}
 
+/// Parsing DNS record data without name compression.
+pub trait ParseRecordDataBytes<'a>: Sized {
     /// Parse DNS record data of the given type from a byte sequence.
     fn parse_record_data_bytes(
         bytes: &'a [u8],
@@ -636,7 +652,9 @@ impl UnparsedRecordData {
 
 //--- Parsing record data
 
-impl<'a> ParseRecordData<'a> for &'a UnparsedRecordData {
+impl<'a> ParseRecordData<'a> for &'a UnparsedRecordData {}
+
+impl<'a> ParseRecordDataBytes<'a> for &'a UnparsedRecordData {
     fn parse_record_data_bytes(
         bytes: &'a [u8],
         _rtype: RType,

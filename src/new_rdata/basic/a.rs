@@ -1,3 +1,5 @@
+//! The A record data type.
+
 use core::cmp::Ordering;
 use core::fmt;
 use core::net::Ipv4Addr;

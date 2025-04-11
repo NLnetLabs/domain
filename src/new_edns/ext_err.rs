@@ -70,6 +70,7 @@ pub struct ExtErrorCode {
 //--- Associated Constants
 
 impl ExtErrorCode {
+    /// Create a new [`ExtErrorCode`].
     const fn new(code: u16) -> Self {
         Self {
             code: U16::new(code),

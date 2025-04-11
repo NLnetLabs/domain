@@ -662,8 +662,15 @@ pub fn derive_unsized_clone(input: pm::TokenStream) -> pm::TokenStream {
         };
 
         if let Some(data) = struct_data {
+            let sized_tys = data.sized_fields().map(|f| &f.ty);
+            let unsized_ty = &data.unsized_field().unwrap().ty;
+
             let sized_members = data.sized_members();
             let unsized_member = data.unsized_member().unwrap();
+
+            skeleton.contents.stmts.push(syn::parse_quote! {
+                type Alignment = (#(#sized_tys,)* <#unsized_ty as ::domain::utils::UnsizedClone>::Alignment,);
+            });
 
             skeleton.contents.stmts.push(syn::parse_quote! {
                 unsafe fn unsized_clone(&self, dst: *mut ()) {
@@ -690,6 +697,10 @@ pub fn derive_unsized_clone(input: pm::TokenStream) -> pm::TokenStream {
                 }
             });
         } else {
+            skeleton.contents.stmts.push(syn::parse_quote! {
+                type Alignment = Self;
+            });
+
             skeleton.contents.stmts.push(syn::parse_quote! {
                 unsafe fn unsized_clone(&self, dst: *mut ()) {
                     let dst = dst as *mut Self;

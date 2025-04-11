@@ -1,8 +1,11 @@
 //! Basic DNS.
 //!
 //! This module provides the essential types and functionality for working
-//! with DNS.  Most importantly, it provides functionality for parsing and
-//! building DNS messages on the wire.
+//! with DNS.  Crucially, it provides functionality for parsing and building
+//! DNS messages on the wire.
+
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
 
 //--- DNS messages
 
@@ -10,12 +13,12 @@ mod message;
 pub use message::{Header, HeaderFlags, Message, SectionCounts};
 
 mod question;
-pub use question::{QClass, QType, Question, UnparsedQuestion};
+pub use question::{QClass, QType, Question};
 
 mod record;
 pub use record::{
-    CanonicalRecordData, ParseRecordData, RClass, RType, Record,
-    UnparsedRecord, UnparsedRecordData, TTL,
+    CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RClass,
+    RType, Record, UnparsedRecordData, TTL,
 };
 
 //--- Elements of DNS messages
@@ -44,6 +47,7 @@ pub mod wire;
 /// deprecation message to help users switch to the right tools.
 pub mod compat {
     #![allow(deprecated)]
+    #![allow(missing_docs)]
 
     #[deprecated = "use 'crate::new_base::HeaderFlags' instead."]
     pub use header::Flags;
