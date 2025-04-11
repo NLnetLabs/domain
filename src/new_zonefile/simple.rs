@@ -117,6 +117,10 @@ impl<R: io::BufRead + Clone> Clone for ZonefileScanner<R> {
 impl<R: io::BufRead> ZonefileScanner<R> {
     /// Scan the next entry and return a reference to it.
     pub fn scan(&mut self) -> Result<Option<Entry<'_>>, ZonefileError> {
+        // Reset buffers from previous records.
+        self.alloc.reset();
+        self.buffer.clear();
+
         // Ignore directives for setting the origin and TTL.
         let entry = loop {
             let Some(entry) = self.entries.next_entry()? else {

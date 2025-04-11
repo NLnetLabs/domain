@@ -2,6 +2,9 @@
 
 use core::fmt;
 
+#[cfg(feature = "zonefile")]
+use core::num::IntErrorKind;
+
 use domain_macros::*;
 
 #[cfg(feature = "zonefile")]
@@ -84,7 +87,7 @@ impl fmt::Debug for SecAlg {
     }
 }
 
-//--- Scanning from the zonefile format
+//--- Parsing from the zonefile format
 
 #[cfg(feature = "zonefile")]
 impl<'a> Scan<'a> for SecAlg {
@@ -97,8 +100,16 @@ impl<'a> Scan<'a> for SecAlg {
             "DSA" => Ok(Self::DSA_SHA1),
             "RSASHA1" => Ok(Self::RSA_SHA1),
 
-            alg if alg.chars().all(|c| c.is_ascii_digit()) => {
-                Ok(alg.parse::<u8>().unwrap().into())
+            code if code.chars().all(|c| c.is_ascii_digit()) => {
+                match code.parse::<u8>() {
+                    Ok(code) => Ok(Self { code }),
+                    Err(err) if err.kind() == &IntErrorKind::PosOverflow => {
+                        Err(ScanError::Custom(
+                            "invalid DNSSEC algorithm number (too large)",
+                        ))
+                    }
+                    _ => unreachable!(),
+                }
             }
 
             _ => Err(ScanError::Custom("unrecognized DNSSEC algorithm")),
