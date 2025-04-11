@@ -15,7 +15,7 @@ use crate::new_base::{
         AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
         TruncationError,
     },
-    CanonicalRecordData, ParseRecordData, RType,
+    CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
 };
 
 //----------- Concrete record data types -------------------------------------
@@ -278,10 +278,7 @@ impl<N: CanonicalName> CanonicalRecordData for RecordData<'_, N> {
 
 //--- Parsing record data
 
-impl<'a, N> ParseRecordData<'a> for RecordData<'a, N>
-where
-    N: SplitBytes<'a> + SplitMessageBytes<'a>,
-{
+impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
     fn parse_record_data(
         contents: &'a [u8],
         start: usize,
@@ -340,7 +337,9 @@ where
                 .map(|data| Self::Unknown(rtype, data)),
         }
     }
+}
 
+impl<'a, N: SplitBytes<'a>> ParseRecordDataBytes<'a> for RecordData<'a, N> {
     fn parse_record_data_bytes(
         bytes: &'a [u8],
         rtype: RType,

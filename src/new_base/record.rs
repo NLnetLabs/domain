@@ -4,7 +4,6 @@ use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use super::{
     build::{self, BuildIntoMessage, BuildResult},
-    name::RevNameBuf,
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{
         AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
@@ -136,7 +135,7 @@ where
 impl<'a, N, D> SplitBytes<'a> for Record<N, D>
 where
     N: SplitBytes<'a>,
-    D: ParseRecordData<'a>,
+    D: ParseRecordDataBytes<'a>,
 {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         let (rname, rest) = N::split_bytes(bytes)?;
@@ -153,7 +152,7 @@ where
 impl<'a, N, D> ParseBytes<'a> for Record<N, D>
 where
     N: SplitBytes<'a>,
-    D: ParseRecordData<'a>,
+    D: ParseRecordDataBytes<'a>,
 {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         match Self::split_bytes(bytes) {
@@ -467,7 +466,7 @@ impl fmt::Debug for TTL {
 //----------- ParseRecordData ------------------------------------------------
 
 /// Parsing DNS record data.
-pub trait ParseRecordData<'a>: Sized {
+pub trait ParseRecordData<'a>: ParseRecordDataBytes<'a> {
     /// Parse DNS record data of the given type from a DNS message.
     fn parse_record_data(
         contents: &'a [u8],
@@ -476,7 +475,10 @@ pub trait ParseRecordData<'a>: Sized {
     ) -> Result<Self, ParseError> {
         Self::parse_record_data_bytes(&contents[start..], rtype)
     }
+}
 
+/// Parsing DNS record data without name compression.
+pub trait ParseRecordDataBytes<'a>: Sized {
     /// Parse DNS record data of the given type from a byte sequence.
     fn parse_record_data_bytes(
         bytes: &'a [u8],
@@ -539,7 +541,9 @@ impl UnparsedRecordData {
 
 //--- Parsing record data
 
-impl<'a> ParseRecordData<'a> for &'a UnparsedRecordData {
+impl<'a> ParseRecordData<'a> for &'a UnparsedRecordData {}
+
+impl<'a> ParseRecordDataBytes<'a> for &'a UnparsedRecordData {
     fn parse_record_data_bytes(
         bytes: &'a [u8],
         _rtype: RType,

@@ -13,12 +13,12 @@ use core::mem::MaybeUninit;
 
 pub use super::wire::ParseError;
 
-use super::wire::{ParseBytesByRef, SplitBytesByRef};
+use super::wire::{ParseBytes, ParseBytesByRef, SplitBytes, SplitBytesByRef};
 
 //----------- Message parsing traits -----------------------------------------
 
 /// A type that can be parsed from bytes in a DNS message.
-pub trait ParseMessageBytes<'a>: Sized {
+pub trait ParseMessageBytes<'a>: ParseBytes<'a> {
     /// Parse a value from bytes in a DNS message.
     ///
     /// The contents of the DNS message (up to and including the actual bytes
@@ -99,7 +99,9 @@ impl<'a> ParseMessageBytes<'a> for std::string::String {
 }
 
 /// A type that can be parsed from a DNS message.
-pub trait SplitMessageBytes<'a>: Sized + ParseMessageBytes<'a> {
+pub trait SplitMessageBytes<'a>:
+    SplitBytes<'a> + ParseMessageBytes<'a>
+{
     /// Parse a value from the start of a byte sequence within a DNS message.
     ///
     /// The contents of the DNS message (i.e. without the 12-byte header) is
