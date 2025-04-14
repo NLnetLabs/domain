@@ -114,6 +114,52 @@ pub unsafe trait UnsizedClone {
     }
 }
 
+/// Deriving [`UnsizedClone`] automatically.
+///
+/// [`UnsizedClone`] can be derived on `struct`s and `enum`s.  `enum`s are
+/// inherently [`Sized`] types, and [`UnsizedClone`] will simply require every
+/// field to implement [`Clone`] on them.  For `struct`s, all but the last
+/// field need to implement [`Clone`]; the last field needs to implement
+/// [`UnsizedClone`].
+///
+/// Here's a simple example:
+///
+/// ```no_run
+/// # use domain::utils::UnsizedClone;
+/// struct Foo<T> {
+///     a: u32,
+///     b: Bar<T>,
+/// }
+///
+/// # struct Bar<T> { data: T }
+///
+/// // The generated impl with 'derive(UnsizedClone)':
+/// unsafe impl<T> UnsizedClone for Foo<T>
+/// where
+///     u32: Clone,
+///     Bar<T>: UnsizedClone,
+/// {
+///     // This type has the same alignment as 'Foo<T>'.
+///     type Alignment = (u32, <Bar<T> as UnsizedClone>::Alignment);
+///
+///     unsafe fn unsized_clone(&self, dst: *mut ()) {
+///         let dst: *mut Self = self.ptr_with_address(dst);
+///         unsafe {
+///             core::ptr::write(
+///                 core::ptr::addr_of_mut!((*dst).a),
+///                 self.a.clone(),
+///             );
+///             self.b.unsized_clone(core::ptr::addr_of_mut!((*dst).b));
+///         }
+///     }
+///
+///     fn ptr_with_address(&self, addr: *mut ()) -> *mut Self {
+///         self.b.ptr_with_address(addr) as *mut Self
+///     }
+/// }
+/// ```
+pub use domain_macros::UnsizedClone;
+
 macro_rules! impl_primitive_unsized_clone {
     ($type:ty) => {
         unsafe impl UnsizedClone for $type {

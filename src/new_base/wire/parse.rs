@@ -71,7 +71,7 @@ impl<'a> ParseBytes<'a> for std::string::String {
 ///
 /// Here's a simple example:
 ///
-/// ```
+/// ```no_run
 /// # use domain::new_base::wire::{ParseBytes, SplitBytes, U32, ParseError};
 /// struct Foo<T> {
 ///     a: U32,
@@ -199,7 +199,7 @@ impl<'a, T: SplitBytes<'a>> SplitBytes<'a> for std::boxed::Box<T> {
 ///
 /// Here's a simple example:
 ///
-/// ```
+/// ```no_run
 /// # use domain::new_base::wire::{ParseBytes, SplitBytes, U32, ParseError};
 /// #[derive(ParseBytes)]
 /// struct Foo<T> {
@@ -407,7 +407,7 @@ unsafe impl<T: SplitBytesByRef, const N: usize> ParseBytesByRef for [T; N] {
 ///
 /// Here's a simple example:
 ///
-/// ```
+/// ```no_run
 /// # use domain::new_base::wire::{ParseBytesByRef, SplitBytesByRef, U32, ParseError};
 /// #[repr(C)]
 /// struct Foo<T> {
@@ -579,7 +579,7 @@ unsafe impl<T: SplitBytesByRef, const N: usize> SplitBytesByRef for [T; N] {
 ///
 /// Here's a simple example:
 ///
-/// ```
+/// ```no_run
 /// # use domain::new_base::wire::{ParseBytesByRef, SplitBytesByRef, U32, ParseError};
 /// #[derive(ParseBytesByRef)]
 /// #[repr(C)]

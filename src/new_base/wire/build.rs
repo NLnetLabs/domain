@@ -123,7 +123,7 @@ impl BuildBytes for std::string::String {
 ///
 /// Here's a simple example:
 ///
-/// ```
+/// ```no_run
 /// # use domain::new_base::wire::{BuildBytes, U32, TruncationError};
 /// struct Foo<T> {
 ///     a: U32,
@@ -195,7 +195,7 @@ unsafe impl<T: AsBytes, const N: usize> AsBytes for [T; N] {}
 ///
 /// Here's a simple example:
 ///
-/// ```
+/// ```no_run
 /// # use domain::new_base::wire::{AsBytes, U32};
 /// #[repr(C)]
 /// struct Foo<T> {
