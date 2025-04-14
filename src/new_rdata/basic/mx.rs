@@ -2,19 +2,92 @@
 
 use core::cmp::Ordering;
 
-use domain_macros::*;
-
+use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
+use crate::new_base::name::CanonicalName;
+use crate::new_base::parse::{ParseMessageBytes, SplitMessageBytes};
+use crate::new_base::wire::*;
 use crate::new_base::{
-    build::{self, BuildIntoMessage, BuildResult},
-    name::CanonicalName,
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{AsBytes, BuildBytes, ParseError, TruncationError, U16},
-    CanonicalRecordData,
+    CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
 };
 
 //----------- Mx -------------------------------------------------------------
 
 /// A host that can exchange mail for this domain.
+///
+/// An [`Mx`] record indicates that a domain name can receive e-mail, and it
+/// specifies (the domain name of) the mail server that e-mail for that domain
+/// should be sent to.  A domain name can be associated with multiple mail
+/// servers (using multiple [`Mx`] records); each one is assigned a priority
+/// for load balancing.
+///
+// TODO: If there's a conventional algorithm for picking a mail server (i.e.
+// how the probabilities are calculated for a random selection), add it here.
+//
+/// [`Mx`] is specified by [RFC 1035, section 3.3.9].
+///
+/// [RFC 1035, section 3.3.9]: https://datatracker.ietf.org/doc/html/rfc1035#section-3.3.9
+///
+/// ## Wire Format
+///
+/// The wire format of an [`Mx`] record is the 16-bit preference number (as a
+/// big-endian integer) followed by the domain name of the mail server.  This
+/// domain name may be compressed in DNS messages.
+///
+/// ## Usage
+///
+/// Because [`Mx`] is a record data type, it is usually handled within an enum
+/// like [`RecordData`].  This section describes how to use it independently
+/// (or when building new record data from scratch).
+///
+/// [`RecordData`]: crate::new_rdata::RecordData
+///
+/// In order to build an [`Mx`], it's first important to choose a domain name
+/// type.  For short-term usage (where the [`Mx`] is a local variable), it is
+/// common to pick [`RevNameBuf`].  If the [`Mx`] will be placed on the heap,
+/// <code>Box&lt;[`RevName`]&gt;</code> will be more efficient.
+///
+/// [`RevName`]: crate::new_base::name::RevName
+/// [`RevNameBuf`]: crate::new_base::name::RevNameBuf
+///
+/// The primary way to build a new [`Mx`] is to construct each field manually.
+/// To parse an [`Mx`] from a DNS message, use [`ParseMessageBytes`].  In case
+/// the input bytes don't use name compression, [`ParseBytes`] can be used.
+///
+/// ```
+/// # use domain::new_base::name::{Name, RevNameBuf};
+/// # use domain::new_base::wire::{BuildBytes, ParseBytes, ParseBytesByRef};
+/// # use domain::new_rdata::Mx;
+/// #
+/// // Build an 'Mx' manually:
+/// let manual: Mx<RevNameBuf> = Mx {
+///     preference: 10.into(),
+///     exchange: "example.org".parse().unwrap(),
+/// };
+///
+/// let bytes = b"\x00\x0A\x07example\x03org\x00";
+/// # let mut buffer = [0u8; 15];
+/// # manual.build_bytes(&mut buffer).unwrap();
+/// # assert_eq!(*bytes, buffer);
+///
+/// // Parse an 'Mx' from the wire format, without name decompression:
+/// let from_wire: Mx<RevNameBuf> = Mx::parse_bytes(bytes).unwrap();
+/// # assert_eq!(manual, from_wire);
+///
+/// // See 'ParseMessageBytes' for parsing with name decompression.
+/// ```
+///
+/// Since [`Mx`] is a sized type, and it implements [`Copy`] and [`Clone`],
+/// it's straightforward to handle and move around.  However, this depends on
+/// the domain name type.  It can be changed using [`Mx::map_name()`] and
+/// [`Mx::map_name_by_ref()`].
+///
+/// For debugging, [`Mx`] can be formatted using [`fmt::Debug`].
+///
+/// [`fmt::Debug`]: core::fmt::Debug
+///
+/// To serialize an [`Mx`] in the wire format, use [`BuildIntoMessage`] (which
+/// supports name compression).  If name compression is not desired, use
+/// [`BuildBytes`].
 #[derive(
     Copy,
     Clone,
@@ -24,13 +97,13 @@ use crate::new_base::{
     PartialOrd,
     Ord,
     Hash,
+    AsBytes,
     BuildBytes,
     ParseBytes,
     SplitBytes,
-    UnsizedClone,
 )]
 #[repr(C)]
-pub struct Mx<N: ?Sized> {
+pub struct Mx<N> {
     /// The preference for this host over others.
     pub preference: U16,
 
@@ -63,7 +136,7 @@ impl<N> Mx<N> {
 
 //--- Canonical operations
 
-impl<N: ?Sized + CanonicalName> CanonicalRecordData for Mx<N> {
+impl<N: CanonicalName> CanonicalRecordData for Mx<N> {
     fn build_canonical_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
@@ -99,7 +172,7 @@ impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Mx<N> {
 
 //--- Building into DNS messages
 
-impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
+impl<N: BuildIntoMessage> BuildIntoMessage for Mx<N> {
     fn build_into_message(
         &self,
         mut builder: build::Builder<'_>,
@@ -107,5 +180,32 @@ impl<N: ?Sized + BuildIntoMessage> BuildIntoMessage for Mx<N> {
         builder.append_bytes(self.preference.as_bytes())?;
         self.exchange.build_into_message(builder.delegate())?;
         Ok(builder.commit())
+    }
+}
+
+//--- Parsing record data
+
+impl<'a, N: ParseMessageBytes<'a>> ParseRecordData<'a> for Mx<N> {
+    fn parse_record_data(
+        contents: &'a [u8],
+        start: usize,
+        rtype: RType,
+    ) -> Result<Self, ParseError> {
+        match rtype {
+            RType::MX => Self::parse_message_bytes(contents, start),
+            _ => Err(ParseError),
+        }
+    }
+}
+
+impl<'a, N: ParseBytes<'a>> ParseRecordDataBytes<'a> for Mx<N> {
+    fn parse_record_data_bytes(
+        bytes: &'a [u8],
+        rtype: RType,
+    ) -> Result<Self, ParseError> {
+        match rtype {
+            RType::MX => Self::parse_bytes(bytes),
+            _ => Err(ParseError),
+        }
     }
 }
