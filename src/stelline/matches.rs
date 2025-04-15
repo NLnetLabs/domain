@@ -50,7 +50,7 @@ impl Entry {
         msg: &Message<Octs>,
     ) -> Result<(), DidNotMatch> {
         self.match_flags(msg)?;
-        self.match_ends_data(msg)?;
+        self.match_edns_data(msg)?;
         self.match_opcode(msg)?;
         self.match_question(msg)?;
         self.match_rcode(msg)?;
@@ -80,7 +80,7 @@ impl Entry {
     }
 
     /// Match the ENDS data in the OPT record
-    fn match_ends_data<Octs: Octets>(
+    fn match_edns_data<Octs: Octets>(
         &self,
         msg: &Message<Octs>,
     ) -> Result<(), DidNotMatch> {
@@ -419,7 +419,7 @@ impl OrderedMultiMatcher<'_> {
         let e = &self.entry;
 
         e.match_flags(msg)?;
-        e.match_ends_data(msg)?;
+        e.match_edns_data(msg)?;
         e.match_opcode(msg)?;
         e.match_question(msg)?;
         e.match_rcode(msg)?;
@@ -466,7 +466,7 @@ impl UnorderedMultiMatcher<'_> {
         let e = &self.entry;
 
         e.match_flags(msg)?;
-        e.match_ends_data(msg)?;
+        e.match_edns_data(msg)?;
         e.match_opcode(msg)?;
         e.match_question(msg)?;
         e.match_rcode(msg)?;
