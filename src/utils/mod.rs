@@ -146,10 +146,12 @@ pub unsafe trait UnsizedClone {
 ///         let dst: *mut Self = self.ptr_with_address(dst);
 ///         unsafe {
 ///             core::ptr::write(
-///                 core::ptr::addr_of_mut!((*dst).a),
+///                 core::ptr::addr_of_mut!((*dst).a).cast(),
 ///                 self.a.clone(),
 ///             );
-///             self.b.unsized_clone(core::ptr::addr_of_mut!((*dst).b));
+///             self.b.unsized_clone(
+///                 core::ptr::addr_of_mut!((*dst).b).cast(),
+///             );
 ///         }
 ///     }
 ///
