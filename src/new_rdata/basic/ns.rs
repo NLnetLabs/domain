@@ -22,10 +22,14 @@ use crate::new_base::{
 ///
 /// DNS is designed around the concept of delegating responsibility for domain
 /// names.  If a name server responds to a query with an empty answer section,
-/// but with an [`Ns`] record in the authority section, it is claiming to not
-/// be the authoritative source of information about the queried domain name;
-/// the [`Ns`] record specifies a name server to whom that authority has been
+/// but with [`Ns`] records in the authority section, it is claiming to not be
+/// the authoritative source of information about the queried domain name;
+/// the [`Ns`] records specify name servers to whom that authority has been
 /// delegated.
+///
+/// While [`Ns`] records are typically served by a name server to indicate a
+/// zone cut, that name server is not authoritative for the record; the [`Ns`]
+/// record belongs to the delegated zone and the delegated name server(s).
 ///
 /// [`Ns`] is specified by [RFC 1035, section 3.3.11].
 ///
