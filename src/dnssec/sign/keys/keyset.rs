@@ -333,7 +333,7 @@ impl KeySet {
 
     /// Return the actions that need to be performed for the current
     /// roll state.
-    pub fn actions(&mut self, rolltype: RollType) -> Vec<Action> {
+    pub fn actions(&self, rolltype: RollType) -> Vec<Action> {
         if let Some(rollstate) = self.rollstates.get(&rolltype) {
             rolltype.roll_actions_fn()(rollstate.clone())
         } else {
@@ -874,7 +874,7 @@ enum Mode {
 /// Note that if a list contains multiple report actions then the user
 /// has to wait until all action have completed and has to report the
 /// highest TTL value among the values to report.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Action {
     /// Generate a new version of the zone with an updated DNSKEY RRset.
     UpdateDnskeyRrset,
@@ -1169,10 +1169,8 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             // Check if we can move the states of the keys
             ks.update_zsk(Mode::DryRun, old, new)?;
             // Move the states of the keys
-            println!("line {} = {:?}", line!(), ks.keys().get("second ZSK"));
             ks.update_zsk(Mode::ForReal, old, new)
                 .expect("Should have been checked with DryRun");
-            println!("line {} = {:?}", line!(), ks.keys().get("second ZSK"));
         }
         RollOp::Propagation1 => {
             // Set the visiable time of new ZSKs to the current time.

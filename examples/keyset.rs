@@ -314,7 +314,7 @@ fn do_actions(filename: &str, args: &[String]) {
 
     let rolltype = str_to_rolltype(rolltype);
 
-    let mut ks = load_keyset(filename);
+    let ks = load_keyset(filename);
 
     let actions = ks.actions(rolltype);
     report_actions(Ok(actions), &ks);
