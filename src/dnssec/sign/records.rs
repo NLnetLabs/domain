@@ -205,13 +205,17 @@ where
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
 
-    pub fn find_apex_dnskey(&self, name: &N) -> Option<Rrset<N, D>>
+    pub fn find_apex_rtype(
+        &self,
+        name: &N,
+        rtype: Rtype,
+    ) -> Option<Rrset<N, D>>
     where
         N: CanonicalOrd + ToName,
         D: RecordData,
     {
         self.rrsets().find(|rrset| {
-            rrset.rtype() == Rtype::DNSKEY
+            rrset.rtype() == rtype
                 && rrset.owner().canonical_cmp(name) == Ordering::Equal
         })
     }
