@@ -24,11 +24,11 @@ impl HInfo<'_> {
     /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> HInfo<'r> {
-        use crate::utils::clone_to_bump;
+        use crate::utils::dst::copy_to_bump;
 
         HInfo {
-            cpu: clone_to_bump(self.cpu, bump),
-            os: clone_to_bump(self.os, bump),
+            cpu: copy_to_bump(self.cpu, bump),
+            os: copy_to_bump(self.os, bump),
         }
     }
 }

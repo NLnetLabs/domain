@@ -9,16 +9,15 @@ use core::{
     str::FromStr,
 };
 
-use domain_macros::*;
-
 use crate::{
     new_base::{
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
-            BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
+            AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
+            TruncationError,
         },
     },
-    utils::CloneFrom,
+    utils::dst::{UnsizedCopy, UnsizedCopyFrom},
 };
 
 use super::{CanonicalName, Label, LabelBuf, LabelIter, LabelParseError};
@@ -26,7 +25,7 @@ use super::{CanonicalName, Label, LabelBuf, LabelIter, LabelParseError};
 //----------- Name -----------------------------------------------------------
 
 /// An absolute domain name.
-#[derive(AsBytes, BuildBytes, UnsizedClone)]
+#[derive(AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct Name([u8]);
 
@@ -321,8 +320,10 @@ impl NameBuf {
     }
 }
 
-impl CloneFrom for NameBuf {
-    fn clone_from(value: &Self::Target) -> Self {
+impl UnsizedCopyFrom for NameBuf {
+    type Source = Name;
+
+    fn unsized_copy_from(value: &Self::Source) -> Self {
         Self::copy_from(value)
     }
 }

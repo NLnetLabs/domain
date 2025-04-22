@@ -9,11 +9,12 @@ use crate::new_base::{
     wire::{ParseBytesByRef, ParseError, SplitBytes},
     CanonicalRecordData, CharStr,
 };
+use crate::utils::dst::UnsizedCopy;
 
 //----------- Txt ------------------------------------------------------------
 
 /// Free-form text strings about this domain.
-#[derive(AsBytes, BuildBytes, UnsizedClone)]
+#[derive(AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct Txt {
     /// The text strings, as concatenated [`CharStr`]s.

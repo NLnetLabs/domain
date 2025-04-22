@@ -9,8 +9,6 @@ use core::{
     str::FromStr,
 };
 
-use domain_macros::UnsizedClone;
-
 use crate::{
     new_base::{
         build::{self, BuildIntoMessage, BuildResult},
@@ -19,7 +17,7 @@ use crate::{
             BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
         },
     },
-    utils::CloneFrom,
+    utils::dst::{UnsizedCopy, UnsizedCopyFrom},
 };
 
 use super::{Label, LabelBuf, LabelIter, NameParseError};
@@ -33,7 +31,7 @@ use super::{Label, LabelBuf, LabelIter, NameParseError};
 /// use, making many common operations (e.g. comparing and ordering domain
 /// names) more computationally expensive.  A [`RevName`] stores the labels in
 /// reversed order for more efficient use.
-#[derive(UnsizedClone)]
+#[derive(UnsizedCopy)]
 #[repr(transparent)]
 pub struct RevName([u8]);
 
@@ -254,8 +252,10 @@ impl RevNameBuf {
     }
 }
 
-impl CloneFrom for RevNameBuf {
-    fn clone_from(value: &Self::Target) -> Self {
+impl UnsizedCopyFrom for RevNameBuf {
+    type Source = RevName;
+
+    fn unsized_copy_from(value: &Self::Source) -> Self {
         Self::copy_from(value)
     }
 }

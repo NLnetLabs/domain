@@ -51,7 +51,7 @@ use crate::new_base::{CanonicalRecordData, Serial};
 ///
 /// [`RecordData`]: crate::new_rdata::RecordData
 ///
-/// In order to build an [`Soa`], it's first important to choose a domain name
+/// In order to build a [`Soa`], it's first important to choose a domain name
 /// type.  For short-term usage (where the [`Soa`] is a local variable), it is
 /// common to pick [`RevNameBuf`].  If the [`Soa`] will be placed on the heap,
 /// <code>Box&lt;[`RevName`]&gt;</code> will be more efficient.
@@ -60,7 +60,7 @@ use crate::new_base::{CanonicalRecordData, Serial};
 /// [`RevNameBuf`]: crate::new_base::name::RevNameBuf
 ///
 /// The primary way to build a new [`Soa`] is to construct each
-/// field manually. To parse an [`Soa`] from a DNS message, use
+/// field manually. To parse a [`Soa`] from a DNS message, use
 /// [`ParseMessageBytes`].  In case the input bytes don't use name
 /// compression, [`ParseBytes`] can be used.
 ///
@@ -69,7 +69,7 @@ use crate::new_base::{CanonicalRecordData, Serial};
 /// # use domain::new_base::wire::{BuildBytes, ParseBytes, ParseBytesByRef};
 /// # use domain::new_rdata::Soa;
 /// #
-/// // Build an 'Soa' manually:
+/// // Build a 'Soa' manually:
 /// let manual: Soa<RevNameBuf> = Soa {
 ///     mname: "ns.example.org".parse().unwrap(),
 ///     rname: "admin.example.org".parse().unwrap(),
@@ -93,7 +93,7 @@ use crate::new_base::{CanonicalRecordData, Serial};
 /// # manual.build_bytes(&mut buffer).unwrap();
 /// # assert_eq!(*bytes, buffer);
 ///
-/// // Parse an 'Soa' from the wire format, without name decompression:
+/// // Parse a 'Soa' from the wire format, without name decompression:
 /// let from_wire: Soa<RevNameBuf> = Soa::parse_bytes(bytes).unwrap();
 /// # assert_eq!(manual, from_wire);
 ///
@@ -109,7 +109,7 @@ use crate::new_base::{CanonicalRecordData, Serial};
 ///
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
-/// To serialize an [`Soa`] in the wire format, use [`BuildIntoMessage`]
+/// To serialize a [`Soa`] in the wire format, use [`BuildIntoMessage`]
 /// (which supports name compression).  If name compression is not desired,
 /// use [`BuildBytes`].
 #[derive(

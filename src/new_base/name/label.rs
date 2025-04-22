@@ -10,25 +10,19 @@ use core::{
     str::FromStr,
 };
 
-use domain_macros::{AsBytes, UnsizedClone};
-
-use crate::{
-    new_base::{
-        build::{BuildIntoMessage, BuildResult, Builder},
-        parse::{ParseMessageBytes, SplitMessageBytes},
-        wire::{
-            BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
-        },
-    },
-    utils::CloneFrom,
+use crate::new_base::build::{BuildIntoMessage, BuildResult, Builder};
+use crate::new_base::parse::{ParseMessageBytes, SplitMessageBytes};
+use crate::new_base::wire::{
+    AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
 };
+use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 
 //----------- Label ----------------------------------------------------------
 
 /// A label in a domain name.
 ///
 /// A label contains up to 63 bytes of arbitrary data.
-#[derive(AsBytes, UnsizedClone)]
+#[derive(AsBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct Label([u8]);
 
@@ -306,8 +300,10 @@ impl LabelBuf {
     }
 }
 
-impl CloneFrom for LabelBuf {
-    fn clone_from(value: &Self::Target) -> Self {
+impl UnsizedCopyFrom for LabelBuf {
+    type Source = Label;
+
+    fn unsized_copy_from(value: &Self::Source) -> Self {
         Self::copy_from(value)
     }
 }

@@ -138,7 +138,7 @@ impl fmt::Display for ClientCookie {
     AsBytes,
     BuildBytes,
     ParseBytesByRef,
-    UnsizedClone,
+    UnsizedCopy,
 )]
 #[repr(C)]
 pub struct Cookie {

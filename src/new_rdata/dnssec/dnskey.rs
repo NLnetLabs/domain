@@ -15,7 +15,7 @@ use super::SecAlg;
 
 /// A cryptographic key for DNS security.
 #[derive(
-    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone,
+    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef, UnsizedCopy,
 )]
 #[repr(C)]
 pub struct DNSKey {

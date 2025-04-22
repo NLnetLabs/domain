@@ -26,7 +26,7 @@ use crate::{
     AsBytes,
     BuildBytes,
     ParseBytesByRef,
-    UnsizedClone,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct Opt {

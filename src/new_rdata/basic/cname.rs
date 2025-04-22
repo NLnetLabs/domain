@@ -27,7 +27,7 @@ use crate::new_base::{
     BuildBytes,
     ParseBytes,
     SplitBytes,
-    UnsizedClone,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct CName<N: ?Sized> {

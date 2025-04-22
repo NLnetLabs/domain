@@ -11,7 +11,7 @@ use super::A;
 //----------- Wks ------------------------------------------------------------
 
 /// Well-known services supported on this domain.
-#[derive(AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone)]
+#[derive(AsBytes, BuildBytes, ParseBytesByRef, UnsizedCopy)]
 #[repr(C, packed)]
 pub struct Wks {
     /// The address of the host providing these services.

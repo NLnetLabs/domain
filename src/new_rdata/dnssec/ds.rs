@@ -15,7 +15,7 @@ use super::SecAlg;
 
 /// The signing key for a delegated zone.
 #[derive(
-    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone,
+    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef, UnsizedCopy,
 )]
 #[repr(C)]
 pub struct Ds {

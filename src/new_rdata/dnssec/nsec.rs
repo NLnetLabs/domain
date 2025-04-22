@@ -2,13 +2,10 @@
 
 use core::{cmp::Ordering, fmt, mem};
 
-use domain_macros::*;
-
-use crate::new_base::{
-    name::{CanonicalName, Name},
-    wire::{AsBytes, ParseBytesByRef, ParseError},
-    CanonicalRecordData, RType,
-};
+use crate::new_base::name::{CanonicalName, Name};
+use crate::new_base::wire::*;
+use crate::new_base::{CanonicalRecordData, RType};
+use crate::utils::dst::UnsizedCopy;
 
 //----------- NSec -----------------------------------------------------------
 
@@ -28,11 +25,11 @@ impl NSec<'_> {
     /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> NSec<'r> {
-        use crate::utils::clone_to_bump;
+        use crate::utils::dst::copy_to_bump;
 
         NSec {
-            next: clone_to_bump(self.next, bump),
-            types: clone_to_bump(self.types, bump),
+            next: copy_to_bump(self.next, bump),
+            types: copy_to_bump(self.types, bump),
         }
     }
 }
@@ -50,7 +47,7 @@ impl CanonicalRecordData for NSec<'_> {
 //----------- TypeBitmaps ----------------------------------------------------
 
 /// A bitmap of DNS record types.
-#[derive(PartialEq, Eq, AsBytes, BuildBytes, UnsizedClone)]
+#[derive(PartialEq, Eq, AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct TypeBitmaps {
     /// The bitmap data, encoded in the wire format.
@@ -152,6 +149,6 @@ unsafe impl ParseBytesByRef for TypeBitmaps {
     }
 
     fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-        self.octets.ptr_with_address(addr) as *const Self
+        ParseBytesByRef::ptr_with_address(&self.octets, addr) as *const Self
     }
 }

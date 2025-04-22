@@ -7,7 +7,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use domain_macros::UnsizedClone;
+use domain_macros::UnsizedCopy;
 
 use crate::new_base::{
     build::{self, BuildIntoMessage, BuildResult},
@@ -55,7 +55,7 @@ use super::{
 ///   implement [`Default`]; this is used to temporarily initialize it, to be
 ///   overwritten once the actual size-prefixed data is built (and its size is
 ///   determined).
-#[derive(Copy, Clone, AsBytes, UnsizedClone)]
+#[derive(Copy, Clone, AsBytes, UnsizedCopy)]
 #[repr(C)]
 pub struct SizePrefixed<S, T: ?Sized> {
     /// The size prefix (needed for 'ParseBytesByRef' / 'AsBytes').

@@ -41,15 +41,15 @@ impl NSec3<'_> {
     /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
     pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> NSec3<'r> {
-        use crate::utils::clone_to_bump;
+        use crate::utils::dst::copy_to_bump;
 
         NSec3 {
             algorithm: self.algorithm,
             flags: self.flags,
             iterations: self.iterations,
-            salt: clone_to_bump(self.salt, bump),
-            next: clone_to_bump(self.next, bump),
-            types: clone_to_bump(self.types, bump),
+            salt: copy_to_bump(self.salt, bump),
+            next: copy_to_bump(self.next, bump),
+            types: copy_to_bump(self.types, bump),
         }
     }
 }
@@ -93,7 +93,7 @@ impl CanonicalRecordData for NSec3<'_> {
     BuildBytes,
     ParseBytesByRef,
     SplitBytesByRef,
-    UnsizedClone,
+    UnsizedCopy,
 )]
 #[repr(C)]
 pub struct NSec3Param {

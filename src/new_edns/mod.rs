@@ -230,22 +230,22 @@ impl EdnsOption<'_> {
         &self,
         bump: &'r bumpalo::Bump,
     ) -> EdnsOption<'r> {
-        use crate::utils::clone_to_bump;
+        use crate::utils::dst::copy_to_bump;
 
         match *self {
             EdnsOption::ClientCookie(&client_cookie) => {
                 EdnsOption::ClientCookie(bump.alloc(client_cookie))
             }
             EdnsOption::Cookie(cookie) => {
-                EdnsOption::Cookie(clone_to_bump(cookie, bump))
+                EdnsOption::Cookie(copy_to_bump(cookie, bump))
             }
             EdnsOption::ExtError(ext_error) => {
-                EdnsOption::ExtError(clone_to_bump(ext_error, bump))
+                EdnsOption::ExtError(copy_to_bump(ext_error, bump))
             }
             EdnsOption::Unknown(option_code, unknown_option) => {
                 EdnsOption::Unknown(
                     option_code,
-                    clone_to_bump(unknown_option, bump),
+                    copy_to_bump(unknown_option, bump),
                 )
             }
         }
@@ -370,7 +370,7 @@ impl fmt::Debug for OptionCode {
 //----------- UnknownOption --------------------------------------------------
 
 /// Data for an unknown Extended DNS option.
-#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef, UnsizedClone)]
+#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef, UnsizedCopy)]
 #[repr(transparent)]
 pub struct UnknownOption {
     /// The unparsed option data.
