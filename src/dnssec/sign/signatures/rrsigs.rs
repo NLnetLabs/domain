@@ -162,11 +162,15 @@ where
                 {
                     continue;
                 }
-            } else if rrset.rtype() == Rtype::DNSKEY
+            } else if (rrset.rtype() == Rtype::DNSKEY
+                || rrset.rtype() == Rtype::CDS
+                || rrset.rtype() == Rtype::CDNSKEY)
                 && name.canonical_cmp(zone_apex) == Ordering::Equal
             {
-                // Ignore the DNSKEY RRset at the apex. Sign other DNSKEY
-                // RRsets as other records.
+                // Ignore the DNSKEY, CDS, and CDNSKEY RRsets at the apex.
+                // Sign other DNSKEY, CDS, and CDNSKEY RRsets as other
+                // records.
+                // See RFC 7344 Section 4.1 for CDS and CDNSKEY.
                 continue;
             } else {
                 // Otherwise we only ignore RRSIGs.
