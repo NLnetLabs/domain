@@ -240,13 +240,13 @@ unsafe impl<S, T: ?Sized + ParseBytesZC> ParseBytesZC for SizePrefixed<S, T>
 where
     S: SplitBytesZC + Copy + Into<usize>,
 {
-    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
         let addr = bytes.as_ptr();
-        let (size, rest) = S::split_bytes_zc(bytes)?;
+        let (size, rest) = S::split_bytes_by_ref(bytes)?;
         if rest.len() != (*size).into() {
             return Err(ParseError);
         }
-        let last = T::parse_bytes_zc(rest)?;
+        let last = T::parse_bytes_by_ref(rest)?;
         let ptr = last.ptr_with_addr(addr as *const ());
 
         // SAFETY:
@@ -269,14 +269,14 @@ unsafe impl<S, T: ?Sized + ParseBytesZC> SplitBytesZC for SizePrefixed<S, T>
 where
     S: SplitBytesZC + Copy + Into<usize>,
 {
-    fn split_bytes_zc(bytes: &[u8]) -> Result<(&Self, &[u8]), ParseError> {
+    fn split_bytes_by_ref(bytes: &[u8]) -> Result<(&Self, &[u8]), ParseError> {
         let addr = bytes.as_ptr();
-        let (&size, rest) = S::split_bytes_zc(bytes)?;
+        let (&size, rest) = S::split_bytes_by_ref(bytes)?;
         if rest.len() < size.into() {
             return Err(ParseError);
         }
         let (data, rest) = rest.split_at(size.into());
-        let last = T::parse_bytes_zc(data)?;
+        let last = T::parse_bytes_by_ref(data)?;
         let ptr = last.ptr_with_addr(addr as *const ());
 
         // SAFETY:

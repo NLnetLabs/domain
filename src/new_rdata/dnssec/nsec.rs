@@ -153,7 +153,7 @@ impl TypeBitmaps {
 // SAFETY: The implementations of 'parse_bytes_by_{ref,mut}()' always parse
 // the entirety of the input on success, satisfying the safety requirements.
 unsafe impl ParseBytesZC for TypeBitmaps {
-    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
         Self::validate_bytes(bytes)?;
 
         // SAFETY: 'TypeBitmaps' is 'repr(transparent)' to '[u8]', and so

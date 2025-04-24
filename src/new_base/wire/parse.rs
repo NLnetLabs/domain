@@ -31,7 +31,7 @@ impl<'a> ParseBytes<'a> for u8 {
 
 impl<'a, T: ?Sized + ParseBytesZC> ParseBytes<'a> for &'a T {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        T::parse_bytes_zc(bytes).map_err(|_| ParseError)
+        T::parse_bytes_by_ref(bytes).map_err(|_| ParseError)
     }
 }
 
@@ -61,7 +61,7 @@ impl<'a> ParseBytes<'a> for std::vec::Vec<u8> {
 #[cfg(feature = "std")]
 impl<'a> ParseBytes<'a> for std::string::String {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        str::parse_bytes_zc(bytes).map(std::string::String::from)
+        str::parse_bytes_by_ref(bytes).map(std::string::String::from)
     }
 }
 
@@ -135,7 +135,7 @@ impl<'a> SplitBytes<'a> for u8 {
 
 impl<'a, T: ?Sized + SplitBytesZC> SplitBytes<'a> for &'a T {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        T::split_bytes_zc(bytes).map_err(|_| ParseError)
+        T::split_bytes_by_ref(bytes).map_err(|_| ParseError)
     }
 }
 
@@ -243,8 +243,11 @@ pub use domain_macros::SplitBytes;
 /// Implementing types must also have no alignment (i.e. a valid instance of
 /// [`Self`] can occur at any address).  This eliminates the possibility of
 /// padding bytes when [`Self`] is part of a larger aggregate type.
-pub unsafe trait ParseBytesZC: UnsizedCopy {
+pub unsafe trait ParseBytesZC: UnsizedCopy + 'static {
     /// Interpret a byte sequence as an instance of [`Self`].
+    ///
+    /// This method can only parse from immutable references; to parse within
+    /// a different container type, use [`Self::parse_bytes_in()`].
     ///
     /// This will return successfully if and only if the entirety of the given
     /// byte sequence can be interpreted as an instance of [`Self`].  It will
@@ -253,16 +256,31 @@ pub unsafe trait ParseBytesZC: UnsizedCopy {
     ///
     /// ## Invariants
     ///
-    /// For the statement `let this: &T = T::parse_bytes_zc(bytes)?`,
+    /// For the statement `let this: &T = T::parse_bytes_by_ref(bytes)?`,
     ///
     /// - `bytes.as_ptr() == this as *const T as *const u8`.
     /// - `ptr` has the same provenance as `bytes`.
     /// - `bytes.len() == core::mem::size_of_val(this)`.
-    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError>;
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError>;
+
+    /// Parse bytes within the given container.
+    ///
+    /// Given a container of a byte sequence, this function tries to parse the
+    /// bytes as a valid instance of `Self`.  If this succeeds, the container
+    /// as a whole is converted (in place) to hold `Self`.
+    ///
+    /// This is a convenience method for calling
+    /// [`ParseBytesInPlace::parse_bytes_in_place()`].
+    #[inline]
+    fn parse_bytes_in<C: ParseBytesInPlace>(
+        container: C,
+    ) -> Result<C::WithParsed<Self>, (C, ParseError)> {
+        C::parse_bytes_in_place(container)
+    }
 }
 
 unsafe impl ParseBytesZC for u8 {
-    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
         if let [result] = bytes {
             Ok(result)
         } else {
@@ -272,20 +290,20 @@ unsafe impl ParseBytesZC for u8 {
 }
 
 unsafe impl ParseBytesZC for [u8] {
-    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
         Ok(bytes)
     }
 }
 
 unsafe impl ParseBytesZC for str {
-    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
         core::str::from_utf8(bytes).map_err(|_| ParseError)
     }
 }
 
 unsafe impl<T: SplitBytesZC, const N: usize> ParseBytesZC for [T; N] {
-    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
-        let (this, rest) = Self::split_bytes_zc(bytes)?;
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+        let (this, rest) = Self::split_bytes_by_ref(bytes)?;
         if rest.is_empty() {
             Ok(this)
         } else {
@@ -318,10 +336,10 @@ unsafe impl<T: SplitBytesZC, const N: usize> ParseBytesZC for [T; N] {
 /// // The generated impl with 'derive(ParseBytesZC)':
 /// unsafe impl<T> ParseBytesZC for Foo<T>
 /// where Bar<T>: ParseBytesZC {
-///     fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
+///     fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
 ///         let addr = bytes.as_ptr();
-///         let (_, bytes) = U32::split_bytes_zc(bytes)?;
-///         let last = <Bar<T>>::parse_bytes_zc(bytes)?;
+///         let (_, bytes) = U32::split_bytes_by_ref(bytes)?;
+///         let last = <Bar<T>>::parse_bytes_by_ref(bytes)?;
 ///         let this = last.ptr_with_address(addr as *const ());
 ///         Ok(unsafe { &*(this as *const Self) })
 ///     }
@@ -343,7 +361,7 @@ pub use domain_macros::ParseBytesZC;
 /// This parsing functions provided by this trait are _non-greedy_.  This can
 /// be interpreted in several equivalent ways:
 ///
-/// - If `split_bytes_zc()` returns successfully for some input sequence, it
+/// - If `split_bytes_by_ref()` returns successfully for some input sequence, it
 ///   would return exactly the same `Self` value if more bytes were added to
 ///   the end of the input.
 ///
@@ -357,10 +375,10 @@ pub use domain_macros::ParseBytesZC;
 /// # Safety
 ///
 /// Every implementation of [`SplitBytesZC`] must satisfy the invariants
-/// documented on [`split_bytes_zc()`].  An incorrect implementation is
+/// documented on [`split_bytes_by_ref()`].  An incorrect implementation is
 /// considered to cause undefined behaviour.
 ///
-/// [`split_bytes_zc()`]: Self::split_bytes_zc()
+/// [`split_bytes_by_ref()`]: Self::split_bytes_by_ref()
 ///
 /// Note that [`ParseBytesZC`] and [`UnsizedCopy`], required by this trait,
 /// also have several invariants that need to be considered with care.
@@ -375,31 +393,34 @@ pub unsafe trait SplitBytesZC: ParseBytesZC {
     ///
     /// ## Invariants
     ///
-    /// For the statement `let (this, rest) = T::split_bytes_zc(bytes)?;`,
+    /// For the statement `let (this, rest) = T::split_bytes_by_ref(bytes)?;`,
     ///
     /// - `bytes.as_ptr() == this as *const T as *const u8`.
     /// - `bytes.len() == core::mem::size_of_val(this) + rest.len()`.
     /// - `bytes.as_ptr().offset(size_of_val(this)) == rest.as_ptr()`.
-    fn split_bytes_zc(bytes: &[u8]) -> Result<(&Self, &[u8]), ParseError>;
+    fn split_bytes_by_ref(bytes: &[u8])
+        -> Result<(&Self, &[u8]), ParseError>;
 }
 
 unsafe impl SplitBytesZC for u8 {
-    fn split_bytes_zc(bytes: &[u8]) -> Result<(&Self, &[u8]), ParseError> {
+    fn split_bytes_by_ref(
+        bytes: &[u8],
+    ) -> Result<(&Self, &[u8]), ParseError> {
         bytes.split_first().ok_or(ParseError)
     }
 }
 
 unsafe impl<T: SplitBytesZC, const N: usize> SplitBytesZC for [T; N] {
-    fn split_bytes_zc(
+    fn split_bytes_by_ref(
         mut bytes: &[u8],
     ) -> Result<(&Self, &[u8]), ParseError> {
         let start = bytes.as_ptr();
         for _ in 0..N {
-            (_, bytes) = T::split_bytes_zc(bytes)?;
+            (_, bytes) = T::split_bytes_by_ref(bytes)?;
         }
 
         // SAFETY:
-        // - 'T::split_bytes_zc()' was called 'N' times on successive
+        // - 'T::split_bytes_by_ref()' was called 'N' times on successive
         //   positions, thus the original 'bytes' starts with 'N' instances
         //   of 'T' (even if 'T' is a ZST and so all instances overlap).
         // - 'N' consecutive 'T's have the same layout as '[T; N]'.
@@ -431,12 +452,12 @@ unsafe impl<T: SplitBytesZC, const N: usize> SplitBytesZC for [T; N] {
 /// // The generated impl with 'derive(SplitBytesZC)':
 /// unsafe impl<T> SplitBytesZC for Foo<T>
 /// where Bar<T>: SplitBytesZC {
-///     fn split_bytes_zc(
+///     fn split_bytes_by_ref(
 ///         bytes: &[u8],
 ///     ) -> Result<(&Self, &[u8]), ParseError> {
 ///         let addr = bytes.as_ptr();
-///         let (_, bytes) = U32::split_bytes_zc(bytes)?;
-///         let (last, bytes) = <Bar<T>>::split_bytes_zc(bytes)?;
+///         let (_, bytes) = U32::split_bytes_by_ref(bytes)?;
+///         let (last, bytes) = <Bar<T>>::split_bytes_by_ref(bytes)?;
 ///         let this = last.ptr_with_address(addr as *const ());
 ///         Ok((unsafe { &*(this as *const Self) }, bytes))
 ///     }
@@ -453,6 +474,114 @@ unsafe impl<T: SplitBytesZC, const N: usize> SplitBytesZC for [T; N] {
 /// }
 /// ```
 pub use domain_macros::SplitBytesZC;
+
+//----------- ParseBytesInPlace ----------------------------------------------
+
+/// Parsing from a byte sequence within an container.
+///
+/// This trait allows various "container types", like [`Box`] and [`Vec`], to
+/// parse a stored byte sequence into a different type in place.  The target
+/// type has to implement [`ParseBytesZC`].
+///
+/// [`Box`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
+/// [`Vec`]: https://doc.rust-lang.org/std/vec/struct.Vec.html
+pub trait ParseBytesInPlace: Sized {
+    /// This container, but holding the given type instead.
+    type WithParsed<T: ?Sized + ParseBytesZC>: Sized;
+
+    /// Parse the byte sequence in this container in place.
+    fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
+        self,
+    ) -> Result<Self::WithParsed<T>, (Self, ParseError)>;
+}
+
+impl<'a> ParseBytesInPlace for &'a [u8] {
+    type WithParsed<T: ?Sized + ParseBytesZC> = &'a T;
+
+    fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
+        self,
+    ) -> Result<Self::WithParsed<T>, (Self, ParseError)> {
+        T::parse_bytes_by_ref(self).map_err(|err| (self, err))
+    }
+}
+
+impl<'a> ParseBytesInPlace for &'a mut [u8] {
+    type WithParsed<T: ?Sized + ParseBytesZC> = &'a mut T;
+
+    fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
+        self,
+    ) -> Result<Self::WithParsed<T>, (Self, ParseError)> {
+        let parsed = match T::parse_bytes_by_ref(self) {
+            Ok(parsed) => parsed as *const T,
+            Err(err) => return Err((self, err)),
+        };
+
+        // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
+        // same address and layout as '*self'.  Thus, it is safe to use it to
+        // reconstitute the reference.
+        Ok(unsafe { &mut *parsed.cast_mut() })
+    }
+}
+
+#[cfg(feature = "std")]
+impl ParseBytesInPlace for std::boxed::Box<[u8]> {
+    type WithParsed<T: ?Sized + ParseBytesZC> = std::boxed::Box<T>;
+
+    fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
+        self,
+    ) -> Result<Self::WithParsed<T>, (Self, ParseError)> {
+        let parsed = match T::parse_bytes_by_ref(&self) {
+            Ok(parsed) => parsed as *const T,
+            Err(err) => return Err((self, err)),
+        };
+
+        // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
+        // same address and layout as '*self'.  Thus, it is safe to use it to
+        // reconstitute the 'Box'.
+        let _ = std::boxed::Box::into_raw(self);
+        Ok(unsafe { std::boxed::Box::from_raw(parsed.cast_mut()) })
+    }
+}
+
+#[cfg(feature = "std")]
+impl ParseBytesInPlace for std::rc::Rc<[u8]> {
+    type WithParsed<T: ?Sized + ParseBytesZC> = std::rc::Rc<T>;
+
+    fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
+        self,
+    ) -> Result<Self::WithParsed<T>, (Self, ParseError)> {
+        let parsed = match T::parse_bytes_by_ref(&self) {
+            Ok(parsed) => parsed as *const T,
+            Err(err) => return Err((self, err)),
+        };
+
+        // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
+        // same address and layout as '*self'.  Thus, it is safe to use it to
+        // reconstitute the 'Rc'.
+        let _ = std::rc::Rc::into_raw(self);
+        Ok(unsafe { std::rc::Rc::from_raw(parsed) })
+    }
+}
+
+#[cfg(feature = "std")]
+impl ParseBytesInPlace for std::sync::Arc<[u8]> {
+    type WithParsed<T: ?Sized + ParseBytesZC> = std::sync::Arc<T>;
+
+    fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
+        self,
+    ) -> Result<Self::WithParsed<T>, (Self, ParseError)> {
+        let parsed = match T::parse_bytes_by_ref(&self) {
+            Ok(parsed) => parsed as *const T,
+            Err(err) => return Err((self, err)),
+        };
+
+        // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
+        // same address and layout as '*self'.  Thus, it is safe to use it to
+        // reconstitute the 'Arc'.
+        let _ = std::sync::Arc::into_raw(self);
+        Ok(unsafe { std::sync::Arc::from_raw(parsed) })
+    }
+}
 
 //----------- ParseError -----------------------------------------------------
 

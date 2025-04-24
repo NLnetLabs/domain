@@ -49,7 +49,7 @@ impl Message {
     pub fn truncate(&self, size: usize) -> &Self {
         let bytes = &self.as_bytes()[..12 + size];
         // SAFETY: 'bytes' is at least 12 bytes, making it a valid 'Message'.
-        unsafe { Self::parse_bytes_zc(bytes).unwrap_unchecked() }
+        unsafe { Self::parse_bytes_by_ref(bytes).unwrap_unchecked() }
     }
 
     /// Truncate the contents of this message to the given size, mutably.
@@ -58,7 +58,7 @@ impl Message {
     pub fn truncate_mut(&mut self, size: usize) -> &mut Self {
         let bytes = &mut self.as_bytes_mut()[..12 + size];
         // SAFETY: 'bytes' is at least 12 bytes, making it a valid 'Message'.
-        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
+        unsafe { Self::parse_bytes_in(bytes).unwrap_unchecked() }
     }
 
     /// Truncate the contents of this message to the given size, by pointer.

@@ -233,7 +233,7 @@ pub fn derive_split_bytes_zc(input: pm::TokenStream) -> pm::TokenStream {
         // Finish early if the 'struct' has no fields.
         if data.is_empty() {
             skeleton.contents.stmts.push(syn::parse_quote! {
-                fn split_bytes_zc(
+                fn split_bytes_by_ref(
                     bytes: &[::domain::__core::primitive::u8],
                 ) -> ::domain::__core::result::Result<
                     (&Self, &[::domain::__core::primitive::u8]),
@@ -252,11 +252,11 @@ pub fn derive_split_bytes_zc(input: pm::TokenStream) -> pm::TokenStream {
             return Ok(skeleton.into_token_stream());
         }
 
-        // Define 'split_bytes_zc()'.
+        // Define 'split_bytes_by_ref()'.
         let tys = data.sized_fields().map(|f| &f.ty);
         let unsized_ty = &data.unsized_field().unwrap().ty;
         skeleton.contents.stmts.push(syn::parse_quote! {
-            fn split_bytes_zc(
+            fn split_bytes_by_ref(
                 bytes: &[::domain::__core::primitive::u8],
             ) -> ::domain::__core::result::Result<
                 (&Self, &[::domain::__core::primitive::u8]),
@@ -265,10 +265,10 @@ pub fn derive_split_bytes_zc(input: pm::TokenStream) -> pm::TokenStream {
                 let start = bytes.as_ptr();
                 #(let (_, bytes) =
                     <#tys as ::domain::new_base::wire::SplitBytesZC>
-                    ::split_bytes_zc(bytes)?;)*
+                    ::split_bytes_by_ref(bytes)?;)*
                 let (last, rest) =
                     <#unsized_ty as ::domain::new_base::wire::SplitBytesZC>
-                    ::split_bytes_zc(bytes)?;
+                    ::split_bytes_by_ref(bytes)?;
                 let ptr =
                     <#unsized_ty as ::domain::utils::dst::UnsizedCopy>
                     ::ptr_with_addr(last, start as *const ());
@@ -344,7 +344,7 @@ pub fn derive_parse_bytes_zc(input: pm::TokenStream) -> pm::TokenStream {
         // Finish early if the 'struct' has no fields.
         if data.is_empty() {
             skeleton.contents.stmts.push(syn::parse_quote! {
-                fn parse_bytes_zc(
+                fn parse_bytes_by_ref(
                     bytes: &[::domain::__core::primitive::u8],
                 ) -> ::domain::__core::result::Result<
                     &Self,
@@ -364,11 +364,11 @@ pub fn derive_parse_bytes_zc(input: pm::TokenStream) -> pm::TokenStream {
             return Ok(skeleton.into_token_stream());
         }
 
-        // Define 'parse_bytes_zc()'.
+        // Define 'parse_bytes_by_ref()'.
         let tys = data.sized_fields().map(|f| &f.ty);
         let unsized_ty = &data.unsized_field().unwrap().ty;
         skeleton.contents.stmts.push(syn::parse_quote! {
-            fn parse_bytes_zc(
+            fn parse_bytes_by_ref(
                 bytes: &[::domain::__core::primitive::u8],
             ) -> ::domain::__core::result::Result<
                 &Self,
@@ -377,10 +377,10 @@ pub fn derive_parse_bytes_zc(input: pm::TokenStream) -> pm::TokenStream {
                 let start = bytes.as_ptr();
                 #(let (_, bytes) =
                     <#tys as ::domain::new_base::wire::SplitBytesZC>
-                    ::split_bytes_zc(bytes)?;)*
+                    ::split_bytes_by_ref(bytes)?;)*
                 let last =
                     <#unsized_ty as ::domain::new_base::wire::ParseBytesZC>
-                    ::parse_bytes_zc(bytes)?;
+                    ::parse_bytes_by_ref(bytes)?;
                 let ptr =
                     <#unsized_ty as ::domain::utils::dst::UnsizedCopy>
                     ::ptr_with_addr(last, start as *const ());

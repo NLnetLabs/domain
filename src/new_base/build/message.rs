@@ -44,7 +44,7 @@ impl<'b, 'c> MessageBuilder<'b, 'c> {
         buffer: &'b mut [u8],
         context: &'c mut BuilderContext,
     ) -> Self {
-        let message = Message::parse_bytes_by_mut(buffer)
+        let message = Message::parse_bytes_in(buffer)
             .expect("The caller's buffer is at least 12 bytes big");
         *context = BuilderContext::default();
         Self { message, context }

@@ -48,7 +48,7 @@ impl<'a, T: ?Sized + ParseBytesZC> ParseMessageBytes<'a> for &'a T {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        T::parse_bytes_zc(&contents[start..])
+        T::parse_bytes_by_ref(&contents[start..])
     }
 }
 
@@ -135,7 +135,7 @@ impl<'a, T: ?Sized + SplitBytesZC> SplitMessageBytes<'a> for &'a T {
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        T::split_bytes_zc(&contents[start..])
+        T::split_bytes_by_ref(&contents[start..])
             .map(|(this, rest)| (this, contents.len() - rest.len()))
     }
 }

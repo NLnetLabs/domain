@@ -74,7 +74,7 @@ macro_rules! define_int {
 
         impl<'b> ParseBytes<'b> for $name {
             fn parse_bytes(bytes: &'b [u8]) -> Result<Self, ParseError> {
-                Self::parse_bytes_zc(bytes).copied()
+                Self::parse_bytes_by_ref(bytes).copied()
             }
         }
 
@@ -82,7 +82,7 @@ macro_rules! define_int {
             fn split_bytes(
                 bytes: &'b [u8],
             ) -> Result<(Self, &'b [u8]), ParseError> {
-                Self::split_bytes_zc(bytes)
+                Self::split_bytes_by_ref(bytes)
                     .map(|(&this, rest)| (this, rest))
             }
         }
