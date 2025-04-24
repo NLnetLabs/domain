@@ -32,9 +32,10 @@ use crate::new_base::wire::{AsBytes, TruncationError};
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct ClientCookie {
@@ -131,14 +132,7 @@ impl fmt::Display for ClientCookie {
 
 /// A DNS cookie.
 #[derive(
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    AsBytes,
-    BuildBytes,
-    ParseBytesByRef,
-    UnsizedCopy,
+    Debug, PartialEq, Eq, Hash, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
 )]
 #[repr(C)]
 pub struct Cookie {

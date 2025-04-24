@@ -68,10 +68,10 @@
 //! there are also zero-copy versions of these traits, which are more
 //! efficient (but not always applicable):
 //!
-//! - [`ParseBytesByRef`]: Like [`ParseBytes`], but transmutes the byte string
+//! - [`ParseBytesZC`]: Like [`ParseBytes`], but transmutes the byte string
 //!   into an instance of the target type in place.
 //!
-//! - [`SplitBytesByRef`]: Like [`SplitBytes`], but transmutes the byte string
+//! - [`SplitBytesZC`]: Like [`SplitBytes`], but transmutes the byte string
 //!   into an instance of the target type in place.
 //!
 //! - [`AsBytes`]: Allows interpreting an object as a byte string in place.
@@ -94,7 +94,7 @@ pub use build::{AsBytes, BuildBytes, TruncationError};
 
 mod parse;
 pub use parse::{
-    ParseBytes, ParseBytesByRef, ParseError, SplitBytes, SplitBytesByRef,
+    ParseBytes, ParseBytesZC, ParseError, SplitBytes, SplitBytesZC,
 };
 
 mod ints;

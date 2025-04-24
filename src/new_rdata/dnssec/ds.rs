@@ -15,7 +15,7 @@ use super::SecAlg;
 
 /// The signing key for a delegated zone.
 #[derive(
-    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesByRef, UnsizedCopy,
+    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
 )]
 #[repr(C)]
 pub struct Ds {
@@ -54,9 +54,10 @@ impl CanonicalRecordData for Ds {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct DigestType {

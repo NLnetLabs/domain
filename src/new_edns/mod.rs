@@ -13,7 +13,7 @@ use crate::{
     new_base::{
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
-            AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
+            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError,
             SizePrefixed, SplitBytes, TruncationError, U16,
         },
     },
@@ -136,9 +136,10 @@ impl BuildBytes for EdnsRecord<'_> {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct EdnsFlags {
@@ -323,9 +324,10 @@ impl BuildBytes for EdnsOption<'_> {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct OptionCode {
@@ -370,7 +372,7 @@ impl fmt::Debug for OptionCode {
 //----------- UnknownOption --------------------------------------------------
 
 /// Data for an unknown Extended DNS option.
-#[derive(Debug, AsBytes, BuildBytes, ParseBytesByRef, UnsizedCopy)]
+#[derive(Debug, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy)]
 #[repr(transparent)]
 pub struct UnknownOption {
     /// The unparsed option data.

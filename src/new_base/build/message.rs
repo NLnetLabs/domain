@@ -3,7 +3,7 @@
 use core::cell::UnsafeCell;
 
 use crate::new_base::{
-    wire::{ParseBytesByRef, TruncationError},
+    wire::{ParseBytesZC, TruncationError},
     Header, Message, Question, Record,
 };
 

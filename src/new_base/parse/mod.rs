@@ -13,7 +13,7 @@ use core::mem::MaybeUninit;
 
 pub use super::wire::ParseError;
 
-use super::wire::{ParseBytes, ParseBytesByRef, SplitBytes, SplitBytesByRef};
+use super::wire::{ParseBytes, ParseBytesZC, SplitBytes, SplitBytesZC};
 
 //----------- Message parsing traits -----------------------------------------
 
@@ -43,12 +43,12 @@ impl<'a> ParseMessageBytes<'a> for u8 {
     }
 }
 
-impl<'a, T: ?Sized + ParseBytesByRef> ParseMessageBytes<'a> for &'a T {
+impl<'a, T: ?Sized + ParseBytesZC> ParseMessageBytes<'a> for &'a T {
     fn parse_message_bytes(
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        T::parse_bytes_by_ref(&contents[start..])
+        T::parse_bytes_zc(&contents[start..])
     }
 }
 
@@ -130,12 +130,12 @@ impl<'a> SplitMessageBytes<'a> for u8 {
     }
 }
 
-impl<'a, T: ?Sized + SplitBytesByRef> SplitMessageBytes<'a> for &'a T {
+impl<'a, T: ?Sized + SplitBytesZC> SplitMessageBytes<'a> for &'a T {
     fn split_message_bytes(
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        T::split_bytes_by_ref(&contents[start..])
+        T::split_bytes_zc(&contents[start..])
             .map(|(this, rest)| (this, contents.len() - rest.len()))
     }
 }

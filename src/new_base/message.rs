@@ -4,12 +4,12 @@ use core::fmt;
 
 use domain_macros::*;
 
-use super::wire::{AsBytes, ParseBytesByRef, U16};
+use super::wire::{AsBytes, ParseBytesZC, U16};
 
 //----------- Message --------------------------------------------------------
 
 /// A DNS message.
-#[derive(AsBytes, BuildBytes, ParseBytesByRef, UnsizedCopy)]
+#[derive(AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy)]
 #[repr(C, packed)]
 pub struct Message {
     /// The message header.
@@ -49,7 +49,7 @@ impl Message {
     pub fn truncate(&self, size: usize) -> &Self {
         let bytes = &self.as_bytes()[..12 + size];
         // SAFETY: 'bytes' is at least 12 bytes, making it a valid 'Message'.
-        unsafe { Self::parse_bytes_by_ref(bytes).unwrap_unchecked() }
+        unsafe { Self::parse_bytes_zc(bytes).unwrap_unchecked() }
     }
 
     /// Truncate the contents of this message to the given size, mutably.
@@ -96,9 +96,10 @@ impl Message {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(C)]
 pub struct Header {
@@ -222,9 +223,10 @@ impl fmt::Display for Header {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct HeaderFlags {
@@ -411,9 +413,10 @@ impl fmt::Display for HeaderFlags {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(C)]
 pub struct SectionCounts {

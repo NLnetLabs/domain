@@ -15,8 +15,8 @@ use crate::new_base::{
 };
 
 use super::{
-    AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError, SplitBytes,
-    SplitBytesByRef, TruncationError,
+    AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SplitBytes,
+    SplitBytesZC, TruncationError,
 };
 
 //----------- SizePrefixed ---------------------------------------------------
@@ -42,11 +42,11 @@ use super::{
 ///
 /// - `S` should almost always implement `TryFrom<usize>`.  This is needed to
 ///   initialize it manually, e.g. from the size of `T`.  It can be omitted
-///   for the zero-copy traits [`ParseBytesByRef`], [`SplitBytesByRef`], and
+///   for the zero-copy traits [`ParseBytesZC`], [`SplitBytesZC`], and
 ///   [`AsBytes`].
 ///
 /// - During parsing, `S` should implement [`SplitMessageBytes`],
-///   [`SplitBytes`], or [`SplitBytesByRef`].  It should also implement
+///   [`SplitBytes`], or [`SplitBytesZC`].  It should also implement
 ///   `Into<usize>`; this is used to read the right number of bytes for the
 ///   actual size-prefixed data.
 ///
@@ -58,7 +58,7 @@ use super::{
 #[derive(Copy, Clone, AsBytes, UnsizedCopy)]
 #[repr(C)]
 pub struct SizePrefixed<S, T: ?Sized> {
-    /// The size prefix (needed for 'ParseBytesByRef' / 'AsBytes').
+    /// The size prefix (needed for 'ParseBytesZC' / 'AsBytes').
     ///
     /// This field is only used by the zero-copy (de)serialization traits.  As
     /// such, this field should always be consistent with the size of `data`.
@@ -80,7 +80,7 @@ where
     ///
     /// Panics if the size of `data` in memory cannot fit in `S`.  This is
     /// necessary for `SizePrefixed` to correctly implement [`AsBytes`] and
-    /// [`ParseBytesByRef`] / [`SplitBytesByRef`].
+    /// [`ParseBytesZC`] / [`SplitBytesZC`].
     pub fn new(data: T) -> Self {
         let size = core::mem::size_of::<T>();
         Self {
@@ -236,19 +236,18 @@ where
     }
 }
 
-unsafe impl<S, T: ?Sized + ParseBytesByRef> ParseBytesByRef
-    for SizePrefixed<S, T>
+unsafe impl<S, T: ?Sized + ParseBytesZC> ParseBytesZC for SizePrefixed<S, T>
 where
-    S: SplitBytesByRef + Copy + Into<usize>,
+    S: SplitBytesZC + Copy + Into<usize>,
 {
-    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
         let addr = bytes.as_ptr();
-        let (size, rest) = S::split_bytes_by_ref(bytes)?;
+        let (size, rest) = S::split_bytes_zc(bytes)?;
         if rest.len() != (*size).into() {
             return Err(ParseError);
         }
-        let last = T::parse_bytes_by_ref(rest)?;
-        let ptr = last.ptr_with_address(addr as *const ());
+        let last = T::parse_bytes_zc(rest)?;
+        let ptr = last.ptr_with_addr(addr as *const ());
 
         // SAFETY:
         //
@@ -264,54 +263,21 @@ where
         //   'bytes'.
         Ok(unsafe { &*(ptr as *const Self) })
     }
-
-    fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError> {
-        let addr = bytes.as_ptr();
-        let (size, rest) = S::split_bytes_by_mut(bytes)?;
-        if rest.len() != (*size).into() {
-            return Err(ParseError);
-        }
-        let last = T::parse_bytes_by_mut(rest)?;
-        let ptr = last.ptr_with_address(addr as *const ());
-
-        // SAFETY:
-        //
-        // - 'addr_of_mut!((*(ptr as *mut Self)).size) == size as *mut S'.
-        //   The 'size' field of 'ptr' is thus valid for reads and writes for
-        //   the lifetime of 'size', which is the same as the lifetime of
-        //   'bytes'.
-        //
-        // - 'addr_of_mut!((*(ptr as *mut Self)).data) == last as *mut T'.
-        //   The 'data' field of 'ptr' is thus valid for reads and writes for
-        //   the lifetime of 'last', which is the same as the lifetime of
-        //   'bytes'.
-        //
-        // - Thus, 'ptr' is valid for reads and writes of 'Self' for the
-        //   lifetime of 'bytes'.
-        Ok(unsafe { &mut *(ptr as *const Self as *mut Self) })
-    }
-
-    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-        self.data.ptr_with_address(addr) as *const Self
-    }
 }
 
-unsafe impl<S, T: ?Sized + ParseBytesByRef> SplitBytesByRef
-    for SizePrefixed<S, T>
+unsafe impl<S, T: ?Sized + ParseBytesZC> SplitBytesZC for SizePrefixed<S, T>
 where
-    S: SplitBytesByRef + Copy + Into<usize>,
+    S: SplitBytesZC + Copy + Into<usize>,
 {
-    fn split_bytes_by_ref(
-        bytes: &[u8],
-    ) -> Result<(&Self, &[u8]), ParseError> {
+    fn split_bytes_zc(bytes: &[u8]) -> Result<(&Self, &[u8]), ParseError> {
         let addr = bytes.as_ptr();
-        let (&size, rest) = S::split_bytes_by_ref(bytes)?;
+        let (&size, rest) = S::split_bytes_zc(bytes)?;
         if rest.len() < size.into() {
             return Err(ParseError);
         }
         let (data, rest) = rest.split_at(size.into());
-        let last = T::parse_bytes_by_ref(data)?;
-        let ptr = last.ptr_with_address(addr as *const ());
+        let last = T::parse_bytes_zc(data)?;
+        let ptr = last.ptr_with_addr(addr as *const ());
 
         // SAFETY:
         //
@@ -326,35 +292,6 @@ where
         // - Thus, 'ptr' is valid for reads of 'Self' for the lifetime of
         //   'bytes'.
         Ok((unsafe { &*(ptr as *const Self) }, rest))
-    }
-
-    fn split_bytes_by_mut(
-        bytes: &mut [u8],
-    ) -> Result<(&mut Self, &mut [u8]), ParseError> {
-        let addr = bytes.as_ptr();
-        let (&mut size, rest) = S::split_bytes_by_mut(bytes)?;
-        if rest.len() < size.into() {
-            return Err(ParseError);
-        }
-        let (data, rest) = rest.split_at_mut(size.into());
-        let last = T::parse_bytes_by_mut(data)?;
-        let ptr = last.ptr_with_address(addr as *const ());
-
-        // SAFETY:
-        //
-        // - 'addr_of_mut!((*(ptr as *mut Self)).size) == size as *mut S'.
-        //   The 'size' field of 'ptr' is thus valid for reads and writes for
-        //   the lifetime of 'size', which is the same as the lifetime of
-        //   'bytes'.
-        //
-        // - 'addr_of_mut!((*(ptr as *mut Self)).data) == last as *mut T'.
-        //   The 'data' field of 'ptr' is thus valid for reads and writes for
-        //   the lifetime of 'last', which is the same as the lifetime of
-        //   'bytes'.
-        //
-        // - Thus, 'ptr' is valid for reads and writes of 'Self' for the
-        //   lifetime of 'bytes'.
-        Ok((unsafe { &mut *(ptr as *const Self as *mut Self) }, rest))
     }
 }
 

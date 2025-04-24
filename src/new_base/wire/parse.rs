@@ -3,6 +3,8 @@
 use core::fmt;
 use core::mem::MaybeUninit;
 
+use crate::utils::dst::UnsizedCopy;
+
 //----------- ParseBytes -----------------------------------------------------
 
 /// Parsing from a byte sequence.
@@ -27,9 +29,9 @@ impl<'a> ParseBytes<'a> for u8 {
     }
 }
 
-impl<'a, T: ?Sized + ParseBytesByRef> ParseBytes<'a> for &'a T {
+impl<'a, T: ?Sized + ParseBytesZC> ParseBytes<'a> for &'a T {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        T::parse_bytes_by_ref(bytes).map_err(|_| ParseError)
+        T::parse_bytes_zc(bytes).map_err(|_| ParseError)
     }
 }
 
@@ -59,7 +61,7 @@ impl<'a> ParseBytes<'a> for std::vec::Vec<u8> {
 #[cfg(feature = "std")]
 impl<'a> ParseBytes<'a> for std::string::String {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        str::parse_bytes_by_ref(bytes).map(std::string::String::from)
+        str::parse_bytes_zc(bytes).map(std::string::String::from)
     }
 }
 
@@ -131,9 +133,9 @@ impl<'a> SplitBytes<'a> for u8 {
     }
 }
 
-impl<'a, T: ?Sized + SplitBytesByRef> SplitBytes<'a> for &'a T {
+impl<'a, T: ?Sized + SplitBytesZC> SplitBytes<'a> for &'a T {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        T::split_bytes_by_ref(bytes).map_err(|_| ParseError)
+        T::split_bytes_zc(bytes).map_err(|_| ParseError)
     }
 }
 
@@ -226,189 +228,85 @@ impl<'a, T: SplitBytes<'a>> SplitBytes<'a> for std::boxed::Box<T> {
 /// ```
 pub use domain_macros::SplitBytes;
 
-//----------- ParseBytesByRef ------------------------------------------------
+//----------- ParseBytesZC ---------------------------------------------------
 
 /// Zero-copy parsing from a byte sequence.
 ///
 /// # Safety
 ///
-/// Every implementation of [`ParseBytesByRef`] must satisfy the invariants
-/// documented on [`parse_bytes_by_ref()`] and [`ptr_with_address()`].  An
-/// incorrect implementation is considered to cause undefined behaviour.
+/// Every implementation of [`ParseBytesZC`] must satisfy the invariants
+/// documented on [`validate_bytes()`].  An incorrect implementation is
+/// considered to cause undefined behaviour.
 ///
-/// [`parse_bytes_by_ref()`]: Self::parse_bytes_by_ref()
-/// [`ptr_with_address()`]: Self::ptr_with_address()
+/// [`validate_bytes()`]: Self::validate_bytes()
 ///
 /// Implementing types must also have no alignment (i.e. a valid instance of
 /// [`Self`] can occur at any address).  This eliminates the possibility of
 /// padding bytes when [`Self`] is part of a larger aggregate type.
-pub unsafe trait ParseBytesByRef {
+pub unsafe trait ParseBytesZC: UnsizedCopy {
     /// Interpret a byte sequence as an instance of [`Self`].
     ///
-    /// The byte sequence will be validated and re-interpreted as a reference
-    /// to [`Self`].  The whole byte sequence must be used.  If the input is
-    /// not a valid instance of [`Self`], a [`ParseError`] is returned.
+    /// This will return successfully if and only if the entirety of the given
+    /// byte sequence can be interpreted as an instance of [`Self`].  It will
+    /// transmute the bytes reference into a reference to [`Self`] and return
+    /// it.
     ///
     /// ## Invariants
     ///
-    /// For the statement `let this: &T = T::parse_bytes_by_ref(bytes)?;`,
+    /// For the statement `let this: &T = T::parse_bytes_zc(bytes)?`,
     ///
     /// - `bytes.as_ptr() == this as *const T as *const u8`.
+    /// - `ptr` has the same provenance as `bytes`.
     /// - `bytes.len() == core::mem::size_of_val(this)`.
-    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError>;
-
-    /// Interpret a byte sequence as an instance of [`Self`], mutably.
-    ///
-    /// The byte sequence will be validated and re-interpreted as a reference
-    /// to [`Self`].  The whole byte sequence must be used.  If the input is
-    /// not a valid instance of [`Self`], a [`ParseError`] is returned.
-    ///
-    /// ## Invariants
-    ///
-    /// For the statement `let this: &mut T = T::parse_bytes_by_mut(bytes)?;`,
-    ///
-    /// - `bytes.as_ptr() == this as *const T as *const u8`.
-    /// - `bytes.len() == core::mem::size_of_val(this)`.
-    fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError>;
-
-    /// Change the address of a pointer to [`Self`].
-    ///
-    /// When [`Self`] is used as the last field in a type that also implements
-    /// [`ParseBytesByRef`], it may be dynamically sized, and so a pointer (or
-    /// reference) to it may include additional metadata.  This metadata is
-    /// included verbatim in any reference/pointer to the containing type.
-    ///
-    /// When the containing type implements [`ParseBytesByRef`], it needs to
-    /// construct a reference/pointer to itself, which includes this metadata.
-    /// Rust does not currently offer a general way to extract this metadata
-    /// or pair it with another address, so this function is necessary.  The
-    /// caller can construct a reference to [`Self`], then change its address
-    /// to point to the containing type, then cast that pointer to the right
-    /// type.
-    ///
-    /// # Implementing
-    ///
-    /// Most users will derive [`ParseBytesByRef`] and so don't need to worry
-    /// about this.  For manual implementations:
-    ///
-    /// In the future, an adequate default implementation for this function
-    /// may be provided.  Until then, it should be implemented using one of
-    /// the following expressions:
-    ///
-    /// ```text
-    /// fn ptr_with_address(
-    ///     &self,
-    ///     addr: *const (),
-    /// ) -> *const Self {
-    ///     // If 'Self' is Sized:
-    ///     addr.cast::<Self>()
-    ///
-    ///     // If 'Self' is an aggregate whose last field is 'last':
-    ///     self.last.ptr_with_address(addr) as *const Self
-    /// }
-    /// ```
-    ///
-    /// # Invariants
-    ///
-    /// For the statement `let result = Self::ptr_with_address(ptr, addr);`:
-    ///
-    /// - `result as usize == addr as usize`.
-    /// - `core::ptr::metadata(result) == core::ptr::metadata(ptr)`.
-    fn ptr_with_address(&self, addr: *const ()) -> *const Self;
+    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError>;
 }
 
-unsafe impl ParseBytesByRef for u8 {
-    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+unsafe impl ParseBytesZC for u8 {
+    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
         if let [result] = bytes {
             Ok(result)
         } else {
             Err(ParseError)
         }
     }
+}
 
-    fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError> {
-        if let [result] = bytes {
-            Ok(result)
-        } else {
-            Err(ParseError)
-        }
-    }
-
-    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-        addr.cast()
+unsafe impl ParseBytesZC for [u8] {
+    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
+        Ok(bytes)
     }
 }
 
-unsafe impl ParseBytesByRef for [u8] {
-    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
-        Ok(bytes)
-    }
-
-    fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError> {
-        Ok(bytes)
-    }
-
-    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-        core::ptr::slice_from_raw_parts(addr.cast(), self.len())
-    }
-}
-
-unsafe impl ParseBytesByRef for str {
-    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+unsafe impl ParseBytesZC for str {
+    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
         core::str::from_utf8(bytes).map_err(|_| ParseError)
     }
-
-    fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError> {
-        core::str::from_utf8_mut(bytes).map_err(|_| ParseError)
-    }
-
-    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-        // NOTE: The Rust Reference indicates that 'str' has the same layout
-        // as '[u8]' [1].  This is also the most natural layout for it.  Since
-        // there's no way to construct a '*const str' from raw parts, we will
-        // just construct a raw slice and transmute it.
-        //
-        // [1]: https://doc.rust-lang.org/reference/type-layout.html#str-layout
-
-        self.as_bytes().ptr_with_address(addr) as *const Self
-    }
 }
 
-unsafe impl<T: SplitBytesByRef, const N: usize> ParseBytesByRef for [T; N] {
-    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
-        let (this, rest) = Self::split_bytes_by_ref(bytes)?;
+unsafe impl<T: SplitBytesZC, const N: usize> ParseBytesZC for [T; N] {
+    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
+        let (this, rest) = Self::split_bytes_zc(bytes)?;
         if rest.is_empty() {
             Ok(this)
         } else {
             Err(ParseError)
         }
     }
-
-    fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError> {
-        let (this, rest) = Self::split_bytes_by_mut(bytes)?;
-        if rest.is_empty() {
-            Ok(this)
-        } else {
-            Err(ParseError)
-        }
-    }
-
-    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-        addr.cast()
-    }
 }
 
-/// Deriving [`ParseBytesByRef`] automatically.
+/// Deriving [`ParseBytesZC`] automatically.
 ///
-/// [`ParseBytesByRef`] can be derived on `struct`s (not `enum`s or `union`s),
+/// [`ParseBytesZC`] can be derived on `struct`s (not `enum`s or `union`s),
 /// where a fixed memory layout (`repr(C)` or `repr(transparent)`) is used.
-/// All fields except the last must implement [`SplitBytesByRef`], while the
-/// last field only needs to implement [`ParseBytesByRef`].
+/// All fields except the last must implement [`SplitBytesZC`], while the last
+/// field only needs to implement [`ParseBytesZC`].
 ///
 /// Here's a simple example:
 ///
 /// ```no_run
-/// # use domain::new_base::wire::{ParseBytesByRef, SplitBytesByRef, U32, ParseError};
+/// # use domain::new_base::wire::{ParseBytesZC, SplitBytesZC, U32, ParseError};
+/// # use domain::utils::dst::UnsizedCopy;
+/// #[derive(UnsizedCopy)]
 /// #[repr(C)]
 /// struct Foo<T> {
 ///     a: U32,
@@ -417,39 +315,25 @@ unsafe impl<T: SplitBytesByRef, const N: usize> ParseBytesByRef for [T; N] {
 ///
 /// # struct Bar<T> { data: T }
 ///
-/// // The generated impl with 'derive(ParseBytesByRef)':
-/// unsafe impl<T> ParseBytesByRef for Foo<T>
-/// where Bar<T>: ParseBytesByRef {
-///     fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+/// // The generated impl with 'derive(ParseBytesZC)':
+/// unsafe impl<T> ParseBytesZC for Foo<T>
+/// where Bar<T>: ParseBytesZC {
+///     fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
 ///         let addr = bytes.as_ptr();
-///         let (_, bytes) = U32::split_bytes_by_ref(bytes)?;
-///         let last = <Bar<T>>::parse_bytes_by_ref(bytes)?;
+///         let (_, bytes) = U32::split_bytes_zc(bytes)?;
+///         let last = <Bar<T>>::parse_bytes_zc(bytes)?;
 ///         let this = last.ptr_with_address(addr as *const ());
 ///         Ok(unsafe { &*(this as *const Self) })
 ///     }
-///
-///     fn parse_bytes_by_mut(
-///         bytes: &mut [u8],
-///     ) -> Result<&mut Self, ParseError> {
-///         let addr = bytes.as_ptr();
-///         let (_, bytes) = U32::split_bytes_by_ref(bytes)?;
-///         let last = <Bar<T>>::parse_bytes_by_ref(bytes)?;
-///         let this = last.ptr_with_address(addr as *const ());
-///         Ok(unsafe { &mut *(this as *const Self as *mut Self) })
-///     }
-///
-///     fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-///         self.b.ptr_with_address(addr) as *const Self
-///     }
 /// }
 /// ```
-pub use domain_macros::ParseBytesByRef;
+pub use domain_macros::ParseBytesZC;
 
-//----------- SplitBytesByRef ------------------------------------------------
+//----------- SplitBytesZC ------------------------------------------------
 
 /// Zero-copy parsing from the start of a byte sequence.
 ///
-/// This is an extension of [`ParseBytesByRef`] for types which can determine
+/// This is an extension of [`ParseBytesZC`] for types which can determine
 /// their own length when parsing.  It is usually implemented by [`Sized`]
 /// types (where the length is just the size of the type), although it can be
 /// sometimes implemented by unsized types.
@@ -459,9 +343,9 @@ pub use domain_macros::ParseBytesByRef;
 /// This parsing functions provided by this trait are _non-greedy_.  This can
 /// be interpreted in several equivalent ways:
 ///
-/// - If `split_bytes_by_{ref,mut}()` returns successfully for some input
-///   sequence, it would return exactly the same `Self` value if more bytes
-///   were added to the end of the input.
+/// - If `split_bytes_zc()` returns successfully for some input sequence, it
+///   would return exactly the same `Self` value if more bytes were added to
+///   the end of the input.
 ///
 /// - The unparsed part of the input (that is returned on success) does
 ///   not influence the function; those bytes are not examined.
@@ -472,16 +356,16 @@ pub use domain_macros::ParseBytesByRef;
 ///
 /// # Safety
 ///
-/// Every implementation of [`SplitBytesByRef`] must satisfy the invariants
-/// documented on [`split_bytes_by_ref()`].  An incorrect implementation is
+/// Every implementation of [`SplitBytesZC`] must satisfy the invariants
+/// documented on [`split_bytes_zc()`].  An incorrect implementation is
 /// considered to cause undefined behaviour.
 ///
-/// [`split_bytes_by_ref()`]: Self::split_bytes_by_ref()
+/// [`split_bytes_zc()`]: Self::split_bytes_zc()
 ///
-/// Note that [`ParseBytesByRef`], required by this trait, also has several
-/// invariants that need to be considered with care.
-pub unsafe trait SplitBytesByRef: ParseBytesByRef {
-    /// Interpret a byte sequence as an instance of [`Self`], mutably.
+/// Note that [`ParseBytesZC`] and [`UnsizedCopy`], required by this trait,
+/// also have several invariants that need to be considered with care.
+pub unsafe trait SplitBytesZC: ParseBytesZC {
+    /// Interpret the start of a byte sequence as an instance of [`Self`].
     ///
     /// The byte sequence will be validated and re-interpreted as a reference
     /// to [`Self`].  The length of [`Self`] will be determined, possibly
@@ -491,59 +375,31 @@ pub unsafe trait SplitBytesByRef: ParseBytesByRef {
     ///
     /// ## Invariants
     ///
-    /// For the statement `let (this, rest) = T::split_bytes_by_ref(bytes)?;`,
+    /// For the statement `let (this, rest) = T::split_bytes_zc(bytes)?;`,
     ///
     /// - `bytes.as_ptr() == this as *const T as *const u8`.
     /// - `bytes.len() == core::mem::size_of_val(this) + rest.len()`.
     /// - `bytes.as_ptr().offset(size_of_val(this)) == rest.as_ptr()`.
-    fn split_bytes_by_ref(bytes: &[u8])
-        -> Result<(&Self, &[u8]), ParseError>;
-
-    /// Interpret a byte sequence as an instance of [`Self`].
-    ///
-    /// The byte sequence will be validated and re-interpreted as a reference
-    /// to [`Self`].  The length of [`Self`] will be determined, possibly
-    /// based on the contents (but not the length!) of the input, and the
-    /// remaining bytes will be returned.  If the input does not begin with a
-    /// valid instance of [`Self`], a [`ParseError`] is returned.
-    ///
-    /// ## Invariants
-    ///
-    /// For the statement `let (this, rest) = T::split_bytes_by_mut(bytes)?;`,
-    ///
-    /// - `bytes.as_ptr() == this as *const T as *const u8`.
-    /// - `bytes.len() == core::mem::size_of_val(this) + rest.len()`.
-    /// - `bytes.as_ptr().offset(size_of_val(this)) == rest.as_ptr()`.
-    fn split_bytes_by_mut(
-        bytes: &mut [u8],
-    ) -> Result<(&mut Self, &mut [u8]), ParseError>;
+    fn split_bytes_zc(bytes: &[u8]) -> Result<(&Self, &[u8]), ParseError>;
 }
 
-unsafe impl SplitBytesByRef for u8 {
-    fn split_bytes_by_ref(
-        bytes: &[u8],
-    ) -> Result<(&Self, &[u8]), ParseError> {
+unsafe impl SplitBytesZC for u8 {
+    fn split_bytes_zc(bytes: &[u8]) -> Result<(&Self, &[u8]), ParseError> {
         bytes.split_first().ok_or(ParseError)
     }
-
-    fn split_bytes_by_mut(
-        bytes: &mut [u8],
-    ) -> Result<(&mut Self, &mut [u8]), ParseError> {
-        bytes.split_first_mut().ok_or(ParseError)
-    }
 }
 
-unsafe impl<T: SplitBytesByRef, const N: usize> SplitBytesByRef for [T; N] {
-    fn split_bytes_by_ref(
+unsafe impl<T: SplitBytesZC, const N: usize> SplitBytesZC for [T; N] {
+    fn split_bytes_zc(
         mut bytes: &[u8],
     ) -> Result<(&Self, &[u8]), ParseError> {
         let start = bytes.as_ptr();
         for _ in 0..N {
-            (_, bytes) = T::split_bytes_by_ref(bytes)?;
+            (_, bytes) = T::split_bytes_zc(bytes)?;
         }
 
         // SAFETY:
-        // - 'T::split_bytes_by_ref()' was called 'N' times on successive
+        // - 'T::split_bytes_zc()' was called 'N' times on successive
         //   positions, thus the original 'bytes' starts with 'N' instances
         //   of 'T' (even if 'T' is a ZST and so all instances overlap).
         // - 'N' consecutive 'T's have the same layout as '[T; N]'.
@@ -551,37 +407,19 @@ unsafe impl<T: SplitBytesByRef, const N: usize> SplitBytesByRef for [T; N] {
         // - The referenced data has the same lifetime as the output.
         Ok((unsafe { &*start.cast::<[T; N]>() }, bytes))
     }
-
-    fn split_bytes_by_mut(
-        mut bytes: &mut [u8],
-    ) -> Result<(&mut Self, &mut [u8]), ParseError> {
-        let start = bytes.as_mut_ptr();
-        for _ in 0..N {
-            (_, bytes) = T::split_bytes_by_mut(bytes)?;
-        }
-
-        // SAFETY:
-        // - 'T::split_bytes_by_ref()' was called 'N' times on successive
-        //   positions, thus the original 'bytes' starts with 'N' instances
-        //   of 'T' (even if 'T' is a ZST and so all instances overlap).
-        // - 'N' consecutive 'T's have the same layout as '[T; N]'.
-        // - Thus it is safe to cast 'start' to '[T; N]'.
-        // - The referenced data has the same lifetime as the output.
-        Ok((unsafe { &mut *start.cast::<[T; N]>() }, bytes))
-    }
 }
 
-/// Deriving [`SplitBytesByRef`] automatically.
+/// Deriving [`SplitBytesZC`] automatically.
 ///
-/// [`SplitBytesByRef`] can be derived on `struct`s (not `enum`s or `union`s),
+/// [`SplitBytesZC`] can be derived on `struct`s (not `enum`s or `union`s),
 /// where a fixed memory layout (`repr(C)` or `repr(transparent)`) is used.
-/// All fields must implement [`SplitBytesByRef`].
+/// All fields must implement [`SplitBytesZC`].
 ///
 /// Here's a simple example:
 ///
 /// ```no_run
-/// # use domain::new_base::wire::{ParseBytesByRef, SplitBytesByRef, U32, ParseError};
-/// #[derive(ParseBytesByRef)]
+/// # use domain::new_base::wire::{ParseBytesZC, SplitBytesZC, U32, ParseError};
+/// #[derive(ParseBytesZC)]
 /// #[repr(C)]
 /// struct Foo<T> {
 ///     a: U32,
@@ -590,15 +428,15 @@ unsafe impl<T: SplitBytesByRef, const N: usize> SplitBytesByRef for [T; N] {
 ///
 /// # struct Bar<T> { data: T }
 ///
-/// // The generated impl with 'derive(SplitBytesByRef)':
-/// unsafe impl<T> SplitBytesByRef for Foo<T>
-/// where Bar<T>: SplitBytesByRef {
-///     fn split_bytes_by_ref(
+/// // The generated impl with 'derive(SplitBytesZC)':
+/// unsafe impl<T> SplitBytesZC for Foo<T>
+/// where Bar<T>: SplitBytesZC {
+///     fn split_bytes_zc(
 ///         bytes: &[u8],
 ///     ) -> Result<(&Self, &[u8]), ParseError> {
 ///         let addr = bytes.as_ptr();
-///         let (_, bytes) = U32::split_bytes_by_ref(bytes)?;
-///         let (last, bytes) = <Bar<T>>::split_bytes_by_ref(bytes)?;
+///         let (_, bytes) = U32::split_bytes_zc(bytes)?;
+///         let (last, bytes) = <Bar<T>>::split_bytes_zc(bytes)?;
 ///         let this = last.ptr_with_address(addr as *const ());
 ///         Ok((unsafe { &*(this as *const Self) }, bytes))
 ///     }
@@ -614,7 +452,7 @@ unsafe impl<T: SplitBytesByRef, const N: usize> SplitBytesByRef for [T; N] {
 ///     }
 /// }
 /// ```
-pub use domain_macros::SplitBytesByRef;
+pub use domain_macros::SplitBytesZC;
 
 //----------- ParseError -----------------------------------------------------
 

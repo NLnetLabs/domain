@@ -59,37 +59,18 @@ impl BuildIntoMessage for Txt {
 
 //--- Parsing from bytes
 
-impl Txt {
-    /// Validate the given bytes as a 'Txt'.
-    fn validate_bytes(bytes: &[u8]) -> Result<(), ParseError> {
+// SAFETY: The implementations of 'parse_bytes_by_{ref,mut}()' always parse
+// the entirety of the input on success, satisfying the safety requirements.
+unsafe impl ParseBytesZC for Txt {
+    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
         // NOTE: The input must contain at least one 'CharStr'.
         let (_, mut rest) = <&CharStr>::split_bytes(bytes)?;
         while !rest.is_empty() {
             (_, rest) = <&CharStr>::split_bytes(rest)?;
         }
-        Ok(())
-    }
-}
-
-// SAFETY: The implementations of 'parse_bytes_by_{ref,mut}()' always parse
-// the entirety of the input on success, satisfying the safety requirements.
-unsafe impl ParseBytesByRef for Txt {
-    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
-        Self::validate_bytes(bytes)?;
 
         // SAFETY: 'Txt' is 'repr(transparent)' to '[u8]'.
         Ok(unsafe { core::mem::transmute::<&[u8], &Self>(bytes) })
-    }
-
-    fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError> {
-        Self::validate_bytes(bytes)?;
-
-        // SAFETY: 'Txt' is 'repr(transparent)' to '[u8]'.
-        Ok(unsafe { core::mem::transmute::<&mut [u8], &mut Self>(bytes) })
-    }
-
-    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-        self.content.ptr_with_address(addr) as *const Self
     }
 }
 

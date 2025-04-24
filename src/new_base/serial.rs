@@ -21,9 +21,10 @@ use super::wire::U32;
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct Serial(U32);

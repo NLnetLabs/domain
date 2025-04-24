@@ -25,7 +25,7 @@ use crate::{
     Hash,
     AsBytes,
     BuildBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     UnsizedCopy,
 )]
 #[repr(transparent)]

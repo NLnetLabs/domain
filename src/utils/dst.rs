@@ -64,8 +64,23 @@ pub unsafe trait UnsizedCopy {
     /// [`unsized_copy_from()`]: UnsizedCopyFrom::unsized_copy_from().
     #[inline]
     fn unsized_copy_into<T: UnsizedCopyFrom<Source = Self>>(&self) -> T {
-        // T::unsized_copy_from(self)
-        todo!()
+        T::unsized_copy_from(self)
+    }
+
+    /// Copy `self` and return it by value.
+    ///
+    /// This offers equivalent functionality to the regular [`Copy`] trait,
+    /// which is also why it has the same [`Sized`] bound.
+    #[inline]
+    fn copy(&self) -> Self
+    where
+        Self: Sized,
+    {
+        // The compiler can't tell that 'Self' is 'Copy', so we're just going
+        // to copy it manually.  Hopefully this optimizes fine.
+
+        // SAFETY: 'self' is a valid reference, and is thus safe for reads.
+        unsafe { core::ptr::read(self) }
     }
 
     /// A type with the same alignment as `Self`.
@@ -230,7 +245,7 @@ unsafe impl UnsizedCopy for str {
     }
 }
 
-unsafe impl<T: Copy> UnsizedCopy for [T] {
+unsafe impl<T: UnsizedCopy> UnsizedCopy for [T] {
     type Alignment = T;
 
     fn ptr_with_addr(&self, addr: *const ()) -> *const Self {
@@ -238,7 +253,7 @@ unsafe impl<T: Copy> UnsizedCopy for [T] {
     }
 }
 
-unsafe impl<T: Copy, const N: usize> UnsizedCopy for [T; N] {
+unsafe impl<T: UnsizedCopy, const N: usize> UnsizedCopy for [T; N] {
     type Alignment = T;
 
     fn ptr_with_addr(&self, addr: *const ()) -> *const Self {
@@ -368,11 +383,21 @@ impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for std::sync::Arc<T> {
 }
 
 #[cfg(feature = "std")]
-impl<T: Copy> UnsizedCopyFrom for std::vec::Vec<T> {
+impl<T: UnsizedCopy> UnsizedCopyFrom for std::vec::Vec<T> {
     type Source = [T];
 
     fn unsized_copy_from(value: &Self::Source) -> Self {
-        value.into()
+        // We can't use 'impl From<&[T]> for Vec<T>', because that requires
+        // 'T' to implement 'Clone'.  We could reuse the 'UnsizedCopyFrom'
+        // impl for 'Box', but a manual implementation is probably better.
+
+        let mut this = Self::with_capacity(value.len());
+        let src = value.as_ptr();
+        let dst = this.spare_capacity_mut() as *mut _ as *mut T;
+        unsafe { core::ptr::copy_nonoverlapping(src, dst, value.len()) };
+        // SAFETY: The first 'value.len()' elements are now initialized.
+        unsafe { this.set_len(value.len()) };
+        this
     }
 }
 

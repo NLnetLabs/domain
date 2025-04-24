@@ -11,6 +11,7 @@ use crate::new_base::wire::*;
 use crate::new_base::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
 };
+use crate::utils::dst::UnsizedCopy;
 
 //----------- A --------------------------------------------------------------
 
@@ -46,7 +47,7 @@ use crate::new_base::{
 /// There's a few ways to build an [`A`]:
 ///
 /// ```
-/// # use domain::new_base::wire::{ParseBytes, ParseBytesByRef};
+/// # use domain::new_base::wire::{ParseBytes, ParseBytesZC};
 /// # use domain::new_rdata::A;
 /// #
 /// use core::net::Ipv4Addr;
@@ -92,9 +93,10 @@ use crate::new_base::{
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct A {

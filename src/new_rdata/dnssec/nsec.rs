@@ -10,7 +10,7 @@ use crate::utils::dst::UnsizedCopy;
 //----------- NSec -----------------------------------------------------------
 
 /// An indication of the non-existence of a set of DNS records (version 1).
-#[derive(Clone, Debug, PartialEq, Eq, BuildBytes, ParseBytes)]
+#[derive(Clone, Debug, PartialEq, Eq, BuildBytes)]
 pub struct NSec<'a> {
     /// The name of the next existing DNS record.
     pub next: &'a Name,
@@ -41,6 +41,20 @@ impl CanonicalRecordData for NSec<'_> {
         self.next
             .cmp_composed(other.next)
             .then_with(|| self.types.as_bytes().cmp(other.types.as_bytes()))
+    }
+}
+
+//--- Parsing from byte sequences
+
+impl<'a> ParseBytes<'a> for NSec<'a> {
+    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        let (next, bytes) = <&Name>::split_bytes(bytes)?;
+        if bytes.is_empty() {
+            // An empty type bitmap is not allowed for NSEC.
+            return Err(ParseError);
+        }
+        let types = <&TypeBitmaps>::parse_bytes(bytes)?;
+        Ok(Self { next, types })
     }
 }
 
@@ -94,12 +108,15 @@ impl fmt::Debug for TypeBitmaps {
 impl TypeBitmaps {
     /// Validate the given bytes as a bitmap in the wire format.
     fn validate_bytes(mut octets: &[u8]) -> Result<(), ParseError> {
-        // At least one bitmap is mandatory.
-        let mut num = octets.first().ok_or(ParseError)?;
-        octets = Self::validate_window_bytes(octets)?;
+        // NOTE: NSEC records require at least one type in the bitmap, while
+        // NSEC3 records can have an empty bitmap (see RFC 6840, section 6.4).
 
-        while let Some(next) = octets.first() {
-            if mem::replace(&mut num, next) >= next {
+        // The window number (i.e. the high byte of the type).
+        let mut num = None;
+        while let Some(&next) = octets.first() {
+            // Make sure that the window number increases.
+            // NOTE: 'None < Some(_)', for the first iteration.
+            if mem::replace(&mut num, Some(next)) > Some(next) {
                 return Err(ParseError);
             }
 
@@ -115,10 +132,14 @@ impl TypeBitmaps {
             return Err(ParseError);
         };
 
+        // At most 32 bytes are necessary, to cover the 256 types that could
+        // be stored in this window.  And empty windows are not allowed.
         if !(1..=32).contains(&len) || rest.len() < len as usize {
             return Err(ParseError);
         }
 
+        // TODO(1.80): Use 'split_at_checked()' and eliminate the previous
+        // conditional (move the range check into the 'let-else').
         let (bits, rest) = rest.split_at(len as usize);
         if bits.last() == Some(&0) {
             // Trailing zeros are not allowed.
@@ -131,24 +152,12 @@ impl TypeBitmaps {
 
 // SAFETY: The implementations of 'parse_bytes_by_{ref,mut}()' always parse
 // the entirety of the input on success, satisfying the safety requirements.
-unsafe impl ParseBytesByRef for TypeBitmaps {
-    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+unsafe impl ParseBytesZC for TypeBitmaps {
+    fn parse_bytes_zc(bytes: &[u8]) -> Result<&Self, ParseError> {
         Self::validate_bytes(bytes)?;
 
         // SAFETY: 'TypeBitmaps' is 'repr(transparent)' to '[u8]', and so
         // references to '[u8]' can be transmuted to 'TypeBitmaps' soundly.
         unsafe { core::mem::transmute(bytes) }
-    }
-
-    fn parse_bytes_by_mut(bytes: &mut [u8]) -> Result<&mut Self, ParseError> {
-        Self::validate_bytes(bytes)?;
-
-        // SAFETY: 'TypeBitmaps' is 'repr(transparent)' to '[u8]', and so
-        // references to '[u8]' can be transmuted to 'TypeBitmaps' soundly.
-        unsafe { core::mem::transmute(bytes) }
-    }
-
-    fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-        ParseBytesByRef::ptr_with_address(&self.octets, addr) as *const Self
     }
 }

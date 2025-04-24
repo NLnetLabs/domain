@@ -2,13 +2,13 @@
 
 use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
-use super::{
-    build::{self, BuildIntoMessage, BuildResult},
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{
-        AsBytes, BuildBytes, ParseBytes, ParseBytesByRef, ParseError,
-        SizePrefixed, SplitBytes, SplitBytesByRef, TruncationError, U16, U32,
-    },
+use crate::utils::dst::UnsizedCopy;
+
+use super::build::{self, BuildIntoMessage, BuildResult};
+use super::parse::{ParseMessageBytes, SplitMessageBytes};
+use super::wire::{
+    AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SizePrefixed,
+    SplitBytes, SplitBytesZC, TruncationError, U16, U32,
 };
 
 //----------- Record ---------------------------------------------------------
@@ -198,9 +198,10 @@ where
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct RType {
@@ -376,9 +377,10 @@ impl fmt::Debug for RType {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct RClass {
@@ -429,9 +431,10 @@ impl fmt::Debug for RClass {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct TTL {
@@ -520,7 +523,7 @@ pub trait CanonicalRecordData: BuildBytes {
 //----------- UnparsedRecordData ---------------------------------------------
 
 /// Unparsed DNS record data.
-#[derive(AsBytes, BuildBytes)]
+#[derive(AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct UnparsedRecordData([u8]);
 

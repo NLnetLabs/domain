@@ -91,8 +91,8 @@ impl CanonicalRecordData for NSec3<'_> {
     Eq,
     AsBytes,
     BuildBytes,
-    ParseBytesByRef,
-    SplitBytesByRef,
+    ParseBytesZC,
+    SplitBytesZC,
     UnsizedCopy,
 )]
 #[repr(C)]
@@ -130,9 +130,10 @@ impl CanonicalRecordData for NSec3Param {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct NSec3HashAlg {
@@ -171,9 +172,10 @@ impl fmt::Debug for NSec3HashAlg {
     AsBytes,
     BuildBytes,
     ParseBytes,
-    ParseBytesByRef,
+    ParseBytesZC,
     SplitBytes,
-    SplitBytesByRef,
+    SplitBytesZC,
+    UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct NSec3Flags {

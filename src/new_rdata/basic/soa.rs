@@ -66,7 +66,7 @@ use crate::new_base::{CanonicalRecordData, Serial};
 ///
 /// ```
 /// # use domain::new_base::name::{Name, RevNameBuf};
-/// # use domain::new_base::wire::{BuildBytes, ParseBytes, ParseBytesByRef};
+/// # use domain::new_base::wire::{BuildBytes, ParseBytes, ParseBytesZC};
 /// # use domain::new_rdata::Soa;
 /// #
 /// // Build a 'Soa' manually:
