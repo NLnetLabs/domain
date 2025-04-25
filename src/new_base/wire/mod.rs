@@ -94,7 +94,8 @@ pub use build::{AsBytes, BuildBytes, TruncationError};
 
 mod parse;
 pub use parse::{
-    ParseBytes, ParseBytesZC, ParseError, SplitBytes, SplitBytesZC,
+    ParseBytes, ParseBytesInPlace, ParseBytesZC, ParseError, SplitBytes,
+    SplitBytesZC,
 };
 
 mod ints;

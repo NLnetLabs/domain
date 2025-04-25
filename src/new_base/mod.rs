@@ -26,7 +26,7 @@ pub use record::{
 pub mod name;
 
 mod charstr;
-pub use charstr::CharStr;
+pub use charstr::{CharStr, CharStrBuf, CharStrParseError};
 
 mod serial;
 pub use serial::Serial;

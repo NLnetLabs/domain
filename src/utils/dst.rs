@@ -9,6 +9,8 @@
 //! large number of user-facing DSTs and needs to paper over the same rough
 //! edges for all of them.
 //!
+//! [`new_base`]: crate::new_base
+//!
 //! ## Coping DSTs
 //!
 //! Because DSTs cannot be held by value, they must be handled and manipulated
@@ -52,8 +54,7 @@
 ///
 /// - `T::Alignment` has exactly the same alignment as `T`.
 ///
-/// - `T::ptr_with_addr()` satisfies [the documented
-///   invariants](UnsizedCopy::ptr_with_addr()#invariants).
+/// - `T::ptr_with_addr()` satisfies the documented invariants.
 pub unsafe trait UnsizedCopy {
     /// Copy `self` into a new container.
     ///

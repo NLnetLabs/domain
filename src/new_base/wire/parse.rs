@@ -235,10 +235,10 @@ pub use domain_macros::SplitBytes;
 /// # Safety
 ///
 /// Every implementation of [`ParseBytesZC`] must satisfy the invariants
-/// documented on [`validate_bytes()`].  An incorrect implementation is
+/// documented on [`parse_bytes_by_ref()`].  An incorrect implementation is
 /// considered to cause undefined behaviour.
 ///
-/// [`validate_bytes()`]: Self::validate_bytes()
+/// [`parse_bytes_by_ref()`]: Self::parse_bytes_by_ref()
 ///
 /// Implementing types must also have no alignment (i.e. a valid instance of
 /// [`Self`] can occur at any address).  This eliminates the possibility of
