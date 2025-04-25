@@ -5,9 +5,11 @@ use core::cmp::Ordering;
 use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
 use crate::new_base::name::CanonicalName;
 use crate::new_base::parse::ParseMessageBytes;
-use crate::new_base::CanonicalRecordData;
+use crate::new_base::wire::{
+    BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
+};
 use crate::new_base::{
-    wire::*, ParseRecordData, ParseRecordDataBytes, RType,
+    CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
 };
 
 //----------- Ns -------------------------------------------------------------
