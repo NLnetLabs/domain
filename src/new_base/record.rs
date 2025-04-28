@@ -231,9 +231,6 @@ impl RType {
     /// The type of an [`Soa`](crate::new_rdata::Soa) record.
     pub const SOA: Self = Self::new(6);
 
-    /// The type of a [`Wks`](crate::new_rdata::Wks) record.
-    pub const WKS: Self = Self::new(11);
-
     /// The type of a [`Ptr`](crate::new_rdata::Ptr) record.
     pub const PTR: Self = Self::new(12);
 
@@ -345,7 +342,6 @@ impl fmt::Debug for RType {
             Self::NS => "RType::NS",
             Self::CNAME => "RType::CNAME",
             Self::SOA => "RType::SOA",
-            Self::WKS => "RType::WKS",
             Self::PTR => "RType::PTR",
             Self::HINFO => "RType::HINFO",
             Self::MX => "RType::MX",

@@ -36,7 +36,6 @@
 //! - [`Ns`]
 //! - [`CName`]
 //! - [`Soa`]
-//! - [`Wks`]
 //! - [`Ptr`]
 //! - [`HInfo`]
 //! - [`Mx`]
@@ -85,7 +84,7 @@ use crate::new_base::name::{Name, NameBuf};
 //----------- Concrete record data types -------------------------------------
 
 mod basic;
-pub use basic::{CName, HInfo, Mx, Ns, Ptr, Soa, Txt, Wks, A};
+pub use basic::{CName, HInfo, Mx, Ns, Ptr, Soa, Txt, A};
 
 mod ipv6;
 pub use ipv6::Aaaa;
@@ -217,9 +216,6 @@ define_record_data! {
         /// The start of a zone of authority.
         Soa(Soa<N>) = SOA,
 
-        /// Well-known services supported on this domain.
-        Wks(&'a Wks) = WKS,
-
         /// A pointer to another domain name.
         Ptr(Ptr<N>) = PTR,
 
@@ -271,7 +267,6 @@ impl<'a, N> RecordData<'a, N> {
             Self::Ns(r) => RecordData::Ns(r.map_name(f)),
             Self::CName(r) => RecordData::CName(r.map_name(f)),
             Self::Soa(r) => RecordData::Soa(r.map_names(f)),
-            Self::Wks(r) => RecordData::Wks(r),
             Self::Ptr(r) => RecordData::Ptr(r.map_name(f)),
             Self::HInfo(r) => RecordData::HInfo(r),
             Self::Mx(r) => RecordData::Mx(r.map_name(f)),
@@ -298,7 +293,6 @@ impl<'a, N> RecordData<'a, N> {
             Self::Ns(r) => RecordData::Ns(r.map_name_by_ref(f)),
             Self::CName(r) => RecordData::CName(r.map_name_by_ref(f)),
             Self::Soa(r) => RecordData::Soa(r.map_names_by_ref(f)),
-            Self::Wks(r) => RecordData::Wks(r),
             Self::Ptr(r) => RecordData::Ptr(r.map_name_by_ref(f)),
             Self::HInfo(r) => RecordData::HInfo(r.clone()),
             Self::Mx(r) => RecordData::Mx(r.map_name_by_ref(f)),
@@ -331,7 +325,6 @@ impl<'a, N> RecordData<'a, N> {
             Self::Ns(r) => RecordData::Ns(r.clone()),
             Self::CName(r) => RecordData::CName(r.clone()),
             Self::Soa(r) => RecordData::Soa(r.clone()),
-            Self::Wks(r) => RecordData::Wks(copy_to_bump(*r, bump)),
             Self::Ptr(r) => RecordData::Ptr(r.clone()),
             Self::HInfo(r) => RecordData::HInfo(r.clone_to_bump(bump)),
             Self::Mx(r) => RecordData::Mx(r.clone()),
@@ -371,9 +364,6 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             }
             RType::SOA => {
                 Soa::parse_message_bytes(contents, start).map(Self::Soa)
-            }
-            RType::WKS => {
-                <&Wks>::parse_bytes(&contents[start..]).map(Self::Wks)
             }
             RType::PTR => {
                 Ptr::parse_message_bytes(contents, start).map(Self::Ptr)
@@ -428,7 +418,6 @@ impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
             Self::Ns(r) => return r.build_into_message(builder),
             Self::CName(r) => return r.build_into_message(builder),
             Self::Soa(r) => return r.build_into_message(builder),
-            Self::Wks(r) => builder.append_bytes(r.as_bytes())?,
             Self::Ptr(r) => return r.build_into_message(builder),
             Self::HInfo(r) => builder.append_built_bytes(r)?,
             Self::Mx(r) => return r.build_into_message(builder),

@@ -14,9 +14,6 @@ pub use cname::CName;
 mod soa;
 pub use soa::Soa;
 
-mod wks;
-pub use wks::Wks;
-
 mod ptr;
 pub use ptr::Ptr;
 

@@ -148,9 +148,6 @@ impl QType {
     /// The type of queries for [`Soa`](crate::new_rdata::Soa) records.
     pub const SOA: Self = Self::new(6);
 
-    /// The type of queries for [`Wks`](crate::new_rdata::Wks) records.
-    pub const WKS: Self = Self::new(11);
-
     /// The type of queries for [`Ptr`](crate::new_rdata::Ptr) records.
     pub const PTR: Self = Self::new(12);
 
@@ -176,7 +173,6 @@ impl fmt::Debug for QType {
             Self::NS => "QType::NS",
             Self::CNAME => "QType::CNAME",
             Self::SOA => "QType::SOA",
-            Self::WKS => "QType::WKS",
             Self::PTR => "QType::PTR",
             Self::HINFO => "QType::HINFO",
             Self::MX => "QType::MX",
