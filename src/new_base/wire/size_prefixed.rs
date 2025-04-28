@@ -269,7 +269,9 @@ unsafe impl<S, T: ?Sized + ParseBytesZC> SplitBytesZC for SizePrefixed<S, T>
 where
     S: SplitBytesZC + Copy + Into<usize>,
 {
-    fn split_bytes_by_ref(bytes: &[u8]) -> Result<(&Self, &[u8]), ParseError> {
+    fn split_bytes_by_ref(
+        bytes: &[u8],
+    ) -> Result<(&Self, &[u8]), ParseError> {
         let addr = bytes.as_ptr();
         let (&size, rest) = S::split_bytes_by_ref(bytes)?;
         if rest.len() < size.into() {
