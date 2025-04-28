@@ -42,7 +42,7 @@
 ///
 #[cfg_attr(
     feature = "bumpalo",
-    doc = "The [`clone_to_bump()`] function is useful for cloning data into [`bumpalo`]-based allocations."
+    doc = "The [`copy_to_bump()`] function is useful for copying data into [`bumpalo`]-based allocations."
 )]
 ///
 /// # Safety

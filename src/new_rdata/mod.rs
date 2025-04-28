@@ -10,9 +10,11 @@
 //!   DNS message or parsing into a custom representation.  It can be parsed
 //!   from the wire format very efficiently.
 //!
-//! - [`BoxedRecordData`] is useful for long-term storage.  For long-term
-//!   storage of a whole DNS zone, it's more advisable to use the "zone tree"
-//!   types provided by this crate.
+#![cfg_attr(feature = "std", doc = " - [`BoxedRecordData`] ")]
+#![cfg_attr(not(feature = "std"), doc = " - `BoxedRecordData` ")]
+//!   is useful for long-term storage.  For long-term storage of a whole DNS
+//!   zone, it's more advisable to use the "zone tree" types provided by this
+//!   crate.
 //!
 //! - [`UnparsedRecordData`] is a niche type, useful for low-level
 //!   manipulation of the DNS wire format.  Beware that it can contain
