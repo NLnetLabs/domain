@@ -125,12 +125,20 @@ pub unsafe trait UnsizedCopy {
     /// For manual implementations for unsized types:
     ///
     /// ```no_run
+    /// # use domain::utils::dst::UnsizedCopy;
+    /// #
     /// pub struct Foo {
     ///     a: i32,
     ///     b: [u8],
     /// }
     ///
     /// unsafe impl UnsizedCopy for Foo {
+    ///     // We would like to write 'Alignment = Self' here, but we can't
+    ///     // because 'Self' is not 'Sized'.  However, 'Self' is a 'struct'
+    ///     // using 'repr(Rust)'; the following tuple (which implicitly also
+    ///     // uses 'repr(Rust)') has the same alignment as it.
+    ///     type Alignment = (i32, u8);
+    ///
     ///     fn ptr_with_addr(&self, addr: *const ()) -> *const Self {
     ///         // Delegate to the same function on the last field.
     ///         //
@@ -144,12 +152,17 @@ pub unsafe trait UnsizedCopy {
     /// For manual implementations for sized types:
     ///
     /// ```no_run
+    /// # use domain::utils::dst::UnsizedCopy;
+    /// #
     /// pub struct Foo {
     ///     a: i32,
     ///     b: Option<f64>,
     /// }
     ///
     /// unsafe impl UnsizedCopy for Foo {
+    ///     // Because 'Foo' is a sized type, we can use it here directly.
+    ///     type Alignment = Self;
+    ///
     ///     fn ptr_with_addr(&self, addr: *const ()) -> *const Self {
     ///         // Since 'Self' is 'Sized', there is no metadata.
     ///         addr.cast::<Self>()

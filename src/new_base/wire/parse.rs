@@ -340,7 +340,7 @@ unsafe impl<T: SplitBytesZC, const N: usize> ParseBytesZC for [T; N] {
 ///         let addr = bytes.as_ptr();
 ///         let (_, bytes) = U32::split_bytes_by_ref(bytes)?;
 ///         let last = <Bar<T>>::parse_bytes_by_ref(bytes)?;
-///         let this = last.ptr_with_address(addr as *const ());
+///         let this = last.ptr_with_addr(addr as *const ());
 ///         Ok(unsafe { &*(this as *const Self) })
 ///     }
 /// }
@@ -440,7 +440,9 @@ unsafe impl<T: SplitBytesZC, const N: usize> SplitBytesZC for [T; N] {
 ///
 /// ```no_run
 /// # use domain::new_base::wire::{ParseBytesZC, SplitBytesZC, U32, ParseError};
-/// #[derive(ParseBytesZC)]
+/// # use domain::utils::dst::UnsizedCopy;
+/// #
+/// #[derive(ParseBytesZC, UnsizedCopy)]
 /// #[repr(C)]
 /// struct Foo<T> {
 ///     a: U32,
@@ -458,18 +460,8 @@ unsafe impl<T: SplitBytesZC, const N: usize> SplitBytesZC for [T; N] {
 ///         let addr = bytes.as_ptr();
 ///         let (_, bytes) = U32::split_bytes_by_ref(bytes)?;
 ///         let (last, bytes) = <Bar<T>>::split_bytes_by_ref(bytes)?;
-///         let this = last.ptr_with_address(addr as *const ());
+///         let this = last.ptr_with_addr(addr as *const ());
 ///         Ok((unsafe { &*(this as *const Self) }, bytes))
-///     }
-///
-///     fn split_bytes_by_mut(
-///         bytes: &mut [u8],
-///     ) -> Result<(&mut Self, &mut [u8]), ParseError> {
-///         let addr = bytes.as_ptr();
-///         let (_, bytes) = U32::split_bytes_by_mut(bytes)?;
-///         let (last, bytes) = <Bar<T>>::split_bytes_by_mut(bytes)?;
-///         let this = last.ptr_with_address(addr as *const ());
-///         Ok((unsafe { &mut *(this as *const Self as *mut Self) }, bytes))
 ///     }
 /// }
 /// ```

@@ -296,7 +296,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::CName(r) => RecordData::CName(r.map_name_by_ref(f)),
             Self::Soa(r) => RecordData::Soa(r.map_names_by_ref(f)),
             Self::Ptr(r) => RecordData::Ptr(r.map_name_by_ref(f)),
-            Self::HInfo(r) => RecordData::HInfo(r.clone()),
+            Self::HInfo(r) => RecordData::HInfo(*r),
             Self::Mx(r) => RecordData::Mx(r.map_name_by_ref(f)),
             Self::Txt(r) => RecordData::Txt(r),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
@@ -719,7 +719,7 @@ impl UnknownRecordData {
 
         let bytes = bump.alloc_slice_copy(self.as_bytes());
         // SAFETY: 'ParseBytesZC' and 'AsBytes' are inverses.
-        unsafe { Self::parse_bytes_by_mut(bytes).unwrap_unchecked() }
+        unsafe { Self::parse_bytes_in(bytes).unwrap_unchecked() }
     }
 }
 
