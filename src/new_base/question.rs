@@ -162,6 +162,9 @@ impl QType {
 
     /// The type of queries for [`Aaaa`](crate::new_rdata::Aaaa) records.
     pub const AAAA: Self = Self::new(28);
+
+    /// The type of queries for all available records.
+    pub const ANY: Self = Self::new(255);
 }
 
 //--- Formatting
@@ -178,6 +181,7 @@ impl fmt::Debug for QType {
             Self::MX => "QType::MX",
             Self::TXT => "QType::TXT",
             Self::AAAA => "QType::AAAA",
+            Self::ANY => "QType::ANY",
             _ => return write!(f, "QType({})", self.code),
         })
     }
