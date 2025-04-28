@@ -2,9 +2,6 @@
 
 use core::{cmp::Ordering, fmt};
 
-#[cfg(feature = "std")]
-use std::boxed::Box;
-
 use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
 use crate::new_base::wire::*;
 use crate::new_base::{
@@ -125,34 +122,6 @@ impl Txt {
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'Txt' is 'repr(transparent)' to '[u8]'.
         unsafe { core::mem::transmute::<&[u8], &Txt>(bytes) }
-    }
-
-    /// Parse a heap-allocated byte sequence into a [`Txt`].
-    ///
-    /// The byte sequence should be a valid instance of [`Txt`] in the wire
-    /// format; it should contain one or more serialized [`CharStr`]s,
-    /// concatenated together.  It should be at most 65,535 bytes long.
-    ///
-    /// ## Errors
-    ///
-    /// Fails if the byte sequence does not match the wire format.
-    #[cfg(feature = "std")]
-    pub fn parse_boxed_bytes(
-        bytes: Box<[u8]>,
-    ) -> Result<Box<Self>, (ParseError, Box<[u8]>)> {
-        match Self::parse_bytes_by_ref(&bytes) {
-            Ok(this) => {
-                let this = this as *const Self;
-
-                // SAFETY: 'this' has the same address and layout as
-                // 'Box::into_raw(bytes)', and 'from_raw()' and 'into_raw()'
-                // are mutual inverses.
-                let _ = Box::into_raw(bytes);
-                Ok(unsafe { Box::from_raw(this.cast_mut()) })
-            }
-
-            Err(err) => Err((err, bytes)),
-        }
     }
 }
 
