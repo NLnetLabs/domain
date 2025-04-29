@@ -131,9 +131,12 @@ impl BuildBytes for Label {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         let (size, data) = bytes.split_first_mut().ok_or(TruncationError)?;
-        let rest = self.as_bytes().build_bytes(data)?;
         *size = self.len() as u8;
-        Ok(rest)
+        self.as_bytes().build_bytes(data)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        1 + self.len()
     }
 }
 
@@ -391,6 +394,10 @@ impl BuildBytes for LabelBuf {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         (**self).build_bytes(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        (**self).built_bytes_size()
     }
 }
 

@@ -143,6 +143,10 @@ impl BuildBytes for CharStr {
         *length = self.octets.len() as u8;
         self.octets.build_bytes(bytes)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        1 + self.octets.len()
+    }
 }
 
 //--- Equality
@@ -301,6 +305,10 @@ impl BuildBytes for CharStrBuf {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         (**self).build_bytes(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        (**self).built_bytes_size()
     }
 }
 

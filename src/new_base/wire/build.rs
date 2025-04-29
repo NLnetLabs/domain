@@ -18,6 +18,13 @@ pub trait BuildBytes {
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError>;
+
+    /// The size of `self` when serialized into a byte sequence.
+    ///
+    /// This reports the exact number of bytes that will be written to the
+    /// buffer passed to [`Self::build_bytes()`].  Note that this is not the
+    /// cheapest operation; it may have to traverse all the fields in `self`.
+    fn built_bytes_size(&self) -> usize;
 }
 
 impl<T: ?Sized + BuildBytes> BuildBytes for &T {
@@ -27,6 +34,10 @@ impl<T: ?Sized + BuildBytes> BuildBytes for &T {
     ) -> Result<&'b mut [u8], TruncationError> {
         T::build_bytes(*self, bytes)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        T::built_bytes_size(*self)
+    }
 }
 
 impl<T: ?Sized + BuildBytes> BuildBytes for &mut T {
@@ -35,6 +46,10 @@ impl<T: ?Sized + BuildBytes> BuildBytes for &mut T {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         T::build_bytes(*self, bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        T::built_bytes_size(*self)
     }
 }
 
@@ -50,6 +65,10 @@ impl BuildBytes for u8 {
             Err(TruncationError)
         }
     }
+
+    fn built_bytes_size(&self) -> usize {
+        1
+    }
 }
 
 impl BuildBytes for str {
@@ -58,6 +77,10 @@ impl BuildBytes for str {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         self.as_bytes().build_bytes(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        self.len()
     }
 }
 
@@ -71,6 +94,10 @@ impl<T: BuildBytes> BuildBytes for [T] {
         }
         Ok(bytes)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        self.iter().map(|e| e.built_bytes_size()).sum()
+    }
 }
 
 impl<T: BuildBytes, const N: usize> BuildBytes for [T; N] {
@@ -79,6 +106,10 @@ impl<T: BuildBytes, const N: usize> BuildBytes for [T; N] {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         self.as_slice().build_bytes(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        self.as_slice().built_bytes_size()
     }
 }
 
@@ -90,6 +121,10 @@ impl<T: ?Sized + BuildBytes> BuildBytes for std::boxed::Box<T> {
     ) -> Result<&'b mut [u8], TruncationError> {
         T::build_bytes(self, bytes)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        T::built_bytes_size(self)
+    }
 }
 
 #[cfg(feature = "std")]
@@ -100,6 +135,10 @@ impl<T: BuildBytes> BuildBytes for std::vec::Vec<T> {
     ) -> Result<&'b mut [u8], TruncationError> {
         self.as_slice().build_bytes(bytes)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        self.as_slice().built_bytes_size()
+    }
 }
 
 #[cfg(feature = "std")]
@@ -109,6 +148,10 @@ impl BuildBytes for std::string::String {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         self.as_str().build_bytes(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        self.as_str().built_bytes_size()
     }
 }
 

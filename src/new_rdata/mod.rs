@@ -197,6 +197,13 @@ macro_rules! define_record_data {
                     Self::Unknown(_, r) => r.build_bytes(bytes),
                 }
             }
+
+            fn built_bytes_size(&self) -> usize {
+                match self {
+                    $(Self::$v_name(r) => r.built_bytes_size(),)*
+                    Self::Unknown(_, r) => r.built_bytes_size(),
+                }
+            }
         }
     };
 }
@@ -689,6 +696,10 @@ impl BuildBytes for BoxedRecordData {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         self.bytes().build_bytes(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        self.bytes().len()
     }
 }
 

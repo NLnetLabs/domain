@@ -465,6 +465,16 @@ pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
             }
         });
 
+        // Define 'built_bytes_size()'.
+        let members = data.members();
+        let tys = data.fields().map(|f| &f.ty);
+        skeleton.contents.stmts.push(syn::parse_quote! {
+            fn built_bytes_size(&self) -> ::domain::__core::primitive::usize {
+                0 #(+ <#tys as ::domain::new_base::wire::BuildBytes>
+                        ::built_bytes_size(&self.#members))*
+            }
+        });
+
         Ok(skeleton.into_token_stream())
     }
 

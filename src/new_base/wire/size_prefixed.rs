@@ -344,23 +344,25 @@ where
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        // Get the size area to fill in afterwards.
-        let size_size = core::mem::size_of::<S>();
-        if bytes.len() < size_size {
-            return Err(TruncationError);
-        }
-        let (size_buf, data_buf) = bytes.split_at_mut(size_size);
-        let data_buf_len = data_buf.len();
-        let rest = self.data.build_bytes(data_buf)?;
-        let size = data_buf_len - rest.len();
-        let size = S::try_from(size).unwrap_or_else(|_| {
-            panic!(
-                "`data.len()` ({} bytes) overflows {}",
-                size,
-                core::any::type_name::<S>(),
-            )
-        });
-        size_buf.copy_from_slice(size.as_bytes());
+        // Determine the size of the data.
+        let total = bytes.len();
+        let size = self.data.built_bytes_size();
+        let rest = S::try_from(size)
+            .unwrap_or_else(|_| {
+                panic!(
+                    "`data.built_bytes_size()` (= {}) overflows {}",
+                    size,
+                    core::any::type_name::<S>(),
+                )
+            })
+            .as_bytes()
+            .build_bytes(bytes)?;
+        let rest = self.data.build_bytes(rest)?;
+        assert_eq!(2 + size + rest.len(), total);
         Ok(rest)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        core::mem::size_of::<S>() + self.data.built_bytes_size()
     }
 }

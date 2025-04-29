@@ -123,6 +123,10 @@ impl BuildBytes for EdnsRecord<'_> {
 
         Ok(bytes)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        9 + self.options.built_bytes_size()
+    }
 }
 
 //----------- EdnsFlags ------------------------------------------------------
@@ -307,6 +311,15 @@ impl BuildBytes for EdnsOption<'_> {
         bytes = SizePrefixed::<U16, _>::new(data).build_bytes(bytes)?;
 
         Ok(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        4 + match self {
+            Self::ClientCookie(this) => this.built_bytes_size(),
+            Self::Cookie(this) => this.built_bytes_size(),
+            Self::ExtError(this) => this.built_bytes_size(),
+            Self::Unknown(_, this) => this.built_bytes_size(),
+        }
     }
 }
 

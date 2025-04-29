@@ -148,6 +148,10 @@ impl BuildBytes for RevName {
 
         Ok(rest)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        self.len()
+    }
 }
 
 //--- Equality
@@ -433,6 +437,10 @@ impl BuildBytes for RevNameBuf {
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
         (**self).build_bytes(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        (**self).built_bytes_size()
     }
 }
 

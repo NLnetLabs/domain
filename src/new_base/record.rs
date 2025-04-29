@@ -182,6 +182,10 @@ where
 
         Ok(bytes)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        self.rname.built_bytes_size() + 10 + self.rdata.built_bytes_size()
+    }
 }
 
 //----------- RType ----------------------------------------------------------

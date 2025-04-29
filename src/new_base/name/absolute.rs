@@ -482,6 +482,10 @@ impl BuildBytes for NameBuf {
     ) -> Result<&'b mut [u8], TruncationError> {
         (**self).build_bytes(bytes)
     }
+
+    fn built_bytes_size(&self) -> usize {
+        (**self).built_bytes_size()
+    }
 }
 
 //--- Interaction
