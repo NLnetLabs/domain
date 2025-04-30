@@ -10,8 +10,8 @@
 //!   DNS message or parsing into a custom representation.  It can be parsed
 //!   from the wire format very efficiently.
 //!
-#![cfg_attr(feature = "std", doc = " - [`BoxedRecordData`] ")]
-#![cfg_attr(not(feature = "std"), doc = " - `BoxedRecordData` ")]
+#![cfg_attr(feature = "alloc", doc = " - [`BoxedRecordData`] ")]
+#![cfg_attr(not(feature = "alloc"), doc = " - `BoxedRecordData` ")]
 //!   is useful for long-term storage.  For long-term storage of a whole DNS
 //!   zone, it's more advisable to use the "zone tree" types provided by this
 //!   crate.
@@ -61,11 +61,11 @@
 
 use core::cmp::Ordering;
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use core::fmt;
 
-#[cfg(feature = "std")]
-use std::boxed::Box;
+#[cfg(feature = "alloc")]
+use alloc::boxed::Box;
 
 use domain_macros::*;
 
@@ -80,7 +80,7 @@ use crate::new_base::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
 };
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use crate::new_base::name::{Name, NameBuf};
 
 //----------- Concrete record data types -------------------------------------
@@ -460,7 +460,7 @@ impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
 /// significantly better than [`RecordData`], which is usually 64 bytes in
 /// size.  Since [`BoxedRecordData`] is intended for long-term storage and
 /// use, it trades off ergonomics for lower memory usage.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub struct BoxedRecordData {
     /// A pointer to the record data.
     ///
@@ -480,7 +480,7 @@ pub struct BoxedRecordData {
 
 //--- Inspection
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl BoxedRecordData {
     /// The record data type.
     pub const fn rtype(&self) -> RType {
@@ -516,7 +516,7 @@ impl BoxedRecordData {
 
 //--- Formatting
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl fmt::Debug for BoxedRecordData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // This should concatenate to form 'BoxedRecordData'.
@@ -527,19 +527,19 @@ impl fmt::Debug for BoxedRecordData {
 
 //--- Equality
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl PartialEq for BoxedRecordData {
     fn eq(&self, other: &Self) -> bool {
         self.get().eq(&other.get())
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Eq for BoxedRecordData {}
 
 //--- Clone
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Clone for BoxedRecordData {
     fn clone(&self) -> Self {
         let bytes: Box<[u8]> = self.bytes().into();
@@ -551,7 +551,7 @@ impl Clone for BoxedRecordData {
 
 //--- Drop
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Drop for BoxedRecordData {
     fn drop(&mut self) {
         // Reconstruct the 'Box' and drop it.
@@ -571,17 +571,17 @@ impl Drop for BoxedRecordData {
 
 // SAFETY: 'BoxedRecordData' is equivalent to '(RType, Box<[u8]>)' with a
 // custom representation.  It cannot cause data races.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 unsafe impl Send for BoxedRecordData {}
 
 // SAFETY: 'BoxedRecordData' is equivalent to '(RType, Box<[u8]>)' with a
 // custom representation.  It cannot cause data races.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 unsafe impl Sync for BoxedRecordData {}
 
 //--- Conversion from 'RecordData'
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<N: BuildBytes> From<RecordData<'_, N>> for BoxedRecordData {
     /// Build a [`RecordData`] into a heap allocation.
     ///
@@ -618,7 +618,7 @@ impl<N: BuildBytes> From<RecordData<'_, N>> for BoxedRecordData {
 
 //--- Canonical operations
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl CanonicalRecordData for BoxedRecordData {
     fn build_canonical_bytes<'b>(
         &self,
@@ -651,7 +651,7 @@ impl CanonicalRecordData for BoxedRecordData {
 
 //--- Parsing record data
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl ParseRecordData<'_> for BoxedRecordData {
     fn parse_record_data(
         contents: &'_ [u8],
@@ -663,7 +663,7 @@ impl ParseRecordData<'_> for BoxedRecordData {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl ParseRecordDataBytes<'_> for BoxedRecordData {
     fn parse_record_data_bytes(
         bytes: &'_ [u8],
@@ -689,7 +689,7 @@ impl ParseRecordDataBytes<'_> for BoxedRecordData {
 // 'impl BuildIntoMessage for Name', which is difficult because it is hard on
 // name compression.
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl BuildBytes for BoxedRecordData {
     fn build_bytes<'b>(
         &self,

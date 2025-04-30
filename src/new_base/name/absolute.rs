@@ -641,6 +641,7 @@ pub enum NameParseError {
     Label(LabelParseError),
 }
 
+// TODO(1.81.0): Use 'core::error::Error' instead.
 #[cfg(feature = "std")]
 impl std::error::Error for NameParseError {}
 

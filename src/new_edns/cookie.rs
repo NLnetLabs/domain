@@ -7,17 +7,16 @@
 
 use core::fmt;
 
-#[cfg(all(feature = "std", feature = "siphasher"))]
+#[cfg(feature = "siphasher")]
+use core::net::IpAddr;
+#[cfg(feature = "siphasher")]
 use core::ops::Range;
-
-#[cfg(all(feature = "std", feature = "siphasher"))]
-use std::net::IpAddr;
 
 use domain_macros::*;
 
 use crate::new_base::Serial;
 
-#[cfg(all(feature = "std", feature = "siphasher"))]
+#[cfg(feature = "siphasher")]
 use crate::new_base::wire::{AsBytes, TruncationError};
 
 //----------- ClientCookie ---------------------------------------------------
@@ -61,7 +60,7 @@ impl ClientCookie {
     /// A 24-byte version-1 interoperable cookie will be generated and written
     /// to the given buffer.  If the buffer is big enough, the remaining part
     /// of the buffer is returned.
-    #[cfg(all(feature = "std", feature = "siphasher"))]
+    #[cfg(feature = "siphasher")]
     pub fn respond_into<'b>(
         &self,
         addr: IpAddr,
@@ -195,7 +194,7 @@ impl Cookie {
     /// valid.
     ///
     /// [RFC 9018]: https://datatracker.ietf.org/doc/html/rfc9018
-    #[cfg(all(feature = "std", feature = "siphasher"))]
+    #[cfg(feature = "siphasher")]
     pub fn verify(
         &self,
         addr: IpAddr,

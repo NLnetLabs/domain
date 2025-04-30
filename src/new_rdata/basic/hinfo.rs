@@ -107,8 +107,8 @@ use crate::new_base::{
 /// no perfect way to own an [`HInfo`] without a lifetime restriction (largely
 /// because it is not commonly used), however:
 ///
-#[cfg_attr(feature = "std", doc = " - [`BoxedRecordData`] ")]
-#[cfg_attr(not(feature = "std"), doc = " - `BoxedRecordData` ")]
+#[cfg_attr(feature = "alloc", doc = " - [`BoxedRecordData`] ")]
+#[cfg_attr(not(feature = "alloc"), doc = " - `BoxedRecordData` ")]
 ///   is capable of doing so, but it does not guarantee that it holds an
 ///   [`HInfo`] (it can hold any record data type).
 ///
@@ -123,7 +123,7 @@ use crate::new_base::{
     doc = "[`bumpalo`]: https://docs.rs/bumpalo/latest/bumpalo/"
 )]
 #[cfg_attr(
-    feature = "std",
+    feature = "alloc",
     doc = "[`BoxedRecordData`]: crate::new_rdata::BoxedRecordData"
 )]
 ///

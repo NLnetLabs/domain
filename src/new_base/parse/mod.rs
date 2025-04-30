@@ -66,20 +66,20 @@ impl<'a, T: SplitMessageBytes<'a>, const N: usize> ParseMessageBytes<'a>
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<'a, T: ParseMessageBytes<'a>> ParseMessageBytes<'a>
-    for std::boxed::Box<T>
+    for alloc::boxed::Box<T>
 {
     fn parse_message_bytes(
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        T::parse_message_bytes(contents, start).map(std::boxed::Box::new)
+        T::parse_message_bytes(contents, start).map(alloc::boxed::Box::new)
     }
 }
 
-#[cfg(feature = "std")]
-impl<'a> ParseMessageBytes<'a> for std::vec::Vec<u8> {
+#[cfg(feature = "alloc")]
+impl<'a> ParseMessageBytes<'a> for alloc::vec::Vec<u8> {
     fn parse_message_bytes(
         contents: &'a [u8],
         start: usize,
@@ -88,8 +88,8 @@ impl<'a> ParseMessageBytes<'a> for std::vec::Vec<u8> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<'a> ParseMessageBytes<'a> for std::string::String {
+#[cfg(feature = "alloc")]
+impl<'a> ParseMessageBytes<'a> for alloc::string::String {
     fn parse_message_bytes(
         contents: &'a [u8],
         start: usize,
@@ -190,15 +190,15 @@ impl<'a, T: SplitMessageBytes<'a>, const N: usize> SplitMessageBytes<'a>
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<'a, T: SplitMessageBytes<'a>> SplitMessageBytes<'a>
-    for std::boxed::Box<T>
+    for alloc::boxed::Box<T>
 {
     fn split_message_bytes(
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         T::split_message_bytes(contents, start)
-            .map(|(this, rest)| (std::boxed::Box::new(this), rest))
+            .map(|(this, rest)| (alloc::boxed::Box::new(this), rest))
     }
 }

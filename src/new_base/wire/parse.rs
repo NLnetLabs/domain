@@ -44,24 +44,24 @@ impl<'a, T: SplitBytes<'a>, const N: usize> ParseBytes<'a> for [T; N] {
     }
 }
 
-#[cfg(feature = "std")]
-impl<'a, T: ParseBytes<'a>> ParseBytes<'a> for std::boxed::Box<T> {
+#[cfg(feature = "alloc")]
+impl<'a, T: ParseBytes<'a>> ParseBytes<'a> for alloc::boxed::Box<T> {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        T::parse_bytes(bytes).map(std::boxed::Box::new)
+        T::parse_bytes(bytes).map(alloc::boxed::Box::new)
     }
 }
 
-#[cfg(feature = "std")]
-impl<'a> ParseBytes<'a> for std::vec::Vec<u8> {
+#[cfg(feature = "alloc")]
+impl<'a> ParseBytes<'a> for alloc::vec::Vec<u8> {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         Ok(bytes.to_vec())
     }
 }
 
-#[cfg(feature = "std")]
-impl<'a> ParseBytes<'a> for std::string::String {
+#[cfg(feature = "alloc")]
+impl<'a> ParseBytes<'a> for alloc::string::String {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        str::parse_bytes_by_ref(bytes).map(std::string::String::from)
+        str::parse_bytes_by_ref(bytes).map(alloc::string::String::from)
     }
 }
 
@@ -186,11 +186,11 @@ impl<'a, T: SplitBytes<'a>, const N: usize> SplitBytes<'a> for [T; N] {
     }
 }
 
-#[cfg(feature = "std")]
-impl<'a, T: SplitBytes<'a>> SplitBytes<'a> for std::boxed::Box<T> {
+#[cfg(feature = "alloc")]
+impl<'a, T: SplitBytes<'a>> SplitBytes<'a> for alloc::boxed::Box<T> {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         T::split_bytes(bytes)
-            .map(|(this, rest)| (std::boxed::Box::new(this), rest))
+            .map(|(this, rest)| (alloc::boxed::Box::new(this), rest))
     }
 }
 
@@ -515,9 +515,9 @@ impl<'a> ParseBytesInPlace for &'a mut [u8] {
     }
 }
 
-#[cfg(feature = "std")]
-impl ParseBytesInPlace for std::boxed::Box<[u8]> {
-    type WithParsed<T: ?Sized + ParseBytesZC> = std::boxed::Box<T>;
+#[cfg(feature = "alloc")]
+impl ParseBytesInPlace for alloc::boxed::Box<[u8]> {
+    type WithParsed<T: ?Sized + ParseBytesZC> = alloc::boxed::Box<T>;
 
     fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
         self,
@@ -527,17 +527,17 @@ impl ParseBytesInPlace for std::boxed::Box<[u8]> {
             Err(err) => return Err((self, err)),
         };
 
-        // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
-        // same address and layout as '*self'.  Thus, it is safe to use it to
-        // reconstitute the 'Box'.
-        let _ = std::boxed::Box::into_raw(self);
-        Ok(unsafe { std::boxed::Box::from_raw(parsed.cast_mut()) })
+        // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has
+        // the same address and layout as '*self'.  Thus, it is safe to use it
+        // to reconstitute the 'Box'.
+        let _ = alloc::boxed::Box::into_raw(self);
+        Ok(unsafe { alloc::boxed::Box::from_raw(parsed.cast_mut()) })
     }
 }
 
-#[cfg(feature = "std")]
-impl ParseBytesInPlace for std::rc::Rc<[u8]> {
-    type WithParsed<T: ?Sized + ParseBytesZC> = std::rc::Rc<T>;
+#[cfg(feature = "alloc")]
+impl ParseBytesInPlace for alloc::rc::Rc<[u8]> {
+    type WithParsed<T: ?Sized + ParseBytesZC> = alloc::rc::Rc<T>;
 
     fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
         self,
@@ -550,14 +550,14 @@ impl ParseBytesInPlace for std::rc::Rc<[u8]> {
         // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
         // same address and layout as '*self'.  Thus, it is safe to use it to
         // reconstitute the 'Rc'.
-        let _ = std::rc::Rc::into_raw(self);
-        Ok(unsafe { std::rc::Rc::from_raw(parsed) })
+        let _ = alloc::rc::Rc::into_raw(self);
+        Ok(unsafe { alloc::rc::Rc::from_raw(parsed) })
     }
 }
 
-#[cfg(feature = "std")]
-impl ParseBytesInPlace for std::sync::Arc<[u8]> {
-    type WithParsed<T: ?Sized + ParseBytesZC> = std::sync::Arc<T>;
+#[cfg(feature = "alloc")]
+impl ParseBytesInPlace for alloc::sync::Arc<[u8]> {
+    type WithParsed<T: ?Sized + ParseBytesZC> = alloc::sync::Arc<T>;
 
     fn parse_bytes_in_place<T: ?Sized + ParseBytesZC>(
         self,
@@ -570,8 +570,8 @@ impl ParseBytesInPlace for std::sync::Arc<[u8]> {
         // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
         // same address and layout as '*self'.  Thus, it is safe to use it to
         // reconstitute the 'Arc'.
-        let _ = std::sync::Arc::into_raw(self);
-        Ok(unsafe { std::sync::Arc::from_raw(parsed) })
+        let _ = alloc::sync::Arc::into_raw(self);
+        Ok(unsafe { alloc::sync::Arc::from_raw(parsed) })
     }
 }
 

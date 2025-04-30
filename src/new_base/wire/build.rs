@@ -113,8 +113,8 @@ impl<T: BuildBytes, const N: usize> BuildBytes for [T; N] {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: ?Sized + BuildBytes> BuildBytes for std::boxed::Box<T> {
+#[cfg(feature = "alloc")]
+impl<T: ?Sized + BuildBytes> BuildBytes for alloc::boxed::Box<T> {
     fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
@@ -127,8 +127,8 @@ impl<T: ?Sized + BuildBytes> BuildBytes for std::boxed::Box<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: BuildBytes> BuildBytes for std::vec::Vec<T> {
+#[cfg(feature = "alloc")]
+impl<T: BuildBytes> BuildBytes for alloc::vec::Vec<T> {
     fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
@@ -141,8 +141,8 @@ impl<T: BuildBytes> BuildBytes for std::vec::Vec<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl BuildBytes for std::string::String {
+#[cfg(feature = "alloc")]
+impl BuildBytes for alloc::string::String {
     fn build_bytes<'b>(
         &self,
         bytes: &'b mut [u8],
