@@ -165,7 +165,12 @@ impl BuildIntoMessage for Txt {
 // the entirety of the input on success, satisfying the safety requirements.
 unsafe impl ParseBytesZC for Txt {
     fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
-        // NOTE: The input must contain at least one 'CharStr'.
+        // Make sure the slice is 64KiB or less.
+        if bytes.len() > 65535 {
+            return Err(ParseError);
+        }
+
+        // The input must contain at least one 'CharStr'.
         let (_, mut rest) = <&CharStr>::split_bytes(bytes)?;
         while !rest.is_empty() {
             (_, rest) = <&CharStr>::split_bytes(rest)?;

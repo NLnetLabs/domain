@@ -7,18 +7,13 @@
 
 use core::fmt;
 
-use domain_macros::*;
-
-use crate::{
-    new_base::{
-        parse::{ParseMessageBytes, SplitMessageBytes},
-        wire::{
-            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError,
-            SizePrefixed, SplitBytes, TruncationError, U16,
-        },
-    },
-    new_rdata::Opt,
+use crate::new_base::parse::{ParseMessageBytes, SplitMessageBytes};
+use crate::new_base::wire::{
+    AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SizePrefixed,
+    SplitBytes, SplitBytesZC, TruncationError, U16,
 };
+use crate::new_rdata::Opt;
+use crate::utils::dst::UnsizedCopy;
 
 //----------- EDNS option modules --------------------------------------------
 
@@ -200,7 +195,7 @@ impl fmt::Debug for EdnsFlags {
 //----------- EdnsOption -----------------------------------------------------
 
 /// An Extended DNS option.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EdnsOption<'b> {
     /// A client's request for a DNS cookie.
@@ -213,7 +208,7 @@ pub enum EdnsOption<'b> {
     ExtError(&'b ExtError),
 
     /// An unknown option.
-    Unknown(OptionCode, &'b UnknownOption),
+    Unknown(OptionCode, &'b UnknownOptionData),
 }
 
 //--- Inspection
@@ -261,35 +256,40 @@ impl EdnsOption<'_> {
 
 impl<'b> ParseBytes<'b> for EdnsOption<'b> {
     fn parse_bytes(bytes: &'b [u8]) -> Result<Self, ParseError> {
-        match Self::split_bytes(bytes) {
-            Ok((this, &[])) => Ok(this),
-            _ => Err(ParseError),
-        }
+        UnparsedEdnsOption::parse_bytes_by_ref(bytes)?.try_into()
     }
 }
 
 impl<'b> SplitBytes<'b> for EdnsOption<'b> {
     fn split_bytes(bytes: &'b [u8]) -> Result<(Self, &'b [u8]), ParseError> {
-        let (code, rest) = OptionCode::split_bytes(bytes)?;
-        let (data, rest) = <&SizePrefixed<U16, [u8]>>::split_bytes(rest)?;
+        let (this, rest) = UnparsedEdnsOption::split_bytes_by_ref(bytes)?;
+        Ok((this.try_into()?, rest))
+    }
+}
 
-        let this = match code {
+//--- Parsing from an 'UnparsedEdnsOption'
+
+impl<'b> TryFrom<&'b UnparsedEdnsOption> for EdnsOption<'b> {
+    type Error = ParseError;
+
+    fn try_from(value: &'b UnparsedEdnsOption) -> Result<Self, Self::Error> {
+        let UnparsedEdnsOption { code, data } = value;
+        match *code {
             OptionCode::COOKIE => match data.len() {
-                8 => <&ClientCookie>::parse_bytes(data)
-                    .map(Self::ClientCookie)?,
-                16..=40 => <&Cookie>::parse_bytes(data).map(Self::Cookie)?,
-                _ => return Err(ParseError),
+                8 => {
+                    <&ClientCookie>::parse_bytes(data).map(Self::ClientCookie)
+                }
+                16..=40 => <&Cookie>::parse_bytes(data).map(Self::Cookie),
+                _ => Err(ParseError),
             },
 
             OptionCode::EXT_ERROR => {
-                <&ExtError>::parse_bytes(data).map(Self::ExtError)?
+                <&ExtError>::parse_bytes(data).map(Self::ExtError)
             }
 
-            _ => <&UnknownOption>::parse_bytes(data)
-                .map(|data| Self::Unknown(code, data))?,
-        };
-
-        Ok((this, rest))
+            _ => <&UnknownOptionData>::parse_bytes(data)
+                .map(|data| Self::Unknown(*code, data)),
+        }
     }
 }
 
@@ -382,12 +382,36 @@ impl fmt::Debug for OptionCode {
     }
 }
 
-//----------- UnknownOption --------------------------------------------------
+//----------- UnknownOptionData ----------------------------------------------
 
-/// Data for an unknown Extended DNS option.
-#[derive(Debug, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy)]
+/// Data for an unknown EDNS option.
+#[derive(
+    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
+)]
 #[repr(transparent)]
-pub struct UnknownOption {
+pub struct UnknownOptionData {
     /// The unparsed option data.
     pub octets: [u8],
+}
+
+//----------- UnparsedEdnsOption ---------------------------------------------
+
+/// An unparsed EDNS option.
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    AsBytes,
+    BuildBytes,
+    ParseBytesZC,
+    SplitBytesZC,
+    UnsizedCopy,
+)]
+#[repr(C)]
+pub struct UnparsedEdnsOption {
+    /// The option code.
+    pub code: OptionCode,
+
+    /// The option data.
+    pub data: SizePrefixed<U16, [u8]>,
 }
