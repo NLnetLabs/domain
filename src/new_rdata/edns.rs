@@ -34,14 +34,15 @@ use crate::utils::dst::UnsizedCopy;
 /// [`EdnsRecord`]: crate::new_edns::EdnsRecord
 /// [`Record`]: crate::new_base::Record
 ///
-/// [`Opt`] is specified by [RFC 6891, section 6].
+/// [`Opt`] is specified by [RFC 6891, section 6].  For more information about
+/// EDNS, see [`crate::new_edns`].
 ///
 /// [RFC 6891, section 6]: https://datatracker.ietf.org/doc/html/rfc6891#section-6
 ///
 /// ## Wire Format
 ///
 /// The wire format of an [`Opt`] record is the concatenation of zero or more
-/// [`EdnsOption`]s.  An EDNS option is serialized as a 16-bit big-endian code
+/// EDNS options.  An EDNS option is serialized as a 16-bit big-endian code
 /// (specifying the meaning of the option), a 16-bit big-endian size (the size
 /// of the option data), and the variable-length option data.
 ///
@@ -89,16 +90,17 @@ use crate::utils::dst::UnsizedCopy;
 ///     ),
 /// ];
 ///
-/// for (l, r) in options.iter().zip(from_bytes.options()) {
-///     assert_eq!(Ok(l), r.as_ref());
+/// // Iterate over the options in an 'Opt':
+/// for (l, r) in from_bytes.options().zip(&options) {
+///     assert_eq!(l.as_ref(), Ok(r));
 /// }
 ///
-/// // Build the DNS wire format manually:
+/// // Build the DNS wire format for an 'Opt' manually:
 /// let mut buffer = vec![0u8; options.built_bytes_size()];
 /// options.build_bytes(&mut buffer).unwrap();
 /// assert_eq!(buffer, bytes);
 ///
-/// // Parse from the wire format, but on the heap:
+/// // Parse an 'Opt' from the wire format, but on the heap:
 /// let buffer: Box<[u8]> = buffer.into_boxed_slice();
 /// let from_boxed_bytes: Box<Opt> = Opt::parse_bytes_in(buffer).unwrap();
 /// assert_eq!(from_bytes, &*from_boxed_bytes);

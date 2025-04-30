@@ -52,7 +52,7 @@ use crate::utils::dst::UnsizedCopy;
 /// #
 /// use core::net::Ipv4Addr;
 ///
-/// // From the raw bytes.
+/// // Build an 'A' from the raw bytes.
 /// let from_raw = A { octets: [127, 0, 0, 1] };
 ///
 /// // Convert an 'Ipv4Addr' into an 'A'.
@@ -67,7 +67,7 @@ use crate::utils::dst::UnsizedCopy;
 /// let from_wire: A = A::parse_bytes(&[127, 0, 0, 1]).unwrap();
 /// # assert_eq!(from_raw, from_wire);
 ///
-/// // Even by reference (this is zero-copy).
+/// // ... even by reference (this is zero-copy).
 /// let ref_from_wire: &A = A::parse_bytes_by_ref(&[127, 0, 0, 1]).unwrap();
 /// // It is also possible to use '<&A>::parse_bytes()'.
 /// # assert_eq!(from_raw, *ref_from_wire);

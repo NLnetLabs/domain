@@ -186,6 +186,10 @@ impl BuildBytes for std::string::String {
 ///         bytes = self.b.build_bytes(bytes)?;
 ///         Ok(bytes)
 ///     }
+///
+///     fn built_bytes_size(&self) -> usize {
+///         0 + self.a.built_bytes_size() + self.b.built_bytes_size()
+///     }
 /// }
 /// ```
 pub use domain_macros::BuildBytes;

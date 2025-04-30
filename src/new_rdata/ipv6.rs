@@ -35,19 +35,20 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// ## Wire Format
 ///
-/// The wire format of a [`Aaaa`] record is the 16 bytes of its IPv6 address, in
-/// conventional order (from most to least significant).  For example,
-/// `127.0.0.1` would be serialized as `7F 00 00 01`.
+/// The wire format of a [`Aaaa`] record is the 16 bytes of its IPv6 address,
+/// in conventional order (from most to least significant).  For example,
+/// `2001::db8::` would be serialized as `20 01 0D B8 00 00 00 00 00 00 00 00
+/// 00 00 00 00`.
 ///
-/// The memory layout of the [`Aaaa`] type is identical to its serialization in
-/// the wire format.  This means it can be parsed from the wire format in a
+/// The memory layout of the [`Aaaa`] type is identical to its serialization
+/// in the wire format.  This means it can be parsed from the wire format in a
 /// zero-copy fashion, which is more efficient.
 ///
 /// ## Usage
 ///
-/// Because [`Aaaa`] is a record data type, it is usually handled within an enum
-/// like [`RecordData`].  This section describes how to use it independently
-/// (or when building new record data from scratch).
+/// Because [`Aaaa`] is a record data type, it is usually handled within
+/// an enum like [`RecordData`].  This section describes how to use it
+/// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new_rdata::RecordData
 ///
@@ -77,7 +78,7 @@ use crate::utils::dst::UnsizedCopy;
 /// let from_wire: Aaaa = Aaaa::parse_bytes(&bytes).unwrap();
 /// # assert_eq!(from_raw, from_wire);
 ///
-/// // Even by reference (this is zero-copy).
+/// // ... even by reference (this is zero-copy).
 /// let ref_from_wire: &Aaaa = Aaaa::parse_bytes_by_ref(&bytes).unwrap();
 /// // It is also possible to use '<&Aaaa>::parse_bytes()'.
 /// # assert_eq!(from_raw, *ref_from_wire);
