@@ -1,21 +1,103 @@
 //! Parsing DNS messages from the wire format.
 //!
-//! This module provides [`ParseMessageBytes`] and [`SplitMessageBytes`],
-//! which are specializations of [`ParseBytes`] and [`SplitBytes`] to DNS
-//! messages.  When parsing data within a DNS message, these traits allow
-//! access to all preceding bytes in the message so that compressed names can
-//! be resolved.
+//! At the moment, a high-level or mid-level API for parsing DNS messages is
+//! not implemented.  This section documents the low-level API.
 //!
-//! [`ParseBytes`]: super::wire::ParseBytes
-//! [`SplitBytes`]: super::wire::SplitBytes
+//! This example shows how to parse a practical DNS message.
+//!
+//! ```
+//! # use domain::new_base::*;
+//! # use domain::new_base::name::RevNameBuf;
+//! # use domain::new_base::parse::*;
+//! # use domain::new_rdata::{RecordData, A};
+//! # use domain::new_edns::*;
+//! #
+//! // The bytes to be parsed.
+//! let bytes = [
+//!     // The message header.
+//!     0, 42, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1,
+//!     // A question: www.example.org. A IN
+//!     3, b'w', b'w', b'w',
+//!     7, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+//!     3, b'o', b'r', b'g', 0,
+//!     0, 1, 0, 1,
+//!     // An answer: www.example.org. A IN 3600 127.0.0.1
+//!     192, 12, 0, 1, 0, 1, 0, 0, 14, 16, 0, 4, 127, 0, 0, 1,
+//!     // An OPT record.
+//!     0, 0, 41, 4, 208, 0, 0, 128, 0, 0, 12,
+//!       // An EDNS client cookie.
+//!       0, 10, 0, 8, 6, 148, 57, 104, 176, 18, 234, 57,
+//! ];
+//!
+//! // Parse the top-level message structure, in place.
+//! let message: &Message = <&Message>::parse_bytes(&bytes).unwrap();
+//!
+//! assert_eq!(message.header.id.get(), 42);
+//! assert!(!message.header.flags.qr());
+//! assert!(message.header.flags.rd());
+//! assert_eq!(message.header.counts.questions.get(), 1);
+//! assert_eq!(message.header.counts.answers.get(), 1);
+//! assert_eq!(message.header.counts.authorities.get(), 0);
+//! assert_eq!(message.header.counts.additionals.get(), 1);
+//!
+//! // Prepare to traverse the message.
+//! let mut offset = 0usize;
+//!
+//! // Parse the question.
+//! let question;
+//! (question, offset) = <Question<RevNameBuf>>
+//!     ::split_message_bytes(&message.contents, offset).unwrap();
+//!
+//! assert_eq!(question.qname, "www.example.org".parse().unwrap());
+//! assert_eq!(question.qtype, QType::A);
+//! assert_eq!(question.qclass, QClass::IN);
+//!
+//! // Parse the answer.
+//! println!("answer at {offset}");
+//! let answer;
+//! (answer, offset) = <Record<RevNameBuf, RecordData<'_, RevNameBuf>>>
+//!     ::split_message_bytes(&message.contents, offset).unwrap();
+//!
+//! assert_eq!(answer.rname, "www.example.org".parse().unwrap());
+//! assert_eq!(answer.rtype, RType::A);
+//! assert_eq!(answer.rclass, RClass::IN);
+//! assert_eq!(answer.ttl.value.get(), 3600);
+//! assert_eq!(answer.rdata, RecordData::A("127.0.0.1".parse().unwrap()));
+//!
+//! // Parse the OPT record.
+//! println!("opt at {offset}");
+//! let opt;
+//! (opt, offset) = <Record<RevNameBuf, RecordData<'_, RevNameBuf>>>
+//!     ::split_message_bytes(&message.contents, offset).unwrap();
+//!
+//! assert_eq!(opt.rtype, RType::OPT);
+//! let opt: EdnsRecord<'_> = opt.try_into().unwrap();
+//!
+//! assert_eq!(opt.max_udp_payload.get(), 1232);
+//! assert_eq!(opt.ext_rcode, 0);
+//! assert_eq!(opt.version, 0);
+//! assert!(opt.flags.is_dnssec_ok());
+//!
+//! // Parse EDNS options in the OPT record.
+//! let mut options = opt.options.options();
+//!
+//! let option: EdnsOption<'_> = options.next().unwrap().unwrap();
+//! let EdnsOption::ClientCookie(cookie) = option else { panic!() };
+//! assert_eq!(cookie.octets, [6, 148, 57, 104, 176, 18, 234, 57]);
+//!
+//! assert_eq!(options.next(), None);
+//!
+//! // Finish parsing the message.
+//! assert_eq!(offset, message.contents.len());
+//! ```
 
 use core::mem::MaybeUninit;
 
-pub use super::wire::ParseError;
+pub use super::wire::{
+    ParseBytes, ParseBytesZC, ParseError, SplitBytes, SplitBytesZC,
+};
 
-use super::wire::{ParseBytes, ParseBytesZC, SplitBytes, SplitBytesZC};
-
-//----------- Message parsing traits -----------------------------------------
+//----------- ParseMessageBytes ----------------------------------------------
 
 /// A type that can be parsed from bytes in a DNS message.
 pub trait ParseMessageBytes<'a>: ParseBytes<'a> {
@@ -97,6 +179,8 @@ impl<'a> ParseMessageBytes<'a> for alloc::string::String {
         <&str>::parse_message_bytes(contents, start).map(|s| s.into())
     }
 }
+
+//----------- SplitMessageBytes ----------------------------------------------
 
 /// A type that can be parsed from a DNS message.
 pub trait SplitMessageBytes<'a>:
