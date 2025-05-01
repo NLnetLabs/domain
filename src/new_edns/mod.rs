@@ -12,7 +12,8 @@ use crate::new_base::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SizePrefixed,
     SplitBytes, SplitBytesZC, TruncationError, U16,
 };
-use crate::new_rdata::Opt;
+use crate::new_base::{RClass, RType, Record};
+use crate::new_rdata::{Opt, RecordData};
 use crate::utils::dst::UnsizedCopy;
 
 //----------- EDNS option modules --------------------------------------------
@@ -121,6 +122,85 @@ impl BuildBytes for EdnsRecord<'_> {
 
     fn built_bytes_size(&self) -> usize {
         9 + self.options.built_bytes_size()
+    }
+}
+
+//--- Converting to and from an ordinary 'Record'
+
+impl<'a, N: ParseBytes<'static>, DN> From<EdnsRecord<'a>>
+    for Record<N, RecordData<'a, DN>>
+{
+    fn from(value: EdnsRecord<'a>) -> Self {
+        let root =
+            N::parse_bytes(&[0u8]).expect("The root name is always valid");
+
+        let [flags_hi, flags_lo] = value.flags.inner.get().to_be_bytes();
+        let ttl = u32::from_be_bytes([
+            value.ext_rcode,
+            value.version,
+            flags_hi,
+            flags_lo,
+        ]);
+
+        Self {
+            rname: root,
+            rtype: RType::OPT,
+            rclass: RClass {
+                code: value.max_udp_payload,
+            },
+            ttl: ttl.into(),
+            rdata: RecordData::Opt(*value.options),
+        }
+    }
+}
+
+impl<'a, N: BuildBytes, DN> TryFrom<Record<N, RecordData<'a, DN>>>
+    for EdnsRecord<'a>
+{
+    type Error = ParseError;
+
+    fn try_from(
+        value: Record<N, RecordData<'a, DN>>,
+    ) -> Result<Self, Self::Error> {
+        // Make sure the record name is the root.
+        let mut root = [0u8];
+        if value.rname.build_bytes(&mut root) != Ok(&mut []) {
+            // The name was too long or (impossibly) too short.
+            return Err(ParseError);
+        } else if root != [0] {
+            // The name was incorrectly encoded.
+            return Err(ParseError);
+        }
+
+        // Make sure the record type is OPT.
+        if value.rtype != RType::OPT {
+            return Err(ParseError);
+        }
+
+        // Decode the record data.
+        let data = match value.rdata {
+            RecordData::Opt(data) => data,
+            RecordData::Unknown(RType::OPT, data) => {
+                Opt::parse_bytes_by_ref(&data.octets)?
+            }
+
+            // The record data did not correspond to an OPT record.
+            _ => return Err(ParseError),
+        };
+
+        let [ext_rcode, version, flags_hi, flags_lo] =
+            value.ttl.value.get().to_be_bytes();
+        let flags = u16::from_be_bytes([flags_hi, flags_lo]);
+
+        Ok(Self {
+            max_udp_payload: value.rclass.code,
+            ext_rcode,
+            version,
+            flags: EdnsFlags {
+                inner: U16::new(flags),
+            },
+            options: SizePrefixed::new(data),
+        })
     }
 }
 
