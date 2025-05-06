@@ -10,7 +10,7 @@
 //--- DNS messages
 
 mod message;
-pub use message::{Header, HeaderFlags, Message, SectionCounts};
+pub use message::{Header, HeaderFlags, Message, MessageItem, SectionCounts};
 
 mod question;
 pub use question::{QClass, QType, Question};

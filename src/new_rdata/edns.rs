@@ -118,9 +118,7 @@ use crate::utils::dst::UnsizedCopy;
 /// will serialize it to a given buffer) or [`AsBytes`] (which will
 /// cast the [`Opt`] into a byte sequence in place).  It also supports
 /// [`BuildIntoMessage`].
-#[derive(
-    PartialEq, Eq, PartialOrd, Ord, Hash, AsBytes, BuildBytes, UnsizedCopy,
-)]
+#[derive(AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct Opt {
     /// The raw serialized options.
@@ -163,6 +161,65 @@ impl Opt {
         EdnsOptionsIter::new(&self.contents)
     }
 }
+
+//--- Equality
+
+impl PartialEq for Opt {
+    /// Compare two [`Opt`] records.
+    ///
+    /// This is primarily a debugging and testing aid; it will ensure that
+    /// both records have the same EDNS options in the same order, even though
+    /// order is semantically irrelevant.
+    fn eq(&self, other: &Self) -> bool {
+        self.options().eq(other.options())
+    }
+}
+
+impl PartialEq<[EdnsOption<'_>]> for Opt {
+    /// Compare an [`Opt`] to a sequence of [`EdnsOption`]s.
+    ///
+    /// This is primarily a debugging and testing aid; it will ensure that
+    /// both records have the same EDNS options in the same order, even though
+    /// order is semantically irrelevant.
+    fn eq(&self, other: &[EdnsOption<'_>]) -> bool {
+        self.options().eq(other.iter().map(|opt| Ok(opt.clone())))
+    }
+}
+
+impl<const N: usize> PartialEq<[EdnsOption<'_>; N]> for Opt {
+    /// Compare an [`Opt`] to a sequence of [`EdnsOption`]s.
+    ///
+    /// This is primarily a debugging and testing aid; it will ensure that
+    /// both records have the same EDNS options in the same order, even though
+    /// order is semantically irrelevant.
+    fn eq(&self, other: &[EdnsOption<'_>; N]) -> bool {
+        *self == *other.as_slice()
+    }
+}
+
+impl PartialEq<[EdnsOption<'_>]> for &Opt {
+    /// Compare an [`Opt`] to a sequence of [`EdnsOption`]s.
+    ///
+    /// This is primarily a debugging and testing aid; it will ensure that
+    /// both records have the same EDNS options in the same order, even though
+    /// order is semantically irrelevant.
+    fn eq(&self, other: &[EdnsOption<'_>]) -> bool {
+        **self == *other
+    }
+}
+
+impl<const N: usize> PartialEq<[EdnsOption<'_>; N]> for &Opt {
+    /// Compare an [`Opt`] to a sequence of [`EdnsOption`]s.
+    ///
+    /// This is primarily a debugging and testing aid; it will ensure that
+    /// both records have the same EDNS options in the same order, even though
+    /// order is semantically irrelevant.
+    fn eq(&self, other: &[EdnsOption<'_>; N]) -> bool {
+        **self == *other.as_slice()
+    }
+}
+
+impl Eq for Opt {}
 
 //--- Canonical operations
 

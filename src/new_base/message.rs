@@ -4,7 +4,12 @@ use core::fmt;
 
 use domain_macros::*;
 
-use super::wire::{AsBytes, ParseBytesZC, U16};
+use crate::new_edns::EdnsRecord;
+
+use super::build::{self, BuildIntoMessage, BuildResult};
+use super::parse::MessageParser;
+use super::wire::{AsBytes, BuildBytes, ParseBytesZC, TruncationError, U16};
+use super::{Question, Record};
 
 //----------- Message --------------------------------------------------------
 
@@ -37,6 +42,17 @@ impl Message {
                 core::mem::size_of_val(self),
             )
         }
+    }
+}
+
+//--- Parsing
+
+impl Message {
+    /// Parse the questions and records in this message.
+    ///
+    /// This returns a fallible iterator of [`MessageItem`]s.
+    pub const fn parse(&self) -> MessageParser<'_> {
+        MessageParser::for_message(self)
     }
 }
 
@@ -481,5 +497,134 @@ impl fmt::Display for SectionCounts {
         }
 
         Ok(())
+    }
+}
+
+//----------- MessageItem ----------------------------------------------------
+
+/// A question or a record.
+///
+/// This is useful for building and parsing the contents of a [`Message`]
+/// ergonomically and efficiently.  An iterator of [`MessageItem`]s can be
+/// retrieved using [`Message::parse()`].
+#[derive(Clone, Debug)]
+pub enum MessageItem<N, RD, ED> {
+    /// A question.
+    Question(Question<N>),
+
+    /// An answer record.
+    Answer(Record<N, RD>),
+
+    /// An authority record.
+    Authority(Record<N, RD>),
+
+    /// An additional record.
+    ///
+    /// This does not include EDNS records.
+    Additional(Record<N, RD>),
+
+    /// An EDNS record.
+    ///
+    /// This is a record in the additional section.  It uses a distinct type
+    /// as the class and TTL fields of the record are interpreted differently.
+    Edns(EdnsRecord<ED>),
+}
+
+//--- Interaction
+
+impl<N, RD, ED> MessageItem<N, RD, ED> {
+    /// Map the domain name type used by this item.
+    ///
+    /// Note that record data can include domain names that will not be
+    /// transformed by this function.
+    pub fn map_name<R>(
+        self,
+        f: impl FnOnce(N) -> R,
+    ) -> MessageItem<R, RD, ED> {
+        match self {
+            Self::Question(this) => MessageItem::Question(this.map_name(f)),
+            Self::Answer(this) => MessageItem::Answer(this.map_name(f)),
+            Self::Authority(this) => MessageItem::Authority(this.map_name(f)),
+            Self::Additional(this) => {
+                MessageItem::Additional(this.map_name(f))
+            }
+            Self::Edns(this) => MessageItem::Edns(this),
+        }
+    }
+}
+
+//--- Equality
+
+impl<N, RD, LED, RED> PartialEq<MessageItem<N, RD, RED>>
+    for MessageItem<N, RD, LED>
+where
+    N: PartialEq,
+    RD: PartialEq,
+    LED: PartialEq<RED>,
+{
+    fn eq(&self, other: &MessageItem<N, RD, RED>) -> bool {
+        match (self, other) {
+            (MessageItem::Question(l), MessageItem::Question(r)) => l == r,
+            (MessageItem::Answer(l), MessageItem::Answer(r)) => l == r,
+            (MessageItem::Authority(l), MessageItem::Authority(r)) => l == r,
+            (MessageItem::Additional(l), MessageItem::Additional(r)) => {
+                l == r
+            }
+            (MessageItem::Edns(l), MessageItem::Edns(r)) => l == r,
+            _ => false,
+        }
+    }
+}
+
+impl<N: Eq, RD: Eq, ED: Eq> Eq for MessageItem<N, RD, ED> {}
+
+//--- Building into DNS messages
+
+impl<N, RD, ED> BuildIntoMessage for MessageItem<N, RD, ED>
+where
+    N: BuildIntoMessage,
+    RD: BuildIntoMessage,
+    ED: BuildBytes,
+{
+    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
+        match self {
+            Self::Question(this) => this.build_into_message(builder),
+            Self::Answer(this) => this.build_into_message(builder),
+            Self::Authority(this) => this.build_into_message(builder),
+            Self::Additional(this) => this.build_into_message(builder),
+            Self::Edns(this) => this.build_into_message(builder),
+        }
+    }
+}
+
+//--- Building into bytes
+
+impl<N, RD, ED> BuildBytes for MessageItem<N, RD, ED>
+where
+    N: BuildBytes,
+    RD: BuildBytes,
+    ED: BuildBytes,
+{
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        match self {
+            Self::Question(this) => this.build_bytes(bytes),
+            Self::Answer(this) => this.build_bytes(bytes),
+            Self::Authority(this) => this.build_bytes(bytes),
+            Self::Additional(this) => this.build_bytes(bytes),
+            Self::Edns(this) => this.build_bytes(bytes),
+        }
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        match self {
+            Self::Question(this) => this.built_bytes_size(),
+            Self::Answer(this) => this.built_bytes_size(),
+            Self::Authority(this) => this.built_bytes_size(),
+            Self::Additional(this) => this.built_bytes_size(),
+            Self::Edns(this) => this.built_bytes_size(),
+        }
     }
 }

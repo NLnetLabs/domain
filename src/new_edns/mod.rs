@@ -7,6 +7,7 @@
 
 use core::fmt;
 
+use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
 use crate::new_base::parse::{ParseMessageBytes, SplitMessageBytes};
 use crate::new_base::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SizePrefixed,
@@ -27,8 +28,16 @@ pub use ext_err::{ExtError, ExtErrorCode};
 //----------- EdnsRecord -----------------------------------------------------
 
 /// An Extended DNS record.
-#[derive(Clone)]
-pub struct EdnsRecord<'a> {
+///
+/// This is generic over the record data type.  It will often be [`&Opt`], but
+/// it can also be [`Box<Opt>`] or an array/slice of [`EdnsOption`]s.  While
+/// [`&Opt`] can be used for parsing, all of them can be used for serializing
+/// into the wire format.
+///
+/// [`&Opt`]: Opt
+/// [`Box<Opt>`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
+#[derive(Clone, Debug)]
+pub struct EdnsRecord<D: ?Sized> {
     /// The largest UDP payload the DNS client supports, in bytes.
     pub max_udp_payload: U16,
 
@@ -41,34 +50,63 @@ pub struct EdnsRecord<'a> {
     /// Flags describing the message.
     pub flags: EdnsFlags,
 
-    /// Extended DNS options.
-    pub options: SizePrefixed<U16, &'a Opt>,
+    /// The record data, containing EDNS options.
+    pub data: SizePrefixed<U16, D>,
 }
 
 //--- Parsing from DNS messages
 
-impl<'a> SplitMessageBytes<'a> for EdnsRecord<'a> {
+impl<'a, D: ParseBytes<'a>> SplitMessageBytes<'a> for EdnsRecord<D> {
     fn split_message_bytes(
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        Self::split_bytes(&contents[start..])
+        Self::split_bytes(contents.get(start..).ok_or(ParseError)?)
             .map(|(this, rest)| (this, contents.len() - start - rest.len()))
     }
 }
 
-impl<'a> ParseMessageBytes<'a> for EdnsRecord<'a> {
+impl<'a, D: ParseBytes<'a>> ParseMessageBytes<'a> for EdnsRecord<D> {
     fn parse_message_bytes(
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        Self::parse_bytes(&contents[start..])
+        Self::parse_bytes(contents.get(start..).ok_or(ParseError)?)
     }
 }
 
+//--- Building into DNS messages
+
+impl<D: ?Sized + BuildBytes> BuildIntoMessage for EdnsRecord<D> {
+    fn build_into_message(
+        &self,
+        mut builder: build::Builder<'_>,
+    ) -> BuildResult {
+        builder.append_built_bytes(&self)?;
+        Ok(builder.commit())
+    }
+}
+
+//--- Equality
+
+impl<LD: ?Sized, RD: ?Sized> PartialEq<EdnsRecord<RD>> for EdnsRecord<LD>
+where
+    LD: PartialEq<RD>,
+{
+    fn eq(&self, other: &EdnsRecord<RD>) -> bool {
+        self.max_udp_payload == other.max_udp_payload
+            && self.ext_rcode == other.ext_rcode
+            && self.version == other.version
+            && self.flags == other.flags
+            && *self.data == *other.data
+    }
+}
+
+impl<D: ?Sized + Eq> Eq for EdnsRecord<D> {}
+
 //--- Parsing from bytes
 
-impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
+impl<'a, D: ParseBytes<'a>> SplitBytes<'a> for EdnsRecord<D> {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
         // Strip the record name (root) and the record type.
         let rest = bytes.strip_prefix(&[0, 0, 41]).ok_or(ParseError)?;
@@ -77,7 +115,7 @@ impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
         let (&ext_rcode, rest) = <&u8>::split_bytes(rest)?;
         let (&version, rest) = <&u8>::split_bytes(rest)?;
         let (&flags, rest) = <&EdnsFlags>::split_bytes(rest)?;
-        let (options, rest) = <SizePrefixed<U16, &Opt>>::split_bytes(rest)?;
+        let (data, rest) = <SizePrefixed<U16, D>>::split_bytes(rest)?;
 
         Ok((
             Self {
@@ -85,14 +123,14 @@ impl<'a> SplitBytes<'a> for EdnsRecord<'a> {
                 ext_rcode,
                 version,
                 flags,
-                options,
+                data,
             },
             rest,
         ))
     }
 }
 
-impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
+impl<'a, D: ParseBytes<'a>> ParseBytes<'a> for EdnsRecord<D> {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         match Self::split_bytes(bytes) {
             Ok((this, &[])) => Ok(this),
@@ -103,7 +141,7 @@ impl<'a> ParseBytes<'a> for EdnsRecord<'a> {
 
 //--- Building into bytes
 
-impl BuildBytes for EdnsRecord<'_> {
+impl<D: ?Sized + BuildBytes> BuildBytes for EdnsRecord<D> {
     fn build_bytes<'b>(
         &self,
         mut bytes: &'b mut [u8],
@@ -115,22 +153,22 @@ impl BuildBytes for EdnsRecord<'_> {
         bytes = self.ext_rcode.build_bytes(bytes)?;
         bytes = self.version.build_bytes(bytes)?;
         bytes = self.flags.build_bytes(bytes)?;
-        bytes = self.options.build_bytes(bytes)?;
+        bytes = self.data.build_bytes(bytes)?;
 
         Ok(bytes)
     }
 
     fn built_bytes_size(&self) -> usize {
-        9 + self.options.built_bytes_size()
+        9 + self.data.built_bytes_size()
     }
 }
 
 //--- Converting to and from an ordinary 'Record'
 
-impl<'a, N: ParseBytes<'static>, DN> From<EdnsRecord<'a>>
+impl<'a, N: ParseBytes<'static>, DN> From<EdnsRecord<&'a Opt>>
     for Record<N, RecordData<'a, DN>>
 {
-    fn from(value: EdnsRecord<'a>) -> Self {
+    fn from(value: EdnsRecord<&'a Opt>) -> Self {
         let root =
             N::parse_bytes(&[0u8]).expect("The root name is always valid");
 
@@ -149,13 +187,13 @@ impl<'a, N: ParseBytes<'static>, DN> From<EdnsRecord<'a>>
                 code: value.max_udp_payload,
             },
             ttl: ttl.into(),
-            rdata: RecordData::Opt(*value.options),
+            rdata: RecordData::Opt(*value.data),
         }
     }
 }
 
 impl<'a, N: BuildBytes, DN> TryFrom<Record<N, RecordData<'a, DN>>>
-    for EdnsRecord<'a>
+    for EdnsRecord<&'a Opt>
 {
     type Error = ParseError;
 
@@ -199,7 +237,7 @@ impl<'a, N: BuildBytes, DN> TryFrom<Record<N, RecordData<'a, DN>>>
             flags: EdnsFlags {
                 inner: U16::new(flags),
             },
-            options: SizePrefixed::new(data),
+            data: SizePrefixed::new(data),
         })
     }
 }
@@ -211,6 +249,8 @@ impl<'a, N: BuildBytes, DN> TryFrom<Record<N, RecordData<'a, DN>>>
     Copy,
     Clone,
     Default,
+    PartialEq,
+    Eq,
     Hash,
     AsBytes,
     BuildBytes,
@@ -279,7 +319,7 @@ impl fmt::Debug for EdnsFlags {
 #[non_exhaustive]
 pub enum EdnsOption<'b> {
     /// A client's request for a DNS cookie.
-    ClientCookie(&'b ClientCookie),
+    ClientCookie(ClientCookie),
 
     /// A server-provided DNS cookie.
     Cookie(&'b Cookie),
@@ -313,8 +353,8 @@ impl EdnsOption<'_> {
         use crate::utils::dst::copy_to_bump;
 
         match *self {
-            EdnsOption::ClientCookie(&client_cookie) => {
-                EdnsOption::ClientCookie(bump.alloc(client_cookie))
+            EdnsOption::ClientCookie(client_cookie) => {
+                EdnsOption::ClientCookie(client_cookie)
             }
             EdnsOption::Cookie(cookie) => {
                 EdnsOption::Cookie(copy_to_bump(cookie, bump))
@@ -356,9 +396,7 @@ impl<'b> TryFrom<&'b UnparsedEdnsOption> for EdnsOption<'b> {
         let UnparsedEdnsOption { code, data } = value;
         match *code {
             OptionCode::COOKIE => match data.len() {
-                8 => {
-                    <&ClientCookie>::parse_bytes(data).map(Self::ClientCookie)
-                }
+                8 => ClientCookie::parse_bytes(data).map(Self::ClientCookie),
                 16..=40 => <&Cookie>::parse_bytes(data).map(Self::Cookie),
                 _ => Err(ParseError),
             },

@@ -3,13 +3,76 @@
 //! At the moment, a high-level or mid-level API for parsing DNS messages is
 //! not implemented.  This section documents the low-level API.
 //!
-//! This example shows how to parse a practical DNS message.
+//! # Mid-Level API
+//!
+//! ```
+//! # use core::net::Ipv4Addr;
+//! #
+//! # use domain::new_base::*;
+//! # use domain::new_base::name::RevNameBuf;
+//! # use domain::new_base::parse::*;
+//! # use domain::new_base::wire::SizePrefixed;
+//! # use domain::new_rdata::{RecordData, A};
+//! # use domain::new_edns::*;
+//! #
+//! // The bytes to be parsed.
+//! let bytes = [
+//!     // The message header.
+//!     0, 42, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1,
+//!     // A question: www.example.org. A IN
+//!     3, b'w', b'w', b'w',
+//!     7, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+//!     3, b'o', b'r', b'g', 0,
+//!     0, 1, 0, 1,
+//!     // An answer: www.example.org. A IN 3600 127.0.0.1
+//!     192, 12, 0, 1, 0, 1, 0, 0, 14, 16, 0, 4, 127, 0, 0, 1,
+//!     // An OPT record.
+//!     0, 0, 41, 4, 208, 0, 0, 128, 0, 0, 12,
+//!       // An EDNS client cookie.
+//!       0, 10, 0, 8, 6, 148, 57, 104, 176, 18, 234, 57,
+//! ];
+//!
+//! // A parsed version of the same message.
+//! let items = [
+//!     MessageItem::Question(Question {
+//!         qname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!         qtype: QType::A,
+//!         qclass: QClass::IN,
+//!     }),
+//!     MessageItem::Answer(Record {
+//!         rname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!         rtype: RType::A,
+//!         rclass: RClass::IN,
+//!         ttl: 3600.into(),
+//!         rdata: RecordData::<'_, RevNameBuf>::A(Ipv4Addr::new(127, 0, 0, 1).into()),
+//!     }),
+//!     MessageItem::Edns(EdnsRecord {
+//!         max_udp_payload: 1232.into(),
+//!         ext_rcode: 0,
+//!         version: 0,
+//!         flags: EdnsFlags::default()
+//!             .set_dnssec_ok(true),
+//!         data: SizePrefixed::new([
+//!             EdnsOption::ClientCookie([6, 148, 57, 104, 176, 18, 234, 57].into()),
+//!         ]),
+//!     }),
+//! ];
+//!
+//! // Parse the bytes and compare them to the expected data.
+//! for (l, r) in MessageParser::new(&bytes).unwrap().zip(items) {
+//!     assert_eq!(l.unwrap(), r);
+//! }
+//! ```
+//!
+//! # Low-Level API
+//!
+//! Here's the same example as above, but using the low-level API.
 //!
 //! ```
 //! # use domain::new_base::*;
 //! # use domain::new_base::name::RevNameBuf;
 //! # use domain::new_base::parse::*;
-//! # use domain::new_rdata::{RecordData, A};
+//! # use domain::new_rdata::{RecordData, A, Opt};
 //! # use domain::new_edns::*;
 //! #
 //! // The bytes to be parsed.
@@ -53,7 +116,6 @@
 //! assert_eq!(question.qclass, QClass::IN);
 //!
 //! // Parse the answer.
-//! println!("answer at {offset}");
 //! let answer;
 //! (answer, offset) = <Record<RevNameBuf, RecordData<'_, RevNameBuf>>>
 //!     ::split_message_bytes(&message.contents, offset).unwrap();
@@ -65,13 +127,12 @@
 //! assert_eq!(answer.rdata, RecordData::A("127.0.0.1".parse().unwrap()));
 //!
 //! // Parse the OPT record.
-//! println!("opt at {offset}");
 //! let opt;
 //! (opt, offset) = <Record<RevNameBuf, RecordData<'_, RevNameBuf>>>
 //!     ::split_message_bytes(&message.contents, offset).unwrap();
 //!
 //! assert_eq!(opt.rtype, RType::OPT);
-//! let opt: EdnsRecord<'_> = opt.try_into().unwrap();
+//! let opt: EdnsRecord<&Opt> = opt.try_into().unwrap();
 //!
 //! assert_eq!(opt.max_udp_payload.get(), 1232);
 //! assert_eq!(opt.ext_rcode, 0);
@@ -79,7 +140,7 @@
 //! assert!(opt.flags.is_dnssec_ok());
 //!
 //! // Parse EDNS options in the OPT record.
-//! let mut options = opt.options.options();
+//! let mut options = opt.data.options();
 //!
 //! let option: EdnsOption<'_> = options.next().unwrap().unwrap();
 //! let EdnsOption::ClientCookie(cookie) = option else { panic!() };
@@ -96,6 +157,9 @@ use core::mem::MaybeUninit;
 pub use super::wire::{
     ParseBytes, ParseBytesZC, ParseError, SplitBytes, SplitBytesZC,
 };
+
+mod message;
+pub use message::{MessageParser, ParsedMessageItem};
 
 //----------- ParseMessageBytes ----------------------------------------------
 
