@@ -14,7 +14,7 @@ use crate::base::iana::{OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::net::IpAddr;
 use crate::base::opt;
-use crate::base::wire::{Composer, ParseError};
+use crate::base::wire::ParseError;
 use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
@@ -46,7 +46,13 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 /// [7873]: https://datatracker.ietf.org/doc/html/rfc7873
 /// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
 #[derive(Clone, Debug)]
-pub struct CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+pub struct CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+where
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Future: Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+    RequestMeta: Clone + Default + Send + Sync + 'static,
+{
     /// The upstream [`Service`] to pass requests to and receive responses
     /// from.
     next_svc: NextSvc,
@@ -70,6 +76,11 @@ pub struct CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
 
 impl<RequestOctets, NextSvc, RequestMeta>
     CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+where
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Future: Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+    RequestMeta: Clone + Default + Send + Sync + 'static,
 {
     /// Creates an instance of this middleware service.
     #[must_use]
@@ -108,10 +119,10 @@ impl<RequestOctets, NextSvc, RequestMeta>
 impl<RequestOctets, NextSvc, RequestMeta>
     CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
-    RequestOctets: Octets + Send + Sync + Unpin,
-    RequestMeta: Clone + Default,
     NextSvc: Service<RequestOctets, RequestMeta>,
-    NextSvc::Target: Composer + Default,
+    NextSvc::Future: Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+    RequestMeta: Clone + Default + Send + Sync + 'static,
 {
     /// Get the DNS COOKIE, if any, for the given message.
     ///
@@ -457,11 +468,10 @@ where
 impl<RequestOctets, NextSvc, RequestMeta> Service<RequestOctets, RequestMeta>
     for CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
-    RequestOctets: Octets + Send + Sync + 'static + Unpin,
-    RequestMeta: Clone + Default,
     NextSvc: Service<RequestOctets, RequestMeta>,
-    NextSvc::Target: Composer + Default,
     NextSvc::Future: Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+    RequestMeta: Clone + Default + Send + Sync + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
@@ -534,7 +544,7 @@ mod tests {
         );
 
         fn my_service(
-            _req: Request<Vec<u8>>,
+            _req: Request<Vec<u8>, ()>,
             _meta: (),
         ) -> ServiceResult<Vec<u8>> {
             // For each request create a single response:
