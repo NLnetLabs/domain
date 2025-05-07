@@ -32,6 +32,9 @@ pub use reversed::{RevName, RevNameBuf};
 mod unparsed;
 pub use unparsed::UnparsedName;
 
+/// TODO
+pub type NameCompressor = ();
+
 //----------- CanonicalName --------------------------------------------------
 
 /// DNSSEC-conformant operations for domain names.

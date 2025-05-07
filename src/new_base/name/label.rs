@@ -10,7 +10,7 @@ use core::{
     str::FromStr,
 };
 
-use crate::new_base::build::{BuildIntoMessage, BuildResult, Builder};
+use crate::new_base::build::{BuildInMessage, NameCompressor};
 use crate::new_base::parse::{ParseMessageBytes, SplitMessageBytes};
 use crate::new_base::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
@@ -89,13 +89,18 @@ impl<'a> SplitMessageBytes<'a> for &'a Label {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for Label {
-    fn build_into_message(&self, mut builder: Builder<'_>) -> BuildResult {
-        builder.append_with(self.len() + 1, |buf| {
-            buf[0] = self.len() as u8;
-            buf[1..].copy_from_slice(self.as_bytes());
-        })?;
-        Ok(builder.commit())
+impl BuildInMessage for Label {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let end = start + self.len() + 1;
+        let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
+        bytes[0] = self.len() as u8;
+        bytes[1..].copy_from_slice(&self.0);
+        Ok(end)
     }
 }
 
@@ -365,9 +370,14 @@ impl SplitMessageBytes<'_> for LabelBuf {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for LabelBuf {
-    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
-        (**self).build_into_message(builder)
+impl BuildInMessage for LabelBuf {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        Label::build_in_message(self, contents, start, name)
     }
 }
 

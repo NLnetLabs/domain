@@ -9,7 +9,7 @@
 //!
 //! ```
 //! use domain::new_base::{Header, HeaderFlags, Question, QType, QClass};
-//! use domain::new_base::build::{BuilderContext, MessageBuilder, BuildIntoMessage};
+//! use domain::new_base::build::{BuilderContext, MessageBuilder, BuildInMessage};
 //! use domain::new_base::name::RevName;
 //! use domain::new_base::wire::U16;
 //!
@@ -48,136 +48,153 @@
 //! # let _ = message;
 //! ```
 
-mod builder;
-pub use builder::Builder;
-
-mod context;
-pub use context::{BuilderContext, MessageState};
-
 mod message;
-pub use message::MessageBuilder;
+pub use message::{MessageBuildError, MessageBuilder};
 
-mod question;
-pub use question::QuestionBuilder;
+pub use super::name::NameCompressor;
+pub use super::wire::{AsBytes, BuildBytes, TruncationError};
 
-mod record;
-pub use record::RecordBuilder;
-
-use super::wire::TruncationError;
-
-//----------- Message-aware building traits ----------------------------------
+//----------- BuildInMessage -------------------------------------------------
 
 /// Building into a DNS message.
-pub trait BuildIntoMessage {
-    // Append this value to the DNS message.
+pub trait BuildInMessage {
+    /// Write this object in a DNS message.
     ///
-    /// If the builder has enough capacity to fit the message, it is appended
-    /// and committed.   Otherwise, a [`TruncationError`] is returned.
-    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult;
+    /// The contents of the DNS message (i.e. the data after the 12-byte
+    /// header) are stored in a byte buffer, provided here as `contents`.
+    /// `self` will be serialized and written to `contents[start..]`.
+    ///
+    /// Upon success, the position future content should be written to is
+    /// returned (i.e. `start` + the number of bytes written here).
+    ///
+    /// ## Errors
+    ///
+    /// Fails if the message buffer is too small to fit the object.  Parts of
+    /// the message buffer (anything after `start`) may have been modified,
+    /// but should not be considered part of the initialized message.  The
+    /// caller should explicitly reset the name compressor to `start` to undo
+    /// the effects of this function.
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError>;
 }
 
-impl<T: ?Sized + BuildIntoMessage> BuildIntoMessage for &T {
-    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
-        (**self).build_into_message(builder)
+impl<T: ?Sized + BuildInMessage> BuildInMessage for &T {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        T::build_in_message(*self, contents, start, name)
     }
 }
 
-impl BuildIntoMessage for u8 {
-    fn build_into_message(&self, mut builder: Builder<'_>) -> BuildResult {
-        builder.append_bytes(&[*self])?;
-        Ok(builder.commit())
+impl BuildInMessage for () {
+    fn build_in_message(
+        &self,
+        _contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        Ok(start)
     }
 }
 
-impl<T: BuildIntoMessage> BuildIntoMessage for [T] {
-    fn build_into_message(&self, mut builder: Builder<'_>) -> BuildResult {
-        for elem in self {
-            elem.build_into_message(builder.delegate())?;
+impl BuildInMessage for u8 {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        match contents.get_mut(start..) {
+            Some(&mut [ref mut b, ..]) => {
+                *b = *self;
+                Ok(start + 1)
+            }
+            _ => Err(TruncationError),
         }
-        Ok(builder.commit())
     }
 }
 
-impl<T: BuildIntoMessage, const N: usize> BuildIntoMessage for [T; N] {
-    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
-        self.as_slice().build_into_message(builder)
+impl<T: BuildInMessage> BuildInMessage for [T] {
+    /// Write a sequence of elements to a DNS message.
+    ///
+    /// If an element cannot be written due to a truncation error, the whole
+    /// sequence is considered to have failed.  For more nuanced behaviour on
+    /// truncation, build each element manually.
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        mut start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        for item in self {
+            start = item.build_in_message(contents, start, name)?;
+        }
+        Ok(start)
+    }
+}
+
+impl<T: BuildInMessage, const N: usize> BuildInMessage for [T; N] {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        self.as_slice().build_in_message(contents, start, name)
     }
 }
 
 #[cfg(feature = "alloc")]
-impl<T: ?Sized + BuildIntoMessage> BuildIntoMessage for alloc::boxed::Box<T> {
-    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
-        T::build_into_message(self, builder)
+impl<T: ?Sized + BuildInMessage> BuildInMessage for alloc::boxed::Box<T> {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        T::build_in_message(self, contents, start, name)
     }
 }
 
 #[cfg(feature = "alloc")]
-impl<T: BuildIntoMessage> BuildIntoMessage for alloc::vec::Vec<T> {
-    fn build_into_message(&self, builder: Builder<'_>) -> BuildResult {
-        self.as_slice().build_into_message(builder)
+impl<T: ?Sized + BuildInMessage> BuildInMessage for alloc::rc::Rc<T> {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        T::build_in_message(self, contents, start, name)
     }
 }
 
-//----------- BuildResult ----------------------------------------------------
+#[cfg(feature = "alloc")]
+impl<T: ?Sized + BuildInMessage> BuildInMessage for alloc::sync::Arc<T> {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        T::build_in_message(self, contents, start, name)
+    }
+}
 
-/// The result of building into a DNS message.
-///
-/// This is used in [`BuildIntoMessage::build_into_message()`].
-pub type BuildResult = Result<BuildCommitted, TruncationError>;
-
-//----------- BuildCommitted -------------------------------------------------
-
-/// The output of [`Builder::commit()`].
-///
-/// This is a simple marker type, produced by [`Builder::commit()`].  Certain
-/// trait methods (e.g. [`BuildIntoMessage::build_into_message()`]) require it
-/// in the return type, as a way to remind users to commit their builders.
-///
-/// # Examples
-///
-/// If `build_into_message()` simply returned a unit type, an example impl may
-/// look like:
-///
-/// ```compile_fail
-/// # use domain::new_base::name::RevName;
-/// # use domain::new_base::build::{BuildIntoMessage, Builder, BuildResult};
-/// # use domain::new_base::wire::AsBytes;
-///
-/// struct Foo<'a>(&'a RevName, u8);
-///
-/// impl BuildIntoMessage for Foo<'_> {
-///     fn build_into_message(
-///         &self,
-///         mut builder: Builder<'_>,
-///     ) -> BuildResult {
-///         builder.append_name(self.0)?;
-///         builder.append_bytes(self.1.as_bytes());
-///         Ok(())
-///     }
-/// }
-/// ```
-///
-/// This code is incorrect: since the appended content is not committed, the
-/// builder will remove it when it is dropped (at the end of the function),
-/// and so nothing gets written.  Instead, users have to write:
-///
-/// ```
-/// # use domain::new_base::name::RevName;
-/// # use domain::new_base::build::{BuildIntoMessage, Builder, BuildResult};
-/// # use domain::new_base::wire::AsBytes;
-///
-/// struct Foo<'a>(&'a RevName, u8);
-///
-/// impl BuildIntoMessage for Foo<'_> {
-///     fn build_into_message(
-///         &self,
-///         mut builder: Builder<'_>,
-///     ) -> BuildResult {
-///         builder.append_name(self.0)?;
-///         builder.append_bytes(self.1.as_bytes());
-///         Ok(builder.commit())
-///     }
-/// }
-/// ```
-#[derive(Debug)]
-pub struct BuildCommitted;
+#[cfg(feature = "alloc")]
+impl<T: BuildInMessage> BuildInMessage for alloc::vec::Vec<T> {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        self.as_slice().build_in_message(contents, start, name)
+    }
+}

@@ -2,7 +2,7 @@
 
 use core::cmp::Ordering;
 
-use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
+use crate::new_base::build::{BuildInMessage, NameCompressor};
 use crate::new_base::name::CanonicalName;
 use crate::new_base::parse::{ParseMessageBytes, SplitMessageBytes};
 use crate::new_base::wire::*;
@@ -85,7 +85,7 @@ use crate::new_base::{
 ///
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
-/// To serialize an [`Mx`] in the wire format, use [`BuildIntoMessage`] (which
+/// To serialize an [`Mx`] in the wire format, use [`BuildInMessage`] (which
 /// supports name compression).  If name compression is not desired, use
 /// [`BuildBytes`].
 #[derive(
@@ -172,14 +172,19 @@ impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Mx<N> {
 
 //--- Building into DNS messages
 
-impl<N: BuildIntoMessage> BuildIntoMessage for Mx<N> {
-    fn build_into_message(
+impl<N: BuildInMessage> BuildInMessage for Mx<N> {
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        builder.append_bytes(self.preference.as_bytes())?;
-        self.exchange.build_into_message(builder.delegate())?;
-        Ok(builder.commit())
+        contents: &mut [u8],
+        mut start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        start = self
+            .preference
+            .as_bytes()
+            .build_in_message(contents, start, name)?;
+        start = self.exchange.build_in_message(contents, start, name)?;
+        Ok(start)
     }
 }
 

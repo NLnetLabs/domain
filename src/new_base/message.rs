@@ -6,7 +6,7 @@ use domain_macros::*;
 
 use crate::new_edns::EdnsRecord;
 
-use super::build::{self, BuildIntoMessage, BuildResult};
+use super::build::{BuildInMessage, NameCompressor};
 use super::parse::MessageParser;
 use super::wire::{AsBytes, BuildBytes, ParseBytesZC, TruncationError, U16};
 use super::{Question, Record};
@@ -530,25 +530,56 @@ pub enum MessageItem<N, RD, ED> {
     Edns(EdnsRecord<ED>),
 }
 
-//--- Interaction
+//--- Transformation
 
 impl<N, RD, ED> MessageItem<N, RD, ED> {
-    /// Map the domain name type used by this item.
-    ///
-    /// Note that record data can include domain names that will not be
-    /// transformed by this function.
-    pub fn map_name<R>(
+    /// Transform this type's generic parameters.
+    pub fn transform<NN, NRD, NED>(
         self,
-        f: impl FnOnce(N) -> R,
-    ) -> MessageItem<R, RD, ED> {
+        name_map: impl FnOnce(N) -> NN,
+        rdata_map: impl FnOnce(RD) -> NRD,
+        edata_map: impl FnOnce(ED) -> NED,
+    ) -> MessageItem<NN, NRD, NED> {
         match self {
-            Self::Question(this) => MessageItem::Question(this.map_name(f)),
-            Self::Answer(this) => MessageItem::Answer(this.map_name(f)),
-            Self::Authority(this) => MessageItem::Authority(this.map_name(f)),
-            Self::Additional(this) => {
-                MessageItem::Additional(this.map_name(f))
+            Self::Question(this) => {
+                MessageItem::Question(this.transform(name_map))
             }
-            Self::Edns(this) => MessageItem::Edns(this),
+            Self::Answer(this) => {
+                MessageItem::Answer(this.transform(name_map, rdata_map))
+            }
+            Self::Authority(this) => {
+                MessageItem::Authority(this.transform(name_map, rdata_map))
+            }
+            Self::Additional(this) => {
+                MessageItem::Additional(this.transform(name_map, rdata_map))
+            }
+            Self::Edns(this) => MessageItem::Edns(this.transform(edata_map)),
+        }
+    }
+
+    /// Transform this type's generic parameters by reference.
+    pub fn transform_ref<'a, NN, NRD, NED>(
+        &'a self,
+        name_map: impl FnOnce(&'a N) -> NN,
+        rdata_map: impl FnOnce(&'a RD) -> NRD,
+        edata_map: impl FnOnce(&'a ED) -> NED,
+    ) -> MessageItem<NN, NRD, NED> {
+        match self {
+            Self::Question(this) => {
+                MessageItem::Question(this.transform_ref(name_map))
+            }
+            Self::Answer(this) => {
+                MessageItem::Answer(this.transform_ref(name_map, rdata_map))
+            }
+            Self::Authority(this) => MessageItem::Authority(
+                this.transform_ref(name_map, rdata_map),
+            ),
+            Self::Additional(this) => MessageItem::Additional(
+                this.transform_ref(name_map, rdata_map),
+            ),
+            Self::Edns(this) => {
+                MessageItem::Edns(this.transform_ref(edata_map))
+            }
         }
     }
 }
@@ -580,19 +611,24 @@ impl<N: Eq, RD: Eq, ED: Eq> Eq for MessageItem<N, RD, ED> {}
 
 //--- Building into DNS messages
 
-impl<N, RD, ED> BuildIntoMessage for MessageItem<N, RD, ED>
+impl<N, RD, ED> BuildInMessage for MessageItem<N, RD, ED>
 where
-    N: BuildIntoMessage,
-    RD: BuildIntoMessage,
+    N: BuildInMessage,
+    RD: BuildInMessage,
     ED: BuildBytes,
 {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
         match self {
-            Self::Question(this) => this.build_into_message(builder),
-            Self::Answer(this) => this.build_into_message(builder),
-            Self::Authority(this) => this.build_into_message(builder),
-            Self::Additional(this) => this.build_into_message(builder),
-            Self::Edns(this) => this.build_into_message(builder),
+            Self::Question(i) => i.build_in_message(contents, start, name),
+            Self::Answer(i) => i.build_in_message(contents, start, name),
+            Self::Authority(i) => i.build_in_message(contents, start, name),
+            Self::Additional(i) => i.build_in_message(contents, start, name),
+            Self::Edns(i) => i.build_in_message(contents, start, name),
         }
     }
 }

@@ -10,7 +10,7 @@ use core::{
 use domain_macros::UnsizedCopy;
 
 use crate::new_base::{
-    build::{self, BuildIntoMessage, BuildResult},
+    build::{BuildInMessage, NameCompressor},
     parse::{ParseMessageBytes, SplitMessageBytes},
 };
 
@@ -50,7 +50,7 @@ use super::{
 ///   `Into<usize>`; this is used to read the right number of bytes for the
 ///   actual size-prefixed data.
 ///
-/// - During building, `S` should implement [`BuildIntoMessage`],
+/// - During building, `S` should implement [`BuildInMessage`],
 ///   [`BuildBytes`], or [`AsBytes`].  For the first two, it should also
 ///   implement [`Default`]; this is used to temporarily initialize it, to be
 ///   overwritten once the actual size-prefixed data is built (and its size is
@@ -93,6 +93,13 @@ where
             }),
             data,
         }
+    }
+}
+
+impl<S, T> SizePrefixed<S, T> {
+    /// Extract the data.
+    pub fn into_data(self) -> T {
+        self.data
     }
 }
 
@@ -299,19 +306,27 @@ where
 
 //--- Building into DNS messages
 
-impl<S, T: ?Sized + BuildIntoMessage> BuildIntoMessage for SizePrefixed<S, T>
+impl<S, T: ?Sized + BuildInMessage> BuildInMessage for SizePrefixed<S, T>
 where
     S: AsBytes + Default + TryFrom<usize>,
 {
-    fn build_into_message(
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        assert_eq!(builder.uncommitted(), &[] as &[u8]);
-        let size_size = core::mem::size_of::<S>();
-        builder.append_bytes(S::default().as_bytes())?;
-        self.data.build_into_message(builder.delegate())?;
-        let size = builder.uncommitted().len() - size_size;
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        // Reserve space for the size field.
+        let data_start = start + core::mem::size_of::<S>();
+        if contents.len() < data_start {
+            return Err(TruncationError);
+        }
+
+        // Build the data first, so we can measure its size.
+        let end = self.data.build_in_message(contents, data_start, name)?;
+
+        // Write out the size field.
+        let size = end - data_start;
         let size = S::try_from(size).unwrap_or_else(|_| {
             panic!(
                 "`data.len()` ({} bytes) overflows {}",
@@ -319,18 +334,9 @@ where
                 core::any::type_name::<S>(),
             )
         });
+        contents[start..data_start].copy_from_slice(size.as_bytes());
 
-        // SAFETY:
-        //
-        // - 'S' was built using 'builder.append_bytes()', and so has not
-        //   interacted with the name compressor.
-        //
-        // - It is sound to modify the built 'S', as this cannot break the
-        //   name compression logic.
-        let size_buf = unsafe { &mut builder.uncommitted_mut()[..size_size] };
-        size_buf.copy_from_slice(size.as_bytes());
-
-        Ok(builder.commit())
+        Ok(end)
     }
 }
 
@@ -344,21 +350,29 @@ where
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        // Determine the size of the data.
-        let total = bytes.len();
-        let size = self.data.built_bytes_size();
-        let rest = S::try_from(size)
-            .unwrap_or_else(|_| {
-                panic!(
-                    "`data.built_bytes_size()` (= {}) overflows {}",
-                    size,
-                    core::any::type_name::<S>(),
-                )
-            })
-            .as_bytes()
-            .build_bytes(bytes)?;
-        let rest = self.data.build_bytes(rest)?;
-        assert_eq!(2 + size + rest.len(), total);
+        // Reserve space for the size field.
+        // TODO(1.80): Use 'slice::split_at_mut_checked()'.
+        let data_start = core::mem::size_of::<S>();
+        if bytes.len() < data_start {
+            return Err(TruncationError);
+        }
+        let (size_bytes, data_bytes) = bytes.split_at_mut(data_start);
+        let data_bytes_len = data_bytes.len();
+
+        // Build the data first, so we can measure its size.
+        let rest = self.data.build_bytes(data_bytes)?;
+
+        // Write out the size field.
+        let size = data_bytes_len - rest.len();
+        let size = S::try_from(size).unwrap_or_else(|_| {
+            panic!(
+                "`data.len()` ({} bytes) overflows {}",
+                size,
+                core::any::type_name::<S>(),
+            )
+        });
+        size_bytes.copy_from_slice(size.as_bytes());
+
         Ok(rest)
     }
 

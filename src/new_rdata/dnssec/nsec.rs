@@ -2,7 +2,8 @@
 
 use core::{cmp::Ordering, fmt, mem};
 
-use crate::new_base::name::{CanonicalName, Name};
+use crate::new_base::build::BuildInMessage;
+use crate::new_base::name::{CanonicalName, Name, NameCompressor};
 use crate::new_base::wire::*;
 use crate::new_base::{CanonicalRecordData, RType};
 use crate::utils::dst::UnsizedCopy;
@@ -41,6 +42,21 @@ impl CanonicalRecordData for NSec<'_> {
         self.next
             .cmp_composed(other.next)
             .then_with(|| self.types.as_bytes().cmp(other.types.as_bytes()))
+    }
+}
+
+//--- Building in DNS messages
+
+impl BuildInMessage for NSec<'_> {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
+        let rest = self.build_bytes(bytes)?.len();
+        Ok(contents.len() - rest)
     }
 }
 

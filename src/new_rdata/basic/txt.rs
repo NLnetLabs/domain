@@ -2,7 +2,7 @@
 
 use core::{cmp::Ordering, fmt};
 
-use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
+use crate::new_base::build::{BuildInMessage, NameCompressor};
 use crate::new_base::wire::*;
 use crate::new_base::{
     CanonicalRecordData, CharStr, ParseRecordData, ParseRecordDataBytes,
@@ -101,7 +101,7 @@ use crate::utils::dst::UnsizedCopy;
 /// To serialize a [`Txt`] in the wire format, use [`BuildBytes`] (which
 /// will serialize it to a given buffer) or [`AsBytes`] (which will
 /// cast the [`Txt`] into a byte sequence in place).  It also supports
-/// [`BuildIntoMessage`].
+/// [`BuildInMessage`].
 #[derive(AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct Txt {
@@ -153,9 +153,19 @@ impl CanonicalRecordData for Txt {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for Txt {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.content.build_into_message(builder)
+impl BuildInMessage for Txt {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let end = start + self.content.len();
+        contents
+            .get_mut(start..end)
+            .ok_or(TruncationError)?
+            .copy_from_slice(&self.content);
+        Ok(end)
     }
 }
 

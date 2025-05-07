@@ -2,7 +2,9 @@
 
 use core::cmp::Ordering;
 
-use crate::new_base::build::{self, BuildIntoMessage};
+use crate::new_base::build::{
+    BuildInMessage, NameCompressor, TruncationError,
+};
 use crate::new_base::parse::ParseMessageBytes;
 use crate::new_base::wire::{BuildBytes, ParseBytes, ParseError, SplitBytes};
 use crate::new_base::{
@@ -132,7 +134,7 @@ use crate::new_base::{
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
 /// To serialize an [`HInfo`] in the wire format, use [`BuildBytes`].  It also
-/// supports [`BuildIntoMessage`].
+/// supports [`BuildInMessage`].
 #[derive(
     Copy, Clone, Debug, PartialEq, Eq, BuildBytes, ParseBytes, SplitBytes,
 )]
@@ -195,13 +197,16 @@ impl<'a> ParseMessageBytes<'a> for HInfo<'a> {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for HInfo<'_> {
-    fn build_into_message(
+impl BuildInMessage for HInfo<'_> {
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> build::BuildResult {
-        builder.append_built_bytes(self)?;
-        Ok(builder.commit())
+        contents: &mut [u8],
+        mut start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        start = self.cpu.build_in_message(contents, start, name)?;
+        start = self.os.build_in_message(contents, start, name)?;
+        Ok(start)
     }
 }
 

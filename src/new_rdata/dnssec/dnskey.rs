@@ -5,7 +5,9 @@ use core::{cmp::Ordering, fmt};
 use domain_macros::*;
 
 use crate::new_base::{
-    wire::{AsBytes, U16},
+    build::BuildInMessage,
+    name::NameCompressor,
+    wire::{AsBytes, TruncationError, U16},
     CanonicalRecordData,
 };
 
@@ -37,6 +39,25 @@ pub struct DNSKey {
 impl CanonicalRecordData for DNSKey {
     fn cmp_canonical(&self, other: &Self) -> Ordering {
         self.as_bytes().cmp(other.as_bytes())
+    }
+}
+
+//--- Building in DNS messages
+
+impl BuildInMessage for DNSKey {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let bytes = self.as_bytes();
+        let end = start + bytes.len();
+        contents
+            .get_mut(start..end)
+            .ok_or(TruncationError)?
+            .copy_from_slice(bytes);
+        Ok(end)
     }
 }
 

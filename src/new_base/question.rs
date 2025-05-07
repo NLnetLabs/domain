@@ -5,7 +5,7 @@ use core::fmt;
 use domain_macros::*;
 
 use super::{
-    build::{self, BuildIntoMessage, BuildResult},
+    build::{BuildInMessage, NameCompressor, TruncationError},
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{AsBytes, ParseError, U16},
 };
@@ -38,13 +38,28 @@ impl<N> Question<N> {
     }
 }
 
-//--- Interaction
+//--- Transformation
 
 impl<N> Question<N> {
-    /// Map the name in this question to another type.
-    pub fn map_name<R, F: FnOnce(N) -> R>(self, f: F) -> Question<R> {
+    /// Transform this type's generic parameters.
+    pub fn transform<NN>(
+        self,
+        name_map: impl FnOnce(N) -> NN,
+    ) -> Question<NN> {
         Question {
-            qname: (f)(self.qname),
+            qname: (name_map)(self.qname),
+            qtype: self.qtype,
+            qclass: self.qclass,
+        }
+    }
+
+    /// Transform this type's generic parameters by reference.
+    pub fn transform_ref<'a, NN>(
+        &'a self,
+        name_map: impl FnOnce(&'a N) -> NN,
+    ) -> Question<NN> {
+        Question {
+            qname: (name_map)(&self.qname),
             qtype: self.qtype,
             qclass: self.qclass,
         }
@@ -86,18 +101,23 @@ where
 
 //--- Building into DNS messages
 
-impl<N> BuildIntoMessage for Question<N>
+impl<N> BuildInMessage for Question<N>
 where
-    N: BuildIntoMessage,
+    N: BuildInMessage,
 {
-    fn build_into_message(
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        self.qname.build_into_message(builder.delegate())?;
-        builder.append_bytes(self.qtype.as_bytes())?;
-        builder.append_bytes(self.qclass.as_bytes())?;
-        Ok(builder.commit())
+        contents: &mut [u8],
+        mut start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        start = self.qname.build_in_message(contents, start, name)?;
+        // For more efficiency, copy the bytes manually.
+        let end = start + 4;
+        let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
+        bytes[0..2].copy_from_slice(self.qtype.as_bytes());
+        bytes[2..4].copy_from_slice(self.qclass.as_bytes());
+        Ok(end)
     }
 }
 

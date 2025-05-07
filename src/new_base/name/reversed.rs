@@ -11,7 +11,7 @@ use core::{
 
 use crate::{
     new_base::{
-        build::{self, BuildIntoMessage, BuildResult},
+        build::{BuildInMessage, NameCompressor},
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
             BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
@@ -114,13 +114,17 @@ impl RevName {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for RevName {
-    fn build_into_message(
+impl BuildInMessage for RevName {
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        builder.append_name(self)?;
-        Ok(builder.commit())
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        // TODO: Use the name compressor.
+        let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
+        self.build_bytes(bytes)?;
+        Ok(start + self.len())
     }
 }
 
@@ -396,9 +400,14 @@ fn parse_segment<'a>(
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for RevNameBuf {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        (**self).build_into_message(builder)
+impl BuildInMessage for RevNameBuf {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        RevName::build_in_message(self, contents, start, name)
     }
 }
 

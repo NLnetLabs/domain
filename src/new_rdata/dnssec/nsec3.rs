@@ -5,7 +5,9 @@ use core::{cmp::Ordering, fmt};
 use domain_macros::*;
 
 use crate::new_base::{
-    wire::{AsBytes, SizePrefixed, U16},
+    build::BuildInMessage,
+    name::NameCompressor,
+    wire::{AsBytes, BuildBytes, SizePrefixed, TruncationError, U16},
     CanonicalRecordData,
 };
 
@@ -82,6 +84,21 @@ impl CanonicalRecordData for NSec3<'_> {
     }
 }
 
+//--- Building in DNS messages
+
+impl BuildInMessage for NSec3<'_> {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
+        let rest = self.build_bytes(bytes)?.len();
+        Ok(contents.len() - rest)
+    }
+}
+
 //----------- NSec3Param -----------------------------------------------------
 
 /// Parameters for computing [`NSec3`] records.
@@ -113,6 +130,25 @@ pub struct NSec3Param {
 impl CanonicalRecordData for NSec3Param {
     fn cmp_canonical(&self, other: &Self) -> Ordering {
         self.as_bytes().cmp(other.as_bytes())
+    }
+}
+
+//--- Building in DNS messages
+
+impl BuildInMessage for NSec3Param {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let bytes = self.as_bytes();
+        let end = start + bytes.len();
+        contents
+            .get_mut(start..end)
+            .ok_or(TruncationError)?
+            .copy_from_slice(bytes);
+        Ok(end)
     }
 }
 

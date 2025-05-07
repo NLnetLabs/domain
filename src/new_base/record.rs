@@ -4,7 +4,7 @@ use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use crate::utils::dst::UnsizedCopy;
 
-use super::build::{self, BuildIntoMessage, BuildResult};
+use super::build::{BuildInMessage, NameCompressor};
 use super::parse::{ParseMessageBytes, SplitMessageBytes};
 use super::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SizePrefixed,
@@ -53,17 +53,36 @@ impl<N, D> Record<N, D> {
     }
 }
 
-//--- Interaction
+//--- Transformation
 
 impl<N, D> Record<N, D> {
-    /// Map the record name to a different type.
-    pub fn map_name<R, F: FnOnce(N) -> R>(self, f: F) -> Record<R, D> {
+    /// Transform this type's generic parameters.
+    pub fn transform<NN, ND>(
+        self,
+        name_map: impl FnOnce(N) -> NN,
+        data_map: impl FnOnce(D) -> ND,
+    ) -> Record<NN, ND> {
         Record {
-            rname: (f)(self.rname),
+            rname: (name_map)(self.rname),
             rtype: self.rtype,
             rclass: self.rclass,
             ttl: self.ttl,
-            rdata: self.rdata,
+            rdata: (data_map)(self.rdata),
+        }
+    }
+
+    /// Transform this type's generic parameters by reference.
+    pub fn transform_ref<'a, NN, ND>(
+        &'a self,
+        name_map: impl FnOnce(&'a N) -> NN,
+        data_map: impl FnOnce(&'a D) -> ND,
+    ) -> Record<NN, ND> {
+        Record {
+            rname: (name_map)(&self.rname),
+            rtype: self.rtype,
+            rclass: self.rclass,
+            ttl: self.ttl,
+            rdata: (data_map)(&self.rdata),
         }
     }
 }
@@ -111,22 +130,29 @@ where
 
 //--- Building into DNS messages
 
-impl<N, D> BuildIntoMessage for Record<N, D>
+impl<N, D> BuildInMessage for Record<N, D>
 where
-    N: BuildIntoMessage,
-    D: BuildIntoMessage,
+    N: BuildInMessage,
+    D: BuildInMessage,
 {
-    fn build_into_message(
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        self.rname.build_into_message(builder.delegate())?;
-        builder.append_bytes(self.rtype.as_bytes())?;
-        builder.append_bytes(self.rclass.as_bytes())?;
-        builder.append_bytes(self.ttl.as_bytes())?;
-        SizePrefixed::<U16, _>::new(&self.rdata)
-            .build_into_message(builder.delegate())?;
-        Ok(builder.commit())
+        contents: &mut [u8],
+        mut start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        start = self.rname.build_in_message(contents, start, name)?;
+        // For more efficiency, copy the bytes manually.
+        let end = start + 8;
+        let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
+        bytes[0..2].copy_from_slice(self.rtype.as_bytes());
+        bytes[2..4].copy_from_slice(self.rclass.as_bytes());
+        bytes[4..8].copy_from_slice(self.ttl.as_bytes());
+        start = end;
+        // Build the record data with a 16-bit size prefix.
+        start = SizePrefixed::<U16, _>::new(&self.rdata)
+            .build_in_message(contents, start, name)?;
+        Ok(start)
     }
 }
 
@@ -563,9 +589,19 @@ impl<'a> ParseRecordDataBytes<'a> for &'a UnparsedRecordData {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for UnparsedRecordData {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.0.build_into_message(builder)
+impl BuildInMessage for UnparsedRecordData {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let end = start + self.0.len();
+        contents
+            .get_mut(start..end)
+            .ok_or(TruncationError)?
+            .copy_from_slice(&self.0);
+        Ok(end)
     }
 }
 

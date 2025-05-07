@@ -2,7 +2,7 @@
 
 use core::cmp::Ordering;
 
-use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
+use crate::new_base::build::{BuildInMessage, NameCompressor};
 use crate::new_base::name::CanonicalName;
 use crate::new_base::parse::ParseMessageBytes;
 use crate::new_base::wire::*;
@@ -83,7 +83,7 @@ use crate::new_base::{
 ///
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
-/// To serialize a [`Ptr`] in the wire format, use [`BuildIntoMessage`] (which
+/// To serialize a [`Ptr`] in the wire format, use [`BuildInMessage`] (which
 /// supports name compression).  If name compression is not desired, use
 /// [`BuildBytes`].
 #[derive(
@@ -154,9 +154,14 @@ impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Ptr<N> {
 
 //--- Building into DNS messages
 
-impl<N: BuildIntoMessage> BuildIntoMessage for Ptr<N> {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.name.build_into_message(builder)
+impl<N: BuildInMessage> BuildInMessage for Ptr<N> {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        self.name.build_in_message(contents, start, name)
     }
 }
 

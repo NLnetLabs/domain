@@ -4,11 +4,10 @@ use core::cmp::Ordering;
 
 use domain_macros::*;
 
-use crate::new_base::{
-    name::{CanonicalName, Name},
-    wire::{AsBytes, U16},
-    CanonicalRecordData, RType, Serial, TTL,
-};
+use crate::new_base::build::BuildInMessage;
+use crate::new_base::name::{CanonicalName, Name, NameCompressor};
+use crate::new_base::wire::{AsBytes, BuildBytes, TruncationError, U16};
+use crate::new_base::{CanonicalRecordData, RType, Serial, TTL};
 
 use super::SecAlg;
 
@@ -87,5 +86,20 @@ impl CanonicalRecordData for RRSig<'_> {
             .cmp(&that_initial)
             .then_with(|| self.signer.cmp_lowercase_composed(that.signer))
             .then_with(|| self.signature.cmp(that.signature))
+    }
+}
+
+//--- Building in DNS messages
+
+impl BuildInMessage for RRSig<'_> {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
+        let rest = self.build_bytes(bytes)?.len();
+        Ok(contents.len() - rest)
     }
 }

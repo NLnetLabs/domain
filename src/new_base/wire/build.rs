@@ -53,6 +53,19 @@ impl<T: ?Sized + BuildBytes> BuildBytes for &mut T {
     }
 }
 
+impl BuildBytes for () {
+    fn build_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        Ok(bytes)
+    }
+
+    fn built_bytes_size(&self) -> usize {
+        0
+    }
+}
+
 impl BuildBytes for u8 {
     fn build_bytes<'b>(
         &self,
@@ -262,14 +275,17 @@ pub use domain_macros::AsBytes;
 
 //----------- TruncationError ------------------------------------------------
 
-/// A DNS message did not fit in a buffer.
-#[derive(Clone, Debug, PartialEq, Hash)]
+/// An object could not be serialized because it was too big.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TruncationError;
+
+#[cfg(feature = "std")]
+impl std::error::Error for TruncationError {}
 
 //--- Formatting
 
 impl fmt::Display for TruncationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("A buffer was too small to fit a DNS message")
+        f.write_str("an object was too large to be serialized")
     }
 }

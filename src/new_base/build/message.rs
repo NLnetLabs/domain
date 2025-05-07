@@ -1,39 +1,39 @@
 //! Building whole DNS messages.
 
-use core::cell::UnsafeCell;
+use core::fmt;
 
-use crate::new_base::{
-    wire::{ParseBytesZC, TruncationError},
-    Header, Message, Question, Record,
+use crate::{
+    new_base::{
+        wire::{ParseBytesZC, U16},
+        Header, HeaderFlags, Message, MessageItem, Question, Record,
+        SectionCounts,
+    },
+    new_edns::EdnsRecord,
 };
 
-use super::{
-    BuildIntoMessage, Builder, BuilderContext, MessageState, QuestionBuilder,
-    RecordBuilder,
-};
+use super::{BuildBytes, BuildInMessage, NameCompressor, TruncationError};
 
 //----------- MessageBuilder -------------------------------------------------
 
 /// A builder for a whole DNS message.
-///
-/// This is a high-level building interface, offering methods to put together
-/// entire questions and records.  It directly writes into an allocated buffer
-/// (on the stack or the heap).
 pub struct MessageBuilder<'b, 'c> {
-    /// The message being constructed.
-    pub(super) message: &'b mut Message,
+    /// The message being built.
+    message: &'b mut Message,
 
-    /// Context for building.
-    pub(super) context: &'c mut BuilderContext,
+    /// The offset data is being written to.
+    offset: usize,
+
+    /// The name compressor.
+    compressor: &'c mut NameCompressor,
 }
 
 //--- Initialization
 
 impl<'b, 'c> MessageBuilder<'b, 'c> {
-    /// Initialize an empty [`MessageBuilder`].
+    /// Begin building a DNS message.
     ///
-    /// The message header is left uninitialized.  use [`Self::header_mut()`]
-    /// to initialize it.
+    /// The buffer will be initialized with the given message ID and flags.
+    /// The name compressor will be reset in case it was used before.
     ///
     /// # Panics
     ///
@@ -42,12 +42,23 @@ impl<'b, 'c> MessageBuilder<'b, 'c> {
     #[must_use]
     pub fn new(
         buffer: &'b mut [u8],
-        context: &'c mut BuilderContext,
+        id: U16,
+        flags: HeaderFlags,
+        compressor: &'c mut NameCompressor,
     ) -> Self {
         let message = Message::parse_bytes_in(buffer)
             .expect("The caller's buffer is at least 12 bytes big");
-        *context = BuilderContext::default();
-        Self { message, context }
+        message.header = Header {
+            id,
+            flags,
+            counts: SectionCounts::default(),
+        };
+        // TODO: Reset the name compressor.
+        Self {
+            message,
+            offset: 0,
+            compressor,
+        }
     }
 }
 
@@ -69,24 +80,23 @@ impl MessageBuilder<'_, '_> {
     /// The message built thus far.
     #[must_use]
     pub fn message(&self) -> &Message {
-        self.message.truncate(self.context.size)
+        self.message.truncate(self.offset)
     }
 
     /// The message built thus far, mutably.
     ///
-    /// # Safety
-    ///
-    /// The caller must not modify any compressed names among these bytes.
-    /// This can invalidate name compression state.
+    /// Compressed names in the message must not be modified here, as the name
+    /// compressor relies on them.  Modifying them will break name compression
+    /// and result in misformatted messages.
     #[must_use]
-    pub unsafe fn message_mut(&mut self) -> &mut Message {
-        self.message.truncate_mut(self.context.size)
+    pub fn message_mut(&mut self) -> &mut Message {
+        self.message.truncate_mut(self.offset)
     }
 
-    /// The builder context.
+    /// The name compressor.
     #[must_use]
-    pub fn context(&self) -> &BuilderContext {
-        self.context
+    pub fn compressor(&self) -> &NameCompressor {
+        self.compressor
     }
 }
 
@@ -94,12 +104,9 @@ impl MessageBuilder<'_, '_> {
 
 impl<'b> MessageBuilder<'b, '_> {
     /// End the builder, returning the built message.
-    ///
-    /// The returned message is valid, but it can be modified by the caller
-    /// arbitrarily; avoid modifying the message beyond the header.
     #[must_use]
     pub fn finish(self) -> &'b mut Message {
-        self.message.truncate_mut(self.context.size)
+        self.message.truncate_mut(self.offset)
     }
 
     /// Reborrow the builder with a shorter lifetime.
@@ -107,7 +114,8 @@ impl<'b> MessageBuilder<'b, '_> {
     pub fn reborrow(&mut self) -> MessageBuilder<'_, '_> {
         MessageBuilder {
             message: self.message,
-            context: self.context,
+            offset: self.offset,
+            compressor: self.compressor,
         }
     }
 
@@ -117,18 +125,14 @@ impl<'b> MessageBuilder<'b, '_> {
     /// Only the message header and contents are counted; the enclosing UDP
     /// or TCP packet size is not considered.  If the message already exceeds
     /// this size, a [`TruncationError`] is returned.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the given size is less than 12 bytes.
     pub fn limit_to(&mut self, size: usize) -> Result<(), TruncationError> {
-        if 12 + self.context.size <= size {
+        if 12 + self.offset <= size {
             // Move out of 'message' so that the full lifetime is available.
             // See the 'replace_with' and 'take_mut' crates.
-            debug_assert!(size < 12 + self.message.contents.len());
+            let size = (size - 12).min(self.message.contents.len());
             let message = unsafe { core::ptr::read(&self.message) };
             // NOTE: Precondition checked, will not panic.
-            let message = message.truncate_mut(size - 12);
+            let message = message.truncate_mut(size);
             unsafe { core::ptr::write(&mut self.message, message) };
             Ok(())
         } else {
@@ -141,183 +145,188 @@ impl<'b> MessageBuilder<'b, '_> {
     /// This will remove all message contents and mark it as truncated.
     pub fn truncate(&mut self) {
         self.message.header.flags.set_tc(true);
-        *self.context = BuilderContext::default();
+        self.offset = 0;
+        // TODO: Reset the name compressor.
     }
 
-    /// Obtain a [`Builder`].
-    #[must_use]
-    pub(super) fn builder(&mut self, start: usize) -> Builder<'_> {
-        debug_assert!(start <= self.context.size);
-        unsafe {
-            let contents = &mut self.message.contents;
-            let contents = contents as *mut [u8] as *const UnsafeCell<[u8]>;
-            Builder::from_raw_parts(&*contents, self.context, start)
-        }
-    }
-
-    /// Build a question.
+    /// Append a message item.
     ///
-    /// If a question is already being built, it will be finished first.  If
-    /// an answer, authority, or additional record has been added, [`None`] is
-    /// returned instead.
-    pub fn build_question<N: BuildIntoMessage>(
+    /// ## Errors
+    ///
+    /// If the item cannot be appended (because it needs to come before items
+    /// already in the message), [`Misplaced`] is returned.  If the item does
+    /// not fit in the message buffer, [`Truncated`] is returned.
+    ///
+    /// [`Misplaced`]: MessageBuildError::Misplaced
+    /// [`Truncated`]: MessageBuildError::Truncated
+    pub fn push<N, RD, ED>(
+        &mut self,
+        item: &MessageItem<N, RD, ED>,
+    ) -> Result<(), MessageBuildError>
+    where
+        N: BuildInMessage,
+        RD: BuildInMessage,
+        ED: BuildBytes,
+    {
+        // Determine the section number.
+        let section = match item {
+            MessageItem::Question(_) => 0,
+            MessageItem::Answer(_) => 1,
+            MessageItem::Authority(_) => 2,
+            MessageItem::Additional(_) => 3,
+            MessageItem::Edns(_) => 3,
+        };
+
+        // Make sure this item is not misplaced.
+        let counts = self.message.header.counts.as_array_mut();
+        if counts[section + 1..].iter().any(|c| c.get() != 0) {
+            return Err(MessageBuildError::Misplaced);
+        }
+
+        // Try to build the item.
+        self.offset = item.build_in_message(
+            &mut self.message.contents,
+            self.offset,
+            self.compressor,
+        )?;
+
+        // TODO: Reset the name compressor in case of failure.
+
+        // Update the section counts, now that we have succeeded.
+        counts[section] += 1;
+
+        Ok(())
+    }
+
+    /// Append a question.
+    ///
+    /// ## Errors
+    ///
+    /// If the item cannot be appended (because it needs to come before items
+    /// already in the message), [`Misplaced`] is returned.  If the item does
+    /// not fit in the message buffer, [`Truncated`] is returned.
+    ///
+    /// [`Misplaced`]: MessageBuildError::Misplaced
+    /// [`Truncated`]: MessageBuildError::Truncated
+    pub fn push_question<N: BuildInMessage>(
         &mut self,
         question: &Question<N>,
-    ) -> Result<Option<QuestionBuilder<'_>>, TruncationError> {
-        let state = &mut self.context.state;
-        if state.section_index() > 0 {
-            // We've progressed into a later section.
-            return Ok(None);
-        }
-
-        if state.mid_component() {
-            let index = state.section_index() as usize;
-            self.message.header.counts.as_array_mut()[index] += 1;
-        }
-
-        *state = MessageState::Questions;
-        QuestionBuilder::build(self.reborrow(), question).map(Some)
+    ) -> Result<(), MessageBuildError> {
+        let question = question.transform_ref(|n| n);
+        self.push(&MessageItem::<&N, (), ()>::Question(question))
     }
 
-    /// Resume building a question.
+    /// Append an answer record.
     ///
-    /// If a question was built (using [`build_question()`]) but the returned
-    /// builder was neither committed nor canceled, the question builder will
-    /// be recovered and returned.
+    /// ## Errors
     ///
-    /// [`build_question()`]: Self::build_question()
-    pub fn resume_question(&mut self) -> Option<QuestionBuilder<'_>> {
-        let MessageState::MidQuestion { name } = self.context.state else {
-            return None;
-        };
-
-        // SAFETY: 'self.context.state' is synchronized with the message.
-        Some(unsafe {
-            QuestionBuilder::from_raw_parts(self.reborrow(), name)
-        })
-    }
-
-    /// Build an answer record.
+    /// If the item cannot be appended (because it needs to come before items
+    /// already in the message), [`Misplaced`] is returned.  If the item does
+    /// not fit in the message buffer, [`Truncated`] is returned.
     ///
-    /// If a question or answer is already being built, it will be finished
-    /// first.  If an authority or additional record has been added, [`None`]
-    /// is returned instead.
-    pub fn build_answer<N: BuildIntoMessage, D: BuildIntoMessage>(
+    /// [`Misplaced`]: MessageBuildError::Misplaced
+    /// [`Truncated`]: MessageBuildError::Truncated
+    pub fn push_answer<N: BuildInMessage, D: BuildInMessage>(
         &mut self,
-        record: &Record<N, D>,
-    ) -> Result<Option<RecordBuilder<'_>>, TruncationError> {
-        let state = &mut self.context.state;
-        if state.section_index() > 1 {
-            // We've progressed into a later section.
-            return Ok(None);
-        }
-
-        if state.mid_component() {
-            let index = state.section_index() as usize;
-            self.message.header.counts.as_array_mut()[index] += 1;
-        }
-
-        *state = MessageState::Answers;
-        RecordBuilder::build(self.reborrow(), record).map(Some)
+        answer: &Record<N, D>,
+    ) -> Result<(), MessageBuildError> {
+        let answer = answer.transform_ref(|n| n, |d| d);
+        self.push(&MessageItem::<&N, &D, ()>::Answer(answer))
     }
 
-    /// Resume building an answer record.
+    /// Append an authority record.
     ///
-    /// If an answer record was built (using [`build_answer()`]) but the
-    /// returned builder was neither committed nor canceled, the record
-    /// builder will be recovered and returned.
+    /// ## Errors
     ///
-    /// [`build_answer()`]: Self::build_answer()
-    pub fn resume_answer(&mut self) -> Option<RecordBuilder<'_>> {
-        let MessageState::MidAnswer { name, data } = self.context.state
-        else {
-            return None;
-        };
-
-        // SAFETY: 'self.context.state' is synchronized with the message.
-        Some(unsafe {
-            RecordBuilder::from_raw_parts(self.reborrow(), name, data)
-        })
-    }
-
-    /// Build an authority record.
+    /// If the item cannot be appended (because it needs to come before items
+    /// already in the message), [`Misplaced`] is returned.  If the item does
+    /// not fit in the message buffer, [`Truncated`] is returned.
     ///
-    /// If a question, answer, or authority is already being built, it will be
-    /// finished first.  If an additional record has been added, [`None`] is
-    /// returned instead.
-    pub fn build_authority<N: BuildIntoMessage, D: BuildIntoMessage>(
+    /// [`Misplaced`]: MessageBuildError::Misplaced
+    /// [`Truncated`]: MessageBuildError::Truncated
+    pub fn push_authority<N: BuildInMessage, D: BuildInMessage>(
         &mut self,
-        record: &Record<N, D>,
-    ) -> Result<Option<RecordBuilder<'_>>, TruncationError> {
-        let state = &mut self.context.state;
-        if state.section_index() > 2 {
-            // We've progressed into a later section.
-            return Ok(None);
-        }
-
-        if state.mid_component() {
-            let index = state.section_index() as usize;
-            self.message.header.counts.as_array_mut()[index] += 1;
-        }
-
-        *state = MessageState::Authorities;
-        RecordBuilder::build(self.reborrow(), record).map(Some)
+        authority: &Record<N, D>,
+    ) -> Result<(), MessageBuildError> {
+        let authority = authority.transform_ref(|n| n, |d| d);
+        self.push(&MessageItem::<&N, &D, ()>::Authority(authority))
     }
 
-    /// Resume building an authority record.
+    /// Append an additional record.
     ///
-    /// If an authority record was built (using [`build_authority()`]) but
-    /// the returned builder was neither committed nor canceled, the record
-    /// builder will be recovered and returned.
+    /// ## Errors
     ///
-    /// [`build_authority()`]: Self::build_authority()
-    pub fn resume_authority(&mut self) -> Option<RecordBuilder<'_>> {
-        let MessageState::MidAuthority { name, data } = self.context.state
-        else {
-            return None;
-        };
-
-        // SAFETY: 'self.context.state' is synchronized with the message.
-        Some(unsafe {
-            RecordBuilder::from_raw_parts(self.reborrow(), name, data)
-        })
-    }
-
-    /// Build an additional record.
-    ///
-    /// If a question or record is already being built, it will be finished
-    /// first.  Note that it is always possible to add an additional record to
-    /// a message.
-    pub fn build_additional<N: BuildIntoMessage, D: BuildIntoMessage>(
+    /// If the item does not fit in the message buffer, [`TruncationError`] is
+    /// returned.
+    pub fn push_additional<N: BuildInMessage, D: BuildInMessage>(
         &mut self,
-        record: &Record<N, D>,
-    ) -> Result<RecordBuilder<'_>, TruncationError> {
-        let state = &mut self.context.state;
-        if state.mid_component() {
-            let index = state.section_index() as usize;
-            self.message.header.counts.as_array_mut()[index] += 1;
-        }
-
-        *state = MessageState::Additionals;
-        RecordBuilder::build(self.reborrow(), record)
+        additional: &Record<N, D>,
+    ) -> Result<(), TruncationError> {
+        let additional = additional.transform_ref(|n| n, |d| d);
+        self.push(&MessageItem::<&N, &D, ()>::Additional(additional))
+            .map_err(|err| match err {
+                MessageBuildError::Misplaced => {
+                    unreachable!("An additional record is never misplaced")
+                }
+                MessageBuildError::Truncated(err) => err,
+            })
     }
 
-    /// Resume building an additional record.
+    /// Append an EDNS record.
     ///
-    /// If an additional record was built (using [`build_additional()`]) but
-    /// the returned builder was neither committed nor canceled, the record
-    /// builder will be recovered and returned.
+    /// ## Errors
     ///
-    /// [`build_additional()`]: Self::build_additional()
-    pub fn resume_additional(&mut self) -> Option<RecordBuilder<'_>> {
-        let MessageState::MidAdditional { name, data } = self.context.state
-        else {
-            return None;
-        };
+    /// If the item does not fit in the message buffer, [`TruncationError`] is
+    /// returned.
+    pub fn push_edns<D: ?Sized + BuildBytes>(
+        &mut self,
+        edns: &EdnsRecord<D>,
+    ) -> Result<(), TruncationError> {
+        let edns = edns.transform_ref(|d| d);
+        self.push(&MessageItem::<(), (), &D>::Edns(edns))
+            .map_err(|err| match err {
+                MessageBuildError::Misplaced => {
+                    unreachable!("An additional record is never misplaced")
+                }
+                MessageBuildError::Truncated(err) => err,
+            })
+    }
+}
 
-        // SAFETY: 'self.context.state' is synchronized with the message.
-        Some(unsafe {
-            RecordBuilder::from_raw_parts(self.reborrow(), name, data)
+//----------- MessageBuildError ----------------------------------------------
+
+/// A component of a DNS message could not be built.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum MessageBuildError {
+    /// A message item was placed in the wrong section.
+    ///
+    /// DNS message items (questions, answers, additionals, etc.) must come in
+    /// a fixed order; this error is returned if an item could not be added in
+    /// the right order (i.e. items from later sections would come before it).
+    Misplaced,
+
+    /// A message item was too large to fit.
+    Truncated(TruncationError),
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for MessageBuildError {}
+
+impl From<TruncationError> for MessageBuildError {
+    fn from(value: TruncationError) -> Self {
+        Self::Truncated(value)
+    }
+}
+
+//--- Formatting
+
+impl fmt::Display for MessageBuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Misplaced => {
+                "a DNS message item was placed in the wrong order"
+            }
+            Self::Truncated(_) => "a DNS message item was too large to fit",
         })
     }
 }
@@ -326,164 +335,77 @@ impl<'b> MessageBuilder<'b, '_> {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        new_base::{
-            build::{BuilderContext, MessageState},
-            name::RevName,
-            wire::U16,
-            QClass, QType, Question, RClass, RType, Record, SectionCounts,
-            TTL,
-        },
-        new_rdata::A,
+    use crate::new_base::name::RevNameBuf;
+    use crate::new_base::wire::U16;
+    use crate::new_base::{
+        HeaderFlags, QClass, QType, Question, RClass, RType, Record, TTL,
     };
+    use crate::new_rdata::{RecordData, A};
 
-    use super::MessageBuilder;
-
-    const WWW_EXAMPLE_ORG: &RevName = unsafe {
-        RevName::from_bytes_unchecked(b"\x00\x03org\x07example\x03www")
-    };
+    use super::{MessageBuilder, NameCompressor};
 
     #[test]
     fn new() {
         let mut buffer = [0u8; 12];
-        let mut context = BuilderContext::default();
+        let mut compressor = NameCompressor::default();
 
-        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
+        let mut builder = MessageBuilder::new(
+            &mut buffer,
+            U16::new(0),
+            HeaderFlags::default(),
+            &mut compressor,
+        );
 
         assert_eq!(&builder.message().contents, &[] as &[u8]);
-        assert_eq!(unsafe { &builder.message_mut().contents }, &[] as &[u8]);
-        assert_eq!(builder.context().size, 0);
-        assert_eq!(builder.context().state, MessageState::Questions);
+        assert_eq!(&builder.message_mut().contents, &[] as &[u8]);
     }
 
     #[test]
     fn build_question() {
         let mut buffer = [0u8; 33];
-        let mut context = BuilderContext::default();
-        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
+        let mut compressor = NameCompressor::default();
+        let mut builder = MessageBuilder::new(
+            &mut buffer,
+            U16::new(0),
+            HeaderFlags::default(),
+            &mut compressor,
+        );
 
-        let question = Question {
-            qname: WWW_EXAMPLE_ORG,
+        let question = Question::<RevNameBuf> {
+            qname: "www.example.org".parse().unwrap(),
             qtype: QType::A,
             qclass: QClass::IN,
         };
-        let qb = builder.build_question(&question).unwrap().unwrap();
+        builder.push_question(&question).unwrap();
 
-        assert_eq!(qb.qname().as_bytes(), b"\x03www\x07example\x03org\x00");
-        assert_eq!(qb.qtype(), question.qtype);
-        assert_eq!(qb.qclass(), question.qclass);
-
-        let state = MessageState::MidQuestion { name: 0 };
-        assert_eq!(builder.context().state, state);
-        assert_eq!(builder.message().header.counts, SectionCounts::default());
         let contents = b"\x03www\x07example\x03org\x00\x00\x01\x00\x01";
         assert_eq!(&builder.message().contents, contents);
     }
 
     #[test]
-    fn resume_question() {
-        let mut buffer = [0u8; 33];
-        let mut context = BuilderContext::default();
-        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
-
-        let question = Question {
-            qname: WWW_EXAMPLE_ORG,
-            qtype: QType::A,
-            qclass: QClass::IN,
-        };
-        let _ = builder.build_question(&question).unwrap().unwrap();
-
-        let qb = builder.resume_question().unwrap();
-        assert_eq!(qb.qname().as_bytes(), b"\x03www\x07example\x03org\x00");
-        assert_eq!(qb.qtype(), question.qtype);
-        assert_eq!(qb.qclass(), question.qclass);
-
-        qb.commit();
-        assert_eq!(
-            builder.message().header.counts,
-            SectionCounts {
-                questions: U16::new(1),
-                ..Default::default()
-            }
-        );
-    }
-
-    #[test]
     fn build_record() {
         let mut buffer = [0u8; 43];
-        let mut context = BuilderContext::default();
-        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
+        let mut compressor = NameCompressor::default();
+        let mut builder = MessageBuilder::new(
+            &mut buffer,
+            U16::new(0),
+            HeaderFlags::default(),
+            &mut compressor,
+        );
 
-        let record = Record {
-            rname: WWW_EXAMPLE_ORG,
+        let record = Record::<RevNameBuf, _> {
+            rname: "www.example.org".parse().unwrap(),
             rtype: RType::A,
             rclass: RClass::IN,
             ttl: TTL::from(42),
-            rdata: b"",
+            rdata: RecordData::<()>::A(A {
+                octets: [127, 0, 0, 1],
+            }),
         };
+        builder.push_answer(&record).unwrap();
 
-        {
-            let mut rb = builder.build_answer(&record).unwrap().unwrap();
-
-            assert_eq!(
-                rb.rname().as_bytes(),
-                b"\x03www\x07example\x03org\x00"
-            );
-            assert_eq!(rb.rtype(), record.rtype);
-            assert_eq!(rb.rclass(), record.rclass);
-            assert_eq!(rb.ttl(), record.ttl);
-            assert_eq!(rb.rdata(), b"");
-
-            assert!(rb.delegate().append_bytes(&[0u8; 5]).is_err());
-
-            {
-                let mut builder = rb.delegate();
-                builder
-                    .append_built_bytes(&A {
-                        octets: [127, 0, 0, 1],
-                    })
-                    .unwrap();
-                builder.commit();
-            }
-            assert_eq!(rb.rdata(), b"\x7F\x00\x00\x01");
-        }
-
-        let state = MessageState::MidAnswer { name: 0, data: 27 };
-        assert_eq!(builder.context().state, state);
-        assert_eq!(builder.message().header.counts, SectionCounts::default());
+        assert_eq!(builder.message().header.counts.answers.get(), 1);
         let contents = b"\x03www\x07example\x03org\x00\x00\x01\x00\x01\x00\x00\x00\x2A\x00\x04\x7F\x00\x00\x01";
         assert_eq!(&builder.message().contents, contents.as_slice());
-    }
-
-    #[test]
-    fn resume_record() {
-        let mut buffer = [0u8; 39];
-        let mut context = BuilderContext::default();
-        let mut builder = MessageBuilder::new(&mut buffer, &mut context);
-
-        let record = Record {
-            rname: WWW_EXAMPLE_ORG,
-            rtype: RType::A,
-            rclass: RClass::IN,
-            ttl: TTL::from(42),
-            rdata: b"",
-        };
-        let _ = builder.build_answer(&record).unwrap().unwrap();
-
-        let rb = builder.resume_answer().unwrap();
-        assert_eq!(rb.rname().as_bytes(), b"\x03www\x07example\x03org\x00");
-        assert_eq!(rb.rtype(), record.rtype);
-        assert_eq!(rb.rclass(), record.rclass);
-        assert_eq!(rb.ttl(), record.ttl);
-        assert_eq!(rb.rdata(), b"");
-
-        rb.commit();
-        assert_eq!(
-            builder.message().header.counts,
-            SectionCounts {
-                answers: U16::new(1),
-                ..Default::default()
-            }
-        );
     }
 }

@@ -70,7 +70,7 @@ use alloc::boxed::Box;
 use domain_macros::*;
 
 use crate::new_base::{
-    build::{self, BuildIntoMessage, BuildResult},
+    build::{BuildInMessage, NameCompressor},
     name::CanonicalName,
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{
@@ -186,6 +186,20 @@ macro_rules! define_record_data {
         }
 
         //--- Building record data
+
+        impl<$N: BuildInMessage> BuildInMessage for $name<'_, $N> {
+            fn build_in_message(
+                &self,
+                contents: &mut [u8],
+                start: usize,
+                name: &mut NameCompressor,
+            ) -> Result<usize, TruncationError> {
+                match *self {
+                    $(Self::$v_name(ref r) => r.build_in_message(contents, start, name),)*
+                    Self::Unknown(_, r) => r.build_in_message(contents, start, name),
+                }
+            }
+        }
 
         impl<$N: BuildBytes> BuildBytes for $name<'_, $N> {
             fn build_bytes<'b>(
@@ -412,37 +426,6 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             _ => <&UnknownRecordData>::parse_bytes(&contents[start..])
                 .map(|data| Self::Unknown(rtype, data)),
         }
-    }
-}
-
-//--- Building record data
-
-impl<N: BuildIntoMessage> BuildIntoMessage for RecordData<'_, N> {
-    fn build_into_message(
-        &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        match self {
-            Self::A(r) => builder.append_bytes(r.as_bytes())?,
-            Self::Ns(r) => return r.build_into_message(builder),
-            Self::CName(r) => return r.build_into_message(builder),
-            Self::Soa(r) => return r.build_into_message(builder),
-            Self::Ptr(r) => return r.build_into_message(builder),
-            Self::HInfo(r) => builder.append_built_bytes(r)?,
-            Self::Mx(r) => return r.build_into_message(builder),
-            Self::Txt(r) => builder.append_bytes(r.as_bytes())?,
-            Self::Aaaa(r) => builder.append_bytes(r.as_bytes())?,
-            Self::Opt(r) => builder.append_bytes(r.as_bytes())?,
-            Self::Ds(r) => builder.append_bytes(r.as_bytes())?,
-            Self::RRSig(r) => builder.append_built_bytes(r)?,
-            Self::NSec(r) => builder.append_built_bytes(r)?,
-            Self::DNSKey(r) => builder.append_bytes(r.as_bytes())?,
-            Self::NSec3(r) => builder.append_built_bytes(r)?,
-            Self::NSec3Param(r) => builder.append_bytes(r.as_bytes())?,
-            Self::Unknown(_, r) => builder.append_bytes(r.as_bytes())?,
-        }
-
-        Ok(builder.commit())
     }
 }
 
@@ -685,8 +668,8 @@ impl ParseRecordDataBytes<'_> for BoxedRecordData {
 
 //--- Building record data
 
-// TODO: 'impl BuildIntoMessage for BoxedRecordData' will require implementing
-// 'impl BuildIntoMessage for Name', which is difficult because it is hard on
+// TODO: 'impl BuildInMessage for BoxedRecordData' will require implementing
+// 'impl BuildInMessage for Name', which is difficult because it is hard on
 // name compression.
 
 #[cfg(feature = "alloc")]
@@ -741,5 +724,23 @@ impl CanonicalRecordData for UnknownRecordData {
         // Since this is not a well-known record data type, embedded domain
         // names do not need to be lowercased.
         self.octets.cmp(&other.octets)
+    }
+}
+
+//--- Building in DNS messages
+
+impl BuildInMessage for UnknownRecordData {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let end = start + self.octets.len();
+        contents
+            .get_mut(start..end)
+            .ok_or(TruncationError)?
+            .copy_from_slice(&self.octets);
+        Ok(end)
     }
 }

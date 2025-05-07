@@ -8,7 +8,7 @@ use core::str::FromStr;
 use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 
 use super::{
-    build::{self, BuildIntoMessage, BuildResult},
+    build::{BuildInMessage, NameCompressor},
     parse::{ParseMessageBytes, SplitMessageBytes},
     wire::{BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError},
 };
@@ -93,14 +93,18 @@ impl<'a> ParseMessageBytes<'a> for &'a CharStr {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for CharStr {
-    fn build_into_message(
+impl BuildInMessage for CharStr {
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        builder.append_bytes(&[self.octets.len() as u8])?;
-        builder.append_bytes(&self.octets)?;
-        Ok(builder.commit())
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let end = start + self.len() + 1;
+        let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
+        bytes[0] = self.len() as u8;
+        bytes[1..].copy_from_slice(&self.octets);
+        Ok(end)
     }
 }
 
@@ -276,9 +280,14 @@ impl ParseMessageBytes<'_> for CharStrBuf {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for CharStrBuf {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        CharStr::build_into_message(self, builder)
+impl BuildInMessage for CharStrBuf {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        CharStr::build_in_message(self, contents, start, name)
     }
 }
 

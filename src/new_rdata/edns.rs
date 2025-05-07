@@ -6,7 +6,9 @@ use core::cmp::Ordering;
 use core::fmt;
 use core::iter::FusedIterator;
 
-use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
+use crate::new_base::build::{
+    BuildInMessage, NameCompressor, TruncationError,
+};
 use crate::new_base::wire::{
     AsBytes, BuildBytes, ParseBytesZC, ParseError, SplitBytesZC,
 };
@@ -117,7 +119,7 @@ use crate::utils::dst::UnsizedCopy;
 /// To serialize a [`Opt`] in the wire format, use [`BuildBytes`] (which
 /// will serialize it to a given buffer) or [`AsBytes`] (which will
 /// cast the [`Opt`] into a byte sequence in place).  It also supports
-/// [`BuildIntoMessage`].
+/// [`BuildInMessage`].
 #[derive(AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct Opt {
@@ -231,9 +233,19 @@ impl CanonicalRecordData for Opt {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for Opt {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.contents.build_into_message(builder)
+impl BuildInMessage for Opt {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let end = start + self.contents.len();
+        contents
+            .get_mut(start..end)
+            .ok_or(TruncationError)?
+            .copy_from_slice(&self.contents);
+        Ok(end)
     }
 }
 

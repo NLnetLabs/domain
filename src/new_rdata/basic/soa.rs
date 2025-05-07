@@ -2,7 +2,7 @@
 
 use core::cmp::Ordering;
 
-use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
+use crate::new_base::build::{BuildInMessage, NameCompressor};
 use crate::new_base::name::CanonicalName;
 use crate::new_base::parse::{ParseMessageBytes, SplitMessageBytes};
 use crate::new_base::{
@@ -109,7 +109,7 @@ use crate::new_base::{CanonicalRecordData, Serial};
 ///
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
-/// To serialize a [`Soa`] in the wire format, use [`BuildIntoMessage`]
+/// To serialize a [`Soa`] in the wire format, use [`BuildInMessage`]
 /// (which supports name compression).  If name compression is not desired,
 /// use [`BuildBytes`].
 #[derive(
@@ -310,19 +310,24 @@ impl<'a, N: SplitMessageBytes<'a>> ParseMessageBytes<'a> for Soa<N> {
 
 //--- Building into DNS messages
 
-impl<N: BuildIntoMessage> BuildIntoMessage for Soa<N> {
-    fn build_into_message(
+impl<N: BuildInMessage> BuildInMessage for Soa<N> {
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        self.mname.build_into_message(builder.delegate())?;
-        self.rname.build_into_message(builder.delegate())?;
-        builder.append_bytes(self.serial.as_bytes())?;
-        builder.append_bytes(self.refresh.as_bytes())?;
-        builder.append_bytes(self.retry.as_bytes())?;
-        builder.append_bytes(self.expire.as_bytes())?;
-        builder.append_bytes(self.minimum.as_bytes())?;
-        Ok(builder.commit())
+        contents: &mut [u8],
+        mut start: usize,
+        name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        start = self.mname.build_in_message(contents, start, name)?;
+        start = self.rname.build_in_message(contents, start, name)?;
+        // Build the remaining bytes manually.
+        let end = start + 20;
+        let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
+        bytes[0..4].copy_from_slice(self.serial.as_bytes());
+        bytes[4..8].copy_from_slice(self.refresh.as_bytes());
+        bytes[8..12].copy_from_slice(self.retry.as_bytes());
+        bytes[12..16].copy_from_slice(self.expire.as_bytes());
+        bytes[16..20].copy_from_slice(self.minimum.as_bytes());
+        Ok(end)
     }
 }
 

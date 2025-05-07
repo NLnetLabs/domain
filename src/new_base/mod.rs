@@ -100,6 +100,14 @@
 //! }
 //! ```
 //!
+//! # Building DNS messages
+//!
+//! The [`build`] module provides mid-level and low-level APIs for building
+//! DNS messages in the wire format.  [`MessageBuilder`] is the primary entry
+//! point; it writes into a user-provided byte buffer.
+//!
+//! [`MessageBuilder`]: build::MessageBuilder
+//!
 //! # Representing variable-length DNS data
 //!
 //! In order to efficiently serialize and deserialize DNS messages, and to be

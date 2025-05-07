@@ -7,7 +7,7 @@
 
 use core::fmt;
 
-use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
+use crate::new_base::build::{BuildInMessage, NameCompressor};
 use crate::new_base::parse::{ParseMessageBytes, SplitMessageBytes};
 use crate::new_base::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SizePrefixed,
@@ -54,6 +54,40 @@ pub struct EdnsRecord<D: ?Sized> {
     pub data: SizePrefixed<U16, D>,
 }
 
+//--- Transformation
+
+impl<D> EdnsRecord<D> {
+    /// Transform this type's generic parameters.
+    pub fn transform<ND>(
+        self,
+        data_map: impl FnOnce(D) -> ND,
+    ) -> EdnsRecord<ND> {
+        EdnsRecord {
+            max_udp_payload: self.max_udp_payload,
+            ext_rcode: self.ext_rcode,
+            version: self.version,
+            flags: self.flags,
+            data: SizePrefixed::new((data_map)(self.data.into_data())),
+        }
+    }
+}
+
+impl<D: ?Sized> EdnsRecord<D> {
+    /// Transform this type's generic parameters by reference.
+    pub fn transform_ref<'a, ND>(
+        &'a self,
+        data_map: impl FnOnce(&'a D) -> ND,
+    ) -> EdnsRecord<ND> {
+        EdnsRecord {
+            max_udp_payload: self.max_udp_payload,
+            ext_rcode: self.ext_rcode,
+            version: self.version,
+            flags: self.flags,
+            data: SizePrefixed::new((data_map)(&*self.data)),
+        }
+    }
+}
+
 //--- Parsing from DNS messages
 
 impl<'a, D: ParseBytes<'a>> SplitMessageBytes<'a> for EdnsRecord<D> {
@@ -77,13 +111,16 @@ impl<'a, D: ParseBytes<'a>> ParseMessageBytes<'a> for EdnsRecord<D> {
 
 //--- Building into DNS messages
 
-impl<D: ?Sized + BuildBytes> BuildIntoMessage for EdnsRecord<D> {
-    fn build_into_message(
+impl<D: ?Sized + BuildBytes> BuildInMessage for EdnsRecord<D> {
+    fn build_in_message(
         &self,
-        mut builder: build::Builder<'_>,
-    ) -> BuildResult {
-        builder.append_built_bytes(&self)?;
-        Ok(builder.commit())
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
+        let rest_len = self.build_bytes(bytes)?.len();
+        Ok(contents.len() - rest_len)
     }
 }
 

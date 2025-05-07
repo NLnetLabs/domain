@@ -4,10 +4,11 @@ use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
-use crate::new_base::{
-    wire::{AsBytes, U16},
-    CanonicalRecordData,
+use crate::new_base::build::{
+    BuildInMessage, NameCompressor, TruncationError,
 };
+use crate::new_base::wire::{AsBytes, U16};
+use crate::new_base::CanonicalRecordData;
 
 use super::SecAlg;
 
@@ -37,6 +38,25 @@ pub struct Ds {
 impl CanonicalRecordData for Ds {
     fn cmp_canonical(&self, other: &Self) -> Ordering {
         self.as_bytes().cmp(other.as_bytes())
+    }
+}
+
+//--- Building in DNS messages
+
+impl BuildInMessage for Ds {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let bytes = self.as_bytes();
+        let end = start + bytes.len();
+        contents
+            .get_mut(start..end)
+            .ok_or(TruncationError)?
+            .copy_from_slice(bytes);
+        Ok(end)
     }
 }
 

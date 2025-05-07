@@ -7,7 +7,9 @@ use core::fmt;
 use core::net::Ipv6Addr;
 use core::str::FromStr;
 
-use crate::new_base::build::{self, BuildIntoMessage, BuildResult};
+use crate::new_base::build::{
+    BuildInMessage, NameCompressor, TruncationError,
+};
 use crate::new_base::parse::ParseMessageBytes;
 use crate::new_base::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SplitBytes,
@@ -93,7 +95,7 @@ use crate::utils::dst::UnsizedCopy;
 /// To serialize a [`Aaaa`] in the wire format, use [`BuildBytes`] (which
 /// will serialize it to a given buffer) or [`AsBytes`] (which will
 /// cast the [`Aaaa`] into a byte sequence in place).  It also supports
-/// [`BuildIntoMessage`].
+/// [`BuildInMessage`].
 #[derive(
     Copy,
     Clone,
@@ -180,9 +182,17 @@ impl ParseMessageBytes<'_> for Aaaa {
 
 //--- Building into DNS messages
 
-impl BuildIntoMessage for Aaaa {
-    fn build_into_message(&self, builder: build::Builder<'_>) -> BuildResult {
-        self.as_bytes().build_into_message(builder)
+impl BuildInMessage for Aaaa {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        _name: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        let end = start + self.octets.len();
+        let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
+        bytes.copy_from_slice(&self.octets);
+        Ok(end)
     }
 }
 
