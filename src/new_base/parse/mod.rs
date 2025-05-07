@@ -5,6 +5,13 @@
 //!
 //! # Mid-Level API
 //!
+//! To parse the questions and records in a [`Message`], use
+//! [`Message::parse()`].  To parse a message (including questions and
+//! records) from bytes, use [`MessageParser::new()`].
+//!
+//! [`Message`]: super::Message
+//! [`Message::parse()`]: super::Message::parse()
+//!
 //! ```
 //! # use core::net::Ipv4Addr;
 //! #
@@ -66,7 +73,8 @@
 //!
 //! # Low-Level API
 //!
-//! Here's the same example as above, but using the low-level API.
+//! The low-level API is much more involved.  Here's the same example as
+//! above, but using the low-level API:
 //!
 //! ```
 //! # use domain::new_base::*;
@@ -151,11 +159,73 @@
 //! // Finish parsing the message.
 //! assert_eq!(offset, message.contents.len());
 //! ```
+//!
+//! Individual message items were extracted with [`SplitMessageBytes`] here.
+//! The low-level API is actually made up of a large number of related parsing
+//! traits, and they all have different advantages and limitations.  Most of
+//! them come from [`super::wire`], which provides bytewise (de)serialization
+//! but is not aware of DNS-specific considerations.
+//!
+//! - If you have a byte sequence that represents a certain object, such as a
+//!   [`Record`], and it does not contain compressed domain names, try to use
+//!   [`ParseBytes::parse_bytes()`].
+//!
+//!   [`Record`]: super::Record
+//!
+//!   If the target type supports [`ParseBytesZC`], that can be used instead.
+//!   [`parse_bytes_by_ref()`] will parse from a reference to a byte sequence.
+//!   This is more efficient than [`ParseBytes`], because it won't copy the
+//!   data out of the byte sequence.  The byte sequence will be re-interpreted
+//!   as an instance of the target type in place, like a pointer cast in C.
+//!
+//!   [`parse_bytes_by_ref()`]: ParseBytesZC::parse_bytes_by_ref()
+//!
+//!   If the byte sequence is stored in certain container types, like [`Box`],
+//!   it can also be parsed _in place_ (e.g. `Box<[u8]> -> Box<Message>`), via
+//!   [`parse_bytes_in()`].  The container implements [`ParseBytesInPlace`];
+//!   see its documentation for a list of implementing types.
+//!
+//!   [`Box`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
+//!   [`parse_bytes_in()`]: ParseBytesZC::parse_bytes_in()
+//!
+//!   For dynamically sized types, [`ParseBytesZC`] is the only option, as
+//!   they do not implement [`Sized`] and cannot be returned by value.
+//!
+//!   It is not necessary to use [`parse_bytes_by_ref()`] directly; if `T`
+//!   implements [`ParseBytesZC`], then `&T` will implement [`ParseBytes`],
+//!   and its implementation will call [`parse_bytes_by_ref()`].
+//!
+//! - If you have a byte sequence and you know that it _starts_ with a certain
+//!   object (and you don't know how many bytes the object takes up), try to
+//!   use [`SplitBytes::split_bytes()`].  It will return the parsed object and
+//!   the remainder of the input bytes.
+//!
+//!   [`SplitBytesZC`] also exists, and works analogously to [`ParseBytesZC`].
+//!   It is equivalent to but more efficient than [`SplitBytes`], it can work
+//!   for dynamically sized types where [`SplitBytes`] can't, and `&T` will
+//!   implement [`SplitBytes`] if `T` implements [`SplitBytesZC`].  However,
+//!   there is no `split_bytes_in()`.
+//!
+//! - The previous traits don't support decompressing domain names in the DNS
+//!   wire format, since that would also require knowledge of the DNS message
+//!   containing the bytes being parsed.  If you have a byte sequence within a
+//!   DNS message, and it may contain compressed domain names that need to be
+//!   resolved, use [`ParseMessageBytes`] or [`SplitMessageBytes`].  These are
+//!   analogous to [`ParseBytes`] and [`SplitBytes`], but have different
+//!   parameters.
+//!
+//!   Note that `ParseMessageBytesZC` or `SplitMessageBytesZC` don't exist, as
+//!   resolving domain names inherently requires copying data from different
+//!   parts of the DNS message.  However, many types that don't contain domain
+//!   names still implement [`ParseMessageBytes`] and [`SplitMessageBytes`].
+//!   If `T` implements [`ParseBytesZC`] or [`SplitBytesZC`], `&T` will also
+//!   implement [`ParseMessageBytes`] and [`SplitMessageBytes`] respectively.
 
 use core::mem::MaybeUninit;
 
 pub use super::wire::{
-    ParseBytes, ParseBytesZC, ParseError, SplitBytes, SplitBytesZC,
+    ParseBytes, ParseBytesInPlace, ParseBytesZC, ParseError, SplitBytes,
+    SplitBytesZC,
 };
 
 mod message;
