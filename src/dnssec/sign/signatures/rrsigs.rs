@@ -139,7 +139,6 @@ where
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
         if !owner_rrs.is_in_zone(apex_owner) {
-        if !owner_rrs.is_in_zone(zone_apex) {
             break;
         }
 

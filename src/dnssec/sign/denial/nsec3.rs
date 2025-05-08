@@ -611,10 +611,6 @@ where
         nsec3.data_mut().set_next_owner(next_hashed_owner_name);
     }
 
-    let Some(nsec3param_ttl) = nsec3param_ttl else {
-        return Err(SigningError::SoaRecordCouldNotBeDetermined);
-    };
-
     // RFC 5155 7.1 step 8:
     //   "Finally, add an NSEC3PARAM RR with the same Hash Algorithm,
     //    Iterations, and Salt fields to the zone apex."
