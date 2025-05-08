@@ -290,7 +290,7 @@ where
 ///     Ttl::ZERO,
 ///     Ttl::ZERO,
 ///     Ttl::ZERO));
-/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa)).unwrap();
+/// records.insert(Record::new(root.clone(), Class::IN, Ttl::ZERO, soa)).unwrap();
 ///
 /// // Generate or import signing keys (see above).
 ///
@@ -302,7 +302,7 @@ where
 ///     SigningConfig::new(Default::default(), 0.into(), 0.into());
 ///
 /// // Then sign the zone in-place.
-//r records.sign_zone::<DefaultSigningKeyUsageStrategy>(&mut signing_config, &keys).unwrap();
+/// records.sign_zone(&root, &mut signing_config, &keys).unwrap();
 /// ```
 ///
 /// [`sign_zone()`]: SignableZoneInPlace::sign_zone
