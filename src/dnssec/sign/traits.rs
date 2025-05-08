@@ -141,7 +141,7 @@ where
 ///     Ttl::ZERO,
 ///     Ttl::ZERO,
 ///     Ttl::ZERO));
-/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa)).unwrap();
+/// records.insert(Record::new(root.clone(), Class::IN, Ttl::ZERO, soa)).unwrap();
 ///
 /// // Generate or import signing keys (see above).
 ///
@@ -155,6 +155,7 @@ where
 /// let mut signer_generated_records = SortedRecords::default();
 ///
 /// records.sign_zone(
+///     &root,
 ///     &mut signing_config,
 ///     &keys,
 ///     &mut signer_generated_records).unwrap();
