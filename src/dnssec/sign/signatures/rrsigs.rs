@@ -50,11 +50,11 @@ impl GenerateRrsigConfig {
 ///
 /// An implementation of [RFC 4035 section 2.2] for generating RRSIG RRs for a
 /// zone.
-/// 
+///
 /// This function takes DNS records and signing keys and uses the signing keys
 /// to generate and output RRSIG RRs that sign the input records per [RFC
 /// 9364].
-/// 
+///
 /// RRSIG RRs will **NOT** be generated for records:
 ///   - With RTYPE RRSIG, because [RFC 4035 section 2.2] states that _"An
 ///     RRSIG RR itself MUST NOT be signed"_.
@@ -69,12 +69,12 @@ impl GenerateRrsigConfig {
 ///   - The order of the output records should not be relied upon.
 ///
 /// # Design rationale
-/// 
+///
 /// The restriction to limit signing to records not involved in the chain of
 /// trust with the parent zone is imposed because there is considerable
 /// variation and complexity in the strategies used to protect and roll the
 /// keys used to sign records in a DNSSEC signed zone.
-/// 
+///
 /// It is common operational practice (see [RFC 6871]) to increase security by
 /// using two separate keys to sign the zone. A Key Signing Key aka KSK is
 /// used to sign the keys used to establish trust with the parent zone, and a
@@ -82,13 +82,13 @@ impl GenerateRrsigConfig {
 /// zone, with the KSK signing the ZSK. This allows the ZSK to be rolled
 /// without needing to submit information about the new key to the parent zone
 /// operator.
-/// 
+///
 /// Deciding which key to use to sign which records at a given time,
 /// especially during key rolls, can be complex. Attempting to cover all
 /// possible cases in this function would increase the complexity and
 /// fragility and reduce flexibility. As such it is left to the caller to
 /// ensure that this is done correctly and doing so also enables the caller to
-/// have complete control over the key signing strategy used. 
+/// have complete control over the key signing strategy used.
 ///
 /// [RFC 4035 section 2.2]: https://www.rfc-editor.org/rfc/rfc4035#section-2.2
 /// [RFC 6871]: https://www.rfc-editor.org/rfc/rfc6871
@@ -639,7 +639,8 @@ mod tests {
                 TEST_INCEPTION.into(),
                 TEST_EXPIRATION.into(),
             ),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(rrsigs.is_empty());
     }
