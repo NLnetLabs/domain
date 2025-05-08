@@ -26,7 +26,7 @@ use crate::dnssec::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::dnssec::sign::sign_zone;
-use crate::dnssec::sign::signatures::rrsigs::sign_sorted_zone_records;
+use crate::dnssec::sign::signatures::rrsigs::generate_rrsigs;
 use crate::dnssec::sign::signatures::rrsigs::GenerateRrsigConfig;
 use crate::dnssec::sign::SignableZoneInOut;
 use crate::dnssec::sign::SigningConfig;
@@ -186,6 +186,7 @@ where
     /// [`SignableZoneInOut::SignInto`].
     fn sign_zone<Inner, T>(
         &self,
+        apex_owner: &N,
         signing_config: &mut SigningConfig<Octs, Sort>,
         signing_keys: &[&SigningKey<Octs, Inner>],
         out: &mut T,
@@ -202,6 +203,7 @@ where
     {
         let in_out = SignableZoneInOut::new_into(self, out);
         sign_zone::<N, Octs, _, Inner, Sort, T>(
+            apex_owner,
             in_out,
             signing_config,
             signing_keys,
@@ -327,6 +329,7 @@ where
     /// [`SignableZoneInOut::SignInPlace`].
     fn sign_zone<Inner>(
         &mut self,
+        apex_owner: &N,
         signing_config: &mut SigningConfig<Octs, Sort>,
         signing_keys: &[&SigningKey<Octs, Inner>],
     ) -> Result<(), SigningError>
@@ -339,6 +342,7 @@ where
         let in_out =
             SignableZoneInOut::<_, _, Self, _, _>::new_in_place(self);
         sign_zone::<N, Octs, _, Inner, Sort, _>(
+            apex_owner,
             in_out,
             signing_config,
             signing_keys,
@@ -450,15 +454,14 @@ where
     #[allow(clippy::type_complexity)]
     fn sign(
         &self,
-        expected_apex: &N,
+        apex_owner: &N,
         keys: &[&SigningKey<Octs, Inner>],
         inception: Timestamp,
         expiration: Timestamp,
     ) -> Result<Vec<Record<N, Rrsig<Octs, N>>>, SigningError> {
-        let rrsig_config = GenerateRrsigConfig::new(inception, expiration)
-            .with_zone_apex(expected_apex);
+        let rrsig_config = GenerateRrsigConfig::new(inception, expiration);
 
-        sign_sorted_zone_records(self.owner_rrs(), keys, &rrsig_config)
+        generate_rrsigs(apex_owner, self.owner_rrs(), keys, &rrsig_config)
     }
 }
 

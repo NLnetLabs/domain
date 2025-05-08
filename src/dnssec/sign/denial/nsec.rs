@@ -1,5 +1,5 @@
 use core::cmp::min;
-use core::fmt::Debug;
+use core::fmt::{Debug, Display};
 
 use std::vec::Vec;
 
@@ -67,16 +67,27 @@ impl Default for GenerateNsecConfig {
 // TODO: Add (mutable?) iterator based variant.
 #[allow(clippy::type_complexity)]
 pub fn generate_nsecs<N, Octs>(
-    records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
+    apex_owner: &N,
+    mut records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     config: &GenerateNsecConfig,
 ) -> Result<Vec<Record<N, Nsec<Octs, N>>>, SigningError>
 where
-    N: ToName + Clone + PartialEq,
+    N: ToName + Clone + Display + PartialEq,
     Octs: FromBuilder,
     Octs::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
     <Octs::Builder as OctetsBuilder>::AppendError: Debug,
 {
-    let mut res = Vec::new();
+    // The generated collection of NSEC RRs that will be returned to the
+    // caller.
+    let mut nsecs = Vec::new();
+
+    // The CLASS to use for NSEC records. This will be determined per the rules
+    // in RFC 9077 once the apex SOA RR is found.
+    let mut zone_class = None;
+
+    // The TTL to use for NSEC records. This will be determined per the rules
+    // in RFC 9077 once the apex SOA RR is found.
+    let mut nsec_ttl = None;
 
     // The owner name of a zone cut if we currently are at or below one.
     let mut cut: Option<N> = None;
@@ -84,11 +95,9 @@ where
     // Because of the next name thing, we need to keep the last NSEC around.
     let mut prev: Option<(N, RtypeBitmap<Octs>)> = None;
 
-    // We also need the apex for the last NSEC.
-    let first_rr = records.first();
-    let apex_owner = first_rr.owner().clone();
-    let zone_class = first_rr.class();
-    let mut ttl = None;
+    // Skip any glue or other out-of-zone records that sort earlier than
+    // the zone apex.
+    records.skip_before(&apex_owner);
 
     for owner_rrs in records {
         // If the owner is out of zone, we have moved out of our zone and are
@@ -117,11 +126,12 @@ where
         };
 
         if let Some((prev_name, bitmap)) = prev.take() {
-            // SAFETY: ttl will be set below before prev is set to Some.
-            res.push(Record::new(
+            // SAFETY: nsec_ttl and zone_class will be set below before prev
+            // is set to Some.
+            nsecs.push(Record::new(
                 prev_name.clone(),
-                zone_class,
-                ttl.unwrap(),
+                zone_class.unwrap(),
+                nsec_ttl.unwrap(),
                 Nsec::new(name.clone(), bitmap),
             ));
         }
@@ -135,7 +145,7 @@ where
         bitmap.add(Rtype::RRSIG).unwrap();
 
         if config.assume_dnskeys_will_be_added
-            && owner_rrs.owner() == &apex_owner
+            && owner_rrs.owner() == apex_owner
         {
             // Assume there's gonna be a DNSKEY.
             bitmap.add(Rtype::DNSKEY).unwrap();
@@ -180,11 +190,13 @@ where
                 // say that the "TTL of the NSEC(3) RR that is returned MUST
                 // be the lesser of the MINIMUM field of the SOA record and
                 // the TTL of the SOA itself".
-                ttl = Some(min(soa_data.minimum(), soa_rr.ttl()));
+                nsec_ttl = Some(min(soa_data.minimum(), soa_rr.ttl()));
+
+                zone_class = Some(rrset.class());
             }
         }
 
-        if ttl.is_none() {
+        if nsec_ttl.is_none() {
             return Err(SigningError::SoaRecordCouldNotBeDetermined);
         }
 
@@ -192,28 +204,31 @@ where
     }
 
     if let Some((prev_name, bitmap)) = prev {
-        res.push(Record::new(
+        // SAFETY: nsec_ttl and zone_class will be set above before prev
+        // is set to Some.
+        nsecs.push(Record::new(
             prev_name.clone(),
-            zone_class,
-            ttl.unwrap(),
+            zone_class.unwrap(),
+            nsec_ttl.unwrap(),
             Nsec::new(apex_owner.clone(), bitmap),
         ));
     }
 
-    Ok(res)
+    Ok(nsecs)
 }
 
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use crate::base::Ttl;
+    use crate::base::{Name, Ttl};
     use crate::dnssec::sign::records::SortedRecords;
     use crate::dnssec::sign::test_util::*;
     use crate::zonetree::types::StoredRecordData;
     use crate::zonetree::StoredName;
 
     use super::*;
+    use core::str::FromStr;
 
     type StoredSortedRecords = SortedRecords<StoredName, StoredRecordData>;
 
@@ -221,8 +236,9 @@ mod tests {
     fn soa_is_required() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
+        let apex = Name::from_str("a.").unwrap();
         let records = StoredSortedRecords::from_iter([mk_a_rr("some_a.a.")]);
-        let res = generate_nsecs(records.owner_rrs(), &cfg);
+        let res = generate_nsecs(&apex, records.owner_rrs(), &cfg);
         assert!(matches!(
             res,
             Err(SigningError::SoaRecordCouldNotBeDetermined)
@@ -233,11 +249,12 @@ mod tests {
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
+        let apex = Name::from_str("a.").unwrap();
         let records = StoredSortedRecords::from_iter([
             mk_soa_rr("a.", "b.", "c."),
             mk_soa_rr("a.", "d.", "e."),
         ]);
-        let res = generate_nsecs(records.owner_rrs(), &cfg);
+        let res = generate_nsecs(&apex, records.owner_rrs(), &cfg);
         assert!(matches!(
             res,
             Err(SigningError::SoaRecordCouldNotBeDetermined)
@@ -248,6 +265,8 @@ mod tests {
     fn records_outside_zone_are_ignored() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
+        let a_apex = Name::from_str("a.").unwrap();
+        let b_apex = Name::from_str("b.").unwrap();
         let records = StoredSortedRecords::from_iter([
             mk_soa_rr("b.", "d.", "e."),
             mk_a_rr("some_a.b."),
@@ -255,12 +274,9 @@ mod tests {
             mk_a_rr("some_a.a."),
         ]);
 
-        // First generate NSECs for the total record collection. As the
-        // collection is sorted in canonical order the a zone preceeds the b
-        // zone and NSECs should only be generated for the first zone in the
-        // collection.
-        let a_and_b_records = records.owner_rrs();
-        let nsecs = generate_nsecs(a_and_b_records, &cfg).unwrap();
+        // Generate NSEs for the a. zone.
+        let nsecs =
+            generate_nsecs(&a_apex, records.owner_rrs(), &cfg).unwrap();
 
         assert_eq!(
             nsecs,
@@ -270,11 +286,9 @@ mod tests {
             ]
         );
 
-        // Now skip the a zone in the collection and generate NSECs for the
-        // remaining records which should only generate NSECs for the b zone.
-        let mut b_records_only = records.owner_rrs();
-        b_records_only.skip_before(&mk_name("b."));
-        let nsecs = generate_nsecs(b_records_only, &cfg).unwrap();
+        // Generate NSECs for the b. zone.
+        let nsecs =
+            generate_nsecs(&b_apex, records.owner_rrs(), &cfg).unwrap();
 
         assert_eq!(
             nsecs,
@@ -289,13 +303,14 @@ mod tests {
     fn occluded_records_are_ignored() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
+        let apex = Name::from_str("a.").unwrap();
         let records = StoredSortedRecords::from_iter([
             mk_soa_rr("a.", "b.", "c."),
             mk_ns_rr("some_ns.a.", "some_a.other.b."),
             mk_a_rr("some_a.some_ns.a."),
         ]);
 
-        let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
+        let nsecs = generate_nsecs(&apex, records.owner_rrs(), &cfg).unwrap();
 
         // Implicit negative test.
         assert_eq!(
@@ -314,12 +329,13 @@ mod tests {
     fn expect_dnskeys_at_the_apex() {
         let cfg = GenerateNsecConfig::default();
 
+        let apex = Name::from_str("a.").unwrap();
         let records = StoredSortedRecords::from_iter([
             mk_soa_rr("a.", "b.", "c."),
             mk_a_rr("some_a.a."),
         ]);
 
-        let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
+        let nsecs = generate_nsecs(&apex, records.owner_rrs(), &cfg).unwrap();
 
         assert_eq!(
             nsecs,
@@ -340,8 +356,9 @@ mod tests {
             "../../../../test-data/zonefiles/rfc4035-appendix-A.zone"
         );
 
+        let apex = Name::from_str("example.").unwrap();
         let records = bytes_to_records(&zonefile[..]);
-        let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
+        let nsecs = generate_nsecs(&apex, records.owner_rrs(), &cfg).unwrap();
 
         assert_eq!(nsecs.len(), 10);
 
@@ -453,6 +470,7 @@ mod tests {
     fn existing_nsec_records_are_ignored() {
         let cfg = GenerateNsecConfig::default();
 
+        let apex = Name::from_str("a.").unwrap();
         let records = StoredSortedRecords::from_iter([
             mk_soa_rr("a.", "b.", "c."),
             mk_a_rr("some_a.a."),
@@ -460,7 +478,7 @@ mod tests {
             mk_nsec_rr("some_a.a.", "a.", "A RRSIG NSEC"),
         ]);
 
-        let nsecs = generate_nsecs(records.owner_rrs(), &cfg).unwrap();
+        let nsecs = generate_nsecs(&apex, records.owner_rrs(), &cfg).unwrap();
 
         assert_eq!(
             nsecs,

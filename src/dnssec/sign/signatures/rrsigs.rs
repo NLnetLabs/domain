@@ -28,50 +28,78 @@ use crate::rdata::{Rrsig, ZoneRecordData};
 //------------ GenerateRrsigConfig -------------------------------------------
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct GenerateRrsigConfig<'a, N> {
-    pub zone_apex: Option<&'a N>,
-
+pub struct GenerateRrsigConfig {
     pub inception: Timestamp,
 
     pub expiration: Timestamp,
 }
 
-impl<'a, N> GenerateRrsigConfig<'a, N> {
+impl GenerateRrsigConfig {
     /// Create a new object.
     pub fn new(inception: Timestamp, expiration: Timestamp) -> Self {
         Self {
-            zone_apex: None,
             inception,
             expiration,
         }
     }
-
-    pub fn with_zone_apex(mut self, zone_apex: &'a N) -> Self {
-        self.zone_apex = Some(zone_apex);
-        self
-    }
 }
 
-//------------ sign_sorted_zone_records --------------------------------------
+//------------ generate_rrsigs -----------------------------------------------
 
-/// Generate RRSIG RRs for a collection of zone records.
+/// Generate RRSIG records for a collection of zone records.
 ///
-/// Returns the collection of RRSIG that must be
-/// added to the input records as part of DNSSEC zone signing.
+/// An implementation of [RFC 4035 section 2.2] for generating RRSIG RRs for a
+/// zone.
+/// 
+/// This function takes DNS records and signing keys and uses the signing keys
+/// to generate and output RRSIG RRs that sign the input records per [RFC
+/// 9364].
+/// 
+/// RRSIG RRs will **NOT** be generated for records:
+///   - With RTYPE RRSIG, because [RFC 4035 section 2.2] states that _"An
+///     RRSIG RR itself MUST NOT be signed"_.
+///   - With RTYPE DNSKEY, CDS or CDNSKEY RR, because, depending on the
+///     operational practice (see [RFC 6871]), it may be that these RRs should
+///     not be signed using the same key as the rest of the records in the
+///     zone. To sign DNSKEY, CDS and CDNSKEY RRs see the [`sign_rrset()`]
+///     function.
 ///
-/// The input records MUST be sorted according to [`CanonicalOrd`].
+/// Note:
+///   - The input records MUST be sorted according to [`CanonicalOrd`].
+///   - The order of the output records should not be relied upon.
 ///
-/// Any RRSIG records in the input will be ignored. New, and replacement (if
-/// already present), RRSIGs will be generated and included in the output.
+/// # Design rationale
+/// 
+/// The restriction to limit signing to records not involved in the chain of
+/// trust with the parent zone is imposed because there is considerable
+/// variation and complexity in the strategies used to protect and roll the
+/// keys used to sign records in a DNSSEC signed zone.
+/// 
+/// It is common operational practice (see [RFC 6871]) to increase security by
+/// using two separate keys to sign the zone. A Key Signing Key aka KSK is
+/// used to sign the keys used to establish trust with the parent zone, and a
+/// Zone Signing Key aka ZSK is used to sign the rest of the records in the
+/// zone, with the KSK signing the ZSK. This allows the ZSK to be rolled
+/// without needing to submit information about the new key to the parent zone
+/// operator.
+/// 
+/// Deciding which key to use to sign which records at a given time,
+/// especially during key rolls, can be complex. Attempting to cover all
+/// possible cases in this function would increase the complexity and
+/// fragility and reduce flexibility. As such it is left to the caller to
+/// ensure that this is done correctly and doing so also enables the caller to
+/// have complete control over the key signing strategy used. 
 ///
-/// Note that the order of the output records should not be relied upon and is
-/// subject to change.
+/// [RFC 4035 section 2.2]: https://www.rfc-editor.org/rfc/rfc4035#section-2.2
+/// [RFC 6871]: https://www.rfc-editor.org/rfc/rfc6871
+/// [RFC 9364]: https://www.rfc-editor.org/rfc/rfc9364
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
-pub fn sign_sorted_zone_records<N, Octs, Inner>(
-    records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
+pub fn generate_rrsigs<N, Octs, Inner>(
+    apex_owner: &N,
+    mut records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[&SigningKey<Octs, Inner>],
-    config: &GenerateRrsigConfig<'_, N>,
+    config: &GenerateRrsigConfig,
 ) -> Result<Vec<Record<N, Rrsig<Octs, N>>>, SigningError>
 where
     Inner: Debug + SignRaw,
@@ -92,44 +120,25 @@ where
         + FromBuilder
         + From<&'static [u8]>,
 {
-    // Peek at the records because we need to process the first owner records
-    // differently if they represent the apex of a zone (i.e. contain the SOA
-    // record), otherwise we process the first owner records in the same loop
-    // as the rest of the records beneath the apex.
-    let mut records = records.peekable();
-
-    let first_rrs = records.peek();
-
-    let Some(first_rrs) = first_rrs else {
-        // No records were provided. As we are able to generate RRSIGs for
-        // partial zones this is a special case of a partial zone, an empty
-        // input, for which there is nothing to do.
-        return Ok(Vec::new());
-    };
-
-    let first_owner = first_rrs.owner().clone();
-
-    // If no apex was supplied, assume that because the input should be
-    // canonically ordered that the first record is part of the apex RRSET.
-    // Otherwise, check if the first record matches the given apex, if not
-    // that means that the input starts beneath the apex.
-    let zone_apex = match config.zone_apex {
-        Some(zone_apex) => zone_apex,
-        None => &first_owner,
-    };
-
-    if keys.is_empty() {
-        return Err(SigningError::NoKeysProvided);
-    }
-
+    // The generated collection of RRSIG RRs that will be returned to the
+    // caller.
     let mut rrsigs = Vec::new();
+
+    // A temporary scratch buffer used when generating signatures that can be
+    // allocated once and reused for each new signature that we generate.
     let mut reusable_scratch = Vec::new();
+
+    // The owner name of a zone cut if we currently are at or below one.
     let mut cut: Option<N> = None;
+
+    // Skip any glue records that sort earlier than the zone apex.
+    records.skip_before(&apex_owner);
 
     // For all records
     for owner_rrs in records {
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
+        if !owner_rrs.is_in_zone(apex_owner) {
         if !owner_rrs.is_in_zone(zone_apex) {
             break;
         }
@@ -147,7 +156,7 @@ where
         // If this owner is the parent side of a zone cut, we keep the owner
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
-        cut = if owner_rrs.is_zone_cut(zone_apex) {
+        cut = if owner_rrs.is_zone_cut(apex_owner) {
             Some(name.clone())
         } else {
             None
@@ -165,7 +174,7 @@ where
             } else if (rrset.rtype() == Rtype::DNSKEY
                 || rrset.rtype() == Rtype::CDS
                 || rrset.rtype() == Rtype::CDNSKEY)
-                && name.canonical_cmp(zone_apex) == Ordering::Equal
+                && name.canonical_cmp(apex_owner) == Ordering::Equal
             {
                 // Ignore the DNSKEY, CDS, and CDNSKEY RRsets at the apex.
                 // Sign other DNSKEY, CDS, and CDNSKEY RRsets as other
@@ -599,11 +608,13 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_without_keys_should_succeed_for_empty_zone() {
+        let apex = Name::from_str("example.").unwrap();
         let records =
             SortedRecords::<StoredName, StoredRecordData>::default();
         let no_keys: [&SigningKey<Bytes, KeyPair>; 0] = [];
 
-        sign_sorted_zone_records(
+        generate_rrsigs(
+            &apex,
             RecordsIter::new(&records),
             &no_keys,
             &GenerateRrsigConfig::new(
@@ -615,21 +626,23 @@ mod tests {
     }
 
     #[test]
-    fn generate_rrsigs_without_keys_should_fail_for_non_empty_zone() {
+    fn generate_rrsigs_without_keys_generates_no_rrsigs() {
+        let apex = Name::from_str("example.").unwrap();
         let mut records = SortedRecords::default();
         records.insert(mk_a_rr("example.")).unwrap();
         let no_keys: [&SigningKey<Bytes, KeyPair>; 0] = [];
 
-        let res = sign_sorted_zone_records(
+        let rrsigs = generate_rrsigs(
+            &apex,
             RecordsIter::new(&records),
             &no_keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
                 TEST_EXPIRATION.into(),
             ),
-        );
+        ).unwrap();
 
-        assert!(matches!(res, Err(SigningError::NoKeysProvided)));
+        assert!(rrsigs.is_empty());
     }
 
     #[test]
@@ -646,6 +659,7 @@ mod tests {
         // This is an example of generating RRSIGs for something other than a
         // full zone, in this case just for an A record. This test
         // deliberately does not include a SOA record as the zone is partial.
+        let apex = Name::from_str(zone_apex).unwrap();
         let mut records = SortedRecords::default();
         records.insert(mk_a_rr(record_owner)).unwrap();
 
@@ -658,14 +672,14 @@ mod tests {
         // key when selecting a key to use for signing DNSKEY RRs or other
         // zone RRs. We supply the zone apex because we are not supplying an
         // entire zone complete with SOA.
-        let generated_records = sign_sorted_zone_records(
+        let generated_records = generate_rrsigs(
+            &apex,
             RecordsIter::new(&records),
             &keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
                 TEST_EXPIRATION.into(),
-            )
-            .with_zone_apex(&mk_name(zone_apex)),
+            ),
         )
         .unwrap();
 
@@ -686,6 +700,7 @@ mod tests {
 
     #[test]
     fn generate_rrsigs_ignores_records_outside_the_zone() {
+        let apex = Name::from_str("example.").unwrap();
         let mut records = SortedRecords::default();
         records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
@@ -697,7 +712,8 @@ mod tests {
         let keys = [&mk_dnssec_signing_key(true)];
         let dnskey = keys[0].dnskey().convert();
 
-        let generated_records = sign_sorted_zone_records(
+        let generated_records = generate_rrsigs(
+            &apex,
             RecordsIter::new(&records),
             &keys,
             &GenerateRrsigConfig::new(
@@ -707,6 +723,7 @@ mod tests {
         )
         .unwrap();
 
+        // Check the generated RRSIG records
         assert_eq!(
             generated_records,
             [
@@ -719,31 +736,6 @@ mod tests {
                     &dnskey
                 ),
             ]
-        );
-
-        // Repeat but this time passing only the out-of-zone record in and
-        // show that it DOES get signed if not passed together with the first
-        // zone.
-        let generated_records = sign_sorted_zone_records(
-            RecordsIter::new(&records[2..]),
-            &keys,
-            &GenerateRrsigConfig::new(
-                TEST_INCEPTION.into(),
-                TEST_EXPIRATION.into(),
-            ),
-        )
-        .unwrap();
-
-        // Check the generated RRSIG records
-        assert_eq!(
-            generated_records,
-            [mk_rrsig_rr(
-                "out_of_zone.",
-                Rtype::A,
-                1,
-                "example.",
-                &dnskey
-            )]
         );
     }
 
@@ -758,23 +750,20 @@ mod tests {
     }
 
     #[test]
-    fn generate_rrsigs_for_complete_zone_with_only_zsk_and_fallback_strategy()
-    {
+    fn generate_rrsigs_for_complete_zone_with_only_zsk() {
         let keys = [&mk_dnssec_signing_key(false)];
-
-        let fallback_cfg = GenerateRrsigConfig::new(
+        let cfg = GenerateRrsigConfig::new(
             TEST_INCEPTION.into(),
             TEST_EXPIRATION.into(),
         );
-        generate_rrsigs_for_complete_zone(&keys, 0, 0, &fallback_cfg)
-            .unwrap();
+        generate_rrsigs_for_complete_zone(&keys, 0, 0, &cfg).unwrap();
     }
 
     fn generate_rrsigs_for_complete_zone(
         keys: &[&SigningKey<Bytes, TestKey>],
         _ksk_idx: usize,
         zsk_idx: usize,
-        cfg: &GenerateRrsigConfig<StoredName>,
+        cfg: &GenerateRrsigConfig,
     ) -> Result<(), SigningError> {
         // See https://datatracker.ietf.org/doc/html/rfc4035#appendix-A
         let zonefile = include_bytes!(
@@ -782,11 +771,12 @@ mod tests {
         );
 
         // Load the zone to generate RRSIGs for.
+        let apex = Name::from_str("example.").unwrap();
         let records = bytes_to_records(&zonefile[..]);
 
         // Generate DNSKEYs and RRSIGs.
         let generated_records =
-            sign_sorted_zone_records(RecordsIter::new(&records), keys, cfg)?;
+            generate_rrsigs(&apex, RecordsIter::new(&records), keys, cfg)?;
 
         let dnskeys = keys
             .iter()
@@ -965,6 +955,7 @@ mod tests {
     fn generate_rrsigs_for_complete_zone_with_multiple_zsks() {
         let apex = "example.";
 
+        let apex_owner = Name::from_str(apex).unwrap();
         let mut records = SortedRecords::default();
         records.extend([
             mk_soa_rr(apex, "some.mname.", "some.rname."),
@@ -978,7 +969,8 @@ mod tests {
         let zsk1 = keys[0].dnskey().convert();
         let zsk2 = keys[1].dnskey().convert();
 
-        let generated_records = sign_sorted_zone_records(
+        let generated_records = generate_rrsigs(
+            &apex_owner,
             RecordsIter::new(&records),
             &keys,
             &GenerateRrsigConfig::new(
@@ -1027,6 +1019,7 @@ mod tests {
 
         let dnskey = keys[0].dnskey().convert();
 
+        let apex = Name::from_str("example.").unwrap();
         let mut records = SortedRecords::default();
         records.extend([
             // -- example.
@@ -1045,7 +1038,8 @@ mod tests {
             mk_rrsig_rr("ns.example.", Rtype::NSEC, 1, "example.", &dnskey),
         ]);
 
-        let generated_records = sign_sorted_zone_records(
+        let generated_records = generate_rrsigs(
+            &apex,
             RecordsIter::new(&records),
             &keys,
             &GenerateRrsigConfig::new(
