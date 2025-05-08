@@ -205,7 +205,7 @@ where
 
         // If the owner is out of zone, we might have moved out of our zone
         // and are done.
-        if !owner_rrs.is_in_zone(&apex_owner) {
+        if !owner_rrs.is_in_zone(apex_owner) {
             debug!(
                 "Stopping at owner {} as it is out of zone and assumed to trail the zone",
                 owner_rrs.owner()
@@ -232,7 +232,7 @@ where
         // If this owner is the parent side of a zone cut, we keep the owner
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
-        cut = if owner_rrs.is_zone_cut(&apex_owner) {
+        cut = if owner_rrs.is_zone_cut(apex_owner) {
             trace!("Zone cut detected at owner {}", owner_rrs.owner());
             Some(name.clone())
         } else {
@@ -478,7 +478,7 @@ where
             config.params.flags(),
             config.params.iterations(),
             config.params.salt(),
-            &apex_owner,
+            apex_owner,
             bitmap,
             nsec3_ttl.unwrap(),
         )?;
@@ -508,7 +508,7 @@ where
             config.params.flags(),
             config.params.iterations(),
             config.params.salt(),
-            &apex_owner,
+            apex_owner,
             bitmap,
             nsec3_ttl.unwrap(),
         )?;
@@ -616,10 +616,6 @@ where
         };
         nsec3.data_mut().set_next_owner(next_hashed_owner_name);
     }
-
-    let Some(nsec3param_ttl) = nsec3param_ttl else {
-        return Err(SigningError::SoaRecordCouldNotBeDetermined);
-    };
 
     // RFC 5155 7.1 step 8:
     //   "Finally, add an NSEC3PARAM RR with the same Hash Algorithm,
