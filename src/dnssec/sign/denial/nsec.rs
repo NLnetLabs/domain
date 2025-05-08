@@ -97,12 +97,12 @@ where
 
     // Skip any glue or other out-of-zone records that sort earlier than
     // the zone apex.
-    records.skip_before(&apex_owner);
+    records.skip_before(apex_owner);
 
     for owner_rrs in records {
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
-        if !owner_rrs.is_in_zone(&apex_owner) {
+        if !owner_rrs.is_in_zone(apex_owner) {
             break;
         }
 
@@ -119,7 +119,7 @@ where
         // If this owner is the parent side of a zone cut, we keep the owner
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
-        cut = if owner_rrs.is_zone_cut(&apex_owner) {
+        cut = if owner_rrs.is_zone_cut(apex_owner) {
             Some(name.clone())
         } else {
             None

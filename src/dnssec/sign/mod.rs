@@ -298,7 +298,7 @@ where
 /// An implementation of [RFC 4035 section 2 Zone Signing] with optional
 /// support for NSEC3 ([RFC 5155]), i.e. it will generate `NSEC` or `NSEC3`
 /// (and if NSEC3 is in use then also `NSEC3PARAM`), and `RRSIG` records.
-/// 
+///
 /// This function **CANNOT** be used to generate RRSIG RRs for DNSKEY, CDS and
 /// CDNSKEY RRs. This function expects those RRs and their RRSIGs to already
 /// be present in the zone. To sign DNSKEY, CDS and CDNSKEY RRs the lower
