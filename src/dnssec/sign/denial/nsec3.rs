@@ -552,68 +552,68 @@ where
     // Instead we peek at the next and update the current, handling the final
     // last -> first case separately.
 
-    let only_one_nsec3 = nsec3s.len() == 1;
-    let first = nsec3s.first().unwrap().clone();
-    let mut iter = nsec3s.iter_mut().peekable();
+    if !nsec3s.is_empty() {
+        let only_one_nsec3 = nsec3s.len() == 1;
+        let first = nsec3s.first().unwrap().clone();
+        let mut iter = nsec3s.iter_mut().peekable();
 
-    while let Some(nsec3) = iter.next() {
-        // If we are at the end of the NSEC3 chain the next NSEC3 is the first
-        // NSEC3.
-        let next_nsec3 = if let Some(next) = iter.peek() {
-            next.deref()
-        } else {
-            &first
-        };
-
-        // Each NSEC3 should have a unique owner name, as we already combined
-        // all RTYPEs into a single NSEC3 for a given owner name above. As the
-        // NSEC3s are sorted, if another NSEC3 has the same owner name but
-        // different RDATA it will be the next NSEC3 in the iterator. (a) this
-        // shouldn't happen, and (b) if it does it should only be because the
-        // original owner name of the two NSEC3s are different but hash to the
-        // same hashed owner name, i.e. there was a hash collision. If the
-        // next NSEC3 has a different hashed owner name it must have a
-        // different original owner name, the same owner name can't hash to two
-        // different values. If there is only one NSEC3 then it will point to
-        // itself and clearly the current and next will be the same so exclude
-        // that special case.
-        if !only_one_nsec3 && nsec3.owner() == next_nsec3.owner() {
-            if nsec3.data().next_owner() != next_nsec3.data().next_owner() {
-                Err(Nsec3HashError::CollisionDetected)?;
+        while let Some(nsec3) = iter.next() {
+            // If we are at the end of the NSEC3 chain the next NSEC3 is the first
+            // NSEC3.
+            let next_nsec3 = if let Some(next) = iter.peek() {
+                next.deref()
             } else {
-                // This shouldn't happen. Could it maybe happen if the input
-                // data were unsorted?
-                unreachable!("All RTYPEs for a single owner name should have been combined into a single NSEC3 RR. Was the input NSEC3 canonically ordered?");
+                &first
+            };
+
+            // Each NSEC3 should have a unique owner name, as we already combined
+            // all RTYPEs into a single NSEC3 for a given owner name above. As the
+            // NSEC3s are sorted, if another NSEC3 has the same owner name but
+            // different RDATA it will be the next NSEC3 in the iterator. (a) this
+            // shouldn't happen, and (b) if it does it should only be because the
+            // original owner name of the two NSEC3s are different but hash to the
+            // same hashed owner name, i.e. there was a hash collision. If the
+            // next NSEC3 has a different hashed owner name it must have a
+            // different original owner name, the same owner name can't hash to two
+            // different values. If there is only one NSEC3 then it will point to
+            // itself and clearly the current and next will be the same so exclude
+            // that special case.
+            if !only_one_nsec3 && nsec3.owner() == next_nsec3.owner() {
+                if nsec3.data().next_owner() != next_nsec3.data().next_owner()
+                {
+                    Err(Nsec3HashError::CollisionDetected)?;
+                } else {
+                    // This shouldn't happen. Could it maybe happen if the input
+                    // data were unsorted?
+                    unreachable!("All RTYPEs for a single owner name should have been combined into a single NSEC3 RR. Was the input NSEC3 canonically ordered?");
+                }
             }
+
+            // Replace the Next Hashed Owner Name of the current NSEC3 RR with the
+            // first label of the next NSEC3 RR owner name (which is itself an
+            // NSEC3 hash).
+            let next_owner_name: Name<Octs> = next_nsec3
+                .owner()
+                .try_to_name()
+                .map_err(|_| Nsec3HashError::AppendError)?;
+
+            // SAFETY: We created the owner name by appending the zone apex owner
+            // name to an NSEC3 hash so by definition there must be two labels and
+            // it is safe to unwrap the first.
+            let first_label_of_next_owner_name =
+                next_owner_name.iter_labels().next().unwrap();
+            let next_hashed_owner_name = if let Ok(hash_octets) =
+                base32::decode_hex(&format!(
+                    "{first_label_of_next_owner_name}"
+                )) {
+                OwnerHash::<Octs>::from_octets(hash_octets)
+                    .map_err(|_| Nsec3HashError::OwnerHashError)?
+            } else {
+                return Err(Nsec3HashError::OwnerHashError)?;
+            };
+            nsec3.data_mut().set_next_owner(next_hashed_owner_name);
         }
-
-        // Replace the Next Hashed Owner Name of the current NSEC3 RR with the
-        // first label of the next NSEC3 RR owner name (which is itself an
-        // NSEC3 hash).
-        let next_owner_name: Name<Octs> = next_nsec3
-            .owner()
-            .try_to_name()
-            .map_err(|_| Nsec3HashError::AppendError)?;
-
-        // SAFETY: We created the owner name by appending the zone apex owner
-        // name to an NSEC3 hash so by definition there must be two labels and
-        // it is safe to unwrap the first.
-        let first_label_of_next_owner_name =
-            next_owner_name.iter_labels().next().unwrap();
-        let next_hashed_owner_name = if let Ok(hash_octets) =
-            base32::decode_hex(&format!("{first_label_of_next_owner_name}"))
-        {
-            OwnerHash::<Octs>::from_octets(hash_octets)
-                .map_err(|_| Nsec3HashError::OwnerHashError)?
-        } else {
-            return Err(Nsec3HashError::OwnerHashError)?;
-        };
-        nsec3.data_mut().set_next_owner(next_hashed_owner_name);
     }
-
-    let Some(nsec3param_ttl) = nsec3param_ttl else {
-        return Err(SigningError::SoaRecordCouldNotBeDetermined);
-    };
 
     // RFC 5155 7.1 step 8:
     //   "Finally, add an NSEC3PARAM RR with the same Hash Algorithm,
