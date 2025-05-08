@@ -132,7 +132,7 @@ where
     let mut cut: Option<N> = None;
 
     // Skip any glue records that sort earlier than the zone apex.
-    records.skip_before(&apex_owner);
+    records.skip_before(apex_owner);
 
     // For all records
     for owner_rrs in records {
