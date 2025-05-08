@@ -10,7 +10,7 @@ use std::vec::Vec;
 
 use octseq::builder::FromBuilder;
 use octseq::{OctetsFrom, OctetsInto};
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
@@ -139,13 +139,20 @@ where
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
         if !owner_rrs.is_in_zone(apex_owner) {
-        if !owner_rrs.is_in_zone(zone_apex) {
+            debug!(
+                "Stopping at owner {} as it is out of zone and assumed to trail the zone",
+                owner_rrs.owner()
+            );
             break;
         }
 
         // If the owner is below a zone cut, we must ignore it.
         if let Some(ref cut) = cut {
             if owner_rrs.owner().ends_with(cut) {
+                debug!(
+                    "Excluding owner {} as it is below a zone cut",
+                    owner_rrs.owner()
+                );
                 continue;
             }
         }
@@ -157,6 +164,7 @@ where
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
         cut = if owner_rrs.is_zone_cut(apex_owner) {
+            trace!("Zone cut detected at owner {}", owner_rrs.owner());
             Some(name.clone())
         } else {
             None
@@ -169,6 +177,11 @@ where
                 // be here, really.
                 if rrset.rtype() != Rtype::DS && rrset.rtype() != Rtype::NSEC
                 {
+                    debug!(
+                        "Skipping unexpected RR of type {} at owner {}",
+                        rrset.rtype(),
+                        owner_rrs.owner()
+                    );
                     continue;
                 }
             } else if (rrset.rtype() == Rtype::DNSKEY
@@ -180,10 +193,15 @@ where
                 // Sign other DNSKEY, CDS, and CDNSKEY RRsets as other
                 // records.
                 // See RFC 7344 Section 4.1 for CDS and CDNSKEY.
+                debug!(
+                    "Skipping unexpected RR of type {} at the apex",
+                    rrset.rtype()
+                );
                 continue;
             } else {
                 // Otherwise we only ignore RRSIGs.
                 if rrset.rtype() == Rtype::RRSIG {
+                    debug!("Skipping RRSIG at owner {} as RRSIGs should not themselves be signed", owner_rrs.owner());
                     continue;
                 }
             }
@@ -199,7 +217,7 @@ where
                     &mut reusable_scratch,
                 )?;
                 rrsigs.push(rrsig_rr);
-                debug!(
+                trace!(
                     "Signed {} RRSET at {} with keytag {}",
                     rrset.rtype(),
                     rrset.owner(),

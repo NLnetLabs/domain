@@ -4,6 +4,7 @@ use core::fmt::{Debug, Display};
 use std::vec::Vec;
 
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
+use tracing::{debug, trace};
 
 use crate::base::iana::Rtype;
 use crate::base::name::ToName;
@@ -103,12 +104,20 @@ where
         // If the owner is out of zone, we have moved out of our zone and are
         // done.
         if !owner_rrs.is_in_zone(&apex_owner) {
+            debug!(
+                "Stopping at owner {} as it is out of zone and assumed to trail the zone",
+                owner_rrs.owner()
+            );
             break;
         }
 
         // If the owner is below a zone cut, we must ignore it.
         if let Some(ref cut) = cut {
             if owner_rrs.owner().ends_with(cut) {
+                debug!(
+                    "Excluding owner {} as it is below a zone cut",
+                    owner_rrs.owner()
+                );
                 continue;
             }
         }
@@ -120,6 +129,7 @@ where
         // name for later. This also means below that if `cut.is_some()` we
         // are at the parent side of a zone.
         cut = if owner_rrs.is_zone_cut(&apex_owner) {
+            trace!("Zone cut detected at owner {}", owner_rrs.owner());
             Some(name.clone())
         } else {
             None
@@ -171,11 +181,13 @@ where
                 // that we require already excludes "pseudo" record types,
                 // those are only included as member variants of the
                 // AllRecordData type.
+                trace!("Adding {} to the bitmap", rrset.rtype());
                 bitmap.add(rrset.rtype()).unwrap()
             }
 
             if rrset.rtype() == Rtype::SOA {
                 if rrset.len() > 1 {
+                    debug!("Aborting at owner {} as SOA RRSET containers more than one ({}) RR which is unexpected.", owner_rrs.owner(), rrset.len());
                     return Err(SigningError::SoaRecordCouldNotBeDetermined);
                 }
 
@@ -183,6 +195,10 @@ where
 
                 // Check that the RDATA for the SOA record can be parsed.
                 let ZoneRecordData::Soa(ref soa_data) = soa_rr.data() else {
+                    debug!(
+                        "Aborting at owner {} as SOA RR could not be parsed",
+                        owner_rrs.owner()
+                    );
                     return Err(SigningError::SoaRecordCouldNotBeDetermined);
                 };
 
@@ -197,6 +213,7 @@ where
         }
 
         if nsec_ttl.is_none() {
+            debug!("Aborting as SOA TTL could not be determined");
             return Err(SigningError::SoaRecordCouldNotBeDetermined);
         }
 
