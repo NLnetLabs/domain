@@ -8,44 +8,52 @@
 //! the most intuitive methods for appending whole questions and records.
 //!
 //! ```
-//! use domain::new_base::{Header, HeaderFlags, Question, QType, QClass};
-//! use domain::new_base::build::{BuilderContext, MessageBuilder, BuildInMessage};
-//! use domain::new_base::name::RevName;
+//! use domain::new_base::{
+//!     Header, HeaderFlags, Message,
+//!     Question, QType, QClass,
+//!     Record, RType, RClass,
+//! };
+//! use domain::new_base::build::{AsBytes, MessageBuilder, NameCompressor};
+//! use domain::new_base::name::RevNameBuf;
 //! use domain::new_base::wire::U16;
+//! use domain::new_rdata::RecordData;
 //!
 //! // Initialize a DNS message builder.
 //! let mut buffer = [0u8; 512];
-//! let mut context = BuilderContext::default();
-//! let mut builder = MessageBuilder::new(&mut buffer, &mut context);
-//!
-//! // Initialize the message header.
-//! let header = builder.header_mut();
-//! *builder.header_mut() = Header {
+//! let mut compressor = NameCompressor::default();
+//! let mut builder = MessageBuilder::new(
+//!     &mut buffer,
+//!     &mut compressor,
 //!     // Select a randomized ID here.
-//!     id: U16::new(1234),
-//!     // A recursive query for authoritative data.
-//!     flags: *HeaderFlags::default()
-//!         .set_qr(false)
+//!     U16::new(1234),
+//!     // A response to a recursive query for authoritative data.
+//!     *HeaderFlags::default()
+//!         .set_qr(true)
 //!         .set_opcode(0)
 //!         .set_aa(true)
-//!         .set_rd(true),
-//!     counts: Default::default(),
-//! };
+//!         .set_rd(true)
+//!         .set_rcode(0));
 //!
 //! // Add a question for an A record.
-//! // TODO: Use a more ergonomic way to make a name.
-//! let name = b"\x00\x03org\x07example\x03www";
-//! let name = unsafe { RevName::from_bytes_unchecked(name) };
-//! let question = Question {
-//!     qname: name,
+//! builder.push_question(&Question {
+//!     qname: "www.example.org".parse::<RevNameBuf>().unwrap(),
 //!     qtype: QType::A,
 //!     qclass: QClass::IN,
-//! };
-//! let _ = builder.build_question(&question).unwrap().unwrap();
+//! }).unwrap();
 //!
-//! // Use the built message.
-//! let message = builder.message();
-//! # let _ = message;
+//! // Add an answer.
+//! builder.push_answer(&Record {
+//!     rname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!     rtype: RType::A,
+//!     rclass: RClass::IN,
+//!     ttl: 3600.into(),
+//!     rdata: <RecordData<'_, ()>>::A("127.0.0.1".parse().unwrap()),
+//! }).unwrap();
+//!
+//! // Use the built message (e.g. send it).
+//! let message: &mut Message = builder.finish();
+//! let bytes: &[u8] = message.as_bytes();
+//! # let _ = bytes;
 //! ```
 
 mod message;

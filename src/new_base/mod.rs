@@ -104,9 +104,45 @@
 //!
 //! The [`build`] module provides mid-level and low-level APIs for building
 //! DNS messages in the wire format.  [`MessageBuilder`] is the primary entry
-//! point; it writes into a user-provided byte buffer.
+//! point; it writes into a user-provided byte buffer.  To begin building a
+//! DNS message, use [`MessageBuilder::new()`].
 //!
 //! [`MessageBuilder`]: build::MessageBuilder
+//! [`MessageBuilder::new()`]: build::MessageBuilder::new()
+//!
+//! ```
+//! use domain::new_base::{Header, HeaderFlags, Message, Question, QType, QClass};
+//! use domain::new_base::build::{AsBytes, MessageBuilder, NameCompressor};
+//! use domain::new_base::name::RevNameBuf;
+//! use domain::new_base::wire::U16;
+//!
+//! // Initialize a DNS message builder.
+//! let mut buffer = [0u8; 512];
+//! let mut compressor = NameCompressor::default();
+//! let mut builder = MessageBuilder::new(
+//!     &mut buffer,
+//!     &mut compressor,
+//!     // Select a randomized ID here.
+//!     U16::new(1234),
+//!     // A recursive query for authoritative data.
+//!     *HeaderFlags::default()
+//!         .set_qr(false)
+//!         .set_opcode(0)
+//!         .set_aa(true)
+//!         .set_rd(true));
+//!
+//! // Add a question for an A record.
+//! builder.push_question(&Question {
+//!     qname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!     qtype: QType::A,
+//!     qclass: QClass::IN,
+//! }).unwrap();
+//!
+//! // Use the built message (e.g. send it).
+//! let message: &mut Message = builder.finish();
+//! let bytes: &[u8] = message.as_bytes();
+//! # let _ = bytes;
+//! ```
 //!
 //! # Representing variable-length DNS data
 //!

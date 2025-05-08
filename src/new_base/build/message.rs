@@ -42,9 +42,9 @@ impl<'b, 'c> MessageBuilder<'b, 'c> {
     #[must_use]
     pub fn new(
         buffer: &'b mut [u8],
+        compressor: &'c mut NameCompressor,
         id: U16,
         flags: HeaderFlags,
-        compressor: &'c mut NameCompressor,
     ) -> Self {
         let message = Message::parse_bytes_in(buffer)
             .expect("The caller's buffer is at least 12 bytes big");
