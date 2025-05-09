@@ -960,6 +960,44 @@ mod tests {
     }
 
     #[test]
+    fn glue_records_are_ignored() {
+        let mut cfg = GenerateNsec3Config::default()
+            .without_assuming_dnskeys_will_be_added();
+        let apex = Name::from_str("example.").unwrap();
+        let records = SortedRecords::<_, _>::from_iter([
+            mk_soa_rr("example.", "mname.", "rname."),
+            mk_ns_rr("example.", "early_sorting_glue."),
+            mk_ns_rr("example.", "late_sorting_glue."),
+            mk_a_rr("in_zone.example."),
+            mk_a_rr("early_sorting_glue."),
+            mk_a_rr("late_sorting_glue."),
+        ]);
+
+        // Generate NSEs for the a. zone.
+        let generated_records =
+            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg).unwrap();
+
+        let expected_records = SortedRecords::<_, _>::from_iter([
+            mk_nsec3_rr(
+                "example.",
+                "example.",
+                "in_zone.example.",
+                "NS SOA RRSIG NSEC3PARAM",
+                &cfg,
+            ),
+            mk_nsec3_rr(
+                "example.",
+                "in_zone.example.",
+                "example.",
+                "A RRSIG",
+                &cfg,
+            ),
+        ]);
+
+        assert_eq!(generated_records.nsec3s, expected_records.into_inner());
+    }
+
+    #[test]
     fn occluded_records_are_ignored() {
         let mut cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();

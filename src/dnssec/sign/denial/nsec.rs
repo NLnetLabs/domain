@@ -300,6 +300,36 @@ mod tests {
     }
 
     #[test]
+    fn glue_records_are_ignored() {
+        let cfg = GenerateNsecConfig::default()
+            .without_assuming_dnskeys_will_be_added();
+        let apex = Name::from_str("example.").unwrap();
+        let records = StoredSortedRecords::from_iter([
+            mk_soa_rr("example.", "mname.", "rname."),
+            mk_ns_rr("example.", "early_sorting_glue."),
+            mk_ns_rr("example.", "late_sorting_glue."),
+            mk_a_rr("in_zone.example."),
+            mk_a_rr("early_sorting_glue."),
+            mk_a_rr("late_sorting_glue."),
+        ]);
+
+        // Generate NSEs for the a. zone.
+        let nsecs = generate_nsecs(&apex, records.owner_rrs(), &cfg).unwrap();
+
+        assert_eq!(
+            nsecs,
+            [
+                mk_nsec_rr(
+                    "example.",
+                    "in_zone.example.",
+                    "NS SOA RRSIG NSEC"
+                ),
+                mk_nsec_rr("in_zone.example.", "example.", "A RRSIG NSEC"),
+            ]
+        );
+    }
+
+    #[test]
     fn occluded_records_are_ignored() {
         let cfg = GenerateNsecConfig::default()
             .without_assuming_dnskeys_will_be_added();
