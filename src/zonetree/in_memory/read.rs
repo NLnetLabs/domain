@@ -410,3 +410,84 @@ impl NodeAnswer {
         self.answer
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base::iana::Class;
+    use crate::base::name::OwnedLabel;
+    use crate::base::Ttl;
+    use crate::rdata::{ZoneRecordData, A};
+    use crate::zonetree::StoredName;
+    use core::str::FromStr;
+    use core::sync::atomic::{AtomicU8, Ordering};
+    use std::boxed::Box;
+
+    #[test]
+    fn should_walk_below_ents() {
+        let apex = ZoneApex::new(Name::from_str("c.").unwrap(), Class::IN);
+
+        let version = Version::default();
+        let mut rrset = Rrset::new(Rtype::A, Ttl::HOUR);
+        rrset.push_data(ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()));
+        let rrset = SharedRrset::new(rrset);
+        apex.rrsets().update(rrset, version);
+
+        apex.children().with_or_default(
+            &OwnedLabel::from_str("b").unwrap(),
+            |node, _bool| {
+                // TODO: I'm not sure it's good that I have to forcibly mark
+                // this as NXDOMAIN. I'm concerned that at present edits to a
+                // zone via the write interface will cause Special::NXDOMAIN
+                // to be set but that initial zone construction via
+                // ZoneBuilder will not. That might need to be investigated.
+                // On the other hand I'm not aware of any actual problems at
+                // the moment and we're going to revisit the zone
+                // construction, iterating and querying anyway. Without this
+                // line the bug this test was created to verify doesn't
+                // happen, namely that when handling the Special::NxDomain
+                // case query_node_here_and_below() doesn't descend below an
+                // ENT.
+                node.update_special(
+                    Version::default(),
+                    Some(Special::NxDomain),
+                );
+                node.children().with_or_default(
+                    &OwnedLabel::from_str("a").unwrap(),
+                    |node, _bool| {
+                        let version = Version::default();
+                        let mut rrset = Rrset::new(Rtype::A, Ttl::HOUR);
+                        rrset.push_data(ZoneRecordData::A(
+                            A::from_str("1.2.3.4").unwrap(),
+                        ));
+                        let rrset = SharedRrset::new(rrset);
+                        node.rrsets().update(rrset, version);
+                    },
+                );
+            },
+        );
+
+        let apex = Arc::new(apex);
+
+        let count = Arc::new(AtomicU8::new(0));
+        let count_clone = count.clone();
+
+        let read =
+            ReadZone::new(apex, Version::default(), VersionMarker.into());
+        let op = Box::new(
+            move |owner: StoredName,
+                  rrset: &SharedRrset,
+                  _at_zone_cut: bool| {
+                count_clone.fetch_add(1, Ordering::SeqCst);
+                eprintln!(
+                    "name: {owner:?}, rrset: {rrset:?}, bool: {_at_zone_cut}"
+                )
+            },
+        );
+        read.walk(op);
+
+        // Count should be two: c. and a.b.c.
+        // I.e. a.b.c. isn't missed because it is below the ENT b.c.
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+}
