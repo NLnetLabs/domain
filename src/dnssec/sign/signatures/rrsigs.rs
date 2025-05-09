@@ -820,8 +820,12 @@ mod tests {
         let records = bytes_to_records(&zonefile[..]);
 
         // Generate DNSKEYs and RRSIGs.
-        let generated_records =
-            sign_sorted_zone_records(&apex, RecordsIter::new(&records), keys, cfg)?;
+        let generated_records = sign_sorted_zone_records(
+            &apex,
+            RecordsIter::new(&records),
+            keys,
+            cfg,
+        )?;
 
         let dnskeys = keys
             .iter()

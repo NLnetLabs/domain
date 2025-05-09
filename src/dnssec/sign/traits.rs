@@ -462,7 +462,12 @@ where
     ) -> Result<Vec<Record<N, Rrsig<Octs, N>>>, SigningError> {
         let rrsig_config = GenerateRrsigConfig::new(inception, expiration);
 
-        sign_sorted_zone_records(apex_owner, self.owner_rrs(), keys, &rrsig_config)
+        sign_sorted_zone_records(
+            apex_owner,
+            self.owner_rrs(),
+            keys,
+            &rrsig_config,
+        )
     }
 }
 
