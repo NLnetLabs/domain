@@ -313,7 +313,7 @@ where
                 let name = builder.append_origin(&apex_owner).unwrap().into();
 
                 if let Err(pos) = ents.binary_search(&name) {
-                    debug!("Found ENT at {name}");
+                    trace!("Found ENT at {name}");
                     ents.insert(pos, name);
                 }
             }
@@ -428,6 +428,7 @@ where
 
             if rrset.rtype() == Rtype::SOA {
                 if rrset.len() > 1 {
+                    debug!("Aborting at owner {} as SOA RRSET containers more than one ({}) RR which is unexpected.", owner_rrs.owner(), rrset.len());
                     return Err(SigningError::SoaRecordCouldNotBeDetermined);
                 }
 
@@ -435,6 +436,10 @@ where
 
                 // Check that the RDATA for the SOA record can be parsed.
                 let ZoneRecordData::Soa(ref soa_data) = soa_rr.data() else {
+                    debug!(
+                        "Aborting at owner {} as SOA RR could not be parsed",
+                        owner_rrs.owner()
+                    );
                     return Err(SigningError::SoaRecordCouldNotBeDetermined);
                 };
 
@@ -453,6 +458,7 @@ where
         }
 
         if nsec3_ttl.is_none() {
+            debug!("Aborting as SOA TTL could not be determined");
             return Err(SigningError::SoaRecordCouldNotBeDetermined);
         }
 
@@ -514,7 +520,7 @@ where
     // RFC 5155 7.1 step 5:
     //   "Sort the set of NSEC3 RRs into hash order."
 
-    trace!("Sorting NSEC3 RRs");
+    trace!("Sorting {} NSEC3 RRs", nsec3s.len());
     Sort::sort_by(&mut nsec3s, CanonicalOrd::canonical_cmp);
     nsec3s.dedup();
 
