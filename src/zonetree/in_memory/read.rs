@@ -479,9 +479,6 @@ mod tests {
                   rrset: &SharedRrset,
                   _at_zone_cut: bool| {
                 count_clone.fetch_add(1, Ordering::SeqCst);
-                eprintln!(
-                    "name: {owner:?}, rrset: {rrset:?}, bool: {_at_zone_cut}"
-                )
             },
         );
         read.walk(op);
