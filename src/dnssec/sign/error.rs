@@ -15,9 +15,6 @@ pub enum SigningError {
     /// TODO
     OutOfMemory,
 
-    /// At least one key must be provided to sign with.
-    NoKeysProvided,
-
     // The zone either lacks a SOA record or has more than one SOA record.
     SoaRecordCouldNotBeDetermined,
 
@@ -49,9 +46,6 @@ impl Display for SigningError {
                 f.write_str("No signature validity period found for key")
             }
             SigningError::OutOfMemory => f.write_str("Out of memory"),
-            SigningError::NoKeysProvided => {
-                f.write_str("No signing keys provided")
-            }
             SigningError::SoaRecordCouldNotBeDetermined => {
                 f.write_str("No apex SOA or too many apex SOA records found")
             }
