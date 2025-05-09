@@ -26,7 +26,7 @@ use crate::dnssec::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::dnssec::sign::sign_zone;
-use crate::dnssec::sign::signatures::rrsigs::generate_rrsigs;
+use crate::dnssec::sign::signatures::rrsigs::sign_sorted_zone_records;
 use crate::dnssec::sign::signatures::rrsigs::GenerateRrsigConfig;
 use crate::dnssec::sign::SignableZoneInOut;
 use crate::dnssec::sign::SigningConfig;
@@ -462,7 +462,7 @@ where
     ) -> Result<Vec<Record<N, Rrsig<Octs, N>>>, SigningError> {
         let rrsig_config = GenerateRrsigConfig::new(inception, expiration);
 
-        generate_rrsigs(apex_owner, self.owner_rrs(), keys, &rrsig_config)
+        sign_sorted_zone_records(apex_owner, self.owner_rrs(), keys, &rrsig_config)
     }
 }
 

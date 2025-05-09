@@ -44,7 +44,7 @@ impl GenerateRrsigConfig {
     }
 }
 
-//------------ generate_rrsigs -----------------------------------------------
+//------------ sign_sorted_zone_records --------------------------------------
 
 /// Generate RRSIG records for a collection of zone records.
 ///
@@ -95,7 +95,7 @@ impl GenerateRrsigConfig {
 /// [RFC 9364]: https://www.rfc-editor.org/rfc/rfc9364
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
-pub fn generate_rrsigs<N, Octs, Inner>(
+pub fn sign_sorted_zone_records<N, Octs, Inner>(
     apex_owner: &N,
     mut records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
     keys: &[&SigningKey<Octs, Inner>],
@@ -612,7 +612,7 @@ mod tests {
             SortedRecords::<StoredName, StoredRecordData>::default();
         let no_keys: [&SigningKey<Bytes, KeyPair>; 0] = [];
 
-        generate_rrsigs(
+        sign_sorted_zone_records(
             &apex,
             RecordsIter::new(&records),
             &no_keys,
@@ -631,7 +631,7 @@ mod tests {
         records.insert(mk_a_rr("example.")).unwrap();
         let no_keys: [&SigningKey<Bytes, KeyPair>; 0] = [];
 
-        let rrsigs = generate_rrsigs(
+        let rrsigs = sign_sorted_zone_records(
             &apex,
             RecordsIter::new(&records),
             &no_keys,
@@ -672,7 +672,7 @@ mod tests {
         // key when selecting a key to use for signing DNSKEY RRs or other
         // zone RRs. We supply the zone apex because we are not supplying an
         // entire zone complete with SOA.
-        let generated_records = generate_rrsigs(
+        let generated_records = sign_sorted_zone_records(
             &apex,
             RecordsIter::new(&records),
             &keys,
@@ -712,7 +712,7 @@ mod tests {
         let keys = [&mk_dnssec_signing_key(true)];
         let dnskey = keys[0].dnskey().convert();
 
-        let generated_records = generate_rrsigs(
+        let generated_records = sign_sorted_zone_records(
             &apex,
             RecordsIter::new(&records),
             &keys,
@@ -756,7 +756,7 @@ mod tests {
         let keys = [&mk_dnssec_signing_key(true)];
         let dnskey = keys[0].dnskey().convert();
 
-        let generated_records = generate_rrsigs(
+        let generated_records = sign_sorted_zone_records(
             &apex,
             RecordsIter::new(&records),
             &keys,
@@ -821,7 +821,7 @@ mod tests {
 
         // Generate DNSKEYs and RRSIGs.
         let generated_records =
-            generate_rrsigs(&apex, RecordsIter::new(&records), keys, cfg)?;
+            sign_sorted_zone_records(&apex, RecordsIter::new(&records), keys, cfg)?;
 
         let dnskeys = keys
             .iter()
@@ -837,9 +837,9 @@ mod tests {
         // records must be in canonical order, with the exception of the added
         // DNSKEY RRs which will be ordered in the order in the supplied
         // collection of keys to sign with. While we tell users of
-        // generate_rrsigs() not to rely on the order of the output, we assume
-        // that we know what that order is for this test, but would have to
-        // update this test if that order later changes.
+        // sign_sorted_zone_records() not to rely on the order of the output,
+        // we assume that we know what that order is for this test, but would
+        // have to update this test if that order later changes.
         //
         // We check each record explicitly by index because assert_eq() on an
         // array of objects that includes Rrsig produces hard to read output
@@ -847,8 +847,9 @@ mod tests {
         // line. It also wouldn't support dynamically checking for certain
         // records based on the signing configuration used.
 
-        // NOTE: As we only invoked generate_rrsigs() and not generate_nsecs()
-        // there will not be any RRSIGs covering NSEC records.
+        // NOTE: As we only invoked sign_sorted_zone_records() and not
+        // generate_nsecs() there will not be any RRSIGs covering NSEC
+        // records.
 
         // -- example.
 
@@ -1014,7 +1015,7 @@ mod tests {
         let zsk1 = keys[0].dnskey().convert();
         let zsk2 = keys[1].dnskey().convert();
 
-        let generated_records = generate_rrsigs(
+        let generated_records = sign_sorted_zone_records(
             &apex_owner,
             RecordsIter::new(&records),
             &keys,
@@ -1083,7 +1084,7 @@ mod tests {
             mk_rrsig_rr("ns.example.", Rtype::NSEC, 1, "example.", &dnskey),
         ]);
 
-        let generated_records = generate_rrsigs(
+        let generated_records = sign_sorted_zone_records(
             &apex,
             RecordsIter::new(&records),
             &keys,
@@ -1101,9 +1102,9 @@ mod tests {
         // records must be in canonical order, with the exception of the added
         // DNSKEY RRs which will be ordered in the order in the supplied
         // collection of keys to sign with. While we tell users of
-        // generate_rrsigs() not to rely on the order of the output, we assume
-        // that we know what that order is for this test, but would have to
-        // update this test if that order later changes.
+        // sign_sorted_zone_records() not to rely on the order of the output,
+        // we assume that we know what that order is for this test, but would
+        // have to update this test if that order later changes.
         //
         // We check each record explicitly by index because assert_eq() on an
         // array of objects that includes Rrsig produces hard to read output

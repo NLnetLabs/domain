@@ -153,7 +153,7 @@ use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
 use records::{RecordsIter, Sorter};
-use signatures::rrsigs::{generate_rrsigs, GenerateRrsigConfig};
+use signatures::rrsigs::{sign_sorted_zone_records, GenerateRrsigConfig};
 use traits::{SignableZone, SortedExtend};
 
 //------------ SignableZoneInOut ---------------------------------------------
@@ -448,7 +448,7 @@ where
         // Sign the NSEC(3)s.
         let owner_rrs = RecordsIter::new(in_out.as_out_slice());
 
-        let rrsigs = generate_rrsigs(
+        let rrsigs = sign_sorted_zone_records(
             apex_owner,
             owner_rrs,
             signing_keys,
