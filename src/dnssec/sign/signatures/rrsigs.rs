@@ -740,6 +740,51 @@ mod tests {
     }
 
     #[test]
+    fn generate_rrsigs_ignores_glue_records() {
+        let apex = Name::from_str("example.").unwrap();
+        let mut records = SortedRecords::default();
+        records.extend([
+            mk_soa_rr("example.", "mname.", "rname."),
+            mk_ns_rr("example.", "early_sorting_glue."),
+            mk_ns_rr("example.", "late_sorting_glue."),
+            mk_a_rr("in_zone.example."),
+            mk_a_rr("early_sorting_glue."),
+            mk_a_rr("late_sorting_glue."),
+        ]);
+
+        // Prepare a zone signing key and a key signing key.
+        let keys = [&mk_dnssec_signing_key(true)];
+        let dnskey = keys[0].dnskey().convert();
+
+        let generated_records = generate_rrsigs(
+            &apex,
+            RecordsIter::new(&records),
+            &keys,
+            &GenerateRrsigConfig::new(
+                TEST_INCEPTION.into(),
+                TEST_EXPIRATION.into(),
+            ),
+        )
+        .unwrap();
+
+        // Check the generated RRSIG records
+        assert_eq!(
+            generated_records,
+            [
+                mk_rrsig_rr("example.", Rtype::NS, 1, "example.", &dnskey),
+                mk_rrsig_rr("example.", Rtype::SOA, 1, "example.", &dnskey),
+                mk_rrsig_rr(
+                    "in_zone.example.",
+                    Rtype::A,
+                    2,
+                    "example.",
+                    &dnskey
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn generate_rrsigs_for_complete_zone_with_csk() {
         let keys = [&mk_dnssec_signing_key(true)];
         let cfg = GenerateRrsigConfig::new(
