@@ -475,8 +475,8 @@ mod tests {
         let read =
             ReadZone::new(apex, Version::default(), VersionMarker.into());
         let op = Box::new(
-            move |owner: StoredName,
-                  rrset: &SharedRrset,
+            move |_owner: StoredName,
+                  _rrset: &SharedRrset,
                   _at_zone_cut: bool| {
                 count_clone.fetch_add(1, Ordering::SeqCst);
             },
