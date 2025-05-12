@@ -1350,8 +1350,7 @@ mod tests {
             mk_aaaa_rr("some_a.a."),
         ];
 
-        let _res =
-            generate_nsec3s(&apex, RecordsIter::new(&records), &cfg);
+        let _res = generate_nsec3s(&apex, RecordsIter::new(&records), &cfg);
     }
 
     #[test]
