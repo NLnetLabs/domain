@@ -153,7 +153,7 @@ use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
 use records::{RecordsIter, Sorter};
-use signatures::rrsigs::{generate_rrsigs, GenerateRrsigConfig};
+use signatures::rrsigs::{sign_sorted_zone_records, GenerateRrsigConfig};
 use traits::{SignableZone, SortedExtend};
 
 //------------ SignableZoneInOut ---------------------------------------------
@@ -381,7 +381,7 @@ where
 pub fn sign_zone<N, Octs, S, Inner, Sort, T>(
     apex_owner: &N,
     mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
-    signing_config: &mut SigningConfig<Octs, Sort>,
+    signing_config: &SigningConfig<Octs, Sort>,
     signing_keys: &[&SigningKey<Octs, Inner>],
 ) -> Result<(), SigningError>
 where
@@ -413,7 +413,7 @@ where
 {
     let owner_rrs = RecordsIter::new(in_out.as_slice());
 
-    match &mut signing_config.denial {
+    match &signing_config.denial {
         DenialConfig::AlreadyPresent => {
             // Nothing to do.
         }
@@ -424,7 +424,7 @@ where
             in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
         }
 
-        DenialConfig::Nsec3(ref mut cfg) => {
+        DenialConfig::Nsec3(ref cfg) => {
             // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
             // order." We store the NSEC3s as we create them and sort them
             // afterwards.
@@ -448,7 +448,7 @@ where
         // Sign the NSEC(3)s.
         let owner_rrs = RecordsIter::new(in_out.as_out_slice());
 
-        let rrsigs = generate_rrsigs(
+        let rrsigs = sign_sorted_zone_records(
             apex_owner,
             owner_rrs,
             signing_keys,

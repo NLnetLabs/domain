@@ -26,7 +26,7 @@ use crate::dnssec::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::dnssec::sign::sign_zone;
-use crate::dnssec::sign::signatures::rrsigs::generate_rrsigs;
+use crate::dnssec::sign::signatures::rrsigs::sign_sorted_zone_records;
 use crate::dnssec::sign::signatures::rrsigs::GenerateRrsigConfig;
 use crate::dnssec::sign::SignableZoneInOut;
 use crate::dnssec::sign::SigningConfig;
@@ -149,14 +149,14 @@ where
 /// let keys = [&key];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config = SigningConfig::new(Default::default(), 0.into(), 0.into());
+/// let signing_config = SigningConfig::new(Default::default(), 0.into(), 0.into());
 ///
 /// // Then generate the records which when added to the zone make it signed.
 /// let mut signer_generated_records = SortedRecords::default();
 ///
 /// records.sign_zone(
 ///     &root,
-///     &mut signing_config,
+///     &signing_config,
 ///     &keys,
 ///     &mut signer_generated_records).unwrap();
 /// ```
@@ -188,7 +188,7 @@ where
     fn sign_zone<Inner, T>(
         &self,
         apex_owner: &N,
-        signing_config: &mut SigningConfig<Octs, Sort>,
+        signing_config: &SigningConfig<Octs, Sort>,
         signing_keys: &[&SigningKey<Octs, Inner>],
         out: &mut T,
     ) -> Result<(), SigningError>
@@ -290,7 +290,7 @@ where
 ///     Ttl::ZERO,
 ///     Ttl::ZERO,
 ///     Ttl::ZERO));
-/// records.insert(Record::new(root, Class::IN, Ttl::ZERO, soa)).unwrap();
+/// records.insert(Record::new(root.clone(), Class::IN, Ttl::ZERO, soa)).unwrap();
 ///
 /// // Generate or import signing keys (see above).
 ///
@@ -298,11 +298,11 @@ where
 /// let keys = [&key];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config: SigningConfig<Vec<u8>, DefaultSorter> =
+/// let signing_config: SigningConfig<Vec<u8>, DefaultSorter> =
 ///     SigningConfig::new(Default::default(), 0.into(), 0.into());
 ///
 /// // Then sign the zone in-place.
-//r records.sign_zone::<DefaultSigningKeyUsageStrategy>(&mut signing_config, &keys).unwrap();
+/// records.sign_zone(&root, &signing_config, &keys).unwrap();
 /// ```
 ///
 /// [`sign_zone()`]: SignableZoneInPlace::sign_zone
@@ -331,7 +331,7 @@ where
     fn sign_zone<Inner>(
         &mut self,
         apex_owner: &N,
-        signing_config: &mut SigningConfig<Octs, Sort>,
+        signing_config: &SigningConfig<Octs, Sort>,
         signing_keys: &[&SigningKey<Octs, Inner>],
     ) -> Result<(), SigningError>
     where
@@ -462,7 +462,12 @@ where
     ) -> Result<Vec<Record<N, Rrsig<Octs, N>>>, SigningError> {
         let rrsig_config = GenerateRrsigConfig::new(inception, expiration);
 
-        generate_rrsigs(apex_owner, self.owner_rrs(), keys, &rrsig_config)
+        sign_sorted_zone_records(
+            apex_owner,
+            self.owner_rrs(),
+            keys,
+            &rrsig_config,
+        )
     }
 }
 
