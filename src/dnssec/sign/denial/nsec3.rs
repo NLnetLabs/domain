@@ -975,7 +975,7 @@ mod tests {
 
         // Generate NSEs for the a. zone.
         let generated_records =
-            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg).unwrap();
+            generate_nsec3s(&apex, records.owner_rrs(), &cfg).unwrap();
 
         let expected_records = SortedRecords::<_, _>::from_iter([
             mk_nsec3_rr(
