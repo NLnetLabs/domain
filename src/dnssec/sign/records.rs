@@ -129,11 +129,7 @@ where
     {
         let mut found_one = false;
         loop {
-            if self.remove_first_by_name_class_rtype(
-                name,
-                class,
-                rtype,
-            ) {
+            if self.remove_first_by_name_class_rtype(name, class, rtype) {
                 found_one = true
             } else {
                 break;
