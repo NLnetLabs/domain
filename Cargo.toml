@@ -48,6 +48,9 @@ tokio-stream   = { version = "0.1.1", optional = true }
 tracing        = { version = "0.1.40", optional = true, features = ["log"] }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", optional = true, features = [ "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_Memory" ]}
+
 [features]
 default     = ["std", "rand"]
 
@@ -65,7 +68,7 @@ openssl = ["dep:openssl"]
 
 # Crate features
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
-resolv      = ["net", "smallvec", "unstable-client-transport"]
+resolv      = ["net", "smallvec", "unstable-client-transport", "windows-sys"]
 resolv-sync = ["resolv", "tokio/rt"]
 tsig        = ["bytes", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]

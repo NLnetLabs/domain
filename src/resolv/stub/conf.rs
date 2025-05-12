@@ -467,9 +467,22 @@ impl Default for ResolvConf {
     /// Creates a default configuration for this system.
     ///
     /// XXX This currently only works for Unix-y systems.
+    #[cfg(not(windows))]
     fn default() -> Self {
         let mut res = ResolvConf::new();
         let _ = res.parse_file("/etc/resolv.conf");
+        res.finalize();
+        res
+    }
+    #[cfg(windows)]
+    fn default() -> Self {
+        let mut res = ResolvConf::new();
+        let addresses_lookup = super::windows::AddressLookup::new();
+        res.servers = addresses_lookup
+            .dns_servers
+            .iter()
+            .map(|addr| ServerConf::new(*addr, Transport::UdpTcp))
+            .collect();
         res.finalize();
         res
     }
