@@ -961,7 +961,7 @@ mod tests {
 
     #[test]
     fn glue_records_are_ignored() {
-        let mut cfg = GenerateNsec3Config::default()
+        let cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let apex = Name::from_str("example.").unwrap();
         let records = SortedRecords::<_, _>::from_iter([
