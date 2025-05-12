@@ -148,7 +148,7 @@ where
 pub fn generate_nsec3s<N, Octs, Sort>(
     apex_owner: &N,
     mut records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
-    config: &mut GenerateNsec3Config<Octs, Sort>,
+    config: &GenerateNsec3Config<Octs, Sort>,
 ) -> Result<Nsec3Records<N, Octs>, SigningError>
 where
     N: ToName + Clone + Display + Ord + Hash + Send + From<Name<Octs>>,
@@ -882,12 +882,12 @@ mod tests {
 
     #[test]
     fn soa_is_required() {
-        let mut cfg = GenerateNsec3Config::default()
+        let cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let apex = Name::from_str("a.").unwrap();
         let records =
             SortedRecords::<_, _>::from_iter([mk_a_rr("some_a.a.")]);
-        let res = generate_nsec3s(&apex, records.owner_rrs(), &mut cfg);
+        let res = generate_nsec3s(&apex, records.owner_rrs(), &cfg);
         assert!(matches!(
             res,
             Err(SigningError::SoaRecordCouldNotBeDetermined)
@@ -896,14 +896,14 @@ mod tests {
 
     #[test]
     fn multiple_soa_rrs_in_the_same_rrset_are_not_permitted() {
-        let mut cfg = GenerateNsec3Config::default()
+        let cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let apex = Name::from_str("a.").unwrap();
         let records = SortedRecords::<_, _>::from_iter([
             mk_soa_rr("a.", "b.", "c."),
             mk_soa_rr("a.", "d.", "e."),
         ]);
-        let res = generate_nsec3s(&apex, records.owner_rrs(), &mut cfg);
+        let res = generate_nsec3s(&apex, records.owner_rrs(), &cfg);
         assert!(matches!(
             res,
             Err(SigningError::SoaRecordCouldNotBeDetermined)
@@ -912,7 +912,7 @@ mod tests {
 
     #[test]
     fn records_outside_zone_are_ignored() {
-        let mut cfg = GenerateNsec3Config::default()
+        let cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let a_apex = Name::from_str("a.").unwrap();
         let b_apex = Name::from_str("b.").unwrap();
@@ -925,7 +925,7 @@ mod tests {
 
         // Generate NSEC3s for the a. zone.
         let generated_records =
-            generate_nsec3s(&a_apex, records.owner_rrs(), &mut cfg).unwrap();
+            generate_nsec3s(&a_apex, records.owner_rrs(), &cfg).unwrap();
 
         let expected_records = SortedRecords::<_, _>::from_iter([
             mk_nsec3_rr(
@@ -942,7 +942,7 @@ mod tests {
 
         // Generate NSEC3s for the b. zone.
         let generated_records =
-            generate_nsec3s(&b_apex, records.owner_rrs(), &mut cfg).unwrap();
+            generate_nsec3s(&b_apex, records.owner_rrs(), &cfg).unwrap();
 
         let expected_records = SortedRecords::<_, _>::from_iter([
             mk_nsec3_rr(
@@ -999,7 +999,7 @@ mod tests {
 
     #[test]
     fn occluded_records_are_ignored() {
-        let mut cfg = GenerateNsec3Config::default()
+        let cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
         let apex = Name::from_str("a.").unwrap();
         let records = SortedRecords::<_, _>::from_iter([
@@ -1009,7 +1009,7 @@ mod tests {
         ]);
 
         let generated_records =
-            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg).unwrap();
+            generate_nsec3s(&apex, records.owner_rrs(), &cfg).unwrap();
 
         let expected_records = SortedRecords::<_, _>::from_iter([
             mk_nsec3_rr(
@@ -1040,7 +1040,7 @@ mod tests {
 
     #[test]
     fn expect_dnskeys_at_the_apex() {
-        let mut cfg = GenerateNsec3Config::default();
+        let cfg = GenerateNsec3Config::default();
 
         let apex = Name::from_str("a.").unwrap();
         let records = SortedRecords::<_, _>::from_iter([
@@ -1049,7 +1049,7 @@ mod tests {
         ]);
 
         let generated_records =
-            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg).unwrap();
+            generate_nsec3s(&apex, records.owner_rrs(), &cfg).unwrap();
 
         let expected_records = SortedRecords::<_, _>::from_iter([
             mk_nsec3_rr(
@@ -1076,7 +1076,7 @@ mod tests {
             12,
             Nsec3Salt::from_str("aabbccdd").unwrap(),
         );
-        let mut cfg =
+        let cfg =
             GenerateNsec3Config::<_, DefaultSorter>::new(nsec3params.clone())
                 .without_assuming_dnskeys_will_be_added();
 
@@ -1088,7 +1088,7 @@ mod tests {
         let apex = Name::from_str("example.").unwrap();
         let records = bytes_to_records(&zonefile[..]);
         let generated_records =
-            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg).unwrap();
+            generate_nsec3s(&apex, records.owner_rrs(), &cfg).unwrap();
 
         // Generate the expected NSEC3 RRs. The hashes used match those listed
         // in https://datatracker.ietf.org/doc/html/rfc5155#appendix-A and can
@@ -1265,7 +1265,7 @@ mod tests {
         // This test tests opt-out with exclusion, i.e. opt-out that excludes
         // an unsigned delegation and thus there "MUST be an Opt-Out NSEC3
         // RR...".
-        let mut cfg = GenerateNsec3Config::default()
+        let cfg = GenerateNsec3Config::default()
             .with_opt_out()
             .without_assuming_dnskeys_will_be_added();
 
@@ -1276,7 +1276,7 @@ mod tests {
         ]);
 
         let generated_records =
-            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg).unwrap();
+            generate_nsec3s(&apex, records.owner_rrs(), &cfg).unwrap();
 
         let expected_records =
             SortedRecords::<_, _>::from_iter([mk_nsec3_rr(
@@ -1303,7 +1303,7 @@ mod tests {
         //
         // This test tests opt-out with_out_ exclusion, i.e. opt-out that
         // creates an NSEC RR for an unsigned delegation.
-        let mut cfg = GenerateNsec3Config::default()
+        let cfg = GenerateNsec3Config::default()
             .with_opt_out()
             .without_opt_out_excluding_owner_names_of_unsigned_delegations()
             .without_assuming_dnskeys_will_be_added();
@@ -1317,7 +1317,7 @@ mod tests {
         ]);
 
         let generated_records =
-            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg).unwrap();
+            generate_nsec3s(&apex, records.owner_rrs(), &cfg).unwrap();
 
         let expected_records = SortedRecords::<_, _>::from_iter([
             mk_nsec3_rr(
@@ -1339,7 +1339,7 @@ mod tests {
         expected = "All RTYPEs for a single owner name should have been combined into a single NSEC3 RR. Was the input NSEC3 canonically ordered?"
     )]
     fn generating_nsec3s_for_unordered_input_should_panic() {
-        let mut cfg = GenerateNsec3Config::default()
+        let cfg = GenerateNsec3Config::default()
             .without_assuming_dnskeys_will_be_added();
 
         let apex = Name::from_str("a.").unwrap();
@@ -1351,12 +1351,12 @@ mod tests {
         ];
 
         let _res =
-            generate_nsec3s(&apex, RecordsIter::new(&records), &mut cfg);
+            generate_nsec3s(&apex, RecordsIter::new(&records), &cfg);
     }
 
     #[test]
     fn test_nsec3_hash_collision_handling() {
-        let mut cfg = GenerateNsec3Config::<_, DefaultSorter>::new(
+        let cfg = GenerateNsec3Config::<_, DefaultSorter>::new(
             Nsec3param::default(),
         );
         NSEC3_TEST_MODE.replace(Nsec3TestMode::Colliding);
@@ -1368,7 +1368,7 @@ mod tests {
         ]);
 
         assert!(matches!(
-            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg),
+            generate_nsec3s(&apex, records.owner_rrs(), &cfg),
             Err(SigningError::Nsec3HashingError(
                 Nsec3HashError::CollisionDetected
             ))
@@ -1377,7 +1377,7 @@ mod tests {
 
     #[test]
     fn test_nsec3_hashing_failure() {
-        let mut cfg = GenerateNsec3Config::<_, DefaultSorter>::new(
+        let cfg = GenerateNsec3Config::<_, DefaultSorter>::new(
             Nsec3param::default(),
         );
         NSEC3_TEST_MODE.replace(Nsec3TestMode::NoHash);
@@ -1389,7 +1389,7 @@ mod tests {
         ]);
 
         assert!(matches!(
-            generate_nsec3s(&apex, records.owner_rrs(), &mut cfg),
+            generate_nsec3s(&apex, records.owner_rrs(), &cfg),
             Err(SigningError::Nsec3HashingError(
                 Nsec3HashError::OwnerHashError
             ))

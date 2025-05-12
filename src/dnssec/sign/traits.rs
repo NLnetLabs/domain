@@ -149,14 +149,14 @@ where
 /// let keys = [&key];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config = SigningConfig::new(Default::default(), 0.into(), 0.into());
+/// let signing_config = SigningConfig::new(Default::default(), 0.into(), 0.into());
 ///
 /// // Then generate the records which when added to the zone make it signed.
 /// let mut signer_generated_records = SortedRecords::default();
 ///
 /// records.sign_zone(
 ///     &root,
-///     &mut signing_config,
+///     &signing_config,
 ///     &keys,
 ///     &mut signer_generated_records).unwrap();
 /// ```
@@ -188,7 +188,7 @@ where
     fn sign_zone<Inner, T>(
         &self,
         apex_owner: &N,
-        signing_config: &mut SigningConfig<Octs, Sort>,
+        signing_config: &SigningConfig<Octs, Sort>,
         signing_keys: &[&SigningKey<Octs, Inner>],
         out: &mut T,
     ) -> Result<(), SigningError>
@@ -298,7 +298,7 @@ where
 /// let keys = [&key];
 ///
 /// // Create a signing configuration.
-/// let mut signing_config: SigningConfig<Vec<u8>, DefaultSorter> =
+/// let signing_config: SigningConfig<Vec<u8>, DefaultSorter> =
 ///     SigningConfig::new(Default::default(), 0.into(), 0.into());
 ///
 /// // Then sign the zone in-place.
@@ -331,7 +331,7 @@ where
     fn sign_zone<Inner>(
         &mut self,
         apex_owner: &N,
-        signing_config: &mut SigningConfig<Octs, Sort>,
+        signing_config: &SigningConfig<Octs, Sort>,
         signing_keys: &[&SigningKey<Octs, Inner>],
     ) -> Result<(), SigningError>
     where
