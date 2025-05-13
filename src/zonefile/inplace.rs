@@ -21,7 +21,7 @@ use octseq::str::Str;
 
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
-use crate::base::name::{Chain, Name, RelativeName, ToName};
+use crate::base::name::{Chain, FlattenInto, Name, RelativeName, ToName};
 use crate::base::record::Record;
 use crate::base::scan::{
     BadSymbol, ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
@@ -178,7 +178,7 @@ impl Zonefile {
     /// Sets the origin of the zonefile.
     ///
     /// The origin is append to relative domain names encountered in the data.
-    /// Ininitally, there is no origin set. It will be set if an $ORIGIN
+    /// Initially, there is no origin set. It will be set if an $ORIGIN
     /// directive is encountered while iterating over the zone. If a zone name
     /// is not provided via this function or via an $ORIGIN directive, then
     /// any relative names encountered will cause iteration to terminate with
@@ -344,6 +344,9 @@ impl<'a> EntryScanner<'a> {
     /// Scans a regular record.
     fn scan_record(&mut self) -> Result<ScannedEntry, EntryError> {
         let owner = ScannedDname::scan(self)?;
+        if self.zonefile.origin.is_none() {
+            self.zonefile.origin = Some(owner.clone().flatten_into());
+        }
         self.scan_owner_record(owner, true)
     }
 
@@ -1716,7 +1719,7 @@ mod test {
     #[derive(serde::Deserialize)]
     #[allow(clippy::type_complexity)]
     struct TestCase {
-        origin: Name<Bytes>,
+        origin: Option<Name<Bytes>>,
         default_class: Option<Class>,
         zonefile: std::string::String,
         result: Vec<Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>>>,
@@ -1738,7 +1741,9 @@ mod test {
             if case.allow_invalid {
                 zone = zone.allow_invalid();
             }
-            zone.set_origin(case.origin);
+            if let Some(origin) = case.origin {
+                zone.set_origin(origin);
+            }
             if let Some(class) = case.default_class {
                 zone.set_default_class(class);
             }
@@ -1837,6 +1842,13 @@ mod test {
     fn test_chrstr_overflow_decoding() {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/stroverflow.yaml"
+        ));
+    }
+
+    #[test]
+    fn test_origin_handling() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/example.rfc8976-simple.yaml"
         ));
     }
 }

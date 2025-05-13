@@ -1,0 +1,40 @@
+zonefile: |
+  ; Taken from https://www.rfc-editor.org/rfc/rfc8976.html#section-a.1
+  example.      86400  IN  SOA     ns1 admin 2018031900 (
+                                   1800 900 604800 86400 )
+                86400  IN  NS      ns1
+                86400  IN  NS      ns2
+  ns1           3600   IN  A       203.0.113.63
+  ns2           3600   IN  AAAA    2001:db8::63
+result:
+  - owner: example.
+    class: IN
+    ttl: 86400
+    data: !Soa
+      mname: ns1.example.
+      rname: admin.example.
+      serial: 2018031900
+      refresh: 1800
+      retry: 900
+      expire: 604800
+      minimum: 86400
+  - owner: example.
+    class: IN
+    ttl: 86400
+    data: !Ns
+      nsdname: ns1.example.
+  - owner: example.
+    class: IN
+    ttl: 86400
+    data: !Ns
+      nsdname: ns2.example.
+  - owner: ns1.example.
+    class: IN
+    ttl: 3600
+    data: !A
+      addr: 203.0.113.63
+  - owner: ns2.example.
+    class: IN
+    ttl: 3600
+    data: !Aaaa
+      addr: 2001:db8::63
