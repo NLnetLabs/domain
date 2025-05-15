@@ -535,13 +535,17 @@ pub mod sign {
                     let id = pkey::Id::ED25519;
                     let s = s.expose_secret();
                     let k = PKey::private_key_from_raw_bytes(s, id)?;
-                    if memcmp::eq(
-                        &k.raw_public_key().expect("should not fail"),
-                        public.public_key().as_ref(),
-                    ) {
-                        k
-                    } else {
+
+                    let pub1 = k.raw_public_key().expect("should not fail");
+                    let pub2 = public.public_key().as_ref();
+
+                    // The OpenSSL memcmp::eq() fn requires that the given
+                    // arguments be of equal length otherwise it will panic
+                    // so test their length before invoking memcmp::eq().
+                    if pub1.len() != pub2.len() || !memcmp::eq(&pub1, pub2) {
                         return Err(FromBytesError::InvalidKey);
+                    } else {
+                        k
                     }
                 }
 
@@ -551,13 +555,17 @@ pub mod sign {
                     let id = pkey::Id::ED448;
                     let s = s.expose_secret();
                     let k = PKey::private_key_from_raw_bytes(s, id)?;
-                    if memcmp::eq(
-                        &k.raw_public_key().expect("should not fail"),
-                        public.public_key().as_ref(),
-                    ) {
-                        k
-                    } else {
+
+                    let pub1 = k.raw_public_key().expect("should not fail");
+                    let pub2 = public.public_key().as_ref();
+
+                    // The OpenSSL memcmp::eq() fn requires that the given
+                    // arguments be of equal length otherwise it will panic
+                    // so test their length before invoking memcmp::eq().
+                    if pub1.len() != pub2.len() || !memcmp::eq(&pub1, pub2) {
                         return Err(FromBytesError::InvalidKey);
+                    } else {
+                        k
                     }
                 }
             };
