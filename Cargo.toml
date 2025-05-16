@@ -62,6 +62,7 @@ tracing     = ["dep:log", "dep:tracing"]
 # Cryptographic backends
 ring    = ["dep:ring"]
 openssl = ["dep:openssl"]
+static-openssl = ["openssl/vendored"]
 
 # Crate features
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
