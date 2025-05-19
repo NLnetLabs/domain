@@ -109,9 +109,9 @@ where
         &self,
         contents: &mut [u8],
         mut start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        start = self.qname.build_in_message(contents, start, name)?;
+        start = self.qname.build_in_message(contents, start, compressor)?;
         // For more efficiency, copy the bytes manually.
         let end = start + 4;
         let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;

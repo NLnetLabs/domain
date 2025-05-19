@@ -21,7 +21,8 @@ use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 
 /// A label in a domain name.
 ///
-/// A label contains up to 63 bytes of arbitrary data.
+/// A label contains up to 63 bytes of arbitrary data, prefixed with its the
+/// number of those bytes.
 #[derive(AsBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct Label([u8]);
@@ -31,14 +32,14 @@ pub struct Label([u8]);
 impl Label {
     /// The root label.
     pub const ROOT: &'static Self = {
-        // SAFETY: All slices of 63 bytes or less are valid.
-        unsafe { Self::from_bytes_unchecked(b"") }
+        // SAFETY: This is a correctly encoded label.
+        unsafe { Self::from_bytes_unchecked(&[0]) }
     };
 
     /// The wildcard label.
     pub const WILDCARD: &'static Self = {
-        // SAFETY: All slices of 63 bytes or less are valid.
-        unsafe { Self::from_bytes_unchecked(b"*") }
+        // SAFETY: This is a correctly encoded label.
+        unsafe { Self::from_bytes_unchecked(&[1, b'*']) }
     };
 }
 
@@ -49,7 +50,9 @@ impl Label {
     ///
     /// # Safety
     ///
-    /// The byte slice must have length 63 or less.
+    /// The following conditions must hold for this call to be sound:
+    /// - `bytes.len() <= 64`
+    /// - `bytes[0] as usize + 1 == bytes.len()`
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'Label' is 'repr(transparent)' to '[u8]'.
         unsafe { core::mem::transmute(bytes) }
@@ -59,7 +62,9 @@ impl Label {
     ///
     /// # Safety
     ///
-    /// The byte slice must have length 63 or less.
+    /// The following conditions must hold for this call to be sound:
+    /// - `bytes.len() <= 64`
+    /// - `bytes[0] as usize + 1 == bytes.len()`
     pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'Label' is 'repr(transparent)' to '[u8]'.
         unsafe { core::mem::transmute(bytes) }
@@ -94,12 +99,14 @@ impl BuildInMessage for Label {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        let end = start + self.len() + 1;
-        let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
-        bytes[0] = self.len() as u8;
-        bytes[1..].copy_from_slice(&self.0);
+        let bytes = &self.0;
+        let end = start + bytes.len();
+        contents
+            .get_mut(start..end)
+            .ok_or(TruncationError)?
+            .copy_from_slice(bytes);
         Ok(end)
     }
 }
@@ -108,10 +115,12 @@ impl BuildInMessage for Label {
 
 impl<'a> SplitBytes<'a> for &'a Label {
     fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        let (&size, rest) = bytes.split_first().ok_or(ParseError)?;
-        if size < 64 && rest.len() >= size as usize {
-            let (label, rest) = rest.split_at(size as usize);
-            // SAFETY: 'label' is 'size < 64' bytes in size.
+        let &size = bytes.first().ok_or(ParseError)?;
+        if size < 64 && bytes.len() > size as usize {
+            let (label, rest) = bytes.split_at(1 + size as usize);
+            // SAFETY:
+            // - 'label.len() = 1 + size <= 64'
+            // - 'label[0] = size + 1 == label.len()'
             Ok((unsafe { Label::from_bytes_unchecked(label) }, rest))
         } else {
             Err(ParseError)
@@ -135,34 +144,25 @@ impl BuildBytes for Label {
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        let (size, data) = bytes.split_first_mut().ok_or(TruncationError)?;
-        *size = self.len() as u8;
-        self.as_bytes().build_bytes(data)
+        self.0.build_bytes(bytes)
     }
 
     fn built_bytes_size(&self) -> usize {
-        1 + self.len()
+        self.0.len()
     }
 }
 
 //--- Inspection
 
 impl Label {
-    /// The length of this label, in bytes.
-    #[allow(clippy::len_without_is_empty)]
-    pub const fn len(&self) -> usize {
-        self.0.len()
-    }
-
     /// Whether this is the root label.
     pub const fn is_root(&self) -> bool {
-        self.0.is_empty()
+        self.0.len() == 1
     }
 
     /// Whether this is a wildcard label.
     pub const fn is_wildcard(&self) -> bool {
-        // NOTE: '==' for byte slices is not 'const'.
-        self.0.len() == 1 && self.0[0] == b'*'
+        matches!(self.0, [1, b'*'])
     }
 
     /// The bytes making up this label.
@@ -243,7 +243,6 @@ impl Hash for Label {
     /// the length octet is thus included.  This makes the hashing consistent
     /// between names and tuples (not slices!) of labels.
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u8(self.len() as u8);
         for &byte in self.as_bytes() {
             state.write_u8(byte.to_ascii_lowercase())
         }
@@ -285,15 +284,10 @@ impl fmt::Debug for Label {
 
 /// A 64-byte buffer holding a [`Label`].
 #[derive(Clone)]
-#[repr(C)] // make layout compatible with '[u8; 64]'
+#[repr(transparent)]
 pub struct LabelBuf {
-    /// The size of the label, in bytes.
-    ///
-    /// This value is guaranteed to be in the range '0..64'.
-    size: u8,
-
-    /// The underlying label data.
-    data: [u8; 63],
+    /// The label bytes.
+    data: [u8; 64],
 }
 
 //--- Construction
@@ -301,10 +295,10 @@ pub struct LabelBuf {
 impl LabelBuf {
     /// Copy a [`Label`] into a buffer.
     pub fn copy_from(label: &Label) -> Self {
-        let size = label.len() as u8;
-        let mut data = [0u8; 63];
-        data[..size as usize].copy_from_slice(label.as_bytes());
-        Self { size, data }
+        let bytes = label.as_bytes();
+        let mut data = [0u8; 64];
+        data[..bytes.len()].copy_from_slice(bytes);
+        Self { data }
     }
 }
 
@@ -340,9 +334,10 @@ impl FromStr for LabelBuf {
             Err(LabelParseError::Overlong)
         } else {
             let bytes = s.as_bytes();
-            // SAFETY: 'bytes' is 63 bytes in size or smaller.
-            let label = unsafe { Label::from_bytes_unchecked(bytes) };
-            Ok(Self::copy_from(label))
+            let mut data = [0u8; 64];
+            data[0] = bytes.len() as u8;
+            data[1..1 + bytes.len()].copy_from_slice(bytes);
+            Ok(Self { data })
         }
     }
 }
@@ -375,9 +370,9 @@ impl BuildInMessage for LabelBuf {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        Label::build_in_message(self, contents, start, name)
+        Label::build_in_message(self, contents, start, compressor)
     }
 }
 
@@ -417,7 +412,8 @@ impl Deref for LabelBuf {
     type Target = Label;
 
     fn deref(&self) -> &Self::Target {
-        let label = &self.data[..self.size as usize];
+        let size = self.data[0] as usize;
+        let label = &self.data[..1 + size];
         // SAFETY: A 'LabelBuf' always contains a valid 'Label'.
         unsafe { Label::from_bytes_unchecked(label) }
     }
@@ -425,7 +421,8 @@ impl Deref for LabelBuf {
 
 impl DerefMut for LabelBuf {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        let label = &mut self.data[..self.size as usize];
+        let size = self.data[0] as usize;
+        let label = &mut self.data[..1 + size];
         // SAFETY: A 'LabelBuf' always contains a valid 'Label'.
         unsafe { Label::from_bytes_unchecked_mut(label) }
     }
@@ -513,6 +510,11 @@ impl<'a> LabelIter<'a> {
     /// The remaining labels.
     pub const fn remaining(&self) -> &'a [u8] {
         self.bytes
+    }
+
+    /// Whether the iterator is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
     }
 }
 

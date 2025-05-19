@@ -11,6 +11,7 @@ use core::{
 
 use crate::{
     new_base::{
+        build::BuildInMessage,
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
@@ -20,7 +21,10 @@ use crate::{
     utils::dst::{UnsizedCopy, UnsizedCopyFrom},
 };
 
-use super::{CanonicalName, Label, LabelBuf, LabelIter, LabelParseError};
+use super::{
+    CanonicalName, Label, LabelBuf, LabelIter, LabelParseError,
+    NameCompressor,
+};
 
 //----------- Name -----------------------------------------------------------
 
@@ -149,6 +153,40 @@ impl<'a> SplitBytes<'a> for &'a Name {
         }
 
         Err(ParseError)
+    }
+}
+
+//--- Building in DNS messages
+
+impl BuildInMessage for Name {
+    fn build_in_message(
+        &self,
+        contents: &mut [u8],
+        start: usize,
+        compressor: &mut NameCompressor,
+    ) -> Result<usize, TruncationError> {
+        if let Some((rest, addr)) =
+            compressor.compress_name(&contents[..start], self)
+        {
+            // The name was compressed, and 'rest' is the uncompressed part.
+            let end = start + rest.len() + 2;
+            let bytes =
+                contents.get_mut(start..end).ok_or(TruncationError)?;
+            bytes[..rest.len()].copy_from_slice(rest);
+
+            // Add the top bits and the 12-byte offset for the message header.
+            let addr = (addr + 0xC00C).to_be_bytes();
+            bytes[rest.len()..].copy_from_slice(&addr);
+            Ok(end)
+        } else {
+            // The name could not be compressed.
+            let end = start + self.len();
+            contents
+                .get_mut(start..end)
+                .ok_or(TruncationError)?
+                .copy_from_slice(self.as_bytes());
+            Ok(end)
+        }
     }
 }
 
@@ -504,10 +542,7 @@ impl NameBuf {
     ///
     /// This is an internal convenience function used while building buffers.
     fn append_label(&mut self, label: &Label) {
-        self.buffer[self.size as usize] = label.len() as u8;
-        self.buffer[self.size as usize + 1..][..label.len()]
-            .copy_from_slice(label.as_bytes());
-        self.size += 1 + label.len() as u8;
+        self.append_bytes(label.as_bytes());
     }
 }
 
@@ -530,7 +565,7 @@ impl FromStr for NameBuf {
         for label in s.split('.') {
             let label =
                 label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
-            if 255 - this.size < 2 + label.len() as u8 {
+            if 255 - this.size < 1 + label.as_bytes().len() as u8 {
                 return Err(NameParseError::Overlong);
             }
             this.append_label(&label);

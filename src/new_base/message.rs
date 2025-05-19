@@ -621,14 +621,22 @@ where
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         match self {
-            Self::Question(i) => i.build_in_message(contents, start, name),
-            Self::Answer(i) => i.build_in_message(contents, start, name),
-            Self::Authority(i) => i.build_in_message(contents, start, name),
-            Self::Additional(i) => i.build_in_message(contents, start, name),
-            Self::Edns(i) => i.build_in_message(contents, start, name),
+            Self::Question(i) => {
+                i.build_in_message(contents, start, compressor)
+            }
+            Self::Answer(i) => {
+                i.build_in_message(contents, start, compressor)
+            }
+            Self::Authority(i) => {
+                i.build_in_message(contents, start, compressor)
+            }
+            Self::Additional(i) => {
+                i.build_in_message(contents, start, compressor)
+            }
+            Self::Edns(i) => i.build_in_message(contents, start, compressor),
         }
     }
 }

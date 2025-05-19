@@ -139,9 +139,9 @@ where
         &self,
         contents: &mut [u8],
         mut start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        start = self.rname.build_in_message(contents, start, name)?;
+        start = self.rname.build_in_message(contents, start, compressor)?;
         // For more efficiency, copy the bytes manually.
         let end = start + 8;
         let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
@@ -151,7 +151,7 @@ where
         start = end;
         // Build the record data with a 16-bit size prefix.
         start = SizePrefixed::<U16, _>::new(&self.rdata)
-            .build_in_message(contents, start, name)?;
+            .build_in_message(contents, start, compressor)?;
         Ok(start)
     }
 }
@@ -594,7 +594,7 @@ impl BuildInMessage for UnparsedRecordData {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let end = start + self.0.len();
         contents

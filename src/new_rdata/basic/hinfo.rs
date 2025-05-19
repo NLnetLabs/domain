@@ -202,10 +202,10 @@ impl BuildInMessage for HInfo<'_> {
         &self,
         contents: &mut [u8],
         mut start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        start = self.cpu.build_in_message(contents, start, name)?;
-        start = self.os.build_in_message(contents, start, name)?;
+        start = self.cpu.build_in_message(contents, start, compressor)?;
+        start = self.os.build_in_message(contents, start, compressor)?;
         Ok(start)
     }
 }

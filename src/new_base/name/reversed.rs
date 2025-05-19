@@ -112,23 +112,47 @@ impl RevName {
     }
 }
 
-//--- Building into DNS messages
+//--- Building in DNS messages
 
 impl BuildInMessage for RevName {
     fn build_in_message(
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        // TODO: Use the name compressor.
-        let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
-        self.build_bytes(bytes)?;
-        Ok(start + self.len())
+        if let Some((rest, addr)) =
+            compressor.compress_revname(&contents[..start], self)
+        {
+            // The name was compressed, and 'rest' is the uncompressed part.
+            let end = start + rest.len() + 2;
+            let buffer =
+                contents.get_mut(start..end).ok_or(TruncationError)?;
+            let (mut buffer, pointer) = buffer.split_at_mut(rest.len());
+
+            // SAFETY: 'rest' is a valid sequence of labels.
+            let labels = unsafe { LabelIter::new_unchecked(rest) };
+            for label in labels {
+                let label_buffer;
+                let offset = buffer.len() - label.as_bytes().len();
+                (buffer, label_buffer) = buffer.split_at_mut(offset);
+                label_buffer.copy_from_slice(label.as_bytes());
+            }
+
+            // Add the top bits and the 12-byte offset for the message header.
+            let addr = (addr + 0xC00C).to_be_bytes();
+            pointer.copy_from_slice(&addr);
+            Ok(end)
+        } else {
+            // The name could not be compressed.
+            let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
+            self.build_bytes(bytes)?;
+            Ok(start + self.len())
+        }
     }
 }
 
-//--- Building into byte sequences
+//--- Building byte sequences
 
 impl BuildBytes for RevName {
     fn build_bytes<'b>(
@@ -144,10 +168,9 @@ impl BuildBytes for RevName {
         // Write out the labels in the name in reverse.
         for label in self.labels() {
             let label_buffer;
-            let offset = buffer.len() - label.len() - 1;
+            let offset = buffer.len() - label.as_bytes().len();
             (buffer, label_buffer) = buffer.split_at_mut(offset);
-            label_buffer[0] = label.len() as u8;
-            label_buffer[1..].copy_from_slice(label.as_bytes());
+            label_buffer.copy_from_slice(label.as_bytes());
         }
 
         Ok(rest)
@@ -405,9 +428,9 @@ impl BuildInMessage for RevNameBuf {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        RevName::build_in_message(self, contents, start, name)
+        RevName::build_in_message(self, contents, start, compressor)
     }
 }
 
@@ -469,11 +492,7 @@ impl RevNameBuf {
     ///
     /// This is an internal convenience function used while building buffers.
     fn prepend_label(&mut self, label: &Label) {
-        self.offset -= label.len() as u8;
-        self.buffer[self.offset as usize..][..label.len()]
-            .copy_from_slice(label.as_bytes());
-        self.offset -= 1;
-        self.buffer[self.offset as usize] = label.len() as u8;
+        self.prepend_bytes(label.as_bytes());
     }
 }
 
@@ -496,7 +515,7 @@ impl FromStr for RevNameBuf {
         for label in s.split('.') {
             let label =
                 label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
-            if this.offset < 2 + label.len() as u8 {
+            if this.offset < 1 + label.as_bytes().len() as u8 {
                 return Err(NameParseError::Overlong);
             }
             this.prepend_label(&label);

@@ -351,9 +351,9 @@ mod test {
 
         let mut builder = MessageBuilder::new(
             &mut buffer,
+            &mut compressor,
             U16::new(0),
             HeaderFlags::default(),
-            &mut compressor,
         );
 
         assert_eq!(&builder.message().contents, &[] as &[u8]);
@@ -366,9 +366,9 @@ mod test {
         let mut compressor = NameCompressor::default();
         let mut builder = MessageBuilder::new(
             &mut buffer,
+            &mut compressor,
             U16::new(0),
             HeaderFlags::default(),
-            &mut compressor,
         );
 
         let question = Question::<RevNameBuf> {
@@ -388,9 +388,9 @@ mod test {
         let mut compressor = NameCompressor::default();
         let mut builder = MessageBuilder::new(
             &mut buffer,
+            &mut compressor,
             U16::new(0),
             HeaderFlags::default(),
-            &mut compressor,
         );
 
         let record = Record::<RevNameBuf, _> {

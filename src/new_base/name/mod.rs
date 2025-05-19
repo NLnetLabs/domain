@@ -32,8 +32,8 @@ pub use reversed::{RevName, RevNameBuf};
 mod unparsed;
 pub use unparsed::UnparsedName;
 
-/// TODO
-pub type NameCompressor = ();
+mod compressor;
+pub use compressor::NameCompressor;
 
 //----------- CanonicalName --------------------------------------------------
 

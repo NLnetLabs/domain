@@ -52,7 +52,7 @@ impl BuildInMessage for NSec<'_> {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
         let rest = self.build_bytes(bytes)?.len();

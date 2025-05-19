@@ -86,7 +86,7 @@ pub trait BuildInMessage {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError>;
 }
 
@@ -95,9 +95,9 @@ impl<T: ?Sized + BuildInMessage> BuildInMessage for &T {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        T::build_in_message(*self, contents, start, name)
+        T::build_in_message(*self, contents, start, compressor)
     }
 }
 
@@ -106,7 +106,7 @@ impl BuildInMessage for () {
         &self,
         _contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         Ok(start)
     }
@@ -117,7 +117,7 @@ impl BuildInMessage for u8 {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         match contents.get_mut(start..) {
             Some(&mut [ref mut b, ..]) => {
@@ -139,10 +139,10 @@ impl<T: BuildInMessage> BuildInMessage for [T] {
         &self,
         contents: &mut [u8],
         mut start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         for item in self {
-            start = item.build_in_message(contents, start, name)?;
+            start = item.build_in_message(contents, start, compressor)?;
         }
         Ok(start)
     }
@@ -153,9 +153,10 @@ impl<T: BuildInMessage, const N: usize> BuildInMessage for [T; N] {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        self.as_slice().build_in_message(contents, start, name)
+        self.as_slice()
+            .build_in_message(contents, start, compressor)
     }
 }
 
@@ -165,9 +166,9 @@ impl<T: ?Sized + BuildInMessage> BuildInMessage for alloc::boxed::Box<T> {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        T::build_in_message(self, contents, start, name)
+        T::build_in_message(self, contents, start, compressor)
     }
 }
 
@@ -177,9 +178,9 @@ impl<T: ?Sized + BuildInMessage> BuildInMessage for alloc::rc::Rc<T> {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        T::build_in_message(self, contents, start, name)
+        T::build_in_message(self, contents, start, compressor)
     }
 }
 
@@ -189,9 +190,9 @@ impl<T: ?Sized + BuildInMessage> BuildInMessage for alloc::sync::Arc<T> {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        T::build_in_message(self, contents, start, name)
+        T::build_in_message(self, contents, start, compressor)
     }
 }
 
@@ -201,8 +202,9 @@ impl<T: BuildInMessage> BuildInMessage for alloc::vec::Vec<T> {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        self.as_slice().build_in_message(contents, start, name)
+        self.as_slice()
+            .build_in_message(contents, start, compressor)
     }
 }

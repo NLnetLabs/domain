@@ -85,7 +85,7 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// let cookie = [248, 80, 41, 151, 244, 171, 53, 202].into();
 /// let options = [
-///     EdnsOption::ClientCookie(&cookie),
+///     EdnsOption::ClientCookie(cookie),
 ///     EdnsOption::Unknown(
 ///         OptionCode { code: U16::new(0) },
 ///         UnknownOptionData::parse_bytes_by_ref(&[]).unwrap(),
@@ -238,7 +238,7 @@ impl BuildInMessage for Opt {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let end = start + self.contents.len();
         contents

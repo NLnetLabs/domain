@@ -158,7 +158,7 @@ impl BuildInMessage for Txt {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let end = start + self.content.len();
         contents

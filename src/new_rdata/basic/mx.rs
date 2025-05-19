@@ -177,13 +177,15 @@ impl<N: BuildInMessage> BuildInMessage for Mx<N> {
         &self,
         contents: &mut [u8],
         mut start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         start = self
             .preference
             .as_bytes()
-            .build_in_message(contents, start, name)?;
-        start = self.exchange.build_in_message(contents, start, name)?;
+            .build_in_message(contents, start, compressor)?;
+        start = self
+            .exchange
+            .build_in_message(contents, start, compressor)?;
         Ok(start)
     }
 }

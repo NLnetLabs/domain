@@ -49,7 +49,7 @@ impl BuildInMessage for DNSKey {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let bytes = self.as_bytes();
         let end = start + bytes.len();

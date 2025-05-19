@@ -170,9 +170,9 @@ impl<N: BuildInMessage> BuildInMessage for Ns<N> {
         &self,
         contents: &mut [u8],
         start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        self.server.build_in_message(contents, start, name)
+        self.server.build_in_message(contents, start, compressor)
     }
 }
 

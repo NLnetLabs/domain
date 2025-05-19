@@ -187,7 +187,7 @@ impl BuildInMessage for Aaaa {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let end = start + self.octets.len();
         let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;

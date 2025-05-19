@@ -91,7 +91,7 @@ impl BuildInMessage for NSec3<'_> {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
         let rest = self.build_bytes(bytes)?.len();
@@ -140,7 +140,7 @@ impl BuildInMessage for NSec3Param {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let bytes = self.as_bytes();
         let end = start + bytes.len();

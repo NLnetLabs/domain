@@ -116,7 +116,7 @@ impl<D: ?Sized + BuildBytes> BuildInMessage for EdnsRecord<D> {
         &self,
         contents: &mut [u8],
         start: usize,
-        _name: &mut NameCompressor,
+        _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
         let bytes = contents.get_mut(start..).ok_or(TruncationError)?;
         let rest_len = self.build_bytes(bytes)?.len();

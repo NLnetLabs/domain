@@ -315,10 +315,10 @@ impl<N: BuildInMessage> BuildInMessage for Soa<N> {
         &self,
         contents: &mut [u8],
         mut start: usize,
-        name: &mut NameCompressor,
+        compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        start = self.mname.build_in_message(contents, start, name)?;
-        start = self.rname.build_in_message(contents, start, name)?;
+        start = self.mname.build_in_message(contents, start, compressor)?;
+        start = self.rname.build_in_message(contents, start, compressor)?;
         // Build the remaining bytes manually.
         let end = start + 20;
         let bytes = contents.get_mut(start..end).ok_or(TruncationError)?;
