@@ -5,11 +5,11 @@
 //! relatively good support for DSTs (e.g. they can be held by reference like
 //! any other type), it has some rough edges.  The standard library tries to
 //! paper over these with helpful functions and trait impls, but it does not
-//! account for custom DST types.  In particular, [`new_base`] introduces a
+//! account for custom DST types.  In particular, [`new::base`] introduces a
 //! large number of user-facing DSTs and needs to paper over the same rough
 //! edges for all of them.
 //!
-//! [`new_base`]: crate::new_base
+//! [`new::base`]: crate::new::base
 //!
 //! ## Coping DSTs
 //!

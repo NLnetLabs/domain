@@ -1,11 +1,12 @@
 //! A DNS library for Rust.
 //!
 //! This crate provides a number of building blocks for developing
-//! functionality related to the
-//! [Domain Name System (DNS)](https://www.rfc-editor.org/rfc/rfc9499.html).
+//! functionality related to the [Domain Name System (DNS)][dns].
+//!
+//! [dns]: https://www.rfc-editor.org/rfc/rfc9499.html
 //!
 //! The crate uses feature flags to allow you to select only those modules
-//! you need for you particular project. In most cases, the feature names
+//! you need for your particular project. In most cases, the feature names
 //! are equal to the module they enable.
 //!
 //! # Modules
@@ -18,14 +19,8 @@
 //! * [rdata] contains types and implementations for a growing number of
 //!   record types.
 //!
-//! In addition to those two basic modules, there are a number of modules for
-//! more specific features that are not required in all applications. In order
-//! to keep the amount of code to be compiled and the number of dependencies
-//! small, these are hidden behind feature flags through which they can be
-//! enabled if required. The flags have the same names as the modules or the
-//! name prefixed with 'unstable-' if the module is still under development.
-//!
-//! Currently, there are the following modules:
+//! The following additional modules exist, although they are gated behind
+//! feature flags (with the same names as the modules):
 //!
 #![cfg_attr(feature = "net", doc = "* [net]:")]
 #![cfg_attr(not(feature = "net"), doc = "* net:")]
@@ -37,7 +32,7 @@
 #![cfg_attr(feature = "unstable-crypto", doc = "* [crypto]:")]
 #![cfg_attr(not(feature = "unstable-crypto"), doc = "* crypto:")]
 //!   Experimental support for cryptographic backends, key generation and
-//!   import.
+//!   import.  Gated behind the `unstable-crypto` flag.
 //! * [dnssec]: DNSSEC signing and validation.
 #![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
 #![cfg_attr(not(feature = "tsig"), doc = "* tsig:")]
@@ -48,10 +43,21 @@
 //!   representation of DNS data.
 #![cfg_attr(feature = "unstable-zonetree", doc = "* [zonetree]:")]
 #![cfg_attr(not(feature = "unstable-zonetree"), doc = "* zonetree:")]
-//!   Experimental storing and querying of zone trees.
+//!   Experimental storing and querying of zone trees.  Gated behind the
+//!   `unstable-zonetree` flag.
 //!
 //! Finally, the [dep] module contains re-exports of some important
 //! dependencies to help avoid issues with multiple versions of a crate.
+//!
+//! # The `new` Module
+//!
+//! The API of `domain` is undergoing several large-scale changes, that are
+//! collected under the `new` module.  It is gated behind the `unstable-new`
+//! flag.
+#![cfg_attr(
+    feature = "unstable-new",
+    doc = "See [its documentation][new] for more information."
+)]
 //!
 //! # Reference of feature flags
 //!
@@ -211,8 +217,7 @@ pub mod utils;
 pub mod zonefile;
 pub mod zonetree;
 
-pub mod new_base;
-pub mod new_edns;
-pub mod new_rdata;
+#[cfg(feature = "unstable-new")]
+pub mod new;
 
 mod logging;

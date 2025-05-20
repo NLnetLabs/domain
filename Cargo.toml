@@ -76,6 +76,7 @@ tsig        = ["bytes", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
+unstable-new = []
 unstable-client-cache = ["unstable-client-transport", "moka"]
 unstable-client-transport = ["moka", "net", "tracing"]
 unstable-crypto = ["bytes"]
