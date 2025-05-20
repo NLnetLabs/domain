@@ -332,7 +332,7 @@ impl FromStr for CharStrBuf {
     /// This function cannot parse all valid character strings; if exceptional
     /// instances are needed, use [`CharStr::from_bytes_unchecked()`].
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.as_bytes().iter().any(|&c| c == b'\\') {
+        if s.as_bytes().contains(&b'\\') {
             Err(CharStrParseError::InvalidChar)
         } else if s.len() > 255 {
             Err(CharStrParseError::Overlong)

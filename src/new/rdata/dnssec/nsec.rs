@@ -1,6 +1,6 @@
 //! The NSEC record data type.
 
-use core::{cmp::Ordering, fmt, mem};
+use core::{cmp::Ordering, fmt};
 
 use crate::new::base::build::BuildInMessage;
 use crate::new::base::name::{CanonicalName, Name, NameCompressor};
@@ -132,7 +132,7 @@ impl TypeBitmaps {
         while let Some(&next) = octets.first() {
             // Make sure that the window number increases.
             // NOTE: 'None < Some(_)', for the first iteration.
-            if mem::replace(&mut num, Some(next)) > Some(next) {
+            if num.replace(next) > Some(next) {
                 return Err(ParseError);
             }
 
