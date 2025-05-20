@@ -509,6 +509,23 @@ impl NameCompressor {
         // was already very uniform.
         //
         // Source: <https://github.com/rust-lang/rustc-hash/blob/dc5c33f1283de2da64d8d7a06401d91aded03ad4/src/lib.rs>
+        //
+        // In order to hash case-insensitively, we aggressively transform the
+        // input bytes.  We cause some collisions, but only in characters we
+        // don't expect to see in domain names.  We do this by mapping bytes
+        // from 'XX0X_XXXX' to 'XX1X_XXXX'.  A full list of effects:
+        //
+        // - Control characters (0x00..0x20) become symbols and digits.  We
+        //   weren't expecting any control characters to appear anyway.
+        //
+        // - Uppercase ASCII characters become lowercased.
+        //
+        // - '@[\]^_' become '`{|}~' and DEL.  Underscores can occur, but DEL
+        //   is not expected, so the collision is not problematic.
+        //
+        // - Half of the non-ASCII space gets folded.  Unicode sequences get
+        //   mapped into ASCII using Punycode, so the chance of a non-ASCII
+        //   character here is very low.
 
         #[cfg(target_pointer_width = "64")]
         fn multiply_mix(x: u64, y: u64) -> u64 {
@@ -525,41 +542,43 @@ impl NameCompressor {
 
         const SEED1: u64 = 0x243f6a8885a308d3;
         const SEED2: u64 = 0x13198a2e03707344;
-        const PREVENT_TRIVIAL_ZERO_COLLAPSE: u64 = 0xa4093822299f31d0;
+        const M: u64 = 0xa4093822299f31d0;
 
         let bytes = label.as_bytes();
         let len = bytes.len();
-        let mut s0 = SEED1;
-        let mut s1 = SEED2;
+        let mut s = (SEED1, SEED2);
 
         if len <= 16 {
             // XOR the input into s0, s1.
             if len >= 8 {
-                s0 ^= u64::from_le_bytes(bytes[0..8].try_into().unwrap());
-                s1 ^=
-                    u64::from_le_bytes(bytes[len - 8..].try_into().unwrap());
+                let i = [&bytes[..8], &bytes[len - 8..]]
+                    .map(|i| u64::from_le_bytes(i.try_into().unwrap()))
+                    .map(|i| i | 0x20202020_20202020);
+
+                s.0 ^= i[0];
+                s.1 ^= i[1];
             } else if len >= 4 {
-                s0 ^= u32::from_le_bytes(bytes[0..4].try_into().unwrap())
-                    as u64;
-                s1 ^= u32::from_le_bytes(bytes[len - 4..].try_into().unwrap())
-                    as u64;
+                let i = [&bytes[..4], &bytes[len - 4..]]
+                    .map(|i| u32::from_le_bytes(i.try_into().unwrap()))
+                    .map(|i| i | 0x20202020);
+
+                s.0 ^= i[0] as u64;
+                s.1 ^= i[1] as u64;
             } else if len > 0 {
-                let lo = bytes[0];
-                let mid = bytes[len / 2];
-                let hi = bytes[len - 1];
-                s0 ^= lo as u64;
-                s1 ^= ((hi as u64) << 8) | mid as u64;
+                let lo = bytes[0] as u64 | 0x20;
+                let mid = bytes[len / 2] as u64 | 0x20;
+                let hi = bytes[len - 1] as u64 | 0x20;
+                s.0 ^= lo;
+                s.1 ^= (hi << 8) | mid;
             }
         } else {
             // Handle bulk (can partially overlap with suffix).
             let mut off = 0;
             while off < len - 16 {
-                let x = u64::from_le_bytes(
-                    bytes[off..off + 8].try_into().unwrap(),
-                );
-                let y = u64::from_le_bytes(
-                    bytes[off + 8..off + 16].try_into().unwrap(),
-                );
+                let bytes = &bytes[off..off + 16];
+                let i = [&bytes[..8], &bytes[8..]]
+                    .map(|i| u64::from_le_bytes(i.try_into().unwrap()))
+                    .map(|i| i | 0x20202020_20202020);
 
                 // Replace s1 with a mix of s0, x, and y, and s0 with s1.
                 // This ensures the compiler can unroll this loop into two
@@ -568,19 +587,21 @@ impl NameCompressor {
                 // Since zeroes are a common input we prevent an immediate
                 // trivial collapse of the hash function by XOR'ing a constant
                 // with y.
-                let t =
-                    multiply_mix(s0 ^ x, PREVENT_TRIVIAL_ZERO_COLLAPSE ^ y);
-                s0 = s1;
-                s1 = t;
+                let t = multiply_mix(s.0 ^ i[0], M ^ i[1]);
+                s.0 = s.1;
+                s.1 = t;
                 off += 16;
             }
 
-            let suffix = &bytes[len - 16..];
-            s0 ^= u64::from_le_bytes(suffix[0..8].try_into().unwrap());
-            s1 ^= u64::from_le_bytes(suffix[8..16].try_into().unwrap());
+            let bytes = &bytes[len - 16..];
+            let i = [&bytes[..8], &bytes[8..]]
+                .map(|i| u64::from_le_bytes(i.try_into().unwrap()))
+                .map(|i| i | 0x20202020_20202020);
+            s.0 ^= i[0];
+            s.1 ^= i[1];
         }
 
-        (multiply_mix(s0, s1) >> 48) as u16
+        (multiply_mix(s.0, s.1) >> 48) as u16
     }
 }
 
@@ -632,6 +653,32 @@ mod tests {
         // Only the TLD will be shared.
         let a: NameBuf = "example.org".parse().unwrap();
         let b: NameBuf = "unequal.org".parse().unwrap();
+
+        let mut off = 0;
+        off = a
+            .build_in_message(&mut buffer, off, &mut compressor)
+            .unwrap();
+        off = b
+            .build_in_message(&mut buffer, off, &mut compressor)
+            .unwrap();
+
+        assert_eq!(off, buffer.len());
+        assert_eq!(
+            &buffer,
+            b"\
+            \x07example\x03org\x00\
+            \x07unequal\xC0\x14"
+        );
+    }
+
+    #[test]
+    fn case_insensitive() {
+        let mut buffer = [0u8; 23];
+        let mut compressor = NameCompressor::new();
+
+        // The TLD should be shared, even if it differs in case.
+        let a: NameBuf = "example.org".parse().unwrap();
+        let b: NameBuf = "unequal.ORG".parse().unwrap();
 
         let mut off = 0;
         off = a
