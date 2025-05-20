@@ -407,7 +407,7 @@ impl QueryError {
     fn short_send() -> Self {
         Self::new(
             QueryErrorKind::Send,
-            io::Error::new(io::ErrorKind::Other, "short request sent"),
+            io::Error::other("short request sent"),
         )
     }
 
