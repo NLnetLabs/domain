@@ -1264,8 +1264,6 @@ pub enum Nsec3SaltFromStrError {
     Nsec3SaltError(Nsec3SaltError),
 }
 
-//--- Display
-
 impl fmt::Display for Nsec3SaltFromStrError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1274,6 +1272,9 @@ impl fmt::Display for Nsec3SaltFromStrError {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for Nsec3SaltFromStrError {}
 
 //------------ OwnerHash -----------------------------------------------------
 

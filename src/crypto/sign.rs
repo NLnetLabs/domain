@@ -297,7 +297,7 @@ impl From<Signature> for Box<[u8]> {
 pub enum KeyPair {
     /// A key backed by Ring.
     #[cfg(feature = "ring")]
-    Ring(ring::sign::KeyPair),
+    Ring(Box<ring::sign::KeyPair>),
 
     /// A key backed by OpenSSL.
     #[cfg(feature = "openssl")]
@@ -333,7 +333,7 @@ impl KeyPair {
 
             if !fallback_to_openssl {
                 let key = ring::sign::KeyPair::from_bytes(secret, public)?;
-                return Ok(Self::Ring(key));
+                return Ok(Self::Ring(Box::new(key)));
             }
         }
 
