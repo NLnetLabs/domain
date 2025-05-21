@@ -724,5 +724,5 @@ fn retry_time(retries: u64) -> Duration {
 /// Helper function to create an empty future that is compatible with the
 /// future returned by a connection stream.
 async fn stream_nop<IO>() -> Result<IO, std::io::Error> {
-    Err(io::Error::new(io::ErrorKind::Other, "nop"))
+    Err(io::Error::other("nop"))
 }
