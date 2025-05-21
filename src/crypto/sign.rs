@@ -294,10 +294,11 @@ impl From<Signature> for Box<[u8]> {
 /// insecure algorithms, that Ring does not support, OpenSSL must be used.
 #[derive(Debug)]
 // Note: ring does not implement Clone for KeyPair.
+#[allow(clippy::large_enum_variant)]
 pub enum KeyPair {
     /// A key backed by Ring.
     #[cfg(feature = "ring")]
-    Ring(Box<ring::sign::KeyPair>),
+    Ring(ring::sign::KeyPair),
 
     /// A key backed by OpenSSL.
     #[cfg(feature = "openssl")]
@@ -333,7 +334,7 @@ impl KeyPair {
 
             if !fallback_to_openssl {
                 let key = ring::sign::KeyPair::from_bytes(secret, public)?;
-                return Ok(Self::Ring(Box::new(key)));
+                return Ok(Self::Ring(key));
             }
         }
 
