@@ -175,12 +175,19 @@ impl<W: fmt::Write> FormatWriter for TabbedWriter<W> {
             self.writer.write_char(c)?;
         }
         self.first = false;
+        self.first_block = false;
         self.writer.write_fmt(args)?;
         Ok(())
     }
 
     fn begin_block(&mut self) -> Result {
         self.blocks += 1;
+
+        // If we enter the first level of blocks, we do 1 more tab
+        if self.blocks == 1 {
+            self.first_block = true;
+        }
+
         Ok(())
     }
 
@@ -196,6 +203,7 @@ impl<W: fmt::Write> FormatWriter for TabbedWriter<W> {
     fn newline(&mut self) -> Result {
         self.writer.write_char('\n')?;
         self.first = true;
+        self.first_block = true;
 
         debug_assert_eq!(self.blocks, 0);
 
@@ -357,6 +365,10 @@ mod test {
             record.display_zonefile(DisplayKind::Simple).to_string()
         );
         assert_eq!(
+            "example.com.\t3600\tIN\tDS\t5414 15 2 DEADBEEF",
+            record.display_zonefile(DisplayKind::Tabbed).to_string()
+        );
+        assert_eq!(
             [
                 "example.com. 3600 IN DS ( 5414\t; key tag",
                 "                          15\t; algorithm: ED25519",
@@ -365,6 +377,23 @@ mod test {
             ]
             .join("\n"),
             record.display_zonefile(DisplayKind::Multiline).to_string()
+        );
+    }
+
+    #[test]
+    fn only_ds_data() {
+        let rdata = Ds::new(
+            5414,
+            SecurityAlgorithm::ED25519,
+            DigestAlgorithm::SHA256,
+            &[0xDE, 0xAD, 0xBE, 0xEF],
+        )
+        .unwrap();
+
+        // No tabs because it is a single block
+        assert_eq!(
+            "5414 15 2 DEADBEEF",
+            rdata.display_zonefile(DisplayKind::Tabbed).to_string()
         );
     }
 
