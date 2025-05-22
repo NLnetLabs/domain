@@ -55,13 +55,16 @@
 // - add support for undo/abort.
 
 use crate::base::Name;
+use crate::rdata::dnssec::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map, HashMap};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Add;
 use std::str::FromStr;
 use std::string::{String, ToString};
 use std::time::Duration;
+use std::time::SystemTimeError;
 use std::vec::Vec;
 use time::format_description;
 use time::OffsetDateTime;
@@ -804,6 +807,32 @@ impl UnixTime {
         } else {
             dur - self.0
         }
+    }
+}
+
+impl TryFrom<SystemTime> for UnixTime {
+    type Error = SystemTimeError;
+    fn try_from(t: SystemTime) -> Result<Self, SystemTimeError> {
+        Ok(Self(t.duration_since(UNIX_EPOCH)?))
+    }
+}
+
+impl From<Timestamp> for UnixTime {
+    fn from(t: Timestamp) -> Self {
+        Self(Duration::from_secs(t.into_int() as u64))
+    }
+}
+
+impl From<UnixTime> for Duration {
+    fn from(t: UnixTime) -> Self {
+        t.0
+    }
+}
+
+impl Add<Duration> for UnixTime {
+    type Output = UnixTime;
+    fn add(self, d: Duration) -> Self {
+        Self(self.0 + d)
     }
 }
 
