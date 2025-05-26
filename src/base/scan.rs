@@ -283,7 +283,7 @@ declare_error_trait!(ScannerError: Sized + fmt::Debug + fmt::Display);
 #[cfg(feature = "std")]
 impl ScannerError for std::io::Error {
     fn custom(msg: &'static str) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, msg)
+        std::io::Error::other(msg)
     }
 
     fn end_of_entry() -> Self {
@@ -294,11 +294,11 @@ impl ScannerError for std::io::Error {
     }
 
     fn short_buf() -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, ShortBuf)
+        std::io::Error::other(ShortBuf)
     }
 
     fn trailing_tokens() -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, "trailing data")
+        std::io::Error::other("trailing data")
     }
 }
 
@@ -1168,7 +1168,7 @@ impl std::error::Error for BadSymbol {}
 #[cfg(feature = "std")]
 impl From<BadSymbol> for std::io::Error {
     fn from(err: BadSymbol) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, err)
+        std::io::Error::other(err)
     }
 }
 

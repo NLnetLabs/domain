@@ -5,7 +5,7 @@ use std::process::exit;
 use std::time::SystemTime;
 use std::{env, io::BufReader};
 
-use domain::new_zonefile::simple::ZonefileScanner;
+use domain::new::zonefile::simple::ZonefileScanner;
 
 fn main() {
     let mut args = env::args();

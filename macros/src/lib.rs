@@ -47,7 +47,7 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
         );
         skeleton.lifetimes.push(param);
         skeleton.bound = Some(
-            syn::parse_quote!(::domain::new_base::wire::SplitBytes<#lifetime>),
+            syn::parse_quote!(::domain::new::base::wire::SplitBytes<#lifetime>),
         );
 
         // Inspect the 'struct' fields.
@@ -58,7 +58,7 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
         for field in data.fields() {
             skeleton.require_bound(
                 field.ty.clone(),
-                syn::parse_quote!(::domain::new_base::wire::SplitBytes<#lifetime>),
+                syn::parse_quote!(::domain::new::base::wire::SplitBytes<#lifetime>),
             );
         }
 
@@ -70,10 +70,10 @@ pub fn derive_split_bytes(input: pm::TokenStream) -> pm::TokenStream {
                 bytes: & #lifetime [::domain::__core::primitive::u8],
             ) -> ::domain::__core::result::Result<
                 (Self, & #lifetime [::domain::__core::primitive::u8]),
-                ::domain::new_base::wire::ParseError,
+                ::domain::new::base::wire::ParseError,
             > {
                 #(let (#init_vars, bytes) =
-                    <#tys as ::domain::new_base::wire::SplitBytes<#lifetime>>
+                    <#tys as ::domain::new::base::wire::SplitBytes<#lifetime>>
                     ::split_bytes(bytes)?;)*
                 Ok((#builder, bytes))
             }
@@ -119,7 +119,7 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
         );
         skeleton.lifetimes.push(param);
         skeleton.bound = Some(
-            syn::parse_quote!(::domain::new_base::wire::ParseBytes<#lifetime>),
+            syn::parse_quote!(::domain::new::base::wire::ParseBytes<#lifetime>),
         );
 
         // Inspect the 'struct' fields.
@@ -130,13 +130,13 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
         for field in data.sized_fields() {
             skeleton.require_bound(
                 field.ty.clone(),
-                syn::parse_quote!(::domain::new_base::wire::SplitBytes<#lifetime>),
+                syn::parse_quote!(::domain::new::base::wire::SplitBytes<#lifetime>),
             );
         }
         if let Some(field) = data.unsized_field() {
             skeleton.require_bound(
                 field.ty.clone(),
-                syn::parse_quote!(::domain::new_base::wire::ParseBytes<#lifetime>),
+                syn::parse_quote!(::domain::new::base::wire::ParseBytes<#lifetime>),
             );
         }
 
@@ -147,12 +147,12 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
                     bytes: & #lifetime [::domain::__core::primitive::u8],
                 ) -> ::domain::__core::result::Result<
                     Self,
-                    ::domain::new_base::wire::ParseError,
+                    ::domain::new::base::wire::ParseError,
                 > {
                     if bytes.is_empty() {
                         Ok(#builder)
                     } else {
-                        Err(::domain::new_base::wire::ParseError)
+                        Err(::domain::new::base::wire::ParseError)
                     }
                 }
             });
@@ -170,13 +170,13 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
                 bytes: & #lifetime [::domain::__core::primitive::u8],
             ) -> ::domain::__core::result::Result<
                 Self,
-                ::domain::new_base::wire::ParseError,
+                ::domain::new::base::wire::ParseError,
             > {
                 #(let (#init_vars, bytes) =
-                    <#tys as ::domain::new_base::wire::SplitBytes<#lifetime>>
+                    <#tys as ::domain::new::base::wire::SplitBytes<#lifetime>>
                     ::split_bytes(bytes)?;)*
                 let #unsized_init_var =
-                    <#unsized_ty as ::domain::new_base::wire::ParseBytes<#lifetime>>
+                    <#unsized_ty as ::domain::new::base::wire::ParseBytes<#lifetime>>
                     ::parse_bytes(bytes)?;
                 Ok(#builder)
             }
@@ -191,34 +191,33 @@ pub fn derive_parse_bytes(input: pm::TokenStream) -> pm::TokenStream {
         .into()
 }
 
-//----------- SplitBytesByRef ------------------------------------------------
+//----------- SplitBytesZC ---------------------------------------------------
 
-#[proc_macro_derive(SplitBytesByRef)]
-pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
+#[proc_macro_derive(SplitBytesZC)]
+pub fn derive_split_bytes_zc(input: pm::TokenStream) -> pm::TokenStream {
     fn inner(input: syn::DeriveInput) -> Result<TokenStream> {
         let data = match &input.data {
             syn::Data::Struct(data) => data,
             syn::Data::Enum(data) => {
                 return Err(Error::new_spanned(
                     data.enum_token,
-                    "'SplitBytesByRef' can only be 'derive'd for 'struct's",
+                    "'SplitBytesZC' can only be 'derive'd for 'struct's",
                 ));
             }
             syn::Data::Union(data) => {
                 return Err(Error::new_spanned(
                     data.union_token,
-                    "'SplitBytesByRef' can only be 'derive'd for 'struct's",
+                    "'SplitBytesZC' can only be 'derive'd for 'struct's",
                 ));
             }
         };
 
-        let _ = Repr::determine(&input.attrs, "SplitBytesByRef")?;
+        let _ = Repr::determine(&input.attrs, "SplitBytesZC")?;
 
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
         let mut skeleton = ImplSkeleton::new(&input, true);
-        skeleton.bound = Some(syn::parse_quote!(
-            ::domain::new_base::wire::SplitBytesByRef
-        ));
+        skeleton.bound =
+            Some(syn::parse_quote!(::domain::new::base::wire::SplitBytesZC));
 
         // Inspect the 'struct' fields.
         let data = Struct::new_as_self(&data.fields);
@@ -227,7 +226,7 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
         for field in data.fields() {
             skeleton.require_bound(
                 field.ty.clone(),
-                syn::parse_quote!(::domain::new_base::wire::SplitBytesByRef),
+                syn::parse_quote!(::domain::new::base::wire::SplitBytesZC),
             );
         }
 
@@ -238,7 +237,7 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                     bytes: &[::domain::__core::primitive::u8],
                 ) -> ::domain::__core::result::Result<
                     (&Self, &[::domain::__core::primitive::u8]),
-                    ::domain::new_base::wire::ParseError,
+                    ::domain::new::base::wire::ParseError,
                 > {
                     Ok((
                         // SAFETY: 'Self' is a 'struct' with no fields,
@@ -261,23 +260,23 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                 bytes: &[::domain::__core::primitive::u8],
             ) -> ::domain::__core::result::Result<
                 (&Self, &[::domain::__core::primitive::u8]),
-                ::domain::new_base::wire::ParseError,
+                ::domain::new::base::wire::ParseError,
             > {
                 let start = bytes.as_ptr();
                 #(let (_, bytes) =
-                    <#tys as ::domain::new_base::wire::SplitBytesByRef>
+                    <#tys as ::domain::new::base::wire::SplitBytesZC>
                     ::split_bytes_by_ref(bytes)?;)*
                 let (last, rest) =
-                    <#unsized_ty as ::domain::new_base::wire::SplitBytesByRef>
+                    <#unsized_ty as ::domain::new::base::wire::SplitBytesZC>
                     ::split_bytes_by_ref(bytes)?;
                 let ptr =
-                    <#unsized_ty as ::domain::new_base::wire::ParseBytesByRef>
-                    ::ptr_with_address(last, start as *const ());
+                    <#unsized_ty as ::domain::utils::dst::UnsizedCopy>
+                    ::ptr_with_addr(last, start as *const ());
 
                 // SAFETY:
                 // - The original 'bytes' contained a valid instance of every
                 //   field in 'Self', in succession.
-                // - Every field implements 'ParseBytesByRef' and so has no
+                // - Every field implements 'ParseBytesZC' and so has no
                 //   alignment restriction.
                 // - 'Self' is unaligned, since every field is unaligned, and
                 //   any explicit alignment modifiers only make it unaligned.
@@ -285,40 +284,6 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                 // - 'ptr' has the same address as 'start' but can be cast to
                 //   'Self', since it has the right pointer metadata.
                 Ok((unsafe { &*(ptr as *const Self) }, rest))
-            }
-        });
-
-        // Define 'split_bytes_by_mut()'.
-        let tys = data.sized_fields().map(|f| &f.ty);
-        skeleton.contents.stmts.push(syn::parse_quote! {
-            fn split_bytes_by_mut(
-                bytes: &mut [::domain::__core::primitive::u8],
-            ) -> ::domain::__core::result::Result<
-                (&mut Self, &mut [::domain::__core::primitive::u8]),
-                ::domain::new_base::wire::ParseError,
-            > {
-                let start = bytes.as_ptr();
-                #(let (_, bytes) =
-                    <#tys as ::domain::new_base::wire::SplitBytesByRef>
-                    ::split_bytes_by_mut(bytes)?;)*
-                let (last, rest) =
-                    <#unsized_ty as ::domain::new_base::wire::SplitBytesByRef>
-                    ::split_bytes_by_mut(bytes)?;
-                let ptr =
-                    <#unsized_ty as ::domain::new_base::wire::ParseBytesByRef>
-                    ::ptr_with_address(last, start as *const ());
-
-                // SAFETY:
-                // - The original 'bytes' contained a valid instance of every
-                //   field in 'Self', in succession.
-                // - Every field implements 'ParseBytesByRef' and so has no
-                //   alignment restriction.
-                // - 'Self' is unaligned, since every field is unaligned, and
-                //   any explicit alignment modifiers only make it unaligned.
-                // - 'start' is thus the start of a valid instance of 'Self'.
-                // - 'ptr' has the same address as 'start' but can be cast to
-                //   'Self', since it has the right pointer metadata.
-                Ok((unsafe { &mut *(ptr as *const Self as *mut Self) }, rest))
             }
         });
 
@@ -331,34 +296,33 @@ pub fn derive_split_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
         .into()
 }
 
-//----------- ParseBytesByRef ------------------------------------------------
+//----------- ParseBytesZC ---------------------------------------------------
 
-#[proc_macro_derive(ParseBytesByRef)]
-pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
+#[proc_macro_derive(ParseBytesZC)]
+pub fn derive_parse_bytes_zc(input: pm::TokenStream) -> pm::TokenStream {
     fn inner(input: syn::DeriveInput) -> Result<TokenStream> {
         let data = match &input.data {
             syn::Data::Struct(data) => data,
             syn::Data::Enum(data) => {
                 return Err(Error::new_spanned(
                     data.enum_token,
-                    "'ParseBytesByRef' can only be 'derive'd for 'struct's",
+                    "'ParseBytesZC' can only be 'derive'd for 'struct's",
                 ));
             }
             syn::Data::Union(data) => {
                 return Err(Error::new_spanned(
                     data.union_token,
-                    "'ParseBytesByRef' can only be 'derive'd for 'struct's",
+                    "'ParseBytesZC' can only be 'derive'd for 'struct's",
                 ));
             }
         };
 
-        let _ = Repr::determine(&input.attrs, "ParseBytesByRef")?;
+        let _ = Repr::determine(&input.attrs, "ParseBytesZC")?;
 
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
         let mut skeleton = ImplSkeleton::new(&input, true);
-        skeleton.bound = Some(syn::parse_quote!(
-            ::domain::new_base::wire::ParseBytesByRef
-        ));
+        skeleton.bound =
+            Some(syn::parse_quote!(::domain::new::base::wire::ParseBytesZC));
 
         // Inspect the 'struct' fields.
         let data = Struct::new_as_self(&data.fields);
@@ -367,13 +331,13 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
         for field in data.sized_fields() {
             skeleton.require_bound(
                 field.ty.clone(),
-                syn::parse_quote!(::domain::new_base::wire::SplitBytesByRef),
+                syn::parse_quote!(::domain::new::base::wire::SplitBytesZC),
             );
         }
         if let Some(field) = data.unsized_field() {
             skeleton.require_bound(
                 field.ty.clone(),
-                syn::parse_quote!(::domain::new_base::wire::ParseBytesByRef),
+                syn::parse_quote!(::domain::new::base::wire::ParseBytesZC),
             );
         }
 
@@ -384,7 +348,7 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                     bytes: &[::domain::__core::primitive::u8],
                 ) -> ::domain::__core::result::Result<
                     &Self,
-                    ::domain::new_base::wire::ParseError,
+                    ::domain::new::base::wire::ParseError,
                 > {
                     if bytes.is_empty() {
                         // SAFETY: 'Self' is a 'struct' with no fields,
@@ -392,17 +356,8 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                         // constructed at any address.
                         Ok(unsafe { &*bytes.as_ptr().cast::<Self>() })
                     } else {
-                        Err(::domain::new_base::wire::ParseError)
+                        Err(::domain::new::base::wire::ParseError)
                     }
-                }
-            });
-
-            skeleton.contents.stmts.push(syn::parse_quote! {
-                fn ptr_with_address(
-                    &self,
-                    addr: *const (),
-                ) -> *const Self {
-                    addr.cast()
                 }
             });
 
@@ -417,23 +372,23 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                 bytes: &[::domain::__core::primitive::u8],
             ) -> ::domain::__core::result::Result<
                 &Self,
-                ::domain::new_base::wire::ParseError,
+                ::domain::new::base::wire::ParseError,
             > {
                 let start = bytes.as_ptr();
                 #(let (_, bytes) =
-                    <#tys as ::domain::new_base::wire::SplitBytesByRef>
+                    <#tys as ::domain::new::base::wire::SplitBytesZC>
                     ::split_bytes_by_ref(bytes)?;)*
                 let last =
-                    <#unsized_ty as ::domain::new_base::wire::ParseBytesByRef>
+                    <#unsized_ty as ::domain::new::base::wire::ParseBytesZC>
                     ::parse_bytes_by_ref(bytes)?;
                 let ptr =
-                    <#unsized_ty as ::domain::new_base::wire::ParseBytesByRef>
-                    ::ptr_with_address(last, start as *const ());
+                    <#unsized_ty as ::domain::utils::dst::UnsizedCopy>
+                    ::ptr_with_addr(last, start as *const ());
 
                 // SAFETY:
                 // - The original 'bytes' contained a valid instance of every
                 //   field in 'Self', in succession.
-                // - Every field implements 'ParseBytesByRef' and so has no
+                // - Every field implements 'ParseBytesZC' and so has no
                 //   alignment restriction.
                 // - 'Self' is unaligned, since every field is unaligned, and
                 //   any explicit alignment modifiers only make it unaligned.
@@ -441,50 +396,6 @@ pub fn derive_parse_bytes_by_ref(input: pm::TokenStream) -> pm::TokenStream {
                 // - 'ptr' has the same address as 'start' but can be cast to
                 //   'Self', since it has the right pointer metadata.
                 Ok(unsafe { &*(ptr as *const Self) })
-            }
-        });
-
-        // Define 'parse_bytes_by_mut()'.
-        let tys = data.sized_fields().map(|f| &f.ty);
-        skeleton.contents.stmts.push(syn::parse_quote! {
-            fn parse_bytes_by_mut(
-                bytes: &mut [::domain::__core::primitive::u8],
-            ) -> ::domain::__core::result::Result<
-                &mut Self,
-                ::domain::new_base::wire::ParseError,
-            > {
-                let start = bytes.as_ptr();
-                #(let (_, bytes) =
-                    <#tys as ::domain::new_base::wire::SplitBytesByRef>
-                    ::split_bytes_by_mut(bytes)?;)*
-                let last =
-                    <#unsized_ty as ::domain::new_base::wire::ParseBytesByRef>
-                    ::parse_bytes_by_mut(bytes)?;
-                let ptr =
-                    <#unsized_ty as ::domain::new_base::wire::ParseBytesByRef>
-                    ::ptr_with_address(last, start as *const ());
-
-                // SAFETY:
-                // - The original 'bytes' contained a valid instance of every
-                //   field in 'Self', in succession.
-                // - Every field implements 'ParseBytesByRef' and so has no
-                //   alignment restriction.
-                // - 'Self' is unaligned, since every field is unaligned, and
-                //   any explicit alignment modifiers only make it unaligned.
-                // - 'start' is thus the start of a valid instance of 'Self'.
-                // - 'ptr' has the same address as 'start' but can be cast to
-                //   'Self', since it has the right pointer metadata.
-                Ok(unsafe { &mut *(ptr as *const Self as *mut Self) })
-            }
-        });
-
-        // Define 'ptr_with_address()'.
-        let unsized_member = data.unsized_member();
-        skeleton.contents.stmts.push(syn::parse_quote! {
-            fn ptr_with_address(&self, addr: *const ()) -> *const Self {
-                <#unsized_ty as ::domain::new_base::wire::ParseBytesByRef>
-                    ::ptr_with_address(&self.#unsized_member, addr)
-                    as *const Self
             }
         });
 
@@ -521,7 +432,7 @@ pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
         let mut skeleton = ImplSkeleton::new(&input, false);
         skeleton.bound =
-            Some(syn::parse_quote!(::domain::new_base::wire::BuildBytes));
+            Some(syn::parse_quote!(::domain::new::base::wire::BuildBytes));
 
         // Inspect the 'struct' fields.
         let data = Struct::new_as_self(&data.fields);
@@ -533,7 +444,7 @@ pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
         for field in data.fields() {
             skeleton.require_bound(
                 field.ty.clone(),
-                syn::parse_quote!(::domain::new_base::wire::BuildBytes),
+                syn::parse_quote!(::domain::new::base::wire::BuildBytes),
             );
         }
 
@@ -546,11 +457,21 @@ pub fn derive_build_bytes(input: pm::TokenStream) -> pm::TokenStream {
                 mut bytes: & #lifetime mut [::domain::__core::primitive::u8],
             ) -> ::domain::__core::result::Result<
                 & #lifetime mut [::domain::__core::primitive::u8],
-                ::domain::new_base::wire::TruncationError,
+                ::domain::new::base::wire::TruncationError,
             > {
-                #(bytes = <#tys as ::domain::new_base::wire::BuildBytes>
+                #(bytes = <#tys as ::domain::new::base::wire::BuildBytes>
                     ::build_bytes(&self.#members, bytes)?;)*
                 Ok(bytes)
+            }
+        });
+
+        // Define 'built_bytes_size()'.
+        let members = data.members();
+        let tys = data.fields().map(|f| &f.ty);
+        skeleton.contents.stmts.push(syn::parse_quote! {
+            fn built_bytes_size(&self) -> ::domain::__core::primitive::usize {
+                0 #(+ <#tys as ::domain::new::base::wire::BuildBytes>
+                        ::built_bytes_size(&self.#members))*
             }
         });
 
@@ -589,13 +510,13 @@ pub fn derive_as_bytes(input: pm::TokenStream) -> pm::TokenStream {
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
         let mut skeleton = ImplSkeleton::new(&input, true);
         skeleton.bound =
-            Some(syn::parse_quote!(::domain::new_base::wire::AsBytes));
+            Some(syn::parse_quote!(::domain::new::base::wire::AsBytes));
 
         // Establish bounds on the fields.
         for field in data.fields.iter() {
             skeleton.require_bound(
                 field.ty.clone(),
-                syn::parse_quote!(::domain::new_base::wire::AsBytes),
+                syn::parse_quote!(::domain::new::base::wire::AsBytes),
             );
         }
 
@@ -610,15 +531,15 @@ pub fn derive_as_bytes(input: pm::TokenStream) -> pm::TokenStream {
         .into()
 }
 
-//----------- UnsizedClone ---------------------------------------------------
+//----------- UnsizedCopy ----------------------------------------------------
 
-#[proc_macro_derive(UnsizedClone)]
-pub fn derive_unsized_clone(input: pm::TokenStream) -> pm::TokenStream {
+#[proc_macro_derive(UnsizedCopy)]
+pub fn derive_unsized_copy(input: pm::TokenStream) -> pm::TokenStream {
     fn inner(input: syn::DeriveInput) -> Result<TokenStream> {
         // Construct an 'ImplSkeleton' so that we can add trait bounds.
         let mut skeleton = ImplSkeleton::new(&input, true);
         skeleton.bound =
-            Some(syn::parse_quote!(::domain::utils::UnsizedClone));
+            Some(syn::parse_quote!(::domain::utils::dst::UnsizedCopy));
 
         let struct_data = match &input.data {
             syn::Data::Struct(data) if !data.fields.is_empty() => {
@@ -626,13 +547,13 @@ pub fn derive_unsized_clone(input: pm::TokenStream) -> pm::TokenStream {
                 for field in data.sized_fields() {
                     skeleton.require_bound(
                         field.ty.clone(),
-                        syn::parse_quote!(::domain::__core::clone::Clone),
+                        syn::parse_quote!(::domain::__core::marker::Copy),
                     );
                 }
 
                 skeleton.require_bound(
                     data.unsized_field().unwrap().ty.clone(),
-                    syn::parse_quote!(::domain::utils::UnsizedClone),
+                    syn::parse_quote!(::domain::utils::dst::UnsizedCopy),
                 );
 
                 Some(data)
@@ -645,7 +566,7 @@ pub fn derive_unsized_clone(input: pm::TokenStream) -> pm::TokenStream {
                     for field in variant.fields.iter() {
                         skeleton.require_bound(
                             field.ty.clone(),
-                            syn::parse_quote!(::domain::__core::clone::Clone),
+                            syn::parse_quote!(::domain::__core::marker::Copy),
                         );
                     }
                 }
@@ -654,46 +575,32 @@ pub fn derive_unsized_clone(input: pm::TokenStream) -> pm::TokenStream {
             }
 
             syn::Data::Union(data) => {
-                return Err(Error::new_spanned(
-                    data.union_token,
-                    "'UnsizedClone' cannot be 'derive'd for 'union's",
-                ));
+                for field in data.fields.named.iter() {
+                    skeleton.require_bound(
+                        field.ty.clone(),
+                        syn::parse_quote!(::domain::__core::marker::Copy),
+                    );
+                }
+
+                None
             }
         };
 
         if let Some(data) = struct_data {
             let sized_tys = data.sized_fields().map(|f| &f.ty);
             let unsized_ty = &data.unsized_field().unwrap().ty;
-
-            let sized_members = data.sized_members();
             let unsized_member = data.unsized_member().unwrap();
 
             skeleton.contents.stmts.push(syn::parse_quote! {
-                type Alignment = (#(#sized_tys,)* <#unsized_ty as ::domain::utils::UnsizedClone>::Alignment,);
+                type Alignment = (#(#sized_tys,)* <#unsized_ty as ::domain::utils::dst::UnsizedCopy>::Alignment,);
             });
 
             skeleton.contents.stmts.push(syn::parse_quote! {
-                unsafe fn unsized_clone(&self, dst: *mut ()) {
-                    let dst = ::domain::utils::UnsizedClone::ptr_with_address(self, dst);
-                    unsafe {
-                        #(::domain::__core::ptr::write(
-                            ::domain::__core::ptr::addr_of_mut!((*dst).#sized_members),
-                            ::domain::__core::clone::Clone::clone(&self.#sized_members),
-                        );)*
-                        ::domain::utils::UnsizedClone::unsized_clone(
-                            &self.#unsized_member,
-                            ::domain::__core::ptr::addr_of_mut!((*dst).#unsized_member) as *mut (),
-                        );
-                    }
-                }
-            });
-
-            skeleton.contents.stmts.push(syn::parse_quote! {
-                fn ptr_with_address(&self, addr: *mut ()) -> *mut Self {
-                    ::domain::utils::UnsizedClone::ptr_with_address(
+                fn ptr_with_addr(&self, addr: *const ()) -> *const Self {
+                    ::domain::utils::dst::UnsizedCopy::ptr_with_addr(
                         &self.#unsized_member,
                         addr,
-                    ) as *mut Self
+                    ) as *const Self
                 }
             });
         } else {
@@ -702,18 +609,8 @@ pub fn derive_unsized_clone(input: pm::TokenStream) -> pm::TokenStream {
             });
 
             skeleton.contents.stmts.push(syn::parse_quote! {
-                unsafe fn unsized_clone(&self, dst: *mut ()) {
-                    let dst = dst as *mut Self;
-                    let this = ::domain::__core::clone::Clone::clone(self);
-                    unsafe {
-                        ::domain::__core::ptr::write(dst as *mut Self, this);
-                    }
-                }
-            });
-
-            skeleton.contents.stmts.push(syn::parse_quote! {
-                fn ptr_with_address(&self, addr: *mut ()) -> *mut Self {
-                    addr as *mut Self
+                fn ptr_with_addr(&self, addr: *const ()) -> *const Self {
+                    addr as *const Self
                 }
             });
         }

@@ -82,6 +82,7 @@ impl Zonefile {
     }
 
     /// Inserts the given record into the zone file.
+    #[allow(clippy::result_large_err)]
     pub fn insert(
         &mut self,
         record: StoredRecord,

@@ -535,13 +535,17 @@ pub mod sign {
                     let id = pkey::Id::ED25519;
                     let s = s.expose_secret();
                     let k = PKey::private_key_from_raw_bytes(s, id)?;
-                    if memcmp::eq(
-                        &k.raw_public_key().expect("should not fail"),
-                        public.public_key().as_ref(),
-                    ) {
-                        k
-                    } else {
+
+                    let pub1 = k.raw_public_key().expect("should not fail");
+                    let pub2 = public.public_key().as_ref();
+
+                    // The OpenSSL memcmp::eq() fn requires that the given
+                    // arguments be of equal length otherwise it will panic
+                    // so test their length before invoking memcmp::eq().
+                    if pub1.len() != pub2.len() || !memcmp::eq(&pub1, pub2) {
                         return Err(FromBytesError::InvalidKey);
+                    } else {
+                        k
                     }
                 }
 
@@ -551,13 +555,17 @@ pub mod sign {
                     let id = pkey::Id::ED448;
                     let s = s.expose_secret();
                     let k = PKey::private_key_from_raw_bytes(s, id)?;
-                    if memcmp::eq(
-                        &k.raw_public_key().expect("should not fail"),
-                        public.public_key().as_ref(),
-                    ) {
-                        k
-                    } else {
+
+                    let pub1 = k.raw_public_key().expect("should not fail");
+                    let pub2 = public.public_key().as_ref();
+
+                    // The OpenSSL memcmp::eq() fn requires that the given
+                    // arguments be of equal length otherwise it will panic
+                    // so test their length before invoking memcmp::eq().
+                    if pub1.len() != pub2.len() || !memcmp::eq(&pub1, pub2) {
                         return Err(FromBytesError::InvalidKey);
+                    } else {
+                        k
                     }
                 }
             };
@@ -914,6 +922,38 @@ pub mod sign {
                     KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
                 assert_eq!(key.dnskey(), *pub_key.data());
+            }
+        }
+
+        #[test]
+        fn mismatched_public_key() {
+            for i in 1..KEYS.len() {
+                if KEYS[i - 1].0 == KEYS[i].0 {
+                    continue;
+                }
+
+                // Found a pair of keys whose algorithms differ.
+                let alg1 = KEYS[i - 1].0;
+                let alg2 = KEYS[i].0;
+                let key_tag1 = KEYS[i - 1].1;
+                let key_tag2 = KEYS[i].1;
+
+                let name1 =
+                    format!("test.+{:03}+{:05}", alg1.to_int(), key_tag1);
+                let path =
+                    format!("test-data/dnssec-keys/K{}.private", name1);
+                let data = std::fs::read_to_string(path).unwrap();
+                let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
+
+                let name2 =
+                    format!("test.+{:03}+{:05}", alg2.to_int(), key_tag2);
+                let path = format!("test-data/dnssec-keys/K{}.key", name2);
+                let data = std::fs::read_to_string(path).unwrap();
+                let pub_key = parse_from_bind::<Vec<u8>>(&data).unwrap();
+
+                assert!(
+                    KeyPair::from_bytes(&gen_key, pub_key.data()).is_err()
+                );
             }
         }
 

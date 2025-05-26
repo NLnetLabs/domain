@@ -265,6 +265,8 @@ pub enum Entry {
 /// This includes all the entry types that we can handle internally and don’t
 /// have to bubble up to the user.
 #[derive(Clone, Debug)]
+// 'Entry' is the largest variant, but is also the most common.
+#[allow(clippy::large_enum_variant)]
 enum ScannedEntry {
     /// An entry that should be handed to the user.
     Entry(Entry),
