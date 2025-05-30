@@ -66,20 +66,33 @@ use futures_util::Stream;
 /// Upstream services can detect whether a request is signed and with which
 /// key by consuming the `Option<KS::Key>` metadata output by this service.
 #[derive(Clone, Debug)]
-pub struct TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
+pub struct TsigMiddlewareSvc<RequestOctets, NextSvc, KS, IgnoredRequestMeta>
 where
+    Infallible: From<<RequestOctets as octseq::OctetsFrom<Vec<u8>>>::Error>,
     KS: Clone + KeyStore,
+    KS::Key: Clone,
+    NextSvc: Service<RequestOctets, Option<KS::Key>>,
+    NextSvc::Target: Composer + Default,
+    RequestOctets: Octets + OctetsFrom<Vec<u8>> + Send + Sync + Unpin,
 {
     next_svc: NextSvc,
 
     key_store: KS,
 
-    _phantom: PhantomData<RequestOctets>,
+    _phantom: PhantomData<(RequestOctets, IgnoredRequestMeta)>,
 }
 
-impl<RequestOctets, NextSvc, KS> TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
+impl<RequestOctets, NextSvc, KS, IgnoredRequestMeta>
+    TsigMiddlewareSvc<RequestOctets, NextSvc, KS, IgnoredRequestMeta>
 where
-    KS: Clone + KeyStore,
+    IgnoredRequestMeta: Default + Clone + Send + Sync + Unpin + 'static,
+    Infallible: From<<RequestOctets as octseq::OctetsFrom<Vec<u8>>>::Error>,
+    KS: Clone + KeyStore + Unpin + Send + Sync + 'static,
+    KS::Key: Clone + Unpin + Send + Sync,
+    NextSvc: Service<RequestOctets, Option<KS::Key>>,
+    NextSvc::Future: Unpin,
+    RequestOctets:
+        Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin + Clone,
 {
     /// Creates an instance of this middleware service.
     ///
@@ -95,18 +108,21 @@ where
     }
 }
 
-impl<RequestOctets, NextSvc, KS> TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
+impl<RequestOctets, NextSvc, KS, IgnoredRequestMeta>
+    TsigMiddlewareSvc<RequestOctets, NextSvc, KS, IgnoredRequestMeta>
 where
-    RequestOctets: Octets + OctetsFrom<Vec<u8>> + Send + Sync + Unpin,
-    NextSvc: Service<RequestOctets, Option<KS::Key>>,
-    NextSvc::Target: Composer + Default,
-    KS: Clone + KeyStore,
-    KS::Key: Clone,
+    IgnoredRequestMeta: Default + Clone + Send + Sync + Unpin + 'static,
     Infallible: From<<RequestOctets as octseq::OctetsFrom<Vec<u8>>>::Error>,
+    KS: Clone + KeyStore + Unpin + Send + Sync + 'static,
+    KS::Key: Clone + Unpin + Send + Sync,
+    NextSvc: Service<RequestOctets, Option<KS::Key>>,
+    NextSvc::Future: Unpin,
+    RequestOctets:
+        Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin + Clone,
 {
     #[allow(clippy::type_complexity)]
     fn preprocess(
-        req: &Request<RequestOctets>,
+        req: &Request<RequestOctets, IgnoredRequestMeta>,
         key_store: &KS,
     ) -> Result<
         ControlFlow<
@@ -188,7 +204,7 @@ where
     /// Sign the given response, or if necessary construct and return an
     /// alternate response.
     fn postprocess(
-        request: &Request<RequestOctets>,
+        request: &Request<RequestOctets, IgnoredRequestMeta>,
         response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
         state: &mut PostprocessingState<KS::Key>,
     ) -> Result<
@@ -272,7 +288,7 @@ where
     }
 
     fn mk_signed_truncated_response(
-        request: &Request<RequestOctets>,
+        request: &Request<RequestOctets, IgnoredRequestMeta>,
         truncation_ctx: TruncationContext<KS::Key, tsig::Key>,
     ) -> Result<AdditionalBuilder<StreamTarget<NextSvc::Target>>, ServiceError>
     {
@@ -334,7 +350,7 @@ where
     }
 
     fn map_stream_item(
-        request: Request<RequestOctets, ()>,
+        request: Request<RequestOctets, IgnoredRequestMeta>,
         stream_item: ServiceResult<NextSvc::Target>,
         pp_config: &mut PostprocessingState<KS::Key>,
     ) -> ServiceResult<NextSvc::Target> {
@@ -396,17 +412,18 @@ where
 /// and (b) because this service does not propagate the metadata it receives
 /// from downstream but instead outputs [`Option<KS::Key>`] metadata to
 /// upstream services.
-impl<RequestOctets, NextSvc, KS> Service<RequestOctets, ()>
-    for TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
+impl<RequestOctets, NextSvc, KS, IgnoredRequestMeta>
+    Service<RequestOctets, IgnoredRequestMeta>
+    for TsigMiddlewareSvc<RequestOctets, NextSvc, KS, IgnoredRequestMeta>
 where
-    RequestOctets:
-        Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin,
+    IgnoredRequestMeta: Default + Clone + Send + Sync + Unpin + 'static,
+    Infallible: From<<RequestOctets as octseq::OctetsFrom<Vec<u8>>>::Error>,
+    KS: Clone + KeyStore + Unpin + Send + Sync + 'static,
+    KS::Key: Clone + Unpin + Send + Sync,
     NextSvc: Service<RequestOctets, Option<KS::Key>>,
     NextSvc::Future: Unpin,
-    NextSvc::Target: Composer + Default,
-    KS: Clone + KeyStore + Unpin,
-    KS::Key: Clone + Unpin,
-    Infallible: From<<RequestOctets as octseq::OctetsFrom<Vec<u8>>>::Error>,
+    RequestOctets:
+        Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin + Clone,
 {
     type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
@@ -416,7 +433,7 @@ where
             RequestOctets,
             NextSvc::Future,
             NextSvc::Stream,
-            (),
+            IgnoredRequestMeta,
             PostprocessingState<KS::Key>,
         >,
         Once<Ready<ServiceResult<Self::Target>>>,
@@ -424,7 +441,10 @@ where
     >;
     type Future = Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
+    fn call(
+        &self,
+        request: Request<RequestOctets, IgnoredRequestMeta>,
+    ) -> Self::Future {
         match Self::preprocess(&request, &self.key_store) {
             Ok(ControlFlow::Continue(Some((modified_req, signer)))) => {
                 let pp_config = PostprocessingState::new(signer);

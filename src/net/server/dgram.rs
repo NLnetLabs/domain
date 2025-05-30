@@ -33,7 +33,6 @@ use tokio::time::Instant;
 use tokio::time::MissedTickBehavior;
 use tracing::{error, trace, warn};
 
-use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
@@ -213,7 +212,7 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 /// use domain::net::server::stream::StreamServer;
 /// use domain::net::server::util::service_fn;
 ///
-/// fn my_service(msg: Request<Vec<u8>>, _meta: ()) -> ServiceResult<Vec<u8>>
+/// fn my_service(msg: Request<Vec<u8>, ()>, _meta: ()) -> ServiceResult<Vec<u8>>
 /// {
 ///     todo!()
 /// }
@@ -251,14 +250,7 @@ where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync,
     <Buf as BufSource>::Output: Octets + Send + Sync + Unpin + 'static,
-    Svc: Clone
-        + Service<<Buf as BufSource>::Output, ()>
-        + Send
-        + Sync
-        + 'static,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Svc: Service<<Buf as BufSource>::Output, ()> + Clone,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config>>,
@@ -295,10 +287,7 @@ where
     Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
     <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
-    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Svc: Service<<Buf as BufSource>::Output, ()> + Clone,
 {
     /// Constructs a new [`DgramServer`] with default configuration.
     ///
@@ -352,10 +341,7 @@ where
     Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
     <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
-    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Svc: Service<<Buf as BufSource>::Output, ()> + Clone,
 {
     /// Get a reference to the network source being used to receive messages.
     #[must_use]
@@ -377,14 +363,7 @@ where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync,
     <Buf as BufSource>::Output: Octets + Send + Sync + 'static + Unpin,
-    Svc: Clone
-        + Service<<Buf as BufSource>::Output, ()>
-        + Send
-        + Sync
-        + 'static,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Svc: Service<<Buf as BufSource>::Output, ()> + Clone,
 {
     /// Start the server.
     ///
@@ -465,10 +444,7 @@ where
     Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
     <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
-    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Svc: Service<<Buf as BufSource>::Output, ()> + Clone,
 {
     /// Receive incoming messages until shutdown or fatal error.
     async fn run_until_error(&self) -> Result<(), String> {
@@ -678,14 +654,7 @@ where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync,
     <Buf as BufSource>::Output: Octets + Send + Sync + Unpin + 'static,
-    Svc: Clone
-        + Service<<Buf as BufSource>::Output, ()>
-        + Send
-        + Sync
-        + 'static,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Svc: Service<<Buf as BufSource>::Output, ()> + Clone,
 {
     fn drop(&mut self) {
         // Shutdown the DgramServer. Don't handle the failure case here as
