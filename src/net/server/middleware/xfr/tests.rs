@@ -17,7 +17,9 @@ use octseq::Octets;
 use tokio::sync::Semaphore;
 use tokio::time::Instant;
 
-use crate::base::iana::{Class, DigestAlg, OptRcode, Rcode, SecAlg};
+use crate::base::iana::{
+    Class, DigestAlgorithm, OptRcode, Rcode, SecurityAlgorithm,
+};
 use crate::base::{
     Message, MessageBuilder, Name, ParsedName, Rtype, Serial, ToName, Ttl,
 };
@@ -89,8 +91,8 @@ async fn axfr_with_example_zone() {
             n("signed.example.com"),
             Ds::new(
                 60485,
-                SecAlg::RSASHA1,
-                DigestAlg::SHA1,
+                SecurityAlgorithm::RSASHA1,
+                DigestAlgorithm::SHA1,
                 crate::utils::base16::decode(
                     "2BB183AF5F22588179A53B0A98631FAD1A292118",
                 )

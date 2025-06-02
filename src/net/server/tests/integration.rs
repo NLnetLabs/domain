@@ -24,6 +24,7 @@ use crate::base::name::ToName;
 use crate::base::net::IpAddr;
 use crate::base::Name;
 use crate::base::Rtype;
+use crate::logging::init_logging;
 use crate::net::client::request::{RequestMessage, RequestMessageMulti};
 use crate::net::client::{dgram, stream, tsig};
 use crate::net::server;
@@ -69,15 +70,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // which responses will be expected, and how the server that answers them
     // should be configured.
 
-    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
-    // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
-    // numbers and types as they are being executed.
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
+    init_logging();
 
     // Load the test .rpl file that determines which queries will be sent
     // and which responses will be expected, and how the server that
@@ -274,7 +267,7 @@ fn mk_client_factory(
     // query, and (b) if the query specifies "MATCHES TCP". Clients created by
     // this factory connect to the TCP server created above.
     let only_for_tcp_queries = |entry: &parse_stelline::Entry| {
-        matches!(entry.matches, Some(Matches { tcp: true, .. }))
+        matches!(entry.matches, Matches { tcp: true, .. })
     };
 
     let tcp_key_store = key_store.clone();
@@ -300,11 +293,9 @@ fn mk_client_factory(
 
                 let conn = Box::new(tsig::Connection::new(key, conn));
 
-                if let Some(sections) = &entry.sections {
-                    if let Some(q) = sections.question.first() {
-                        if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
-                            return Client::Multi(conn);
-                        }
+                if let Some(q) = entry.sections.question.first() {
+                    if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                        return Client::Multi(conn);
                     }
                 }
                 Client::Single(conn)
@@ -318,11 +309,9 @@ fn mk_client_factory(
 
                 let conn = Box::new(conn);
 
-                if let Some(sections) = &entry.sections {
-                    if let Some(q) = sections.question.first() {
-                        if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
-                            return Client::Multi(conn);
-                        }
+                if let Some(q) = entry.sections.question.first() {
+                    if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                        return Client::Multi(conn);
                     }
                 }
                 Client::Single(conn)
@@ -346,33 +335,27 @@ fn mk_client_factory(
             });
 
             if let Some(key) = key {
-                match entry.matches.as_ref().map(|v| v.mock_client) {
-                    Some(true) => {
-                        Client::Single(Box::new(tsig::Connection::new(
-                            key,
-                            simple_dgram_client::Connection::new(connect),
-                        )))
-                    }
-
-                    _ => Client::Single(Box::new(tsig::Connection::new(
+                if entry.matches.mock_client {
+                    Client::Single(Box::new(tsig::Connection::new(
+                        key,
+                        simple_dgram_client::Connection::new(connect),
+                    )))
+                } else {
+                    Client::Single(Box::new(tsig::Connection::new(
                         key,
                         dgram::Connection::new(connect),
-                    ))),
+                    )))
                 }
+            } else if entry.matches.mock_client {
+                Client::Single(Box::new(
+                    simple_dgram_client::Connection::new(connect),
+                ))
             } else {
-                match entry.matches.as_ref().map(|v| v.mock_client) {
-                    Some(true) => Client::Single(Box::new(
-                        simple_dgram_client::Connection::new(connect),
-                    )),
-
-                    _ => {
-                        let mut config = dgram::Config::new();
-                        config.set_max_retries(0);
-                        Client::Single(Box::new(
-                            dgram::Connection::with_config(connect, config),
-                        ))
-                    }
-                }
+                let mut config = dgram::Config::new();
+                config.set_max_retries(0);
+                Client::Single(Box::new(dgram::Connection::with_config(
+                    connect, config,
+                )))
             }
         },
         for_all_other_queries,
@@ -548,7 +531,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         zone_name = Some(v.to_string());
                     }
                     _ => {
-                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
+                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value:?}");
                     }
                 }
             }

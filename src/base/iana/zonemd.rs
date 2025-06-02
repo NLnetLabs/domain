@@ -23,7 +23,7 @@ int_enum! {
 int_enum_str_decimal!(ZonemdScheme, u8);
 int_enum_zonefile_fmt_decimal!(ZonemdScheme, "scheme");
 
-//------------ ZonemdAlg -----------------------------------------------------
+//------------ ZonemdAlgorithm -----------------------------------------------
 
 int_enum! {
     /// ZONEMD algorithms.
@@ -37,7 +37,7 @@ int_enum! {
     /// [ZONEMD]: ../../../rdata/zonemd/index.html
     /// [IANA registration]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#zonemd-hash-algorithms
     =>
-    ZonemdAlg, u8;
+    ZonemdAlgorithm, u8;
 
     /// Specifies that the SHA-384 algorithm is used.
     (SHA384 => 1, "SHA384")
@@ -46,5 +46,5 @@ int_enum! {
     (SHA512 => 2, "SHA512")
 }
 
-int_enum_str_decimal!(ZonemdAlg, u8);
-int_enum_zonefile_fmt_decimal!(ZonemdAlg, "hash algorithm");
+int_enum_str_decimal!(ZonemdAlgorithm, u8);
+int_enum_zonefile_fmt_decimal!(ZonemdAlgorithm, "hash algorithm");

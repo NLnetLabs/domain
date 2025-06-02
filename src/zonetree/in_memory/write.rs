@@ -265,12 +265,7 @@ impl WritableZone for WriteZone {
 
         let res = new_apex
             .map(|node| Box::new(node) as Box<dyn WritableZoneNode>)
-            .map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Open error: {err}"),
-                )
-            });
+            .map_err(|err| io::Error::other(format!("Open error: {err}")));
 
         Box::pin(ready(res))
     }
@@ -604,12 +599,7 @@ impl WriteNode {
                 Ok(())
             }
         }
-        .map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Write apex error: {err}"),
-            )
-        })
+        .map_err(|err| io::Error::other(format!("Write apex error: {err}")))
     }
 
     fn make_cname(&self, cname: SharedRr) -> Result<(), io::Error> {
@@ -623,12 +613,7 @@ impl WriteNode {
                 Ok(())
             }
         }
-        .map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Write apex error: {err}"),
-            )
-        })
+        .map_err(|err| io::Error::other(format!("Write apex error: {err}")))
     }
 
     fn remove_all(&self) -> Result<(), io::Error> {
@@ -791,10 +776,9 @@ impl From<io::Error> for WriteApexError {
 impl From<WriteApexError> for io::Error {
     fn from(src: WriteApexError) -> io::Error {
         match src {
-            WriteApexError::NotAllowed => io::Error::new(
-                io::ErrorKind::Other,
-                "operation not allowed at apex",
-            ),
+            WriteApexError::NotAllowed => {
+                io::Error::other("operation not allowed at apex")
+            }
             WriteApexError::Io(err) => err,
         }
     }

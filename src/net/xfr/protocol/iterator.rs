@@ -24,7 +24,14 @@ pub struct XfrZoneUpdateIterator<'a, 'b> {
     iter: RecordIter<'b, Bytes, ZoneRecordData<Bytes, ParsedName<Bytes>>>,
 
     /// TODO
-    saved_update: Option<ZoneUpdate<Record<ParsedName<Bytes>, ZoneRecordData<Bytes, ParsedName<Bytes>>>>>,
+    saved_update: Option<
+        ZoneUpdate<
+            Record<
+                ParsedName<Bytes>,
+                ZoneRecordData<Bytes, ParsedName<Bytes>>,
+            >,
+        >,
+    >,
 }
 
 impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
@@ -61,7 +68,11 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
             };
         }
 
-        Ok(Self { state, iter, saved_update: None })
+        Ok(Self {
+            state,
+            iter,
+            saved_update: None,
+        })
     }
 }
 
@@ -77,7 +88,7 @@ impl Iterator for XfrZoneUpdateIterator<'_, '_> {
             // wanted to still be able to detect the first call to next() and
             // handle it specially for AXFR.
             self.state.rr_count += 1;
-        
+
             if self.state.actual_xfr_type == XfrType::Axfr {
                 // For AXFR we're not making incremental changes to a zone,
                 // we're replacing its entire contents, so before returning
@@ -96,7 +107,8 @@ impl Iterator for XfrZoneUpdateIterator<'_, '_> {
                 trace!("XFR record {}: {record:?}", self.state.rr_count);
                 let update = self.state.process_record(record);
 
-                if is_first_rr && self.state.actual_xfr_type == XfrType::Axfr {
+                if is_first_rr && self.state.actual_xfr_type == XfrType::Axfr
+                {
                     // We didn't return DeleteAllRecords above because the
                     // transfer was thought to be IXFR rather than AXFR, but
                     // now that the next record has been processed we have had

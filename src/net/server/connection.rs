@@ -935,7 +935,6 @@ where
 
     /// Handle I/O errors by deciding whether to log them, and whethr to
     /// continue or abort.
-    #[must_use]
     fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
         match err.kind() {
             io::ErrorKind::UnexpectedEof => {

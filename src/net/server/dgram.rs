@@ -640,7 +640,7 @@ where
         let sent = send_res?;
 
         if sent != data.len() {
-            Err(io::Error::new(io::ErrorKind::Other, "short send"))
+            Err(io::Error::other("short send"))
         } else {
             Ok(())
         }

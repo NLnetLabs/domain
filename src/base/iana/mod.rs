@@ -26,16 +26,16 @@
 //! `FromStrError` without having to resort to devilishly long names.
 
 pub use self::class::Class;
-pub use self::digestalg::DigestAlg;
+pub use self::digestalg::DigestAlgorithm;
 pub use self::exterr::ExtendedErrorCode;
-pub use self::nsec3::Nsec3HashAlg;
+pub use self::nsec3::Nsec3HashAlgorithm;
 pub use self::opcode::Opcode;
 pub use self::opt::OptionCode;
 pub use self::rcode::{OptRcode, Rcode, TsigRcode};
 pub use self::rtype::Rtype;
-pub use self::secalg::SecAlg;
+pub use self::secalg::SecurityAlgorithm;
 pub use self::svcb::SvcParamKey;
-pub use self::zonemd::{ZonemdAlg, ZonemdScheme};
+pub use self::zonemd::{ZonemdAlgorithm, ZonemdScheme};
 
 #[macro_use]
 mod macros;
