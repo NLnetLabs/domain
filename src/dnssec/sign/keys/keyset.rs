@@ -6,6 +6,7 @@
 //! # Example
 //!
 //! ```no_run
+//! use domain::base::iana::SecurityAlgorithm;
 //! use domain::base::Name;
 //! use domain::dnssec::sign::keys::keyset::{KeySet, RollType, UnixTime};
 //! use std::fs::File;
@@ -18,9 +19,9 @@
 //! let mut ks = KeySet::new(Name::from_str("example.com").unwrap());
 //!
 //! // Add two keys.
-//! ks.add_key_ksk("first KSK.key".to_string(), None, UnixTime::now());
+//! ks.add_key_ksk("first KSK.key".to_string(), None, SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now());
 //! ks.add_key_zsk("first ZSK.key".to_string(),
-//!     Some("first ZSK.private".to_string()), UnixTime::now());
+//!     Some("first ZSK.private".to_string()), SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now());
 //!
 //! // Save the state.
 //! let json = serde_json::to_string(&ks).unwrap();
@@ -54,17 +55,17 @@
 // TODO:
 // - add support for undo/abort.
 
+use crate::base::iana::SecurityAlgorithm;
 use crate::base::Name;
 use crate::rdata::dnssec::Timestamp;
 use serde::{Deserialize, Serialize};
-use std::collections::{hash_map, HashMap};
+use std::collections::{hash_map, HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Add;
 use std::str::FromStr;
 use std::string::{String, ToString};
 use std::time::Duration;
-use std::time::SystemTimeError;
 use std::vec::Vec;
 use time::format_description;
 use time::OffsetDateTime;
@@ -72,8 +73,11 @@ use time::OffsetDateTime;
 #[cfg(test)]
 use mock_instant::global::{SystemTime, UNIX_EPOCH};
 
+#[cfg(test)]
+use mock_instant::SystemTimeError;
+
 #[cfg(not(test))]
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
 /// This type maintains a collection keys used to sign a zone.
 ///
@@ -102,10 +106,21 @@ impl KeySet {
         &mut self,
         pubref: String,
         privref: Option<String>,
+        algorithm: SecurityAlgorithm,
+        key_tag: u16,
         creation_ts: UnixTime,
     ) -> Result<(), Error> {
+        if !self.unique_key_tag(key_tag) {
+            return Err(Error::DuplicateKeyTag);
+        }
         let keystate: KeyState = Default::default();
-        let key = Key::new(privref, KeyType::Ksk(keystate), creation_ts);
+        let key = Key::new(
+            privref,
+            KeyType::Ksk(keystate),
+            algorithm,
+            key_tag,
+            creation_ts,
+        );
         if let hash_map::Entry::Vacant(e) = self.keys.entry(pubref) {
             e.insert(key);
             Ok(())
@@ -119,10 +134,18 @@ impl KeySet {
         &mut self,
         pubref: String,
         privref: Option<String>,
+        algorithm: SecurityAlgorithm,
+        key_tag: u16,
         creation_ts: UnixTime,
     ) -> Result<(), Error> {
         let keystate: KeyState = Default::default();
-        let key = Key::new(privref, KeyType::Zsk(keystate), creation_ts);
+        let key = Key::new(
+            privref,
+            KeyType::Zsk(keystate),
+            algorithm,
+            key_tag,
+            creation_ts,
+        );
         if let hash_map::Entry::Vacant(e) = self.keys.entry(pubref) {
             e.insert(key);
             Ok(())
@@ -136,12 +159,16 @@ impl KeySet {
         &mut self,
         pubref: String,
         privref: Option<String>,
+        algorithm: SecurityAlgorithm,
+        key_tag: u16,
         creation_ts: UnixTime,
     ) -> Result<(), Error> {
         let keystate: KeyState = Default::default();
         let key = Key::new(
             privref,
             KeyType::Csk(keystate.clone(), keystate),
+            algorithm,
+            key_tag,
             creation_ts,
         );
         if let hash_map::Entry::Vacant(e) = self.keys.entry(pubref) {
@@ -150,6 +177,10 @@ impl KeySet {
         } else {
             Err(Error::KeyExists)
         }
+    }
+
+    fn unique_key_tag(&self, key_tag: u16) -> bool {
+        !self.keys.iter().any(|(_, k)| k.key_tag == key_tag)
     }
 
     /// Delete a key.
@@ -355,6 +386,7 @@ impl KeySet {
             Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
+        let mut algs_old = HashSet::new();
         for k in old {
             let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
                 return Err(Error::KeyNotFound);
@@ -365,8 +397,12 @@ impl KeySet {
 
             // Set old for any key we find.
             keystate.old = true;
+
+            // Add algorithm
+            algs_old.insert(key.algorithm);
         }
         let now = UnixTime::now();
+        let mut algs_new = HashSet::new();
         for k in new {
             let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
                 return Err(Error::KeyNotFound);
@@ -389,6 +425,14 @@ impl KeySet {
             keystate.present = true;
             keystate.signer = true;
             key.timestamps.published = Some(now.clone());
+
+            // Add algorithm
+            algs_new.insert(key.algorithm);
+        }
+
+        // Make sure the sets of algorithms are the same.
+        if algs_old != algs_new {
+            return Err(Error::AlgorithmSetsMismatch);
         }
 
         // Make sure we have at least one key in incoming state.
@@ -415,6 +459,7 @@ impl KeySet {
             Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
+        let mut algs_old = HashSet::new();
         for k in old {
             let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
                 return Err(Error::KeyNotFound);
@@ -425,8 +470,12 @@ impl KeySet {
 
             // Set old for any key we find.
             keystate.old = true;
+
+            // Add algorithm
+            algs_old.insert(key.algorithm);
         }
         let now = UnixTime::now();
+        let mut algs_new = HashSet::new();
         for k in new {
             let Some(key) = keys.get_mut(&(*k).to_string()) else {
                 return Err(Error::KeyNotFound);
@@ -448,6 +497,14 @@ impl KeySet {
             // Move key state to Incoming.
             keystate.present = true;
             key.timestamps.published = Some(now.clone());
+
+            // Add algorithm
+            algs_new.insert(key.algorithm);
+        }
+
+        // Make sure the sets of algorithms are the same.
+        if algs_old != algs_new {
+            return Err(Error::AlgorithmSetsMismatch);
         }
 
         // Make sure we have at least one key in incoming state.
@@ -474,6 +531,7 @@ impl KeySet {
             Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
+        let mut algs_old = HashSet::new();
         for k in old {
             let Some(key) = keys.get_mut(&(*k).to_string()) else {
                 return Err(Error::KeyNotFound);
@@ -491,8 +549,12 @@ impl KeySet {
                     return Err(Error::WrongKeyType);
                 }
             }
+
+            // Add algorithm
+            algs_old.insert(key.algorithm);
         }
         let now = UnixTime::now();
+        let mut algs_new = HashSet::new();
         for k in new {
             let Some(key) = keys.get_mut(&(*k).to_string()) else {
                 return Err(Error::KeyNotFound);
@@ -567,6 +629,14 @@ impl KeySet {
                     return Err(Error::WrongKeyType);
                 }
             }
+
+            // Add algorithm
+            algs_new.insert(key.algorithm);
+        }
+
+        // Make sure the sets of algorithms are the same.
+        if algs_old != algs_new {
+            return Err(Error::AlgorithmSetsMismatch);
         }
 
         // Make sure we have at least one KSK key in incoming state.
@@ -601,6 +671,8 @@ impl KeySet {
 pub struct Key {
     privref: Option<String>,
     keytype: KeyType,
+    algorithm: SecurityAlgorithm,
+    key_tag: u16,
     timestamps: KeyTimestamps,
 }
 
@@ -615,6 +687,16 @@ impl Key {
         self.keytype.clone()
     }
 
+    /// Return the public key algorithm.
+    pub fn algorithm(&self) -> SecurityAlgorithm {
+        self.algorithm
+    }
+
+    /// Return the key tag.
+    pub fn key_tag(&self) -> u16 {
+        self.key_tag
+    }
+
     /// Return the timestamps.
     pub fn timestamps(&self) -> &KeyTimestamps {
         &self.timestamps
@@ -623,6 +705,8 @@ impl Key {
     fn new(
         privref: Option<String>,
         keytype: KeyType,
+        algorithm: SecurityAlgorithm,
+        key_tag: u16,
         creation_ts: UnixTime,
     ) -> Self {
         let timestamps = KeyTimestamps {
@@ -632,6 +716,8 @@ impl Key {
         Self {
             privref,
             keytype,
+            algorithm,
+            key_tag,
             timestamps,
         }
     }
@@ -988,6 +1074,9 @@ pub enum Error {
     /// The key cannot be deleted because it is not old.
     KeyNotOld,
 
+    /// Attempt to add key with a key tag that already exists in the KeySet.
+    DuplicateKeyTag,
+
     /// The key has to wrong type.
     WrongKeyType,
 
@@ -1003,6 +1092,9 @@ pub enum Error {
     /// A conflicting key roll is currently in progress.
     ConflictingRollInProgress,
 
+    /// Algorithm set mismatch in non-algorithm key-roll.
+    AlgorithmSetsMismatch,
+
     /// The operation is too early. The Duration parameter specifies how long
     /// to wait.
     Wait(Duration),
@@ -1017,6 +1109,7 @@ impl fmt::Display for Error {
             Error::KeyExists => write!(f, "key already exists"),
             Error::KeyNotFound => write!(f, "key not found"),
             Error::KeyNotOld => write!(f, "key is still in use, not old"),
+            Error::DuplicateKeyTag => write!(f, "Key tag already present"),
             Error::WrongKeyType => write!(f, "key has the wrong type"),
             Error::WrongKeyState => write!(f, "key is in the wrong state"),
             Error::NoSuitableKeyPresent => {
@@ -1027,6 +1120,9 @@ impl fmt::Display for Error {
             }
             Error::ConflictingRollInProgress => {
                 write!(f, "conflicting roll is in progress")
+            }
+            Error::AlgorithmSetsMismatch => {
+                write!(f, "algorithm set mismatch for non-algorithm key roll")
             }
             Error::Wait(d) => write!(f, "wait for duration {d:?}"),
             Error::UnknownRollType => {
@@ -1544,6 +1640,7 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use crate::base::Name;
+    use crate::dnssec::sign::keys::keyset::SecurityAlgorithm;
     use crate::dnssec::sign::keys::keyset::{
         Action, KeySet, KeyType, RollType, UnixTime,
     };
@@ -1565,10 +1662,22 @@ mod tests {
     fn test_rolls() {
         let mut ks = KeySet::new(Name::from_str("example.com").unwrap());
 
-        ks.add_key_ksk("first KSK".to_string(), None, UnixTime::now())
-            .unwrap();
-        ks.add_key_zsk("first ZSK".to_string(), None, UnixTime::now())
-            .unwrap();
+        ks.add_key_ksk(
+            "first KSK".to_string(),
+            None,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
+        ks.add_key_zsk(
+            "first ZSK".to_string(),
+            None,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
 
         let actions = ks
             .start_roll(RollType::CskRoll, &[], &["first KSK", "first ZSK"])
@@ -1629,10 +1738,22 @@ mod tests {
         let actions = ks.roll_done(RollType::CskRoll).unwrap();
         assert_eq!(actions, []);
 
-        ks.add_key_ksk("second KSK".to_string(), None, UnixTime::now())
-            .unwrap();
-        ks.add_key_zsk("second ZSK".to_string(), None, UnixTime::now())
-            .unwrap();
+        ks.add_key_ksk(
+            "second KSK".to_string(),
+            None,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
+        ks.add_key_zsk(
+            "second ZSK".to_string(),
+            None,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
 
         println!("line {} = {:?}", line!(), ks.keys().get("second ZSK"));
         let actions = ks
@@ -1750,8 +1871,14 @@ mod tests {
         assert_eq!(actions, []);
         ks.delete_key("first KSK").unwrap();
 
-        ks.add_key_csk("first CSK".to_string(), None, UnixTime::now())
-            .unwrap();
+        ks.add_key_csk(
+            "first CSK".to_string(),
+            None,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
 
         let actions = ks
             .start_roll(
@@ -1820,8 +1947,14 @@ mod tests {
         ks.delete_key("second KSK").unwrap();
         ks.delete_key("second ZSK").unwrap();
 
-        ks.add_key_csk("second CSK".to_string(), None, UnixTime::now())
-            .unwrap();
+        ks.add_key_csk(
+            "second CSK".to_string(),
+            None,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
 
         let actions = ks
             .start_roll(RollType::CskRoll, &["first CSK"], &["second CSK"])

@@ -1,4 +1,5 @@
 //! Demonstrate the use of key sets.
+use domain::base::iana::SecurityAlgorithm;
 use domain::base::Name;
 use domain::dnssec::sign::keys::keyset::{
     Action, Error, KeySet, KeyType, RollType, UnixTime,
@@ -127,11 +128,32 @@ fn do_addkey(filename: &str, args: &[String]) {
 
     let mut ks = load_keyset(filename);
     if keytype == "ksk" {
-        ks.add_key_ksk(pubref, privref, UnixTime::now()).unwrap();
+        ks.add_key_ksk(
+            pubref,
+            privref,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
     } else if keytype == "zsk" {
-        ks.add_key_zsk(pubref, privref, UnixTime::now()).unwrap();
+        ks.add_key_zsk(
+            pubref,
+            privref,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
     } else if keytype == "csk" {
-        ks.add_key_csk(pubref, privref, UnixTime::now()).unwrap();
+        ks.add_key_csk(
+            pubref,
+            privref,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
     } else {
         eprintln!("Unknown key type '{keytype}'");
         exit(1);
