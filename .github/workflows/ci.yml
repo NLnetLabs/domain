@@ -1,118 +1,213 @@
-name: ci
-# Don't run on push as well as pull_request otherwise the jobs will be run
-# twice [1]. Run on pull_request instead of push as otherwise code is not
-# built & tested against the PR target branch as if it were already merged
-# (thus hiding issues until post-merge).
-# [1]: https://github.com/orgs/community/discussions/26940
-on: pull_request
-jobs:
-  test:
-    name: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [1.79.0, stable, beta, nightly]
-    env:
-        RUSTFLAGS: "-D warnings"
-        # We use 'vcpkg' to install OpenSSL on Windows.
-        VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
-        VCPKGRS_TRIPLET: x64-windows-release
-        # Ensure that OpenSSL is dynamically linked.
-        VCPKGRS_DYNAMIC: 1
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v1
-    - name: Install Rust
-      uses: hecrj/setup-rust-action@v2
-      with:
-        rust-version: ${{ matrix.rust }}
-    - if: matrix.os == 'ubuntu-latest'
-      run: sudo apt-get install -y libssl-dev
-    - if: matrix.os == 'windows-latest'
-      id: vcpkg
-      uses: johnwason/vcpkg-action@v6
-      with:
-        pkgs: openssl
-        triplet: ${{ env.VCPKGRS_TRIPLET }}
-        token: ${{ github.token }}
-        github-binarycache: true
-    - if: matrix.rust == 'stable'
-      run: rustup component add clippy
-    - if: matrix.rust == 'stable'
-      run: cargo clippy --all-features --all-targets -- -D warnings
-    - if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
-      run: cargo fmt --all -- --check
-    - run: cargo check --no-default-features --all-targets
-    - run: cargo test --all-features
+# ======================================================
+# Continuous Integration: making sure the codebase works
+# ======================================================
+#
+# This workflow tests modifications to 'domain', ensuring that 'domain' can be
+# used by others successfully.  It verifies certain aspects of the codebase,
+# such as the formatting and feature flag combinations, and runs the full test
+# suite.  It runs on Ubuntu, Mac OS, and Windows.
 
-  minimal-versions:
+name: CI
+
+# When the worflow runs
+# ---------------------
+on:
+  # Execute when a pull request's head changes (e.g. new commits are added or
+  # the commit history is rewritten).
+  pull_request:
+    types: [synchronize]
+
+  # If a pull request is merged, at least one commit is added to the target
+  # branch.  If the target is another pull request, it will be caught by the
+  # above event.  We miss PRs that merge to a non-PR branch, except for the
+  # 'main' branch.
+
+  # Execute when a commit is pushed to 'main' (including merged PRs) or to a
+  # release tag.
+  push:
+    branches:
+      - 'main'
+      - 'releases/**'
+
+  # Rebuild 'main' every week.  This will account for changes to dependencies
+  # and to Rust, either of which can trigger new failures.  Rust releases are
+  # every 6 weeks, on a Thursday; this event runs every Friday.
+  schedule:
+    - cron: '0 10 * * FRI'
+
+# Jobs
+# ----------------------------------------------------------------------------
+jobs:
+
+  # Check Formatting
+  # ----------------
+  #
+  # NOTE: This job is run even if no '.rs' files have changed.  Inserting such
+  # a check would require using a separate workflow file or using third-party
+  # actions.  Most commits do change '.rs' files, and 'cargo-fmt' is pretty
+  # fast, so optimizing this is not necessary.
+  check-fmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    # Misformatted code is unlikely to affect the main test suite.
+    continue-on-error: true
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # GitHub provides a "recent version" of Rust already, with 'rustup', but
+    # we want to check this against the latest stable version.
+    #
+    # TODO: Evaluate whether this should be cached.
+    - name: Update stable Rust
+      run: rustup toolchain update stable
+
+    # Do the actual formatting check.
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+  # Check Feature Flags
+  # -------------------
+  #
+  # Rust does not provide any way to check that all possible feature flag
+  # combinations will succeed, so we need to try them manually here.  We will
+  # assume this choice is not influenced by the OS or Rust version.
+  check-feature-flags:
+    name: Check feature flags
+    runs-on: ubuntu-latest
+    # Accidental breakage of feature flag combinations is unlikely to affect
+    # the main test suite.
+    continue-on-error: true
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # GitHub provides a "recent version" of Rust already, with 'rustup', but
+    # we want to check this against the latest stable version.
+    #
+    # TODO: Evaluate whether this should be cached.
+    - name: Update stable Rust
+      run: rustup toolchain update stable
+
+    # Do the actual feature flag checks.
+    #
+    # NOTE: This does not benefit from the 'target' folder cached by a 'cargo
+    # check --all-features --all-targets' execution.  Due to the minimal
+    # dependency set, it still runs fairly quickly.
+    - name: Check empty feature set
+      run: cargo check --no-default-features --all-targets
+
+  # Check Minimal Versions
+  # ----------------------
+  #
+  # Ensure that 'domain' compiles with the oldest compatible versions of all
+  # packages, even those 'domain' depends upon indirectly.
+  check-minimal-versions:
     name: Check minimal versions
     runs-on: ubuntu-latest
-    env:
-        RUSTFLAGS: "-D warnings"
+    # Accidental reliance on older versions of dependencies is unlikely to
+    # affect the main test suite.
+    continue-on-error: true
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v1
-    - name: Install Rust
-      uses: hecrj/setup-rust-action@v2
-      with:
-        rust-version: "1.79.0"
-    - name: Install OpenSSL
-      run: sudo apt-get install -y libssl-dev
-    - name: Install nightly Rust
-      run: rustup install nightly
-    - name: Check with minimal-versions
-      run: |
-        cargo +nightly update -Z minimal-versions
-        cargo check --all-features --all-targets --locked
 
-  # Note: This deliberately doesn't try to run the examples as some of them
-  # don't terminate and/or attempt to make network connections that will fail
-  # or perhaps be a nuisance to real name servers if run regularly by CI.
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # GitHub provides a "recent version" of Rust already, with 'rustup', but
+    # we need the unstable 'minimal-versions' flag, so we need nightly.
+    #
+    # TODO: Evaluate whether this should be cached.
+    - name: Install nightly Rust
+      run: rustup toolchain install nightly
+
+    # Lock all dependencies to their minimal versions.
+    - name: Lock dependencies to minimal versions
+      run: cargo +nightly update -Z minimal-versions
+
+    # Check that 'domain' compiles.
+    #
+    # NOTE: This does not benefit from the 'target' folder cached by a 'cargo
+    # check --all-features --all-targets' execution.  It may be worthwhile to
+    # cache this 'target' folder separately (TODO).
+    - name: Check
+      run: cargo check --all-features --all-targets --locked -- -D warnings
+
+  # Clippy
+  # ------
   #
-  # Note: This is just a band aid, ideally there would be a way for Cargo to
-  # build/run examples using the feature set specified in Cargo.toml itself,
-  # but that isn't currently possible (see [1]).
-  # 
-  # [1]: https://github.com/rust-lang/cargo/issues/4663)
-  build-examples:
-    name: Build examples
+  # We run Clippy separately, and only on nightly Rust because it offers a
+  # superset of the lints.
+  #
+  # 'cargo clippy' and 'cargo build' can share some state for fast execution,
+  # but it's faster to execute them in parallel than to establish an ordering
+  # between them.
+  clippy:
+    name: Clippy
     runs-on: ubuntu-latest
+    # Clippy is fairly pedantic; a failure here (that is unrelated to basic
+    # compilation) is unlikely to break the main test suite.
+    continue-on-error: true
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # GitHub provides a "recent version" of Rust already, with 'rustup', but
+    # we want bleeding-edge Clippy to check newer lints.
+    #
+    # TODO: Evaluate whether this should be cached.
+    - name: Install nightly Rust
+      run: rustup toolchain install nightly
+
+    # Do the actually Clippy run.
+    #
+    # TODO: This could benefit from a cached 'target' folder for a nightly
+    # Clippy run on a branch like 'main', especially in smaller PRs.
+    - name: Check Clippy
+      run: cargo +nightly clippy --all-features --all-targets -- -D warnings
+
+  # Test
+  # ----
+  #
+  # Ensure that 'domain' compiles and its test suite passes, on a large number
+  # of operating systems and Rust versions.
+  test:
+    name: Test
     strategy:
       matrix:
-        rust: [1.79.0, stable, beta, nightly]
+        # TODO: Re-enable Windows once 'vcpkg' can be cached.
+        os: [ubuntu-latest, macOS-latest]
+        rust: [1.79.0, stable, nightly]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: false
+    env:
+      RUSTFLAGS: "-D warnings"
     steps:
+
+    # Load the repository.
     - name: Checkout repository
-      uses: actions/checkout@v1
-    - name: Install Rust
-      uses: hecrj/setup-rust-action@v2
-      with:
-        rust-version: ${{ matrix.rust }}
-    - name: Compile all examples
-      shell: bash
-      # TODO: Emit matrix elements based on inspecting Cargo.toml so that
-      # each example runs as its own GitHub Actions step/job?
+      uses: actions/checkout@v4
+
+    # Install and select the right toolchain version.
+    # 
+    # GitHub provides a "recent version" of Rust already, with 'rustup'.
+    # 
+    # TODO: Evaluate whether this should be cached.
+    - name: Install ${{matrix.rust}} Rust
       run: |
-        # Generate the set of cargo check --example X --features Y commands to
-        # run and store them in a temporary script. This command works by
-        # extracting the example blocks from the Cargo.toml file and the set
-        # of features that the block indicates are needed to run the example.
-        # E.g. given this block in Cargo.toml:
-        # 
-        #   [[example]]
-        #   name = "lookup"
-        #   required-features = ["resolv"]
-        #
-        # It outputs a line that looks like this:
-        #
-        #   cargo check --example lookup --features resolv
-        #
-        # One line per example is output and the set of lines directed to a temporary
-        # shell script file which is then run in the next step.
+        rustup toolchain install ${{matrix.rust}}
+        rustup default ${{matrix.rust}}
+    
+    # Build and run the test suite.
+    - name: Test
+      run: cargo test --all-features
 
-        cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] | contains("example")) | "cargo check --example \(.name) --features \(."required-features" | flatten | join(","))"' > ${{ runner.temp }}/check-examples.sh
-
-        # Run the temporary script:
-
-        bash -x -e ${{ runner.temp }}/check-examples.sh
+# TODO: Use 'cargo-semver-checks' on releases.
+# TODO: Ensure we're running the right jobs on the right events.
+# TODO: Restore the 'build-examples' job.
