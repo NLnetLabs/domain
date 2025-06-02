@@ -14,7 +14,7 @@ use tracing::trace;
 
 use crate::base::name::{FlattenInto, Label};
 use crate::base::scan::ScannerError;
-use crate::base::{Name, Record, Rtype, ToName};
+use crate::base::{Name, ParsedName, Record, Rtype, ToName};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
@@ -76,8 +76,8 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #
 /// # // Prepare some records to pass to ZoneUpdater
 /// # let serial = Serial::now();
-/// # let mname = ParsedName::from(Name::<Bytes>::from_str("mname").unwrap());
-/// # let rname = ParsedName::from(Name::<Bytes>::from_str("rname").unwrap());
+/// # let mname = ParsedName::from(Name::from_str("mname").unwrap());
+/// # let rname = ParsedName::from(Name::from_str("rname").unwrap());
 /// # let ttl = Ttl::from_secs(0);
 /// # let new_soa_rec = Record::new(
 /// #     ParsedName::from(Name::from_str("example.com").unwrap()),
@@ -94,7 +94,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
 /// # );
 /// #
-/// let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+/// let mut updater = ZoneUpdater::<ParsedName<Bytes>>::new(zone.clone()).await.unwrap();
 /// updater.apply(ZoneUpdate::DeleteAllRecords);
 /// updater.apply(ZoneUpdate::AddRecord(a_rec));
 /// updater.apply(ZoneUpdate::Finished(new_soa_rec));
@@ -133,8 +133,8 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #
 /// # // Prepare some records to pass to ZoneUpdater
 /// # let serial = Serial::now();
-/// # let mname = ParsedName::from(Name::<Bytes>::from_str("mname").unwrap());
-/// # let rname = ParsedName::from(Name::<Bytes>::from_str("rname").unwrap());
+/// # let mname = ParsedName::from(Name::from_str("mname").unwrap());
+/// # let rname = ParsedName::from(Name::from_str("rname").unwrap());
 /// # let ttl = Ttl::from_secs(0);
 /// # let new_soa_rec = Record::new(
 /// #     ParsedName::from(Name::from_str("example.com").unwrap()),
@@ -159,7 +159,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
 /// # );
 /// #
-/// let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+/// let mut updater = ZoneUpdater::<ParsedName<Bytes>>::new(zone.clone()).await.unwrap();
 /// updater.apply(ZoneUpdate::DeleteRecord(old_a_rec));
 /// updater.apply(ZoneUpdate::AddRecord(new_aaaa_rec));
 /// updater.apply(ZoneUpdate::Finished(new_soa_rec));
@@ -214,7 +214,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// ```
 ///
 /// [`apply()`]: ZoneUpdater::apply()
-pub struct ZoneUpdater<N> {
+pub struct ZoneUpdater<N = ParsedName<Bytes>> {
     /// The zone to be updated.
     zone: Zone,
 
@@ -924,7 +924,7 @@ mod tests {
 
         //                        IN NS  NS.JAIN.AD.JP.
         let ns_1 = Record::new(
-            ParsedName::from(Name::<Bytes>::from_str("JAIN.AD.JP.").unwrap()),
+            ParsedName::from(Name::from_str("JAIN.AD.JP.").unwrap()),
             Class::IN,
             Ttl::from_secs(0),
             Ns::new(ParsedName::from(
@@ -939,9 +939,7 @@ mod tests {
 
         //    NS.JAIN.AD.JP.      IN A   133.69.136.1
         let a_1 = Record::new(
-            ParsedName::from(
-                Name::<Bytes>::from_str("NS.JAIN.AD.JP.").unwrap(),
-            ),
+            ParsedName::from(Name::from_str("NS.JAIN.AD.JP.").unwrap()),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 1)).into(),
@@ -953,9 +951,7 @@ mod tests {
 
         //    NEZU.JAIN.AD.JP.    IN A   133.69.136.5
         let nezu = Record::new(
-            ParsedName::from(
-                Name::<Bytes>::from_str("NEZU.JAIN.AD.JP.").unwrap(),
-            ),
+            ParsedName::from(Name::from_str("NEZU.JAIN.AD.JP.").unwrap()),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 5)).into(),
@@ -980,9 +976,7 @@ mod tests {
             .await
             .unwrap();
         let a_2 = Record::new(
-            ParsedName::from(
-                Name::<Bytes>::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(),
-            ),
+            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 4)).into(),
@@ -1017,9 +1011,7 @@ mod tests {
             .await
             .unwrap();
         let a_4 = Record::new(
-            ParsedName::from(
-                Name::<Bytes>::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(),
-            ),
+            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 3)).into(),
