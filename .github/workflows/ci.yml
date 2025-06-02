@@ -15,11 +15,7 @@ jobs:
         rust: [1.79.0, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
-        # We use 'vcpkg' to install OpenSSL on Windows.
-        VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
-        VCPKGRS_TRIPLET: x64-windows-release
-        # Ensure that OpenSSL is dynamically linked.
-        VCPKGRS_DYNAMIC: 1
+        OPENSSL_FLAGS: "${{ matrix.os == 'windows-latest' && '-F static-openssl' || '' }}"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
@@ -29,21 +25,13 @@ jobs:
         rust-version: ${{ matrix.rust }}
     - if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get install -y libssl-dev
-    - if: matrix.os == 'windows-latest'
-      id: vcpkg
-      uses: johnwason/vcpkg-action@v6
-      with:
-        pkgs: openssl
-        triplet: ${{ env.VCPKGRS_TRIPLET }}
-        token: ${{ github.token }}
-        github-binarycache: true
     - if: matrix.rust == 'stable'
       run: rustup component add clippy
     - if: matrix.rust == 'stable'
       run: cargo clippy --all-features --all-targets -- -D warnings
     - if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
       run: cargo fmt --all -- --check
-    - run: cargo check --no-default-features --all-targets
+    - run: cargo check --no-default-features $OPENSSL_FLAGS --all-targets
     - run: cargo test --all-features
 
   minimal-versions:
