@@ -9,7 +9,11 @@ New
 
 Bug fixes
 
+* In-place zone parser yields incorrect TTLs. ([538])
+
 Other changes
+
+[#538]: https://github.com/NLnetLabs/domain/pull/538
 
 ## 0.11.0
 
@@ -112,7 +116,7 @@ Other changes
 [#472]: https://github.com/NLnetLabs/domain/pull/472
 [#474]: https://github.com/NLnetLabs/domain/pull/474
 [#475]: https://github.com/NLnetLabs/domain/pull/475
-[#4775]: https://github.com/NLnetLabs/domain/pull/477
+[#477]: https://github.com/NLnetLabs/domain/pull/477
 [@weilence]: https://github.com/weilence
 [new-base-post]: https://blog.nlnetlabs.nl/overhauling-domain/
 
