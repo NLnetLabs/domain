@@ -211,12 +211,16 @@ fn do_start(filename: &str, args: &[String]) {
                     None
                 }
             }
-            RollType::CskRoll => match k.keytype() {
-                KeyType::Ksk(keystate)
-                | KeyType::Zsk(keystate)
-                | KeyType::Csk(keystate, _) => Some((keystate.clone(), pr)),
-                KeyType::Include(_) => None,
-            },
+            RollType::CskRoll | RollType::AlgorithmRoll => {
+                match k.keytype() {
+                    KeyType::Ksk(keystate)
+                    | KeyType::Zsk(keystate)
+                    | KeyType::Csk(keystate, _) => {
+                        Some((keystate.clone(), pr))
+                    }
+                    KeyType::Include(_) => None,
+                }
+            }
         })
         .filter(|(keystate, _)| !keystate.old())
         .map(|(keystate, pubref)| (keystate, pubref.to_string()))
@@ -536,8 +540,14 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
             Action::ReportDnskeyPropagated => {
                 println!("\tReport that the DNSKEY RRset has propagated")
             }
+            Action::WaitDnskeyPropagated => {
+                println!("\tWait until the DNSKEY RRset has propagated")
+            }
             Action::ReportRrsigPropagated => {
                 println!("\tReport that the RRSIG records have propagated")
+            }
+            Action::WaitRrsigPropagated => {
+                println!("\tWait until the RRSIG records have propagated")
             }
             Action::ReportDsPropagated => println!(
                 "\tReport that the DS RRset has propagated at the parent"
