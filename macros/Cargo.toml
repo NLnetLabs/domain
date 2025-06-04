@@ -1,0 +1,28 @@
+[package]
+name = "domain-macros"
+
+# Copied from 'domain'.
+version = "0.11.1-dev"
+rust-version = "1.68.2"
+edition = "2021"
+
+authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
+description = "Procedural macros for the `domain` crate."
+documentation = "https://docs.rs/domain-macros"
+homepage = "https://github.com/nlnetlabs/domain/"
+repository = "https://github.com/nlnetlabs/domain/"
+keywords = ["DNS", "domain"]
+license = "BSD-3-Clause"
+
+[lib]
+proc-macro = true
+
+[dependencies.proc-macro2]
+version = "1.0"
+
+[dependencies.syn]
+version = "2.0"
+features = ["full", "visit"]
+
+[dependencies.quote]
+version = "1.0"
