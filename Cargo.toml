@@ -33,7 +33,11 @@ chrono         = { version = "0.4.35", optional = true, default-features = false
 futures-util   = { version = "0.3", optional = true }
 hashbrown      = { version = "0.14.2", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
 heapless       = { version = "0.8", optional = true }
-kmip           = { git = "https://github.com/NLnetLabs/kmip-protocol", branch = "next", package = "kmip-protocol", version = "0.5.0", optional = true, features = ["tls-with-rustls"] } # TODO: use the async feature instead
+kmip           = { git = "https://github.com/NLnetLabs/kmip-protocol", branch = "add-ecdsa-support", package = "kmip-protocol", version = "0.4.4-dev", optional = true, features = ["tls-with-openssl-vendored"] } # TODO: use the async feature instead
+#kmip           = { version = "0.4.3", package = "kmip-protocol", optional = true, features = ["tls-with-openssl-vendored"] } # TODO: use the async feature instead
+#kmip           = { path = "../kmip-protocol2", package = "kmip-protocol", version = "0.4.4-dev", optional = true, features = ["tls-with-openssl-vendored"] } # TODO: use the async feature instead
+#kmip           = { git = "https://github.com/NLnetLabs/kmip-protocol", branch = "next", package = "kmip-protocol", version = "0.5.0", optional = true, features = ["tls-with-openssl-vendored"] } # TODO: use the async feature instead
+#kmip           = { path = "../kmip-protocol", package = "kmip-protocol", version = "0.5.0", optional = true, features = ["tls-with-openssl-vendored"] } # TODO: use the async feature instead
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
 log            = { version = "0.4.22", optional = true }
 parking_lot    = { version = "0.12", optional = true }
@@ -42,6 +46,7 @@ openssl        = { version = "0.10.72", optional = true } # 0.10.70 upgrades to 
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 r2d2           = { version = "0.8.9", optional = true }
 ring           = { version = "0.17.2", optional = true }
+rpki           = { version = "0.18", optional = true, features = ["crypto"] }
 rustversion    = { version = "1", optional = true }
 secrecy        = { version = "0.10", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
@@ -67,9 +72,9 @@ std         = ["alloc", "dep:hashbrown", "bumpalo?/std", "bytes?/std", "octseq/s
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
-ring    = ["dep:ring"]
-openssl = ["dep:openssl"]
-kmip    = ["dep:kmip", "dep:r2d2"]
+ring           = ["dep:ring"]
+openssl        = ["dep:openssl"]
+kmip           = ["dep:kmip", "dep:r2d2", "dep:rpki"]
 static-openssl = ["openssl/vendored"]
 
 # Crate features

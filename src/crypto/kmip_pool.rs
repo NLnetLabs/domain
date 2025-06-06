@@ -1,3 +1,6 @@
+#![cfg(feature = "kmip")]
+#![cfg_attr(docsrs, doc(cfg(feature = "kmip")))]
+
 //! KMIP TLS connection pool
 //!
 //! Used to:
@@ -10,8 +13,9 @@ use std::net::TcpStream;
 use std::{sync::Arc, time::Duration};
 
 use kmip::client::{Client, ConnectionSettings};
+use openssl::ssl::SslStream;
 
-pub type KmipTlsClient = Client<kmip::rustls::StreamOwned<kmip::rustls::ClientSession, TcpStream>>;
+pub type KmipTlsClient = Client<SslStream<TcpStream>>;
 
 pub type KmipConnPool = r2d2::Pool<ConnectionManager>;
 
@@ -76,7 +80,8 @@ impl ConnectionManager {
     pub fn connect_one_off(
         settings: &ConnectionSettings,
     ) -> kmip::client::Result<KmipTlsClient> {
-        kmip::client::tls::rustls::connect(settings)
+        let conn = kmip::client::tls::openssl::connect(settings)?;
+        Ok(conn)
     }
 }
 
@@ -95,7 +100,10 @@ impl r2d2::ManageConnection for ConnectionManager {
     /// flag is set to false when the connection pool is created.
     ///
     /// [r2d2]: https://crates.io/crates/r2d2/
-    fn is_valid(&self, _conn: &mut Self::Connection) -> Result<(), Self::Error> {
+    fn is_valid(
+        &self,
+        _conn: &mut Self::Connection,
+    ) -> Result<(), Self::Error> {
         unreachable!()
     }
 
