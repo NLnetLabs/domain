@@ -227,7 +227,7 @@ pub mod sign {
         // post-signing? Can we just specify the hashing to do when invoking
         // the Sign operation?
         // Fortanix DSM also doesn't support Cryptographic Parameters:
-        //   Server error: Operation CreateKeyPair failed: Don't have handling for attribute Cryptographic Parameters   
+        //   Server error: Operation CreateKeyPair failed: Don't have handling for attribute Cryptographic Parameters
 
         // PyKMIP doesn't support Attribute::ActivationDate. For HSMs that
         // don't support it we have to do a separate Activate operation after
@@ -459,9 +459,8 @@ mod tests {
         let mut conn_settings = ConnectionSettings::default();
         conn_settings.host = "eu.smartkey.io".to_string();
         conn_settings.port = 5696;
-        conn_settings.username =
-            Some("2c79ae57-18a9-431a-baa1-0ef98cf88f45".to_string());
-        conn_settings.password = Some("kbJcsgfVaiVOnldmyIXitwWnuIeEVHw9Jm0EoY3NA_qj-glVucT1sbRcSWGf3st7B8xWN-aKC4rmJ0gNmfQCgg".to_string());
+        conn_settings.username = Some("*****".to_string());
+        conn_settings.password = Some("*****".to_string());
 
         eprintln!("Creating pool...");
         let pool = ConnectionManager::create_connection_pool(
