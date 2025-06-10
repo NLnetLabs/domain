@@ -94,20 +94,12 @@ pub mod sign {
 
             let octets = match public_key.key_block.key_value.key_material {
                 KeyMaterial::Bytes(bytes) => {
-                    // Hmmm, this is what we get with PyKMIP, rather than
-                    // TransparentRSAPublicKey. The Dnskey we create using
-                    // these octets doesn't seem to render the RDATA correctly
-                    // so do we need to do something with these bytes?
+                    // This is what we get with PyKMIP using RSASHA256 and
+                    // Fortanix using ECDSAP256SHA256. The Dnskey we create
+                    // using these octets doesn't seem to render the RDATA
+                    // correctly so do we need to do something with these
+                    // bytes?
                     bytes
-                }
-                KeyMaterial::TransparentRSAPublicKey(key) => {
-                    rpki::crypto::keys::PublicKey::rsa_from_components(
-                        &key.modulus,
-                        &key.public_exponent,
-                    )
-                    .unwrap()
-                    .bits()
-                    .to_vec()
                 }
                 _ => todo!(),
             };
@@ -295,6 +287,13 @@ pub mod sign {
                     // what value we should put here, but as Q length is
                     // optional let's try not passing it.
                     // Note: PyKMIP requires a length: use 256 from P-256?
+                    // Note: Fortanix also requires a length and gives error
+                    // "missing required field `elliptic_curve` in request
+                    // body" if cryptographic length is not specified, and a
+                    // value of 256 works fine while a value of 255 causes
+                    // error "Unsupported length for ECC key". When using 256
+                    // the Fortanix UI shows the key as type EC with curve
+                    // NistP256 so that seems good.
                     common_attrs
                         .push(request::Attribute::CryptographicLength(256));
                 }
@@ -447,6 +446,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires Fortanix credentials"]
     fn fortanix_dsm_test() {
         // Note: keyls fails against Fortanix DSM for some reason with error:
         // Error: Server error: Operation Locate failed: expected
@@ -459,8 +459,8 @@ mod tests {
         let mut conn_settings = ConnectionSettings::default();
         conn_settings.host = "eu.smartkey.io".to_string();
         conn_settings.port = 5696;
-        conn_settings.username = Some("*****".to_string());
-        conn_settings.password = Some("*****".to_string());
+        conn_settings.username = Some(env!("FORTANIX_USER").to_string());
+        conn_settings.password = Some(env!("FORTANIX_PASS").to_string());
 
         eprintln!("Creating pool...");
         let pool = ConnectionManager::create_connection_pool(
