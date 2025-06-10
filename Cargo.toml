@@ -72,10 +72,9 @@ std         = ["alloc", "dep:hashbrown", "bumpalo?/std", "bytes?/std", "octseq/s
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
-ring           = ["dep:ring"]
-openssl        = ["dep:openssl"]
-kmip           = ["dep:kmip", "dep:r2d2", "dep:rpki"]
-static-openssl = ["openssl/vendored"]
+ring        = ["dep:ring"]
+openssl     = ["dep:openssl"]
+kmip        = ["dep:kmip", "dep:r2d2", "dep:rpki"]
 
 # Crate features
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
