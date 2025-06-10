@@ -43,8 +43,8 @@ pub mod sign {
 
     use kmip::types::common::{
         CryptographicAlgorithm, CryptographicParameters,
-        CryptographicUsageMask, DigitalSignatureAlgorithm, HashingAlgorithm,
-        KeyMaterial, ObjectType,
+        CryptographicUsageMask, Data, DigitalSignatureAlgorithm,
+        HashingAlgorithm, KeyMaterial, ObjectType, UniqueIdentifier,
     };
     use kmip::types::request::{
         self, CommonTemplateAttribute, PrivateKeyTemplateAttribute,
@@ -60,6 +60,8 @@ pub mod sign {
     };
     use crate::rdata::Dnskey;
 
+    pub use kmip::client::ConnectionSettings;
+
     #[derive(Clone, Debug)]
     pub struct KeyPair {
         /// The algorithm used by the key.
@@ -72,6 +74,32 @@ pub mod sign {
         conn_pool: KmipConnPool,
 
         flags: u16,
+    }
+
+    impl KeyPair {
+        pub fn new(
+            algorithm: SecurityAlgorithm,
+            flags: u16,
+            private_key_id: &str,
+            public_key_id: &str,
+            conn_pool: KmipConnPool,
+        ) -> Self {
+            Self {
+                algorithm,
+                private_key_id: private_key_id.to_string(),
+                public_key_id: public_key_id.to_string(),
+                conn_pool,
+                flags,
+            }
+        }
+
+        pub fn private_key_id(&self) -> &str {
+            &self.private_key_id
+        }
+
+        pub fn public_key_id(&self) -> &str {
+            &self.public_key_id
+        }
     }
 
     impl SignRaw for KeyPair {
@@ -110,7 +138,33 @@ pub mod sign {
         fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
             let client = self.conn_pool.get().map_err(|_| SignError)?;
 
-            let signed = client.sign(&self.private_key_id, data).unwrap();
+            let (crypto_alg, hashing_alg) = match self.algorithm {
+                SecurityAlgorithm::RSASHA256 => {
+                    (CryptographicAlgorithm::RSA, HashingAlgorithm::SHA256)
+                }
+                SecurityAlgorithm::ECDSAP256SHA256 => {
+                    (CryptographicAlgorithm::ECDSA, HashingAlgorithm::SHA256)
+                }
+                _ => return Err(SignError),
+            };
+
+            let request = RequestPayload::Sign(
+                Some(UniqueIdentifier(self.private_key_id.clone())),
+                Some(
+                    CryptographicParameters::default()
+                        // .with_padding_method(PaddingMethod::)
+                        .with_hashing_algorithm(hashing_alg)
+                        .with_cryptographic_algorithm(crypto_alg),
+                ),
+                Data(data.to_vec()),
+            );
+
+            // Execute the request and capture the response
+            let res = client.do_request(request).unwrap();
+
+            let ResponsePayload::Sign(signed) = res else {
+                unreachable!();
+            };
 
             // TODO: For HSMs that don't support hashing do we have to do
             // hashing ourselves here after signing? Note: PyKMIP doesn't
@@ -135,11 +189,16 @@ pub mod sign {
                     )))
                 }
                 SecurityAlgorithm::ECDSAP256SHA256 => {
+                    let signature = openssl::ecdsa::EcdsaSig::from_der(
+                        &signed.signature_data,
+                    )
+                    .unwrap();
+                    let mut r = signature.r().to_vec_padded(32).unwrap();
+                    let mut s = signature.s().to_vec_padded(32).unwrap();
+                    r.append(&mut s);
+
                     Ok(Signature::EcdsaP256Sha256(Box::<[u8; 64]>::new(
-                        signed
-                            .signature_data
-                            .try_into()
-                            .map_err(|_| SignError)?,
+                        r.try_into().map_err(|_| SignError)?,
                     )))
                 }
                 SecurityAlgorithm::ECDSAP384SHA384 => {
@@ -376,6 +435,13 @@ mod tests {
     use crate::crypto::kmip_pool::ConnectionManager;
     use crate::crypto::sign::SignRaw;
     use crate::logging::init_logging;
+    use kmip::types::common::{
+        CryptographicAlgorithm, CryptographicParameters, Data,
+        HashingAlgorithm, PaddingMethod, UniqueIdentifier,
+    };
+    use kmip::types::request::RequestPayload;
+    use kmip::types::response::ResponsePayload;
+    use std::thread::sleep;
     use std::time::SystemTime;
 
     #[test]
@@ -488,7 +554,7 @@ mod tests {
         );
         let res = generate(
             generated_key_name,
-            //crate::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
+            // crate::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
             crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
             pool,
@@ -498,5 +564,49 @@ mod tests {
 
         let dnskey = key.dnskey();
         eprintln!("DNSKEY: {}", dnskey);
+
+        // Fortanix: Activating the public key also activates the private key.
+        // Attempting to then activate the private key fails as it is already
+        // active. Yet signing fails with "Object is not yet active"...
+        client.activate_key(key.public_key_id()).unwrap();
+        // client.activate_key(key.private_key_id()).unwrap();
+
+        // This works round the not yet active yet error.
+        sleep(Duration::from_secs(5));
+
+        let request = RequestPayload::Sign(
+            Some(UniqueIdentifier(key.private_key_id().to_string())),
+            // While the KMIP 1.2 spec says crypto parameters are optional and
+            // if not specified those of the key will be used, Fortanix
+            // complains about "No cryptographic parameters specified" if this
+            // is None, and "Must specicify HashingAlgorithm" if that is not
+            // specified.
+            Some(
+                CryptographicParameters::default()
+                    // .with_padding_method(PaddingMethod::)
+                    .with_hashing_algorithm(HashingAlgorithm::SHA256)
+                    .with_cryptographic_algorithm(
+                        // CryptographicAlgorithm::RSA,
+                        CryptographicAlgorithm::ECDSA,
+                    ),
+            ),
+            Data("Message for ECDSA signing".as_bytes().to_vec()),
+        );
+
+        // Execute the request and capture the response
+        let response = client.do_request(request).unwrap();
+
+        let ResponsePayload::Sign(signed) = response else {
+            unreachable!();
+        };
+
+        let signature =
+            openssl::ecdsa::EcdsaSig::from_der(&signed.signature_data)
+                .unwrap();
+
+        dbg!(signature.r().to_vec_padded(32));
+        dbg!(signature.s().to_vec_padded(32));
+
+        // dbg!(response);
     }
 }

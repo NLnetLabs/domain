@@ -308,6 +308,7 @@ pub enum KeyPair {
     OpenSSL(openssl::sign::KeyPair),
 
     /// A key backed by a KMIP capable HSM.
+    #[cfg(feature = "kmip")]
     Kmip(kmip::sign::KeyPair),
 }
 
