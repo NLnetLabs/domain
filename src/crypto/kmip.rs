@@ -52,6 +52,7 @@ pub mod sign {
     };
     use kmip::types::response::{ManagedObject, ResponsePayload};
     use log::error;
+    use rpki::dep::bcder::decode::SliceSource;
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::kmip_pool::KmipConnPool;
@@ -123,11 +124,18 @@ pub mod sign {
             let octets = match public_key.key_block.key_value.key_material {
                 KeyMaterial::Bytes(bytes) => {
                     // This is what we get with PyKMIP using RSASHA256 and
-                    // Fortanix using ECDSAP256SHA256. The Dnskey we create
-                    // using these octets doesn't seem to render the RDATA
-                    // correctly so do we need to do something with these
-                    // bytes?
-                    bytes
+                    // Fortanix using ECDSAP256SHA256. With Fortanix it
+                    // appears to be a DER encoded SubjectPublicKeyInfo
+                    // data structure of the form:
+                    // SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
+                    //  algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
+                    //    algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
+                    //    parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
+                    //  subjectPublicKey BIT_STRING @23+66: (520 bit)
+                    let source = SliceSource::new(&bytes);
+                    let public_key =
+                        rpki::crypto::PublicKey::decode(source).unwrap();
+                    public_key.bits().to_vec()
                 }
                 _ => todo!(),
             };
