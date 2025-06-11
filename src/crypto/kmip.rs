@@ -156,6 +156,14 @@ pub mod sign {
                 _ => return Err(SignError),
             };
 
+            // OpenDNSSEC does its own hashing. Trying to do SHA256 hashing
+            // ourselves and then not passing a hashing algorithm to the Sign
+            // operation below results (with Fortanix at least) in error "Must
+            // specify HashingAlgorithm".
+            // let mut ctx = crate::crypto::common::DigestBuilder::new(crate::crypto::common::DigestType::Sha256);
+            // ctx.update(&data);
+            // let data = ctx.finish();
+
             let request = RequestPayload::Sign(
                 Some(UniqueIdentifier(self.private_key_id.clone())),
                 Some(
@@ -164,7 +172,7 @@ pub mod sign {
                         .with_hashing_algorithm(hashing_alg)
                         .with_cryptographic_algorithm(crypto_alg),
                 ),
-                Data(data.to_vec()),
+                Data(data.as_ref().to_vec()),
             );
 
             // Execute the request and capture the response
