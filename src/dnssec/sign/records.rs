@@ -119,7 +119,7 @@ where
     ///   - false: if no matching record was found
     pub fn remove_all_by_name_class_rtype(
         &mut self,
-        name: N,
+        name: &N,
         class: Option<Class>,
         rtype: Option<Rtype>,
     ) -> bool
@@ -129,11 +129,7 @@ where
     {
         let mut found_one = false;
         loop {
-            if self.remove_first_by_name_class_rtype(
-                name.clone(),
-                class,
-                rtype,
-            ) {
+            if self.remove_first_by_name_class_rtype(name, class, rtype) {
                 found_one = true
             } else {
                 break;
@@ -151,7 +147,7 @@ where
     ///   - false: if no matching record was found
     pub fn remove_first_by_name_class_rtype(
         &mut self,
-        name: N,
+        name: &N,
         class: Option<Class>,
         rtype: Option<Rtype>,
     ) -> bool
@@ -169,7 +165,7 @@ where
                 }
             }
 
-            match stored.owner().name_cmp(&name) {
+            match stored.owner().name_cmp(name) {
                 Ordering::Equal => {}
                 res => return res,
             }

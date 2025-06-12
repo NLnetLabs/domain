@@ -1,6 +1,23 @@
 # Change Log
 
+
 ## Unreleased next version
+
+Breaking changes
+
+New
+
+Bug fixes
+
+* In-place zone parser yields incorrect TTLs. ([538])
+
+Other changes
+
+[#538]: https://github.com/NLnetLabs/domain/pull/538
+
+## 0.11.0
+
+Released 2025-05-21.
 
 Breaking changes
 
@@ -23,7 +40,7 @@ New
   running resolver. In combination with `ResolvConf::new()` this can also be
   used to control the connections made when testing code that uses the stub
   resolver. ([#440])
-* Add `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
+* Added `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
   [#463])
 
 Bug fixes
@@ -41,8 +58,12 @@ Unstable features
 * New unstable feature `unstable-crypto-sign` that enable cryptography support
   including features that rely on secret keys. This feature needs either
   or both of the features `ring` and `openssl` ([#416])
-* New unstable feature 'unstable-client-cache' that enable the client transport
+* New unstable feature `unstable-client-cache` that enable the client transport
   cache. The reason is that the client cache uses the `moka` crate.
+
+* New unstable feature `unstable-new` that introduces a new API for all of
+  domain (currently only with `base`, `rdata`, and `edns` modules).  Also see
+  the [associated blog post][new-base-post].
 
 * `unstable-server-transport`
   * The trait `SingleService` which is a simplified service trait for
@@ -93,9 +114,11 @@ Other changes
 [#463]: https://github.com/NLnetLabs/domain/pull/463
 [#470]: https://github.com/NLnetLabs/domain/pull/470
 [#472]: https://github.com/NLnetLabs/domain/pull/472
+[#474]: https://github.com/NLnetLabs/domain/pull/474
 [#475]: https://github.com/NLnetLabs/domain/pull/475
-[#4775]: https://github.com/NLnetLabs/domain/pull/477
+[#477]: https://github.com/NLnetLabs/domain/pull/477
 [@weilence]: https://github.com/weilence
+[new-base-post]: https://blog.nlnetlabs.nl/overhauling-domain/
 
 
 ## 0.10.4
