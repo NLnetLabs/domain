@@ -209,9 +209,21 @@ pub fn rsa_exponent_modulus(
 }
 
 /// Encode the RSA exponent and modulus components in DNSKEY record data
-/// format.
-pub fn rsa_encode(e: &[u8], n: &[u8]) -> Vec<u8> {
+/// format. Leading zeroes will be ignored per RFC 3110 section 2.
+pub fn rsa_encode(mut e: &[u8], mut n: &[u8]) -> Vec<u8> {
+    fn trim_leading_zeroes(bytes: &[u8]) -> &[u8] {
+        bytes
+            .iter()
+            .position(|&v| v != 0)
+            .map(|idx| &bytes[idx..])
+            .unwrap_or_default()
+    }
+
     let mut key = Vec::new();
+
+    // Trim leading zeroes.
+    e = trim_leading_zeroes(e);
+    n = trim_leading_zeroes(n);
 
     // Encode the exponent length.
     if let Ok(exp_len) = u8::try_from(e.len()) {
@@ -288,3 +300,35 @@ impl fmt::Display for FromDnskeyError {
 }
 
 impl error::Error for FromDnskeyError {}
+
+//----------- Tests ----------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use crate::crypto::common::rsa_encode;
+
+    #[test]
+    fn test_rsa_encode() {
+        assert_eq!(rsa_encode(&[], &[]), &[0]);
+
+        assert_eq!(rsa_encode(&[1], &[]), &[1, 1]);
+        assert_eq!(rsa_encode(&[], &[1]), &[0, 1]);
+        assert_eq!(rsa_encode(&[1], &[1]), &[1, 1, 1]);
+
+        assert_eq!(rsa_encode(&[0, 1], &[1]), &[1, 1, 1]);
+        assert_eq!(rsa_encode(&[1], &[0, 1]), &[1, 1, 1]);
+        assert_eq!(rsa_encode(&[0, 1], &[0, 1]), &[1, 1, 1]);
+
+        assert_eq!(rsa_encode(&[0, 0, 1], &[0, 1]), &[1, 1, 1]);
+        assert_eq!(rsa_encode(&[0, 1], &[0, 0, 1]), &[1, 1, 1]);
+        assert_eq!(rsa_encode(&[0, 1, 1], &[0, 0, 1]), &[2, 1, 1, 1]);
+
+        assert_eq!(rsa_encode(&[1, 2], &[]), &[2, 1, 2]);
+        assert_eq!(rsa_encode(&[], &[1, 2]), &[0, 1, 2]);
+        assert_eq!(rsa_encode(&[1, 2], &[1, 2]), &[2, 1, 2, 1, 2]);
+
+        assert_eq!(rsa_encode(&[0, 1, 2], &[1]), &[2, 1, 2, 1]);
+        assert_eq!(rsa_encode(&[1], &[0, 1, 2]), &[1, 1, 1, 2]);
+        assert_eq!(rsa_encode(&[0, 1, 2], &[0, 1, 2]), &[2, 1, 2, 1, 2]);
+    }
+}
