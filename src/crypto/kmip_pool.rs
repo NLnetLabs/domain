@@ -34,7 +34,7 @@ impl ConnectionManager {
     #[rustfmt::skip]
     pub fn create_connection_pool(
         conn_settings: Arc<ConnectionSettings>,
-        max_response_bytes: u32,
+        max_conncurrent_connections: u32,
         max_life_time: Duration,
         max_idle_time: Duration,
     ) -> Result<KmipConnPool, ()> {
@@ -46,7 +46,7 @@ impl ConnectionManager {
             .min_idle(Some(0))
 
             // Create at most this many concurrent connections to the KMIP server
-            .max_size(max_response_bytes)
+            .max_size(max_conncurrent_connections)
 
             // Don't verify that a connection is usable when fetching it from the pool (as doing so requires sending a
             // request to the server and we might as well just try the actual request that we want the connection for)
