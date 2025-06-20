@@ -16,6 +16,8 @@ pub fn init_logging() {
         .with_env_filter(EnvFilter::from_default_env())
         .with_thread_ids(true)
         .without_time()
+        // Useful sometimes:
+        // .with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
         .try_init()
         .ok();
 }

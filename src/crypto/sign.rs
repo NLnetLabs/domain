@@ -95,6 +95,9 @@ use super::openssl;
 #[cfg(feature = "ring")]
 use super::ring;
 
+#[cfg(feature = "kmip")]
+use super::kmip;
+
 //----------- GenerateParams -------------------------------------------------
 
 /// Parameters for generating a secret key.
@@ -303,6 +306,10 @@ pub enum KeyPair {
     /// A key backed by OpenSSL.
     #[cfg(feature = "openssl")]
     OpenSSL(openssl::sign::KeyPair),
+
+    /// A key backed by a KMIP capable HSM.
+    #[cfg(feature = "kmip")]
+    Kmip(kmip::sign::KeyPair),
 }
 
 //--- Conversion to and from bytes
@@ -359,6 +366,8 @@ impl SignRaw for KeyPair {
             Self::Ring(key) => key.algorithm(),
             #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.algorithm(),
+            #[cfg(feature = "kmip")]
+            Self::Kmip(key) => key.algorithm(),
         }
     }
 
@@ -368,6 +377,8 @@ impl SignRaw for KeyPair {
             Self::Ring(key) => key.dnskey(),
             #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.dnskey(),
+            #[cfg(feature = "kmip")]
+            Self::Kmip(key) => key.dnskey(),
         }
     }
 
@@ -377,6 +388,8 @@ impl SignRaw for KeyPair {
             Self::Ring(key) => key.sign_raw(data),
             #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.sign_raw(data),
+            #[cfg(feature = "kmip")]
+            Self::Kmip(key) => key.sign_raw(data),
         }
     }
 }
@@ -929,6 +942,18 @@ impl From<openssl::GenerateError> for GenerateError {
                 Self::UnsupportedAlgorithm
             }
             openssl::GenerateError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+#[cfg(feature = "kmip")]
+impl From<kmip::GenerateError> for GenerateError {
+    fn from(value: kmip::GenerateError) -> Self {
+        match value {
+            kmip::GenerateError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            kmip::GenerateError::Implementation => Self::Implementation,
         }
     }
 }
