@@ -44,7 +44,8 @@ pub mod sign {
     use kmip::types::common::{
         CryptographicAlgorithm, CryptographicParameters,
         CryptographicUsageMask, Data, DigitalSignatureAlgorithm,
-        HashingAlgorithm, KeyMaterial, ObjectType, UniqueIdentifier,
+        HashingAlgorithm, KeyMaterial, ObjectType, TransparentRSAPublicKey,
+        UniqueIdentifier,
     };
     use kmip::types::request::{
         self, CommonTemplateAttribute, PrivateKeyTemplateAttribute,
@@ -61,6 +62,7 @@ pub mod sign {
     };
     use crate::rdata::Dnskey;
 
+    use crate::crypto::common::{rsa_encode, DigestBuilder, DigestType};
     pub use kmip::client::ConnectionSettings;
 
     #[derive(Clone, Debug)]
@@ -109,9 +111,61 @@ pub mod sign {
         }
 
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
+            // https://datatracker.ietf.org/doc/html/rfc5702#section-2
+            // Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource
+            // Records for DNSSEC
+            // 2.  DNSKEY Resource Records
+            //   "The format of the DNSKEY RR can be found in [RFC4034].
+            //   [RFC3110] describes the use of RSA/SHA-1 for DNSSEC
+            //   signatures."
+            //                          |
+            //                          |
+            //                          v
+            // https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.4
+            // Resource Records for the DNS Security Extensions
+            // 2.  The DNSKEY Resource Record
+            // 2.1.4.  The Public Key Field
+            //   "The Public Key Field holds the public key material.  The
+            //    format depends on the algorithm of the key being stored and
+            //    is described in separate documents."
+            //                          |
+            //                          |
+            //                          v
+            // https://datatracker.ietf.org/doc/html/rfc3110#section-2
+            // RSA/SHA-1 SIGs and RSA KEYs in the Domain Name System (DNS)
+            // 2. RSA Public KEY Resource Records
+            //   "... The structure of the algorithm specific portion of the
+            //    RDATA part of such RRs is as shown below.
+            //
+            //    Field             Size
+            //    -----             ----
+            //    exponent length   1 or 3 octets (see text)
+            //    exponent          as specified by length field
+            //    modulus           remaining space
+            //
+            // For interoperability, the exponent and modulus are each limited
+            // to 4096 bits in length.  The public key exponent is a variable
+            // length unsigned integer.  Its length in octets is represented
+            // as one octet if it is in the range of 1 to 255 and by a zero
+            // octet followed by a two octet unsigned length if it is longer
+            // than 255 bytes.  The public key modulus field is a
+            // multiprecision unsigned integer.  The length of the modulus can
+            // be determined from the RDLENGTH and the preceding RDATA fields
+            // including the exponent.  Leading zero octets are prohibited in
+            // the exponent and modulus.
+
             let client = self.conn_pool.get().unwrap();
 
-            let res = client.get_key(&self.public_key_id).unwrap();
+            // Note: OpenDNSSEC queries the public key ID, _unless_ it was
+            // configured not to store the public key in the HSM (by setting
+            // CKA_TOKEN false) in which case there is no public key and so it
+            // uses the private key object handle instead.
+            let res = client
+                .get_key(&self.public_key_id)
+                .inspect_err(|err| error!("{err}"))
+                .unwrap();
+
+            dbg!(&res);
 
             assert_eq!(res.object_type, ObjectType::PublicKey);
 
@@ -120,6 +174,15 @@ pub mod sign {
             else {
                 todo!();
             };
+
+            // https://docs.oasis-open.org/kmip/ug/v1.2/cn01/kmip-ug-v1.2-cn01.html#_Toc407027125
+            //   "“Raw” key format is intended to be applied to symmetric keys
+            //    and not asymmetric keys"
+            //
+            // As we deal in assymetric keys (RSA, ECDSA), not symmetric keys,
+            // we should not encounter public_key.key_block.key_format_type ==
+            // KeyFormatType::Raw. However, Fortanix DSM returns
+            // KeyFormatType::Raw when fetching key data for an ECDSA public key.
 
             let octets = match public_key.key_block.key_value.key_material {
                 KeyMaterial::Bytes(bytes) => {
@@ -135,8 +198,42 @@ pub mod sign {
                     let source = SliceSource::new(&bytes);
                     let public_key =
                         rpki::crypto::PublicKey::decode(source).unwrap();
-                    public_key.bits().to_vec()
+                    let bits = public_key.bits().to_vec();
+
+                    // For RSA, the bits are also DER encoded of the form:
+                    //   RSAPrivateKey SEQUENCE (2 elem)
+                    //     version Version INTEGER (1024 bit) 140670898145304244147145320460151523064481569650486421654946000437850…
+                    //     modulus INTEGER 65537
+                    //
+                    // or is it really:
+                    //   RSAPrivateKey SEQUENCE (2 elem)
+                    //     modulus INTEGER
+                    //     publicExponent INTEGER
+
+                    // if public_key.algorithm() == PublicKeyFormat::Rsa {
+                    //     let source = SliceSource::new(&bits);
+                    //     let mut modulus = vec![];
+                    //     let mut public_exponent = vec![];
+                    //     bcder::Mode::Der.decode(source, |cons| {
+                    //         cons.take_sequence(|cons| {
+                    //             modulus = bcder::string::BitString::take_from(cons)?.octet_slice().unwrap().to_vec();
+                    //             public_exponent = BitString::take_from(cons)?.octet_slice().unwrap().to_vec();
+                    //             Ok(())
+                    //         })
+                    //     }).unwrap();
+                    //     rsa_encode(&public_exponent, &modulus)
+                    // } else {
+                    bits
+                    // }
                 }
+
+                KeyMaterial::TransparentRSAPublicKey(
+                    TransparentRSAPublicKey {
+                        modulus,
+                        public_exponent,
+                    },
+                ) => rsa_encode(&public_exponent, &modulus),
+
                 _ => todo!(),
             };
 
@@ -144,26 +241,91 @@ pub mod sign {
         }
 
         fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
-            let client = self.conn_pool.get().map_err(|_| SignError)?;
+            // https://www.rfc-editor.org/rfc/rfc5702.html#section-3
+            // 3.  RRSIG Resource Records
+            //   "The value of the signature field in the RRSIG RR follows the
+            //    RSASSA- PKCS1-v1_5 signature scheme and is calculated as
+            //    follows."
+            //    ...
+            //    hash = SHA-XXX(data)
+            //
+            //    Here XXX is either 256 or 512, depending on the algorithm used, as
+            //    specified in FIPS PUB 180-3; "data" is the wire format data of the
+            //    resource record set that is signed, as specified in [RFC4034].
+            //
+            //    signature = ( 00 | 01 | FF* | 00 | prefix | hash ) ** e (mod n)"
+            //    ...
+            //
+            // 3.1.  RSA/SHA-256 RRSIG Resource Records
+            //   "RSA/SHA-256 signatures are stored in the DNS using RRSIG resource
+            //    records (RRs) with algorithm number 8.
+            //
+            //    The prefix is the ASN.1 DER SHA-256 algorithm designator prefix, as
+            //    specified in PKCS #1 v2.1 [RFC3447]:
+            //
+            //    hex 30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20"
+            //
+            // We assume that the HSM signing operation implements this signing
+            // operation according to these rules.
 
-            let (crypto_alg, hashing_alg) = match self.algorithm {
-                SecurityAlgorithm::RSASHA256 => {
-                    (CryptographicAlgorithm::RSA, HashingAlgorithm::SHA256)
-                }
-                SecurityAlgorithm::ECDSAP256SHA256 => {
-                    (CryptographicAlgorithm::ECDSA, HashingAlgorithm::SHA256)
-                }
+            eprintln!("Signing1");
+            let (crypto_alg, hashing_alg, digest_type) = match self.algorithm
+            {
+                SecurityAlgorithm::RSASHA256 => (
+                    CryptographicAlgorithm::RSA,
+                    HashingAlgorithm::SHA256,
+                    DigestType::Sha256,
+                ),
+                SecurityAlgorithm::ECDSAP256SHA256 => (
+                    CryptographicAlgorithm::ECDSA,
+                    HashingAlgorithm::SHA256,
+                    DigestType::Sha256,
+                ),
                 _ => return Err(SignError),
             };
 
-            // OpenDNSSEC does its own hashing. Trying to do SHA256 hashing
-            // ourselves and then not passing a hashing algorithm to the Sign
-            // operation below results (with Fortanix at least) in error "Must
-            // specify HashingAlgorithm".
-            // let mut ctx = crate::crypto::common::DigestBuilder::new(crate::crypto::common::DigestType::Sha256);
-            // ctx.update(&data);
-            // let data = ctx.finish();
+            eprintln!("Signing2");
+            // TODO: For HSMs that don't support hashing do we have to do
+            // hashing ourselves here after signing? Note: PyKMIP doesn't
+            // support CryptographicParameters (and thus also not
+            // HashingFunction) nor does it support the Hash operation.
+            // Maybe via crypto::common::DigestBuilder?
+            //
+            // TODO: Where do we find out what the HSM supports? Trying an
+            // operation then falling back each time it fails is inefficient.
+            // We can presumably instead discover this on first use of the
+            // HSM, ala how Krill does HSM probing. We would need to know the
+            // result of such probing, which features are supported, here. We
+            // only have access to the KMIP connection pool here, so I guess
+            // that has to be able to tell us what we want to know.
+            //
+            // Note: OpenDNSSEC does its own hashing. Trying to do SHA256
+            // hashing ourselves and then not passing a hashing algorithm to
+            // the Sign operation below results (with Fortanix at least) in
+            // error "Must specify HashingAlgorithm". OpenDNSSEC code comments
+            // say this is done because "some HSMs don't really handle
+            // CKM_SHA1_RSA_PKCS well".
+            let mut ctx = DigestBuilder::new(digest_type);
+            ctx.update(data);
+            let digest = ctx.finish();
+            let mut data = digest.as_ref();
 
+            // OpenDNSSEC says that for RSA the prefix must be added to the
+            // buffer manually first as "CKM_RSA_PKCS does the padding, but
+            // cannot know the identifier prefix, so we need to add that
+            // ourselves."
+            let mut new_data;
+            if matches!(self.algorithm, SecurityAlgorithm::RSASHA256) {
+                new_data = vec![
+                    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48,
+                    0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04,
+                    0x20,
+                ];
+                new_data.extend_from_slice(data);
+                data = &new_data;
+            }
+
+            eprintln!("Signing3: digest len={}", data.as_ref().len());
             let request = RequestPayload::Sign(
                 Some(UniqueIdentifier(self.private_key_id.clone())),
                 Some(
@@ -176,33 +338,28 @@ pub mod sign {
             );
 
             // Execute the request and capture the response
+            let client = self.conn_pool.get().map_err(|_| SignError)?;
             let res = client.do_request(request).unwrap();
 
+            eprintln!("Signing4");
             let ResponsePayload::Sign(signed) = res else {
                 unreachable!();
             };
 
-            // TODO: For HSMs that don't support hashing do we have to do
-            // hashing ourselves here after signing? Note: PyKMIP doesn't
-            // support CryptographicParameters (and thus also not
-            // HashingFunction) nor does it support the Hash operation.
-            // Maybe via crypto::common::DigestBuilder?
-
-            // TODO: Where do we find out what the HSM supports? Trying an
-            // operation then falling back each time it fails is inefficient.
-            // We can presumably instead discover this on first use of the
-            // HSM, ala how Krill does HSM probing. We would need to know the
-            // result of such probing, which features are supported, here. We
-            // only have access to the KMIP connection pool here, so I guess
-            // that has to be able to tell us what we want to know.
+            eprintln!("Signing5: len={}", signed.signature_data.len());
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => {
-                    Ok(Signature::RsaSha256(Box::<[u8; 64]>::new(
-                        signed
-                            .signature_data
-                            .try_into()
-                            .map_err(|_| SignError)?,
-                    )))
+                    eprintln!("Signing6");
+                    // Ok(Signature::RsaSha256(Box::<[u8; 64]>::new(
+                    //     signed
+                    //         .signature_data
+                    //         .into_boxed_slice()
+                    //         .inspect_err(|err| eprintln!("Signing7: Error"))
+                    //         .map_err(|_| SignError)?,
+                    // )))
+                    Ok(Signature::RsaSha256(
+                        signed.signature_data.into_boxed_slice(),
+                    ))
                 }
                 SecurityAlgorithm::ECDSAP256SHA256 => {
                     let signature = openssl::ecdsa::EcdsaSig::from_der(
@@ -307,8 +464,12 @@ pub mod sign {
                 // https://docs.oasis-open.org/kmip/spec/v1.2/os/kmip-spec-v1.2-os.html#_Toc395776503
                 //   "For RSA, Cryptographic Length corresponds to the bit length of the Modulus"
 
-                // RFC 5702 2.1
-                if bits < 512 || bits > 4096 {
+                // https://www.rfc-editor.org/rfc/rfc5702.html#section-2.1
+                // 2.1.  RSA/SHA-256 DNSKEY Resource Records
+                //   "For interoperability, as in [RFC3110], the key size of
+                //    RSA/SHA-256 keys MUST NOT be less than 512 bits and MUST
+                //    NOT be more than 4096 bits."
+                if !(512..=4096).contains(&bits) {
                     return Err(GenerateError::UnsupportedAlgorithm);
                 }
 
@@ -401,9 +562,9 @@ pub mod sign {
         }
 
         let request = RequestPayload::CreateKeyPair(
-            Some(CommonTemplateAttribute::unnamed(common_attrs)),
-            Some(PrivateKeyTemplateAttribute::unnamed(priv_key_attrs)),
-            Some(PublicKeyTemplateAttribute::unnamed(pub_key_attrs)),
+            Some(CommonTemplateAttribute::new(common_attrs)),
+            Some(PrivateKeyTemplateAttribute::new(priv_key_attrs)),
+            Some(PublicKeyTemplateAttribute::new(pub_key_attrs)),
         );
 
         // Execute the request and capture the response
@@ -453,7 +614,7 @@ mod tests {
     use crate::logging::init_logging;
     use kmip::types::common::{
         CryptographicAlgorithm, CryptographicParameters, Data,
-        HashingAlgorithm, PaddingMethod, UniqueIdentifier,
+        HashingAlgorithm, UniqueIdentifier,
     };
     use kmip::types::request::RequestPayload;
     use kmip::types::response::ResponsePayload;
@@ -461,7 +622,8 @@ mod tests {
     use std::time::SystemTime;
 
     #[test]
-    fn connect() {
+    #[ignore = "Requires running PyKMIP"]
+    fn pykmip_connect() {
         init_logging();
         let mut cert_bytes = Vec::new();
         let file = File::open(
@@ -539,10 +701,17 @@ mod tests {
         init_logging();
 
         let mut conn_settings = ConnectionSettings::default();
-        conn_settings.host = "eu.smartkey.io".to_string();
-        conn_settings.port = 5696;
-        conn_settings.username = Some(env!("FORTANIX_USER").to_string());
-        conn_settings.password = Some(env!("FORTANIX_PASS").to_string());
+        // conn_settings.host = "eu.smartkey.io".to_string();
+        // conn_settings.port = 5696;
+        // conn_settings.username = Some(env!("FORTANIX_USER").to_string());
+        // conn_settings.password = Some(env!("FORTANIX_PASS").to_string());
+
+        conn_settings.host = "127.0.0.1".to_string(); //"eu.smartkey.io".to_string();
+        conn_settings.port = 1818; //5696;
+        conn_settings.insecure = true; // When connecting to kmip2pkcs11
+        conn_settings.connect_timeout = Some(Duration::from_secs(3));
+        conn_settings.read_timeout = Some(Duration::from_secs(30));
+        conn_settings.write_timeout = Some(Duration::from_secs(3));
 
         eprintln!("Creating pool...");
         let pool = ConnectionManager::create_connection_pool(
@@ -557,9 +726,9 @@ mod tests {
         let client = pool.get().unwrap();
 
         eprintln!("Connected");
-        let res = client.query();
-        dbg!(&res);
-        res.unwrap();
+        // let res = client.query();
+        // dbg!(&res);
+        // res.unwrap();
 
         let generated_key_name = format!(
             "{}",
@@ -570,59 +739,64 @@ mod tests {
         );
         let res = generate(
             generated_key_name,
-            // crate::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
-            crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
+            crate::crypto::sign::GenerateParams::RsaSha256 { bits: 1024 },
+            // crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
             pool,
         );
-        dbg!(&res);
         let key = res.unwrap();
+        eprintln!("Generated public key with id: {}", key.public_key_id());
+        eprintln!("Generated private key with id: {}", key.private_key_id());
 
-        let dnskey = key.dnskey();
-        eprintln!("DNSKEY: {}", dnskey);
+        // sleep(Duration::from_secs(5));
 
-        // Fortanix: Activating the public key also activates the private key.
-        // Attempting to then activate the private key fails as it is already
-        // active. Yet signing fails with "Object is not yet active"...
+        // let dnskey = key.dnskey();
+        // eprintln!("DNSKEY: {}", dnskey);
+
+        // // Fortanix: Activating the public key also activates the private key.
+        // // Attempting to then activate the private key fails as it is already
+        // // active. Yet signing fails with "Object is not yet active"...
         client.activate_key(key.public_key_id()).unwrap();
-        // client.activate_key(key.private_key_id()).unwrap();
+        // // client.activate_key(key.private_key_id()).unwrap();
 
-        // This works round the not yet active yet error.
-        sleep(Duration::from_secs(5));
+        // // This works round the not yet active yet error.
+        // sleep(Duration::from_secs(5));
 
-        let request = RequestPayload::Sign(
-            Some(UniqueIdentifier(key.private_key_id().to_string())),
-            // While the KMIP 1.2 spec says crypto parameters are optional and
-            // if not specified those of the key will be used, Fortanix
-            // complains about "No cryptographic parameters specified" if this
-            // is None, and "Must specicify HashingAlgorithm" if that is not
-            // specified.
-            Some(
-                CryptographicParameters::default()
-                    // .with_padding_method(PaddingMethod::)
-                    .with_hashing_algorithm(HashingAlgorithm::SHA256)
-                    .with_cryptographic_algorithm(
-                        // CryptographicAlgorithm::RSA,
-                        CryptographicAlgorithm::ECDSA,
-                    ),
-            ),
-            Data("Message for ECDSA signing".as_bytes().to_vec()),
-        );
+        // let request = RequestPayload::Sign(
+        //     Some(UniqueIdentifier(key.private_key_id().to_string())),
+        //     // While the KMIP 1.2 spec says crypto parameters are optional and
+        //     // if not specified those of the key will be used, Fortanix
+        //     // complains about "No cryptographic parameters specified" if this
+        //     // is None, and "Must specicify HashingAlgorithm" if that is not
+        //     // specified.
+        //     Some(
+        //         CryptographicParameters::default()
+        //             // .with_padding_method(PaddingMethod::)
+        //             .with_hashing_algorithm(HashingAlgorithm::SHA256)
+        //             .with_cryptographic_algorithm(
+        //                 CryptographicAlgorithm::RSA,
+        //                 //CryptographicAlgorithm::ECDSA,
+        //             ),
+        //     ),
+        //     Data("Message for ECDSA signing".as_bytes().to_vec()),
+        // );
 
-        // Execute the request and capture the response
-        let response = client.do_request(request).unwrap();
+        // // Execute the request and capture the response
+        // let res = client.do_request(request).unwrap();
 
-        let ResponsePayload::Sign(signed) = response else {
-            unreachable!();
-        };
+        // dbg!(&res);
 
-        let signature =
-            openssl::ecdsa::EcdsaSig::from_der(&signed.signature_data)
-                .unwrap();
+        // let ResponsePayload::Sign(signed) = res else {
+        //     unreachable!();
+        // };
 
-        dbg!(signature.r().to_vec_padded(32));
-        dbg!(signature.s().to_vec_padded(32));
+        // // let signature =
+        // //     openssl::ecdsa::EcdsaSig::from_der(&signed.signature_data)
+        // //         .unwrap();
 
-        // dbg!(response);
+        // // dbg!(signature.r().to_vec_padded(32));
+        // // dbg!(signature.s().to_vec_padded(32));
+
+        // // dbg!(response);
     }
 }

@@ -257,6 +257,7 @@ version = "0.11.1-dev"
 dependencies = [
  "arbitrary",
  "arc-swap",
+ "bcder",
  "bumpalo",
  "bytes",
  "chrono",
@@ -626,12 +627,13 @@ dependencies = [
 
 [[package]]
 name = "kmip-protocol"
-version = "0.4.4-dev"
-source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=add-ecdsa-support#e493155e9fee257e71d7630f89f432089e97dbb4"
+version = "0.5.0"
+source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#e87e4422d117ad298360204ef61564b3a6ade3c2"
 dependencies = [
  "cfg-if",
  "enum-display-derive",
  "enum-flags",
+ "hex",
  "kmip-ttlv",
  "log",
  "maybe-async",
@@ -645,15 +647,15 @@ dependencies = [
 
 [[package]]
 name = "kmip-ttlv"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13cdaafff68ae98da73fd6dff927095849646c6eeee44bdd0a983d30192cdeb1"
+version = "0.4.0"
+source = "git+https://github.com/NLnetLabs/kmip-ttlv?branch=next#680a9d139ca88765220ab98a96e6d52646b0551a"
 dependencies = [
  "cfg-if",
  "hex",
  "maybe-async",
  "rustc_version",
  "serde",
+ "tracing",
  "trait-set",
 ]
 
