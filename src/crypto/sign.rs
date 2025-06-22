@@ -118,6 +118,12 @@ pub enum GenerateParams {
         bits: u32,
     },
 
+    /// Generate an RSA/SHA-512 keypair.
+    RsaSha512 {
+        /// The number of bits in the public modulus.
+        bits: u32,
+    },
+
     /// Generate an ECDSA P-256/SHA-256 keypair.
     EcdsaP256Sha256,
 
@@ -138,6 +144,7 @@ impl GenerateParams {
     pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
             Self::RsaSha256 { .. } => SecurityAlgorithm::RSASHA256,
+            Self::RsaSha512 { .. } => SecurityAlgorithm::RSASHA512,
             Self::EcdsaP256Sha256 => SecurityAlgorithm::ECDSAP256SHA256,
             Self::EcdsaP384Sha384 => SecurityAlgorithm::ECDSAP384SHA384,
             Self::Ed25519 => SecurityAlgorithm::ED25519,

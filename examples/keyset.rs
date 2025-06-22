@@ -1,4 +1,5 @@
 //! Demonstrate the use of key sets.
+use domain::base::iana::SecurityAlgorithm;
 use domain::base::Name;
 use domain::dnssec::sign::keys::keyset::{
     Action, Error, KeySet, KeyType, RollType, UnixTime,
@@ -127,11 +128,32 @@ fn do_addkey(filename: &str, args: &[String]) {
 
     let mut ks = load_keyset(filename);
     if keytype == "ksk" {
-        ks.add_key_ksk(pubref, privref, UnixTime::now()).unwrap();
+        ks.add_key_ksk(
+            pubref,
+            privref,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
     } else if keytype == "zsk" {
-        ks.add_key_zsk(pubref, privref, UnixTime::now()).unwrap();
+        ks.add_key_zsk(
+            pubref,
+            privref,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
     } else if keytype == "csk" {
-        ks.add_key_csk(pubref, privref, UnixTime::now()).unwrap();
+        ks.add_key_csk(
+            pubref,
+            privref,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            0,
+            UnixTime::now(),
+        )
+        .unwrap();
     } else {
         eprintln!("Unknown key type '{keytype}'");
         exit(1);
@@ -189,12 +211,16 @@ fn do_start(filename: &str, args: &[String]) {
                     None
                 }
             }
-            RollType::CskRoll => match k.keytype() {
-                KeyType::Ksk(keystate)
-                | KeyType::Zsk(keystate)
-                | KeyType::Csk(keystate, _) => Some((keystate.clone(), pr)),
-                KeyType::Include(_) => None,
-            },
+            RollType::CskRoll | RollType::AlgorithmRoll => {
+                match k.keytype() {
+                    KeyType::Ksk(keystate)
+                    | KeyType::Zsk(keystate)
+                    | KeyType::Csk(keystate, _) => {
+                        Some((keystate.clone(), pr))
+                    }
+                    KeyType::Include(_) => None,
+                }
+            }
         })
         .filter(|(keystate, _)| !keystate.old())
         .map(|(keystate, pubref)| (keystate, pubref.to_string()))
@@ -314,7 +340,7 @@ fn do_actions(filename: &str, args: &[String]) {
 
     let rolltype = str_to_rolltype(rolltype);
 
-    let mut ks = load_keyset(filename);
+    let ks = load_keyset(filename);
 
     let actions = ks.actions(rolltype);
     report_actions(Ok(actions), &ks);
@@ -514,8 +540,14 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
             Action::ReportDnskeyPropagated => {
                 println!("\tReport that the DNSKEY RRset has propagated")
             }
+            Action::WaitDnskeyPropagated => {
+                println!("\tWait until the DNSKEY RRset has propagated")
+            }
             Action::ReportRrsigPropagated => {
                 println!("\tReport that the RRSIG records have propagated")
+            }
+            Action::WaitRrsigPropagated => {
+                println!("\tWait until the RRSIG records have propagated")
             }
             Action::ReportDsPropagated => println!(
                 "\tReport that the DS RRset has propagated at the parent"
