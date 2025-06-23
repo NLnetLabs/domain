@@ -4,7 +4,7 @@ use bytes::Bytes;
 use tracing::trace;
 
 use crate::base::message::RecordIter;
-use crate::base::{Message, ParsedName};
+use crate::base::{Message, ParsedName, Record};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::types::ZoneUpdate;
 
@@ -22,6 +22,16 @@ pub struct XfrZoneUpdateIterator<'a, 'b> {
 
     /// An iterator over the records in the current response.
     iter: RecordIter<'b, Bytes, ZoneRecordData<Bytes, ParsedName<Bytes>>>,
+
+    /// TODO
+    saved_update: Option<
+        ZoneUpdate<
+            Record<
+                ParsedName<Bytes>,
+                ZoneRecordData<Bytes, ParsedName<Bytes>>,
+            >,
+        >,
+    >,
 }
 
 impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
@@ -51,12 +61,18 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
         let mut iter = answer.limit_to();
 
         if state.rr_count == 0 {
+            // Skip the opening SOA record, it was already processed and
+            // stored by the given RecordProcessor.
             let Some(Ok(_)) = iter.next() else {
                 return Err(Error::Malformed);
             };
         }
 
-        Ok(Self { state, iter })
+        Ok(Self {
+            state,
+            iter,
+            saved_update: None,
+        })
     }
 }
 
@@ -64,7 +80,9 @@ impl Iterator for XfrZoneUpdateIterator<'_, '_> {
     type Item = Result<ZoneUpdate<ParsedRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.state.rr_count == 0 {
+        let is_first_rr = self.state.rr_count == 0;
+
+        if is_first_rr {
             // We already skipped the first record in new() above by calling
             // iter.next(). We didn't reflect that yet in rr_count because we
             // wanted to still be able to detect the first call to next() and
@@ -80,10 +98,27 @@ impl Iterator for XfrZoneUpdateIterator<'_, '_> {
             }
         }
 
+        if let Some(update) = self.saved_update.take() {
+            return Some(Ok(update));
+        }
+
         match self.iter.next()? {
             Ok(record) => {
                 trace!("XFR record {}: {record:?}", self.state.rr_count);
                 let update = self.state.process_record(record);
+
+                if is_first_rr && self.state.actual_xfr_type == XfrType::Axfr
+                {
+                    // We didn't return DeleteAllRecords above because the
+                    // transfer was thought to be IXFR rather than AXFR, but
+                    // now that the next record has been processed we have had
+                    // the chance to detect fallback from IXFR to AXFR for
+                    // which we should also delete all records first. Save this
+                    // update so that we can first return DeleteAllRecords.
+                    self.saved_update = Some(update);
+                    return Some(Ok(ZoneUpdate::DeleteAllRecords));
+                }
+
                 Some(Ok(update))
             }
 

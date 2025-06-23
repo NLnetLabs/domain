@@ -16,7 +16,6 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::base::iana::{Opcode, OptRcode};
-use crate::base::wire::Composer;
 use crate::base::{Message, ParsedName, Question, Rtype, Serial, ToName};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
@@ -55,7 +54,18 @@ const MAX_TCP_MSG_BYTE_LEN: u16 = u16::MAX;
 ///
 /// [module documentation]: crate::net::server::middleware::xfr
 #[derive(Clone, Debug)]
-pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP> {
+pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP>
+where
+    RequestOctets: Octets + Send + Sync + Unpin + 'static + Clone,
+    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
+    NextSvc:
+        Service<RequestOctets, RequestMeta> + Clone + Send + Sync + 'static,
+    NextSvc::Future: Sync + Unpin,
+    NextSvc::Stream: Sync,
+    XDP: XfrDataProvider<RequestMeta> + Clone + Sync + Send + 'static,
+    XDP::Diff: Debug + Sync,
+    RequestMeta: Clone + Default + Sync + Send + 'static,
+{
     /// The upstream [`Service`] to pass requests to and receive responses
     /// from.
     next_svc: NextSvc,
@@ -78,7 +88,15 @@ pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP> {
 impl<RequestOctets, NextSvc, RequestMeta, XDP>
     XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP>
 where
-    XDP: XfrDataProvider<RequestMeta>,
+    RequestOctets: Octets + Send + Sync + Unpin + 'static + Clone,
+    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
+    NextSvc:
+        Service<RequestOctets, RequestMeta> + Clone + Send + Sync + 'static,
+    NextSvc::Future: Sync + Unpin,
+    NextSvc::Stream: Sync,
+    XDP: XfrDataProvider<RequestMeta> + Clone + Sync + Send + 'static,
+    XDP::Diff: Debug + Sync,
+    RequestMeta: Clone + Default + Sync + Send + 'static,
 {
     /// Creates a new instance of this middleware.
     ///
@@ -110,14 +128,15 @@ where
 impl<RequestOctets, NextSvc, RequestMeta, XDP>
     XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP>
 where
-    RequestOctets: Octets + Send + Sync + 'static + Unpin,
+    RequestOctets: Octets + Send + Sync + Unpin + 'static + Clone,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    NextSvc: Service<RequestOctets, ()> + Clone + Send + Sync + 'static,
-    NextSvc::Future: Send + Sync + Unpin,
-    NextSvc::Target: Composer + Default + Send + Sync,
-    NextSvc::Stream: Send + Sync,
-    XDP: XfrDataProvider<RequestMeta>,
-    XDP::Diff: Debug + 'static,
+    NextSvc:
+        Service<RequestOctets, RequestMeta> + Clone + Send + Sync + 'static,
+    NextSvc::Future: Sync + Unpin,
+    NextSvc::Stream: Sync,
+    XDP: XfrDataProvider<RequestMeta> + Clone + Sync + Send + 'static,
+    XDP::Diff: Debug + Sync,
+    RequestMeta: Clone + Default + Sync + Send + 'static,
 {
     /// Pre-process received DNS XFR queries.
     ///
@@ -684,12 +703,12 @@ impl<RequestOctets, NextSvc, RequestMeta, XDP>
     Service<RequestOctets, RequestMeta>
     for XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP>
 where
-    RequestOctets: Octets + Send + Sync + Unpin + 'static,
+    RequestOctets: Octets + Send + Sync + Unpin + 'static + Clone,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    NextSvc: Service<RequestOctets, ()> + Clone + Send + Sync + 'static,
-    NextSvc::Future: Send + Sync + Unpin,
-    NextSvc::Target: Composer + Default + Send + Sync,
-    NextSvc::Stream: Send + Sync,
+    NextSvc:
+        Service<RequestOctets, RequestMeta> + Clone + Send + Sync + 'static,
+    NextSvc::Future: Sync + Unpin,
+    NextSvc::Stream: Sync,
     XDP: XfrDataProvider<RequestMeta> + Clone + Sync + Send + 'static,
     XDP::Diff: Debug + Sync,
     RequestMeta: Clone + Default + Sync + Send + 'static,
@@ -721,7 +740,8 @@ where
             .await
             {
                 Ok(ControlFlow::Continue(())) => {
-                    let request = request.with_new_metadata(());
+                    let request =
+                        request.with_new_metadata(Default::default());
                     let stream = next_svc.call(request).await;
                     MiddlewareStream::IdentityStream(stream)
                 }

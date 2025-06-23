@@ -7,11 +7,10 @@ use core::fmt::Display;
 use core::ops::Deref;
 
 use std::time::Duration;
-use std::vec::Vec;
 
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::wire::ParseError;
+use crate::base::wire::{Composer, ParseError};
 use crate::base::StreamTarget;
 
 use super::message::Request;
@@ -59,7 +58,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// use domain::rdata::A;
 ///
 /// fn mk_answer(
-///     msg: &Request<Vec<u8>>,
+///     msg: &Request<Vec<u8>, ()>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
 /// ) -> AdditionalBuilder<StreamTarget<Vec<u8>>> {
 ///     let mut answer = builder
@@ -74,7 +73,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///     answer.additional()
 /// }
 ///
-/// fn mk_response_stream(msg: &Request<Vec<u8>>)
+/// fn mk_response_stream(msg: &Request<Vec<u8>, ()>)
 ///   -> Once<Ready<ServiceResult<Vec<u8>>>>
 /// {
 ///     let builder = mk_builder_for_target();
@@ -86,37 +85,21 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// //------------ A synchronous service example ------------------------------
 /// struct MySyncService;
 ///
-/// impl Service<Vec<u8>> for MySyncService {
+/// impl Service<Vec<u8>, ()> for MySyncService {
 ///     type Target = Vec<u8>;
 ///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
 ///     type Future = Ready<Self::Stream>;
 ///     
 ///     fn call(
 ///         &self,
-///         msg: Request<Vec<u8>>,
+///         msg: Request<Vec<u8>, ()>,
 ///     ) -> Self::Future {
 ///         ready(mk_response_stream(&msg))
 ///     }
 /// }
 ///
-/// //------------ An anonymous async block service example -------------------
-/// struct MyAsyncBlockService;
-///
-/// impl Service<Vec<u8>> for MyAsyncBlockService {
-///     type Target = Vec<u8>;
-///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
-///     type Future = Pin<Box<dyn std::future::Future<Output = Self::Stream>>>;
-///
-///     fn call(
-///         &self,
-///         msg: Request<Vec<u8>>,
-///     ) -> Self::Future {
-///         Box::pin(async move { mk_response_stream(&msg) })
-///     }
-/// }
-///
 /// //------------ A named Future service example -----------------------------
-/// struct MyFut(Request<Vec<u8>>);
+/// struct MyFut(Request<Vec<u8>, ()>);
 ///
 /// impl std::future::Future for MyFut {
 ///     type Output = Once<Ready<ServiceResult<Vec<u8>>>>;
@@ -128,12 +111,12 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// struct MyNamedFutureService;
 ///
-/// impl Service<Vec<u8>> for MyNamedFutureService {
+/// impl Service<Vec<u8>, ()> for MyNamedFutureService {
 ///     type Target = Vec<u8>;
 ///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
 ///     type Future = MyFut;
 ///     
-///     fn call(&self, msg: Request<Vec<u8>>) -> Self::Future { MyFut(msg) }
+///     fn call(&self, msg: Request<Vec<u8>, ()>) -> Self::Future { MyFut(msg) }
 /// }
 /// ```
 ///
@@ -167,19 +150,20 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// [`call`]: Self::call()
 /// [`service_fn`]: crate::net::server::util::service_fn()
 pub trait Service<
-    RequestOctets: AsRef<[u8]> + Send + Sync = Vec<u8>,
-    RequestMeta: Clone + Default = (),
->
+    RequestOctets: AsRef<[u8]> + Send + Sync,
+    RequestMeta: Clone + Default,
+>: Send + Sync + 'static
 {
     /// The underlying byte storage type used to hold generated responses.
-    type Target;
+    type Target: Composer + Default + Send + Sync;
 
     /// The type of stream that the service produces.
     type Stream: futures_util::stream::Stream<Item = ServiceResult<Self::Target>>
-        + Unpin;
+        + Unpin
+        + Send;
 
     /// The type of future that will yield the service result stream.
-    type Future: core::future::Future<Output = Self::Stream>;
+    type Future: core::future::Future<Output = Self::Stream> + Send;
 
     /// Generate a response to a fully pre-processed request.
     fn call(
@@ -195,8 +179,8 @@ impl<RequestOctets, RequestMeta, T, U> Service<RequestOctets, RequestMeta>
     for U
 where
     RequestOctets: Unpin + Send + Sync + AsRef<[u8]>,
-    T: ?Sized + Service<RequestOctets, RequestMeta>,
-    U: Deref<Target = T> + Clone,
+    T: Service<RequestOctets, RequestMeta>,
+    U: Deref<Target = T> + Clone + Send + Sync + 'static,
     RequestMeta: Clone + Default,
 {
     type Target = T::Target;
