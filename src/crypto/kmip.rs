@@ -560,9 +560,9 @@ pub mod sign {
                     );
                 }
             }
-            GenerateParams::RsaSha512 { .. } => {
-                todo!()
-            }
+            // GenerateParams::RsaSha512 { .. } => {
+            //     todo!()
+            // }
             GenerateParams::EcdsaP256Sha256 => {
                 // PyKMIP doesn't support ECDSA:
                 //   "Operation CreateKeyPair failed: The cryptographic
