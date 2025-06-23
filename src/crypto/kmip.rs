@@ -7,6 +7,23 @@
 
 use core::fmt;
 
+use std::{string::String, vec::Vec};
+
+use bcder::decode::SliceSource;
+use kmip::types::{
+    common::{KeyMaterial, TransparentRSAPublicKey},
+    response::ManagedObject,
+};
+use log::error;
+
+use crate::{
+    base::iana::SecurityAlgorithm,
+    crypto::{common::rsa_encode, kmip_pool::KmipConnPool},
+    rdata::Dnskey,
+};
+
+pub use kmip::client::ConnectionSettings;
+
 /// An error in generating a key pair with OpenSSL.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
@@ -34,6 +51,176 @@ impl fmt::Display for GenerateError {
 
 impl std::error::Error for GenerateError {}
 
+pub struct PublicKey {
+    algorithm: SecurityAlgorithm,
+
+    public_key_id: String,
+
+    conn_pool: KmipConnPool,
+}
+
+impl PublicKey {
+    pub fn new(
+        public_key_id: String,
+        algorithm: SecurityAlgorithm,
+        conn_pool: KmipConnPool,
+    ) -> Self {
+        Self {
+            public_key_id,
+            algorithm,
+            conn_pool,
+        }
+    }
+
+    pub fn algorithm(&self) -> SecurityAlgorithm {
+        self.algorithm
+    }
+
+    pub fn dnskey(
+        &self,
+        flags: u16,
+    ) -> Result<Dnskey<Vec<u8>>, kmip::client::Error> {
+        // https://datatracker.ietf.org/doc/html/rfc5702#section-2
+        // Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource
+        // Records for DNSSEC
+        // 2.  DNSKEY Resource Records
+        //   "The format of the DNSKEY RR can be found in [RFC4034].
+        //   [RFC3110] describes the use of RSA/SHA-1 for DNSSEC
+        //   signatures."
+        //                          |
+        //                          |
+        //                          v
+        // https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.4
+        // Resource Records for the DNS Security Extensions
+        // 2.  The DNSKEY Resource Record
+        // 2.1.4.  The Public Key Field
+        //   "The Public Key Field holds the public key material.  The
+        //    format depends on the algorithm of the key being stored and
+        //    is described in separate documents."
+        //                          |
+        //                          |
+        //                          v
+        // https://datatracker.ietf.org/doc/html/rfc3110#section-2
+        // RSA/SHA-1 SIGs and RSA KEYs in the Domain Name System (DNS)
+        // 2. RSA Public KEY Resource Records
+        //   "... The structure of the algorithm specific portion of the
+        //    RDATA part of such RRs is as shown below.
+        //
+        //    Field             Size
+        //    -----             ----
+        //    exponent length   1 or 3 octets (see text)
+        //    exponent          as specified by length field
+        //    modulus           remaining space
+        //
+        // For interoperability, the exponent and modulus are each limited
+        // to 4096 bits in length.  The public key exponent is a variable
+        // length unsigned integer.  Its length in octets is represented
+        // as one octet if it is in the range of 1 to 255 and by a zero
+        // octet followed by a two octet unsigned length if it is longer
+        // than 255 bytes.  The public key modulus field is a
+        // multiprecision unsigned integer.  The length of the modulus can
+        // be determined from the RDLENGTH and the preceding RDATA fields
+        // including the exponent.  Leading zero octets are prohibited in
+        // the exponent and modulus.
+
+        let client = self.conn_pool.get().inspect_err(|err| error!("{err}")).map_err(|err| {
+            kmip::client::Error::ServerError(format!(
+                "Error while attempting to acquire KMIP connection from pool: {err}"
+            ))
+        })?;
+
+        // Note: OpenDNSSEC queries the public key ID, _unless_ it was
+        // configured not to store the public key in the HSM (by setting
+        // CKA_TOKEN false) in which case there is no public key and so it
+        // uses the private key object handle instead.
+        let res = client
+            .get_key(&self.public_key_id)
+            .inspect_err(|err| error!("{err}"))?;
+
+        let ManagedObject::PublicKey(public_key) = res.cryptographic_object
+        else {
+            return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object was expected to be a PublicKey but was instead: {}", res.cryptographic_object)));
+        };
+
+        // https://docs.oasis-open.org/kmip/ug/v1.2/cn01/kmip-ug-v1.2-cn01.html#_Toc407027125
+        //   "“Raw” key format is intended to be applied to symmetric keys
+        //    and not asymmetric keys"
+        //
+        // As we deal in assymetric keys (RSA, ECDSA), not symmetric keys,
+        // we should not encounter public_key.key_block.key_format_type ==
+        // KeyFormatType::Raw. However, Fortanix DSM returns
+        // KeyFormatType::Raw when fetching key data for an ECDSA public key.
+
+        // TODO: SAFETY
+        // TODO: We don't know that these lengths are correct, consult cryptographic_length() too?
+        let algorithm =
+            match public_key.key_block.cryptographic_algorithm.unwrap() {
+                kmip::types::common::CryptographicAlgorithm::RSA => {
+                    SecurityAlgorithm::RSASHA256
+                }
+                kmip::types::common::CryptographicAlgorithm::ECDSA => {
+                    SecurityAlgorithm::ECDSAP256SHA256
+                }
+                alg => return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object has unsupported cryptographic algorithm type: {alg}"))),
+            };
+
+        let octets = match public_key.key_block.key_value.key_material {
+            KeyMaterial::Bytes(bytes) => {
+                // This is what we get with PyKMIP using RSASHA256 and
+                // Fortanix using ECDSAP256SHA256. With Fortanix it
+                // appears to be a DER encoded SubjectPublicKeyInfo
+                // data structure of the form:
+                // SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
+                //  algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
+                //    algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
+                //    parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
+                //  subjectPublicKey BIT_STRING @23+66: (520 bit)
+                let source = SliceSource::new(&bytes);
+                let public_key =
+                    rpki::crypto::PublicKey::decode(source).unwrap();
+                let bits = public_key.bits().to_vec();
+
+                // For RSA, the bits are also DER encoded of the form:
+                //   RSAPrivateKey SEQUENCE (2 elem)
+                //     version Version INTEGER (1024 bit) 140670898145304244147145320460151523064481569650486421654946000437850…
+                //     modulus INTEGER 65537
+                //
+                // or is it really:
+                //   RSAPrivateKey SEQUENCE (2 elem)
+                //     modulus INTEGER
+                //     publicExponent INTEGER
+
+                // if public_key.algorithm() == PublicKeyFormat::Rsa {
+                //     let source = SliceSource::new(&bits);
+                //     let mut modulus = vec![];
+                //     let mut public_exponent = vec![];
+                //     bcder::Mode::Der.decode(source, |cons| {
+                //         cons.take_sequence(|cons| {
+                //             modulus = bcder::string::BitString::take_from(cons)?.octet_slice().unwrap().to_vec();
+                //             public_exponent = BitString::take_from(cons)?.octet_slice().unwrap().to_vec();
+                //             Ok(())
+                //         })
+                //     }).unwrap();
+                //     rsa_encode(&public_exponent, &modulus)
+                // } else {
+                bits
+                // }
+            }
+
+            KeyMaterial::TransparentRSAPublicKey(
+                TransparentRSAPublicKey {
+                    modulus,
+                    public_exponent,
+                },
+            ) => rsa_encode(&public_exponent, &modulus),
+
+            mat => return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object has unsupported key material type: {mat}"))),
+        };
+
+        Ok(Dnskey::new(flags, 3, algorithm, octets).unwrap())
+    }
+}
+
 #[cfg(feature = "unstable-crypto-sign")]
 pub mod sign {
     use std::boxed::Box;
@@ -44,26 +231,23 @@ pub mod sign {
     use kmip::types::common::{
         CryptographicAlgorithm, CryptographicParameters,
         CryptographicUsageMask, Data, DigitalSignatureAlgorithm,
-        HashingAlgorithm, KeyMaterial, ObjectType, TransparentRSAPublicKey,
-        UniqueIdentifier,
+        HashingAlgorithm, UniqueIdentifier,
     };
     use kmip::types::request::{
         self, CommonTemplateAttribute, PrivateKeyTemplateAttribute,
         PublicKeyTemplateAttribute, RequestPayload,
     };
-    use kmip::types::response::{ManagedObject, ResponsePayload};
+    use kmip::types::response::ResponsePayload;
     use log::error;
-    use rpki::dep::bcder::decode::SliceSource;
 
     use crate::base::iana::SecurityAlgorithm;
+    use crate::crypto::common::{DigestBuilder, DigestType};
+    use crate::crypto::kmip::PublicKey;
     use crate::crypto::kmip_pool::KmipConnPool;
     use crate::crypto::sign::{
         GenerateError, GenerateParams, SignError, SignRaw, Signature,
     };
     use crate::rdata::Dnskey;
-
-    use crate::crypto::common::{rsa_encode, DigestBuilder, DigestType};
-    pub use kmip::client::ConnectionSettings;
 
     #[derive(Clone, Debug)]
     pub struct KeyPair {
@@ -103,6 +287,14 @@ pub mod sign {
         pub fn public_key_id(&self) -> &str {
             &self.public_key_id
         }
+
+        pub fn public_key(&self) -> PublicKey {
+            PublicKey::new(
+                self.public_key_id.clone(),
+                self.algorithm,
+                self.conn_pool.clone(),
+            )
+        }
     }
 
     impl SignRaw for KeyPair {
@@ -111,133 +303,14 @@ pub mod sign {
         }
 
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
-            // https://datatracker.ietf.org/doc/html/rfc5702#section-2
-            // Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource
-            // Records for DNSSEC
-            // 2.  DNSKEY Resource Records
-            //   "The format of the DNSKEY RR can be found in [RFC4034].
-            //   [RFC3110] describes the use of RSA/SHA-1 for DNSSEC
-            //   signatures."
-            //                          |
-            //                          |
-            //                          v
-            // https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.4
-            // Resource Records for the DNS Security Extensions
-            // 2.  The DNSKEY Resource Record
-            // 2.1.4.  The Public Key Field
-            //   "The Public Key Field holds the public key material.  The
-            //    format depends on the algorithm of the key being stored and
-            //    is described in separate documents."
-            //                          |
-            //                          |
-            //                          v
-            // https://datatracker.ietf.org/doc/html/rfc3110#section-2
-            // RSA/SHA-1 SIGs and RSA KEYs in the Domain Name System (DNS)
-            // 2. RSA Public KEY Resource Records
-            //   "... The structure of the algorithm specific portion of the
-            //    RDATA part of such RRs is as shown below.
-            //
-            //    Field             Size
-            //    -----             ----
-            //    exponent length   1 or 3 octets (see text)
-            //    exponent          as specified by length field
-            //    modulus           remaining space
-            //
-            // For interoperability, the exponent and modulus are each limited
-            // to 4096 bits in length.  The public key exponent is a variable
-            // length unsigned integer.  Its length in octets is represented
-            // as one octet if it is in the range of 1 to 255 and by a zero
-            // octet followed by a two octet unsigned length if it is longer
-            // than 255 bytes.  The public key modulus field is a
-            // multiprecision unsigned integer.  The length of the modulus can
-            // be determined from the RDLENGTH and the preceding RDATA fields
-            // including the exponent.  Leading zero octets are prohibited in
-            // the exponent and modulus.
-
-            let client = self.conn_pool.get().unwrap();
-
-            // Note: OpenDNSSEC queries the public key ID, _unless_ it was
-            // configured not to store the public key in the HSM (by setting
-            // CKA_TOKEN false) in which case there is no public key and so it
-            // uses the private key object handle instead.
-            let res = client
-                .get_key(&self.public_key_id)
-                .inspect_err(|err| error!("{err}"))
-                .unwrap();
-
-            dbg!(&res);
-
-            assert_eq!(res.object_type, ObjectType::PublicKey);
-
-            let ManagedObject::PublicKey(public_key) =
-                res.cryptographic_object
-            else {
-                todo!();
-            };
-
-            // https://docs.oasis-open.org/kmip/ug/v1.2/cn01/kmip-ug-v1.2-cn01.html#_Toc407027125
-            //   "“Raw” key format is intended to be applied to symmetric keys
-            //    and not asymmetric keys"
-            //
-            // As we deal in assymetric keys (RSA, ECDSA), not symmetric keys,
-            // we should not encounter public_key.key_block.key_format_type ==
-            // KeyFormatType::Raw. However, Fortanix DSM returns
-            // KeyFormatType::Raw when fetching key data for an ECDSA public key.
-
-            let octets = match public_key.key_block.key_value.key_material {
-                KeyMaterial::Bytes(bytes) => {
-                    // This is what we get with PyKMIP using RSASHA256 and
-                    // Fortanix using ECDSAP256SHA256. With Fortanix it
-                    // appears to be a DER encoded SubjectPublicKeyInfo
-                    // data structure of the form:
-                    // SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
-                    //  algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
-                    //    algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
-                    //    parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
-                    //  subjectPublicKey BIT_STRING @23+66: (520 bit)
-                    let source = SliceSource::new(&bytes);
-                    let public_key =
-                        rpki::crypto::PublicKey::decode(source).unwrap();
-                    let bits = public_key.bits().to_vec();
-
-                    // For RSA, the bits are also DER encoded of the form:
-                    //   RSAPrivateKey SEQUENCE (2 elem)
-                    //     version Version INTEGER (1024 bit) 140670898145304244147145320460151523064481569650486421654946000437850…
-                    //     modulus INTEGER 65537
-                    //
-                    // or is it really:
-                    //   RSAPrivateKey SEQUENCE (2 elem)
-                    //     modulus INTEGER
-                    //     publicExponent INTEGER
-
-                    // if public_key.algorithm() == PublicKeyFormat::Rsa {
-                    //     let source = SliceSource::new(&bits);
-                    //     let mut modulus = vec![];
-                    //     let mut public_exponent = vec![];
-                    //     bcder::Mode::Der.decode(source, |cons| {
-                    //         cons.take_sequence(|cons| {
-                    //             modulus = bcder::string::BitString::take_from(cons)?.octet_slice().unwrap().to_vec();
-                    //             public_exponent = BitString::take_from(cons)?.octet_slice().unwrap().to_vec();
-                    //             Ok(())
-                    //         })
-                    //     }).unwrap();
-                    //     rsa_encode(&public_exponent, &modulus)
-                    // } else {
-                    bits
-                    // }
-                }
-
-                KeyMaterial::TransparentRSAPublicKey(
-                    TransparentRSAPublicKey {
-                        modulus,
-                        public_exponent,
-                    },
-                ) => rsa_encode(&public_exponent, &modulus),
-
-                _ => todo!(),
-            };
-
-            Dnskey::new(self.flags, 3, self.algorithm, octets).unwrap()
+            // TODO: SAFETY
+            PublicKey::new(
+                self.public_key_id.clone(),
+                self.algorithm,
+                self.conn_pool.clone(),
+            )
+            .dnskey(self.flags)
+            .unwrap()
         }
 
         fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
@@ -268,7 +341,6 @@ pub mod sign {
             // We assume that the HSM signing operation implements this signing
             // operation according to these rules.
 
-            eprintln!("Signing1");
             let (crypto_alg, hashing_alg, digest_type) = match self.algorithm
             {
                 SecurityAlgorithm::RSASHA256 => (
@@ -284,7 +356,6 @@ pub mod sign {
                 _ => return Err(SignError),
             };
 
-            eprintln!("Signing2");
             // TODO: For HSMs that don't support hashing do we have to do
             // hashing ourselves here after signing? Note: PyKMIP doesn't
             // support CryptographicParameters (and thus also not
@@ -325,7 +396,6 @@ pub mod sign {
                 data = &new_data;
             }
 
-            eprintln!("Signing3: digest len={}", data.as_ref().len());
             let request = RequestPayload::Sign(
                 Some(UniqueIdentifier(self.private_key_id.clone())),
                 Some(
@@ -341,15 +411,12 @@ pub mod sign {
             let client = self.conn_pool.get().map_err(|_| SignError)?;
             let res = client.do_request(request).unwrap();
 
-            eprintln!("Signing4");
             let ResponsePayload::Sign(signed) = res else {
                 unreachable!();
             };
 
-            eprintln!("Signing5: len={}", signed.signature_data.len());
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => {
-                    eprintln!("Signing6");
                     // Ok(Signature::RsaSha256(Box::<[u8; 64]>::new(
                     //     signed
                     //         .signature_data
@@ -408,7 +475,7 @@ pub mod sign {
     /// Generate a new secret key for the given algorithm.
     pub fn generate(
         name: String,
-        params: GenerateParams,
+        params: GenerateParams, // TODO: Is this enough? Or do we need to take SecurityAlgorithm as input instead of GenerateParams to ensure we don't lose distinctions like 5 vs 7 which are both RSASHA1?
         flags: u16,
         conn_pool: KmipConnPool,
     ) -> Result<KeyPair, GenerateError> {
@@ -492,6 +559,9 @@ pub mod sign {
                         ),
                     );
                 }
+            }
+            GenerateParams::RsaSha512 { .. } => {
+                todo!()
             }
             GenerateParams::EcdsaP256Sha256 => {
                 // PyKMIP doesn't support ECDSA:
@@ -707,7 +777,7 @@ mod tests {
         // conn_settings.password = Some(env!("FORTANIX_PASS").to_string());
 
         conn_settings.host = "127.0.0.1".to_string(); //"eu.smartkey.io".to_string();
-        conn_settings.port = 1818; //5696;
+        conn_settings.port = 5696;
         conn_settings.insecure = true; // When connecting to kmip2pkcs11
         conn_settings.connect_timeout = Some(Duration::from_secs(3));
         conn_settings.read_timeout = Some(Duration::from_secs(30));
@@ -750,8 +820,8 @@ mod tests {
 
         // sleep(Duration::from_secs(5));
 
-        // let dnskey = key.dnskey();
-        // eprintln!("DNSKEY: {}", dnskey);
+        let dnskey = key.dnskey();
+        eprintln!("DNSKEY: {}", dnskey);
 
         // // Fortanix: Activating the public key also activates the private key.
         // // Attempting to then activate the private key fails as it is already
