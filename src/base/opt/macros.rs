@@ -12,8 +12,6 @@ macro_rules! opt_types {
 
         $( $( pub use self::$module::$opt; )* )*
 
-        $( pub mod $module; )*
-
         //------------ AllOptData --------------------------------------------
 
         #[derive(Clone)]
