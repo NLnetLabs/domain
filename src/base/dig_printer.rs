@@ -156,7 +156,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for DigPrinter<'_, Octs> {
 
 fn write_record_item(
     f: &mut impl fmt::Write,
-    item: &ParsedRecord<&[u8]>,
+    item: &ParsedRecord<'_, &[u8]>,
 ) -> Result<(), fmt::Error> {
     let parsed = item.to_any_record::<AllRecordData<_, _>>();
 

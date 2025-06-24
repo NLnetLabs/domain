@@ -219,7 +219,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Hinfo<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Hinfo<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {}",
@@ -232,7 +232,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Hinfo<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Hinfo<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Hinfo")
             .field("cpu", &self.cpu)
             .field("os", &self.os)

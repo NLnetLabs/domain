@@ -36,7 +36,7 @@ pub trait AsyncDgramSock {
     /// Attempts to send data on the socket to a given address.
     fn poll_send_to(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         data: &[u8],
         dest: &SocketAddr,
     ) -> Poll<io::Result<usize>>;
@@ -67,7 +67,7 @@ pub trait AsyncDgramSock {
 impl AsyncDgramSock for UdpSocket {
     fn poll_send_to(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         data: &[u8],
         dest: &SocketAddr,
     ) -> Poll<io::Result<usize>> {
@@ -91,7 +91,7 @@ impl AsyncDgramSock for UdpSocket {
 impl AsyncDgramSock for Arc<UdpSocket> {
     fn poll_send_to(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         data: &[u8],
         dest: &SocketAddr,
     ) -> Poll<io::Result<usize>> {
@@ -137,7 +137,7 @@ pub trait AsyncAccept {
     /// If there is no connection to accept, Poll::Pending is returned.
     fn poll_accept(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
     ) -> Poll<io::Result<(Self::Future, SocketAddr)>>;
 }
 
@@ -148,7 +148,7 @@ impl AsyncAccept for TcpListener {
 
     fn poll_accept(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
     ) -> Poll<io::Result<(Self::Future, SocketAddr)>> {
         TcpListener::poll_accept(self, cx).map(|res| {
             // TODO: Should we support some sort of callback here to set
