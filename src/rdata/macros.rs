@@ -26,10 +26,6 @@ macro_rules! rdata_types {
             };
         )*
 
-        $(
-            pub mod $module;
-        )*
-
         use core::{fmt, hash};
         use crate::base::cmp::CanonicalOrd;
         use crate::base::iana::Rtype;

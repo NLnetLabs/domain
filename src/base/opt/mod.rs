@@ -24,6 +24,18 @@
 
 #[macro_use]
 mod macros;
+
+pub mod algsig;
+pub mod chain;
+pub mod cookie;
+pub mod expire;
+pub mod exterr;
+pub mod keepalive;
+pub mod keytag;
+pub mod nsid;
+pub mod padding;
+pub mod subnet;
+
 opt_types! {
     algsig::{Dau<Octs>, Dhu<Octs>, N3u<Octs>};
     chain::{Chain<Name>};
