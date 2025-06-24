@@ -294,7 +294,7 @@ impl NodeRrsets {
             .for_each(|rrset| rrset.remove(version));
     }
 
-    pub(super) fn iter(&self) -> NodeRrsetsIter {
+    pub(super) fn iter(&self) -> NodeRrsetsIter<'_> {
         NodeRrsetsIter::new(self.rrsets.read())
     }
 }

@@ -1625,7 +1625,7 @@ impl From<BadSymbol> for EntryError {
 }
 
 impl fmt::Display for EntryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.msg)?;
         #[cfg(feature = "std")]
         if let Some(context) = &self.context {
@@ -1648,7 +1648,7 @@ pub struct Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}: {}", self.line, self.col, self.err)
     }
 }
@@ -1666,7 +1666,7 @@ mod test {
     use octseq::Parser;
     use std::vec::Vec;
 
-    fn with_entry(s: &str, op: impl FnOnce(EntryScanner)) {
+    fn with_entry(s: &str, op: impl FnOnce(EntryScanner<'_>)) {
         let mut zone = Zonefile::with_capacity(s.len());
         zone.extend_from_slice(s.as_bytes());
         let entry = EntryScanner::new(&mut zone).unwrap();

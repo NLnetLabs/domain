@@ -448,7 +448,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "{} {} {} {} {} {}.",
@@ -469,7 +469,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Naptr")
             .field("order", &self.order)
             .field("preference", &self.preference)

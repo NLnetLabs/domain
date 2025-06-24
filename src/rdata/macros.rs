@@ -456,7 +456,7 @@ macro_rules! rdata_types {
             O: AsRef<[u8]>,
             N: fmt::Display
         {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match *self {
                     $( $( $(
                         ZoneRecordData::$mtype(ref inner) => {
@@ -475,7 +475,7 @@ macro_rules! rdata_types {
             O: AsRef<[u8]>,
             N: fmt::Debug
         {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match *self {
                     $( $( $(
                         ZoneRecordData::$mtype(ref inner) => {
@@ -1070,7 +1070,7 @@ macro_rules! rdata_types {
         impl<O, N> fmt::Display for AllRecordData<O, N>
         where O: Octets, N: fmt::Display {
             fn fmt(
-                &self, f: &mut fmt::Formatter
+                &self, f: &mut fmt::Formatter<'_>
             ) -> fmt::Result {
                 match *self {
                     $( $( $(
@@ -1092,7 +1092,7 @@ macro_rules! rdata_types {
         impl<O, N> fmt::Debug for AllRecordData<O, N>
         where O: Octets, N: fmt::Debug {
             fn fmt(
-                &self, f: &mut fmt::Formatter
+                &self, f: &mut fmt::Formatter<'_>
             ) -> fmt::Result {
                 match *self {
                     $( $( $(
@@ -1340,7 +1340,7 @@ macro_rules! name_type_base {
         //--- Display
 
         impl<N: fmt::Display> fmt::Display for $target<N> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{}.", self.$field)
             }
         }

@@ -365,14 +365,14 @@ impl<Octs: AsRef<[u8]> + ?Sized> ComposeRecordData for Opt<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Opt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // XXX TODO Print this properly.
         f.write_str("OPT ...")
     }
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Opt(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -714,7 +714,7 @@ impl<Octs> AsRef<Opt<Octs>> for OptRecord<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for OptRecord<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OptRecord")
             .field("udp_payload_size", &self.udp_payload_size)
             .field("ext_rcord", &self.ext_rcode)
@@ -762,7 +762,7 @@ impl OptionHeader {
     }
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         Ok(OptionHeader::new(
             parser.parse_u16_be()?,
@@ -1042,13 +1042,13 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for UnknownOptData<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         base16::display(self.data.as_ref(), f)
     }
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownOptData<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnknownOptData")
             .field("code", &self.code)
             .field("data", &format_args!("{}", self))
@@ -1086,7 +1086,7 @@ impl From<LongOptData> for ParseError {
 }
 
 impl fmt::Display for LongOptData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -1135,7 +1135,7 @@ impl<T: Into<ShortBuf>> From<T> for BuildDataError {
 //--- Display and Error
 
 impl fmt::Display for BuildDataError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::LongOptData => f.write_str("long option data"),
             Self::ShortBuf => ShortBuf.fmt(f),
@@ -1221,7 +1221,7 @@ pub(super) mod test {
     pub fn test_option_compose_parse<In, F, Out>(data: &In, parse: F)
     where
         In: ComposeOptData + PartialEq<Out> + Debug,
-        F: FnOnce(&mut Parser<Bytes>) -> Result<Out, ParseError>,
+        F: FnOnce(&mut Parser<'_, Bytes>) -> Result<Out, ParseError>,
         Out: Debug,
     {
         let mut buf = BytesMut::new();
