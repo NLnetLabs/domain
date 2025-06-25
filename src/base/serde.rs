@@ -39,7 +39,7 @@ where
         {
             type Value = T;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "a u8 or string")
             }
 
@@ -77,7 +77,7 @@ where
         {
             type Value = T;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "a u16 or string")
             }
 
@@ -115,7 +115,7 @@ where
         {
             type Value = T;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "a u32 or string")
             }
 

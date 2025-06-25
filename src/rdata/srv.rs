@@ -9,8 +9,8 @@ use crate::base::iana::Rtype;
 use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
-use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
 use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -33,7 +33,6 @@ impl Srv<()> {
 }
 
 impl<N> Srv<N> {
-
     pub fn new(priority: u16, weight: u16, port: u16, target: N) -> Self {
         Srv {
             priority,
@@ -77,7 +76,9 @@ impl<N> Srv<N> {
     pub(super) fn flatten<TargetName>(
         self,
     ) -> Result<Srv<TargetName>, N::AppendError>
-    where N: FlattenInto<TargetName> {
+    where
+        N: FlattenInto<TargetName>,
+    {
         Ok(Srv::new(
             self.priority,
             self.weight,
@@ -274,7 +275,7 @@ impl<Name: ToName> Srv<Name> {
 //--- Display
 
 impl<N: fmt::Display> fmt::Display for Srv<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} {}",

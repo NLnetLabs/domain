@@ -1417,7 +1417,9 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     /// [`OptBuilder`]: struct.OptBuilder.html
     pub fn opt<F>(&mut self, op: F) -> Result<(), PushError>
     where
-        F: FnOnce(&mut OptBuilder<Target>) -> Result<(), Target::AppendError>,
+        F: FnOnce(
+            &mut OptBuilder<'_, Target>,
+        ) -> Result<(), Target::AppendError>,
     {
         self.authority.answer.builder.push(
             |target| OptBuilder::new(target)?.build(op),
@@ -2652,7 +2654,7 @@ impl<T: Into<ShortBuf>> From<T> for PushError {
 }
 
 impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             PushError::CountOverflow => f.write_str("counter overflow"),
             PushError::ShortBuf => ShortBuf.fmt(f),

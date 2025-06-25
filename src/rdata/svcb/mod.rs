@@ -28,14 +28,12 @@
 //! type.
 //!
 pub use self::params::{
-    SvcParams, ValueIter, UnknownSvcParam,
-    SvcParamValue, ParseSvcParamValue, ComposeSvcParamValue,
-    SvcParamsBuilder,
-    SvcParamsError, LongSvcParam, PushError
+    ComposeSvcParamValue, LongSvcParam, ParseSvcParamValue, PushError,
+    SvcParamValue, SvcParams, SvcParamsBuilder, SvcParamsError,
+    UnknownSvcParam, ValueIter,
 };
 pub use self::rdata::{Https, HttpsVariant, Svcb, SvcbRdata, SvcbVariant};
 
-pub mod value;
 mod params;
 mod rdata;
-
+pub mod value;

@@ -216,7 +216,7 @@ pub trait ToName: ToLabelIter {
     /// [`as_flat_slice`]: ToName::as_flat_slice
     /// [`to_name`]: ToName::to_name
     #[cfg(feature = "std")]
-    fn to_cow(&self) -> Name<std::borrow::Cow<[u8]>> {
+    fn to_cow(&self) -> Name<std::borrow::Cow<'_, [u8]>> {
         let octets = self
             .as_flat_slice()
             .map(Cow::Borrowed)
@@ -359,7 +359,7 @@ impl<T> fmt::Display for DisplayWithDot<'_, T>
 where
     T: ToLabelIter + ?Sized,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut labels = self.0.iter_labels();
         let first = match labels.next() {
             Some(first) => first,
@@ -502,7 +502,7 @@ pub trait ToRelativeName: ToLabelIter {
     /// [`as_flat_slice`]: ToRelativeName::as_flat_slice
     /// [`to_relative_name`]: ToRelativeName::to_relative_name
     #[cfg(feature = "std")]
-    fn to_cow(&self) -> RelativeName<std::borrow::Cow<[u8]>> {
+    fn to_cow(&self) -> RelativeName<std::borrow::Cow<'_, [u8]>> {
         let octets = self
             .as_flat_slice()
             .map(Cow::Borrowed)

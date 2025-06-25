@@ -27,7 +27,7 @@ impl From<[u8; 4]> for Ipv4Addr {
 }
 
 impl fmt::Display for Ipv4Addr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}.{}", self.0[0], self.0[1], self.0[2], self.0[3])
     }
 }
@@ -135,7 +135,7 @@ impl From<[u16; 8]> for Ipv6Addr {
 #[allow(clippy::many_single_char_names)]
 #[allow(clippy::needless_range_loop)]
 impl fmt::Display for Ipv6Addr {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.segments() {
             // We need special cases for :: and ::1, otherwise they're
             // formatted as ::0.0.0.[01]

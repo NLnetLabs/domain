@@ -80,7 +80,7 @@ impl<Octs> ParsedName<Octs> {
     }
 
     /// Returns a correctly positioned parser.
-    fn parser(&self) -> Parser<Octs>
+    fn parser(&self) -> Parser<'_, Octs>
     where
         Octs: AsRef<[u8]>,
     {
@@ -116,7 +116,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedName<&'a Octs> {
 ///
 impl<Octs: AsRef<[u8]>> ParsedName<Octs> {
     /// Returns an iterator over the labels of the name.
-    pub fn iter(&self) -> ParsedNameIter {
+    pub fn iter(&self) -> ParsedNameIter<'_> {
         ParsedNameIter::new(self.octets.as_ref(), self.pos, self.name_len)
     }
 
@@ -125,7 +125,7 @@ impl<Octs: AsRef<[u8]>> ParsedName<Octs> {
     /// The returned iterator starts with the full name and then for each
     /// additional step returns a name with the left-most label stripped off
     /// until it reaches the root label.
-    pub fn iter_suffixes(&self) -> ParsedSuffixIter<Octs> {
+    pub fn iter_suffixes(&self) -> ParsedSuffixIter<'_, Octs> {
         ParsedSuffixIter::new(self)
     }
 
@@ -337,7 +337,7 @@ impl ParsedName<()> {
     /// If you need to check that the name you are skipping over is valid, you
     /// will have to use `parse` and drop the result.
     pub fn skip<Src: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Src>,
+        parser: &mut Parser<'_, Src>,
     ) -> Result<(), ParseError> {
         let mut len = 0;
         loop {
@@ -503,7 +503,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for ParsedName<Octs> {
     ///
     /// This will produce the domain name in common display format without
     /// the trailing dot.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut iter = self.iter();
         write!(f, "{}", iter.next().unwrap())?;
         for label in iter {
@@ -516,7 +516,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for ParsedName<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for ParsedName<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ParsedName({}.)", self)
     }
 }
@@ -655,7 +655,7 @@ enum LabelType {
 impl LabelType {
     /// Attempts to take a label type from the beginning of `parser`.
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         let ltype = parser.parse_u8()?;
         match ltype {
@@ -671,7 +671,7 @@ impl LabelType {
 
     /// Returns the label type at the beginning of `parser` without advancing.
     pub fn peek<Ref: AsRef<[u8]> + ?Sized>(
-        parser: &Parser<Ref>,
+        parser: &Parser<'_, Ref>,
     ) -> Result<Self, ParseError> {
         let ltype = parser.peek(1)?[0];
         match ltype {
@@ -705,7 +705,7 @@ enum ParsedDnameError {
 }
 
 impl fmt::Display for ParsedDnameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         FormError::from(*self).fmt(f)
     }
 }
@@ -1030,7 +1030,7 @@ mod test {
         }
 
         fn parse(
-            mut parser: Parser<&[u8]>,
+            mut parser: Parser<'_, &[u8]>,
             equals: ParsedName<&[u8]>,
             compose_len: usize,
         ) {
@@ -1046,7 +1046,7 @@ mod test {
             assert_eq!(parser.pos(), pos + len);
         }
 
-        fn p(slice: &[u8], pos: usize) -> Parser<[u8]> {
+        fn p(slice: &[u8], pos: usize) -> Parser<'_, [u8]> {
             let mut res = Parser::from_ref(slice);
             res.advance(pos).unwrap();
             res

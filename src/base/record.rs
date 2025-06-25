@@ -404,7 +404,7 @@ where
     Name: fmt::Display,
     Data: RecordData + fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}. {} {} {} {}",
@@ -422,7 +422,7 @@ where
     Name: fmt::Debug,
     Data: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Record")
             .field("owner", &self.owner)
             .field("class", &self.class)
@@ -677,7 +677,7 @@ impl<Name> RecordHeader<Name> {
 impl RecordHeader<()> {
     /// Parses only the record length and skips over all the other fields.
     fn parse_rdlen<Octs: Octets + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<u16, ParseError> {
         ParsedName::skip(parser)?;
         parser.advance(
@@ -852,7 +852,7 @@ impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
 //--- Debug
 
 impl<Name: fmt::Debug> fmt::Debug for RecordHeader<Name> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RecordHeader")
             .field("owner", &self.owner)
             .field("rtype", &self.rtype)
@@ -1057,7 +1057,7 @@ where
     N: fmt::Display,
     D: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             RecordParseError::Name(ref name) => name.fmt(f),
             RecordParseError::Data(ref data) => data.fmt(f),

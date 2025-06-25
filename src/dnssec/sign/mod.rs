@@ -380,7 +380,7 @@ where
 /// [`Zone`]: crate::zonetree::Zone
 pub fn sign_zone<N, Octs, S, Inner, Sort, T>(
     apex_owner: &N,
-    mut in_out: SignableZoneInOut<N, Octs, S, T, Sort>,
+    mut in_out: SignableZoneInOut<'_, '_, N, Octs, S, T, Sort>,
     signing_config: &SigningConfig<Octs, Sort>,
     signing_keys: &[&SigningKey<Octs, Inner>],
 ) -> Result<(), SigningError>

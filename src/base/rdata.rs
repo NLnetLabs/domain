@@ -459,7 +459,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for UnknownRecordData<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "\\# {}", self.data.as_ref().len())?;
         for ch in self.data.as_ref() {
             write!(f, " {:02x}", *ch)?
@@ -471,7 +471,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for UnknownRecordData<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("UnknownRecordData(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -530,7 +530,7 @@ impl LongRecordData {
 }
 
 impl fmt::Display for LongRecordData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -571,7 +571,7 @@ pub(crate) mod test {
     pub fn test_compose_parse<In, F, Out>(data: &In, parse: F)
     where
         In: ComposeRecordData + PartialEq<Out> + Debug,
-        F: FnOnce(&mut Parser<Bytes>) -> Result<Out, ParseError>,
+        F: FnOnce(&mut Parser<'_, Bytes>) -> Result<Out, ParseError>,
         Out: Debug,
     {
         let mut buf = BytesMut::new();

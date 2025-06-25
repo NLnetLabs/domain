@@ -384,7 +384,7 @@ impl ResolvConf {
 
     fn parse_nameserver(
         &mut self,
-        mut words: SplitWhitespace,
+        mut words: SplitWhitespace<'_>,
     ) -> Result<(), Error> {
         use std::net::ToSocketAddrs;
 
@@ -396,14 +396,17 @@ impl ResolvConf {
 
     fn parse_domain(
         &mut self,
-        mut words: SplitWhitespace,
+        mut words: SplitWhitespace<'_>,
     ) -> Result<(), Error> {
         let domain = SearchSuffix::from_str(next_word(&mut words)?)?;
         self.options.search = domain.into();
         no_more_words(words)
     }
 
-    fn parse_search(&mut self, words: SplitWhitespace) -> Result<(), Error> {
+    fn parse_search(
+        &mut self,
+        words: SplitWhitespace<'_>,
+    ) -> Result<(), Error> {
         let mut search = SearchList::new();
         let mut root = false;
         for word in words {
@@ -429,7 +432,10 @@ impl ResolvConf {
     }
     */
 
-    fn parse_options(&mut self, words: SplitWhitespace) -> Result<(), Error> {
+    fn parse_options(
+        &mut self,
+        words: SplitWhitespace<'_>,
+    ) -> Result<(), Error> {
         for word in words {
             match split_arg(word)? {
                 ("debug", None) => {}
@@ -478,7 +484,7 @@ impl Default for ResolvConf {
 //--- Display
 
 impl fmt::Display for ResolvConf {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for server in &self.servers {
             let server = server.addr;
             f.write_str("nameserver ")?;
@@ -656,7 +662,7 @@ impl AsRef<[SearchSuffix]> for SearchList {
 
 /// Returns a reference to the next word or an error.
 fn next_word<'a>(
-    words: &'a mut str::SplitWhitespace,
+    words: &'a mut str::SplitWhitespace<'_>,
 ) -> Result<&'a str, Error> {
     match words.next() {
         Some(word) => Ok(word),
@@ -665,7 +671,7 @@ fn next_word<'a>(
 }
 
 /// Returns nothing but errors out if there are words left.
-fn no_more_words(mut words: str::SplitWhitespace) -> Result<(), Error> {
+fn no_more_words(mut words: str::SplitWhitespace<'_>) -> Result<(), Error> {
     match words.next() {
         Some(..) => Err(Error::ParseError),
         None => Ok(()),
@@ -719,7 +725,7 @@ impl convert::From<::std::num::ParseIntError> for Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Error::ParseError => write!(f, "error parsing configuration"),
             Error::Io(ref e) => e.fmt(f),

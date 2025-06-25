@@ -5,9 +5,9 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::name::{ParsedName, ToName};
 use crate::base::wire::ParseError;
-use core::{fmt, hash, str};
 use core::cmp::Ordering;
 use core::str::FromStr;
+use core::{fmt, hash, str};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 
@@ -20,7 +20,7 @@ name_type_well_known! {
     /// name alias.
     ///
     /// The CNAME type is defined in [RFC 1035, section 3.3.1][1].
-    /// 
+    ///
     /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.1
     (Cname, CNAME, cname, into_cname)
 }
@@ -33,7 +33,7 @@ name_type_well_known! {
     /// The experimental MB record specifies a host that serves a mailbox.
     ///
     /// The MB record type is defined in [RFC 1035, section 3.3.3][1].
-    /// 
+    ///
     /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.3
     (Mb, MB, madname, into_madname)
 }
@@ -50,7 +50,7 @@ name_type_well_known! {
     /// or convert them into an Mx record at preference 0.
     ///
     /// The MD record type is defined in [RFC 1035, section 3.3.4][1].
-    /// 
+    ///
     /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.4
     (Md, MD, madname, into_madname)
 }
@@ -67,7 +67,7 @@ name_type_well_known! {
     /// or convert them into an Mx record at preference 10.
     ///
     /// The MF record type is defined in [RFC 1035, section 3.3.5][1].
-    /// 
+    ///
     /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.5
     (Mf, MF, madname, into_madname)
 }
@@ -83,7 +83,7 @@ name_type_well_known! {
     /// The MG record is experimental.
     ///
     /// The MG record type is defined in [RFC 1035, section 3.3.6][1].
-    /// 
+    ///
     /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.6
     (Mg, MG, madname, into_madname)
 }
@@ -99,7 +99,7 @@ name_type_well_known! {
     /// The MR record is experimental.
     ///
     /// The MR record type is defined in [RFC 1035, section 3.3.8][1].
-    /// 
+    ///
     /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.8
     (Mr, MR, newname, into_newname)
 }
@@ -112,7 +112,7 @@ name_type_well_known! {
     /// NS records specify hosts that are authoritative for a class and domain.
     ///
     /// The NS record type is defined in [RFC 1035, section 3.3.11][1].
-    /// 
+    ///
     /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.11
     (Ns, NS, nsdname, into_nsdname)
 }
@@ -126,7 +126,7 @@ name_type_well_known! {
     /// in the domain space.
     ///
     /// The PTR record type is defined in [RFC 1035, section 3.3.12][1].
-    /// 
+    ///
     /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.12
     (Ptr, PTR, ptrdname, into_ptrdname)
 }
@@ -155,4 +155,3 @@ mod test {
         test_scan(&["www.example.com"], Cname::scan, &rdata);
     }
 }
-

@@ -273,7 +273,7 @@ where
 
     fn mk_signed_truncated_response(
         request: &Request<RequestOctets>,
-        truncation_ctx: TruncationContext<KS::Key, tsig::Key>,
+        truncation_ctx: TruncationContext<'_, KS::Key, tsig::Key>,
     ) -> Result<AdditionalBuilder<StreamTarget<NextSvc::Target>>, ServiceError>
     {
         let builder = mk_builder_for_target();

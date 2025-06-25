@@ -355,7 +355,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
 //--- Display, and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} {} ",
@@ -370,7 +370,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Nsec3")
             .field("hash_algorithm", &self.hash_algorithm)
             .field("flags", &self.flags)
@@ -460,9 +460,9 @@ pub struct Nsec3param<Octs> {
     ///    but at a higher computational cost for both the server and
     ///    resolver.  See Section 5 for details of the use of this field, and
     ///    Section 10.3 for limitations on the value."
-    /// 
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
-    /// 3.1. Best Practice for Zone Publishers 
+    /// 3.1. Best Practice for Zone Publishers
     ///   "If NSEC3 must be used, then an iterations count of 0 MUST be used
     ///    to alleviate computational burdens."
     iterations: u16,
@@ -472,9 +472,9 @@ pub struct Nsec3param<Octs> {
     ///   "The Salt field is appended to the original owner name before
     ///    hashing in order to defend against pre-calculated dictionary
     ///    attacks."
-    /// 
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
-    /// 3.1. Best Practice for Zone Publishers 
+    /// 3.1. Best Practice for Zone Publishers
     ///   "Operators SHOULD NOT use a salt by indicating a zero-length salt
     ///   value instead (represented as a "-" in the presentation format)."
     salt: Nsec3Salt<Octs>,
@@ -514,7 +514,7 @@ impl<Octs> Nsec3param<Octs> {
 
     pub fn opt_out_flag(&self) -> bool {
         self.flags & NSEC3_OPT_OUT_FLAG_MASK == NSEC3_OPT_OUT_FLAG_MASK
-    }    
+    }
 
     pub fn iterations(&self) -> u16 {
         self.iterations
@@ -770,7 +770,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3param<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} {}",
@@ -780,7 +780,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3param<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Nsec3param")
             .field("hash_algorithm", &self.hash_algorithm)
             .field("flags", &self.flags)
@@ -1106,7 +1106,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for Nsec3Salt<T> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = self.as_slice();
         if s.is_empty() {
             // https://www.rfc-editor.org/rfc/rfc5155.html#section-3.3
@@ -1120,7 +1120,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octs> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Nsec3Salt")
             .field(&format_args!("{}", self))
             .finish()
@@ -1188,7 +1188,7 @@ where
         {
             type Value = Nsec3Salt<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an NSEC3 salt value")
             }
 
@@ -1228,7 +1228,7 @@ where
         {
             type Value = Nsec3Salt<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an NSEC3 salt value")
             }
 
@@ -1508,13 +1508,13 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for OwnerHash<T> {
 //--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for OwnerHash<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         base32::display_hex(self.as_slice(), f)
     }
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for OwnerHash<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("OwnerHash")
             .field(&format_args!("{}", self))
             .finish()
@@ -1564,7 +1564,7 @@ where
         {
             type Value = OwnerHash<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an owner name hash value")
             }
 
@@ -1604,7 +1604,7 @@ where
         {
             type Value = OwnerHash<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an owner name hash value")
             }
 
@@ -1642,7 +1642,7 @@ where
 pub struct Nsec3SaltError(());
 
 impl fmt::Display for Nsec3SaltError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("illegal NSEC3 salt")
     }
 }
@@ -1659,7 +1659,7 @@ impl std::error::Error for Nsec3SaltError {}
 pub struct OwnerHashError(());
 
 impl fmt::Display for OwnerHashError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("illegal owner name hash")
     }
 }

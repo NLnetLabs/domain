@@ -218,7 +218,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 #[allow(clippy::type_complexity)]
 fn mk_servers<Svc>(
     service: Svc,
-    server_config: &ServerConfig,
+    server_config: &ServerConfig<'_>,
     dgram_server_conn: ClientServerChannel,
     stream_server_conn: ClientServerChannel,
 ) -> (
@@ -375,7 +375,7 @@ fn mk_client_factory(
 }
 
 fn mk_server_configs(
-    config: &ServerConfig,
+    config: &ServerConfig<'_>,
 ) -> (server::dgram::Config, server::stream::Config) {
     let dgram_config = server::dgram::Config::default();
 
@@ -448,7 +448,7 @@ struct CookieConfig<'a> {
     ip_deny_list: Vec<IpAddr>,
 }
 
-fn parse_server_config(config: &Config) -> ServerConfig {
+fn parse_server_config(config: &Config) -> ServerConfig<'_> {
     let mut parsed_config = ServerConfig::default();
     let mut in_server_block = false;
     let mut zone_name = None;

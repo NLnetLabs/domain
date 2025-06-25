@@ -334,7 +334,7 @@ impl GetResponse for Request {
 }
 
 impl Debug for Request {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -391,7 +391,7 @@ impl GetResponseMulti for RequestMulti {
 }
 
 impl Debug for RequestMulti {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()

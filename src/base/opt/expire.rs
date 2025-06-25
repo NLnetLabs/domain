@@ -8,15 +8,14 @@
 //!
 //! This option is defined in [RFC 7314](https://tools.ietf.org/html/rfc7314).
 
-use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, Parse, ParseError};
-use super::{Opt, OptData, ComposeOptData, ParseOptData};
+use super::{ComposeOptData, Opt, OptData, ParseOptData};
+use core::fmt;
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
-
 
 //------------ Expire --------------------------------------------------------
 
@@ -35,7 +34,7 @@ pub struct Expire(Option<u32>);
 impl Expire {
     /// The option code for this option.
     pub(super) const CODE: OptionCode = OptionCode::EXPIRE;
-    
+
     /// Creates a new expire option with the given optional expire value.
     #[must_use]
     pub fn new(expire: Option<u32>) -> Self {
@@ -50,12 +49,11 @@ impl Expire {
 
     /// Parses a value from its wire format.
     pub fn parse<Octs: AsRef<[u8]>>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         if parser.remaining() == 0 {
             Ok(Expire::new(None))
-        }
-        else {
+        } else {
             u32::parse(parser).map(|res| Expire::new(Some(res)))
         }
     }
@@ -83,8 +81,7 @@ impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for Expire {
     ) -> Result<Option<Self>, ParseError> {
         if code == OptionCode::EXPIRE {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -99,7 +96,8 @@ impl ComposeOptData for Expire {
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         if let Some(value) = self.0 {
             value.compose(target)?;
@@ -111,10 +109,10 @@ impl ComposeOptData for Expire {
 //--- Display
 
 impl fmt::Display for Expire {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             Some(expire) => expire.fmt(f),
-            None => Ok(())
+            None => Ok(()),
         }
     }
 }
@@ -137,32 +135,29 @@ impl<Target: Composer> OptBuilder<'_, Target> {
     /// The Expire option allows an authoritative server to signal its own
     /// expiry time of a zone.
     pub fn expire(
-        &mut self, expire: Option<u32>
+        &mut self,
+        expire: Option<u32>,
     ) -> Result<(), Target::AppendError> {
         self.push(&Expire::new(expire))
     }
 }
-
 
 //============ Testing ======================================================
 
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
-    use super::*;
     use super::super::test::test_option_compose_parse;
-    
+    use super::*;
+
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn expire_compose_parse() {
-        test_option_compose_parse(
-            &Expire::new(None),
-            |parser| Expire::parse(parser)
-        );
-        test_option_compose_parse(
-            &Expire::new(Some(12)),
-            |parser| Expire::parse(parser)
-        );
+        test_option_compose_parse(&Expire::new(None), |parser| {
+            Expire::parse(parser)
+        });
+        test_option_compose_parse(&Expire::new(Some(12)), |parser| {
+            Expire::parse(parser)
+        });
     }
 }
-

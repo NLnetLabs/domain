@@ -70,7 +70,7 @@ impl XfrResponseInterpreter {
     pub fn interpret_response(
         &mut self,
         resp: Message<Bytes>,
-    ) -> Result<XfrZoneUpdateIterator, Error> {
+    ) -> Result<XfrZoneUpdateIterator<'_, '_>, Error> {
         if self.is_finished() {
             return Err(Error::Finished);
         }

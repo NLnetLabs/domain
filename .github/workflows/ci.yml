@@ -15,11 +15,7 @@ jobs:
         rust: [1.79.0, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
-        # We use 'vcpkg' to install OpenSSL on Windows.
-        VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
-        VCPKGRS_TRIPLET: x64-windows-release
-        # Ensure that OpenSSL is dynamically linked.
-        VCPKGRS_DYNAMIC: 1
+        DOMAIN_FEATURES: "--all-features"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
@@ -30,21 +26,27 @@ jobs:
     - if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get install -y libssl-dev
     - if: matrix.os == 'windows-latest'
-      id: vcpkg
-      uses: johnwason/vcpkg-action@v6
-      with:
-        pkgs: openssl
-        triplet: ${{ env.VCPKGRS_TRIPLET }}
-        token: ${{ github.token }}
-        github-binarycache: true
+      name: Disable OpenSSL on Windows CI
+      shell: bash
+      run: |
+        # Cargo doesn't support enabling all but one feature, so determine the
+        # complete feature list and filter out 'openssl'.
+        features=`cargo metadata --no-deps --format-version 1 | jq -r '.packages[]|select(.name == "domain")|.features|keys|map(select(.!="openssl"))|join(",")'`
+        # Overwrite the 'DOMAIN_FEATURES' environment variable.
+        echo "DOMAIN_FEATURES=-F $features" >> "$GITHUB_ENV"
+        # See <https://github.com/actions/runner-images/issues/12432>
+        mkdir -p .cargo
+        printf '[target.x86_64-pc-windows-msvc]\nlinker = "rust-lld"\n' >> .cargo/config.toml
     - if: matrix.rust == 'stable'
       run: rustup component add clippy
     - if: matrix.rust == 'stable'
-      run: cargo clippy --all-features --all-targets -- -D warnings
+      run: cargo clippy $DOMAIN_FEATURES --all-targets -- -D warnings
+      shell: bash
     - if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
       run: cargo fmt --all -- --check
     - run: cargo check --no-default-features --all-targets
-    - run: cargo test --all-features
+    - run: cargo test $DOMAIN_FEATURES
+      shell: bash
 
   minimal-versions:
     name: Check minimal versions

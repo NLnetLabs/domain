@@ -296,7 +296,7 @@ impl Group {
     }
 
     /// Return an iterator over the RRset in a group.
-    pub fn rr_iter(&mut self) -> Iter<RrType> {
+    pub fn rr_iter(&mut self) -> Iter<'_, RrType> {
         self.rr_set.iter()
     }
 
@@ -306,7 +306,7 @@ impl Group {
     }
 
     /// Return an iterator over the signature records in a group.
-    pub fn sig_iter(&mut self) -> Iter<SigType> {
+    pub fn sig_iter(&mut self) -> Iter<'_, SigType> {
         self.sig_set.iter()
     }
 
@@ -840,7 +840,7 @@ impl GroupSet {
     }
 
     /// Return an iterator over the group set.
-    pub fn iter(&mut self) -> Iter<Group> {
+    pub fn iter(&mut self) -> Iter<'_, Group> {
         self.0.iter()
     }
 }

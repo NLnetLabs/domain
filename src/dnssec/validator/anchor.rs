@@ -70,7 +70,7 @@ impl TrustAnchor {
     }
 
     /// An iterator over the anchor's records.
-    pub fn iter(&mut self) -> Iter<RrType> {
+    pub fn iter(&mut self) -> Iter<'_, RrType> {
         self.rrs.iter()
     }
 }

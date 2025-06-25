@@ -553,7 +553,7 @@ impl From<ShortBuf> for PushError {
 //--- Display and Error
 
 impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             PushError::LongLabel => f.write_str("long label"),
             PushError::LongName => f.write_str("long domain name"),
@@ -588,7 +588,7 @@ impl From<ShortBuf> for PushNameError {
 //--- Display and Error
 
 impl fmt::Display for PushNameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             PushNameError::LongName => f.write_str("long domain name"),
             PushNameError::ShortBuf => ShortBuf.fmt(f),
@@ -641,7 +641,7 @@ impl From<BadSymbol> for LabelFromStrError {
 //--- Display and Error
 
 impl fmt::Display for LabelFromStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             LabelFromStrErrorEnum::SymbolChars(err) => err.fmt(f),
             LabelFromStrErrorEnum::BadSymbol(err) => err.fmt(f),
@@ -705,7 +705,7 @@ impl<T: Into<PresentationError>> From<T> for FromStrError {
 //--- Display and Error
 
 impl fmt::Display for FromStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             FromStrError::Presentation(err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
@@ -750,7 +750,7 @@ impl<T: Into<LabelFromStrError>> From<T> for PresentationError {
 //--- Display and Error
 
 impl fmt::Display for PresentationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             PresentationErrorEnum::BadLabel(ref err) => err.fmt(f),
             PresentationErrorEnum::EmptyLabel => f.write_str("empty label"),

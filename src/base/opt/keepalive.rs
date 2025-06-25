@@ -8,16 +8,15 @@
 //!
 //! This option is defined in [RFC 7829](https://tools.ietf.org/html/rfc7828).
 
-use core::fmt;
-use core::time::Duration;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, Parse, ParseError};
-use super::{Opt, OptData, ComposeOptData, ParseOptData};
+use super::{ComposeOptData, Opt, OptData, ParseOptData};
+use core::fmt;
+use core::time::Duration;
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
-
 
 //------------ TcpKeepalive --------------------------------------------------
 
@@ -36,7 +35,7 @@ pub struct TcpKeepalive(Option<IdleTimeout>);
 impl TcpKeepalive {
     /// The option code for this option.
     pub(super) const CODE: OptionCode = OptionCode::TCP_KEEPALIVE;
-    
+
     /// Creates a new value from an optional idle timeout.
     #[must_use]
     pub fn new(timeout: Option<IdleTimeout>) -> Self {
@@ -51,7 +50,7 @@ impl TcpKeepalive {
 
     /// Parses an option data value from its wire format.
     pub fn parse<Octs: AsRef<[u8]>>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         if parser.remaining() == 0 {
             Ok(Self::new(None))
@@ -83,8 +82,7 @@ impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for TcpKeepalive {
     ) -> Result<Option<Self>, ParseError> {
         if code == OptionCode::TCP_KEEPALIVE {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -99,7 +97,8 @@ impl ComposeOptData for TcpKeepalive {
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         match self.0 {
             Some(v) => v.compose(target),
@@ -111,7 +110,7 @@ impl ComposeOptData for TcpKeepalive {
 //--- Display
 
 impl fmt::Display for TcpKeepalive {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             Some(v) => write!(f, "{}", v),
             None => write!(f, ""),
@@ -133,12 +132,12 @@ impl<Octs: Octets> Opt<Octs> {
 
 impl<Target: Composer> OptBuilder<'_, Target> {
     pub fn tcp_keepalive(
-        &mut self, timeout: Option<IdleTimeout>
+        &mut self,
+        timeout: Option<IdleTimeout>,
     ) -> Result<(), Target::AppendError> {
         self.push(&TcpKeepalive::new(timeout))
     }
 }
-
 
 //------------ IdleTimeout ---------------------------------------------------
 
@@ -157,14 +156,15 @@ impl IdleTimeout {
 
     /// Parses a value from its wire format.
     fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         u16::parse(parser).map(Self)
     }
 
     /// Appends a value in wire format to a target.
     fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.0.compose(target)
     }
@@ -190,11 +190,13 @@ impl TryFrom<Duration> for IdleTimeout {
     fn try_from(duration: Duration) -> Result<Self, Self::Error> {
         Ok(Self(
             u16::try_from(
-                duration.as_secs().checked_mul(10).ok_or(
-                    FromDurationError(())
-                )?
-                + u64::from(duration.subsec_millis() / 100)
-            ).map_err(|_| FromDurationError(()))?
+                duration
+                    .as_secs()
+                    .checked_mul(10)
+                    .ok_or(FromDurationError(()))?
+                    + u64::from(duration.subsec_millis() / 100),
+            )
+            .map_err(|_| FromDurationError(()))?,
         ))
     }
 }
@@ -208,11 +210,10 @@ impl From<IdleTimeout> for Duration {
 //--- Display
 
 impl fmt::Display for IdleTimeout {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
-
 
 //------------ FromDurationError ---------------------------------------------
 
@@ -221,30 +222,28 @@ impl fmt::Display for IdleTimeout {
 pub struct FromDurationError(());
 
 impl fmt::Display for FromDurationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("duration too large")
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for FromDurationError { }
-
+impl std::error::Error for FromDurationError {}
 
 //============ Testing =======================================================
 
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
-    use super::*;
     use super::super::test::test_option_compose_parse;
-    
+    use super::*;
+
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn tcp_keepalive_compose_parse_none() {
-        test_option_compose_parse(
-            &TcpKeepalive::new(None),
-            |parser| TcpKeepalive::parse(parser)
-        );
+        test_option_compose_parse(&TcpKeepalive::new(None), |parser| {
+            TcpKeepalive::parse(parser)
+        });
     }
 
     #[test]
@@ -252,8 +251,7 @@ mod test {
     fn tcp_keepalive_compose_parse_some() {
         test_option_compose_parse(
             &TcpKeepalive::new(Some(12.into())),
-            |parser| TcpKeepalive::parse(parser)
+            |parser| TcpKeepalive::parse(parser),
         );
     }
 }
-

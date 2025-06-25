@@ -727,7 +727,7 @@ impl From<char> for Symbol {
 //--- Display
 
 impl fmt::Display for Symbol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Symbol::Char(ch) => write!(f, "{}", ch),
             Symbol::SimpleEscape(ch) => write!(f, "\\{}", ch as char),
@@ -1066,7 +1066,7 @@ impl SymbolCharsError {
 //--- Display and Error
 
 impl fmt::Display for SymbolCharsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -1108,7 +1108,7 @@ impl SymbolOctetsError {
 //--- Display and Error
 
 impl fmt::Display for SymbolOctetsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -1157,7 +1157,7 @@ impl BadSymbol {
 //--- Display and Error
 
 impl fmt::Display for BadSymbol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -1203,7 +1203,7 @@ impl From<ShortBuf> for StrError {
 }
 
 impl fmt::Display for StrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
     }
 }

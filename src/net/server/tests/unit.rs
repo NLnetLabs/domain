@@ -220,7 +220,7 @@ impl AsyncAccept for MockListener {
     /// Accept mock connections one at a time at a defined rate.
     fn poll_accept(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
     ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         match self.ready.load(Ordering::Relaxed) {
             true => {
