@@ -1347,10 +1347,12 @@ pub enum RollType {
     /// Roll as described in Section 4.1.1.2. of RFC 6781.
     ZskDoubleSignatureRoll,
 
-    /// A CSK roll.
+    /// A CSK roll. This implements neither of the two algorithms in
+    /// Section 4.1.3. of RFC 6781.
     CskRoll,
 
-    /// An algorithm roll.
+    /// An algorithm roll. This implements the 'liberal approach' as
+    /// described in Section 4.1.4 of RFC 6781.
     AlgorithmRoll,
 }
 
