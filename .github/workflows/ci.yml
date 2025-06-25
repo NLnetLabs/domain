@@ -277,7 +277,7 @@ jobs:
       id: setup-rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
-        toolchain: nightly
+        toolchain: ${{ matrix.rust }}
         cache: false
 
     # Restore a cache of dependencies and 'target'.
@@ -336,7 +336,7 @@ jobs:
       id: setup-rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
-        toolchain: nightly
+        toolchain: ${{ matrix.rust }}
         cache: false
 
     # Restore a cache of dependencies and 'target'.
