@@ -241,7 +241,6 @@ impl PublicKey {
 
 #[cfg(feature = "unstable-crypto-sign")]
 pub mod sign {
-    use core::time::Duration;
     use std::boxed::Box;
     use std::string::{String, ToString};
     use std::time::SystemTime;
@@ -427,28 +426,16 @@ pub mod sign {
             );
 
             // Execute the request and capture the response
-            let client = self.conn_pool.get().map_err(|_| SignError)?;
-            let mut retries = 3;
-            let res = loop {
-                match client.do_request(request.clone()) {
-                    Ok(res) => break res,
-                    Err(kmip::client::Error::ItemNotFound(err))
-                        if retries > 0 =>
-                    {
-                        error!(
-                            "KMIP item not found error, will retry: {err}"
-                        );
-                        tokio::task::block_in_place(|| {
-                            std::thread::sleep(Duration::from_secs(3));
-                        });
-                        retries -= 1;
-                    }
-                    Err(err) => {
-                        error!("Error while sending KMIP request: {err}");
-                        return Err(SignError);
-                    }
-                }
-            };
+            let client = self
+                .conn_pool
+                .get()
+                .inspect_err(|err| error!("Error while obtaining KMIP pool connection: {err}"))
+                .map_err(|_| SignError)?;
+
+            let res = client
+                .do_request(request)
+                .inspect_err(|err| error!("Error while sending KMIP request: {err}"))
+                .map_err(|_| SignError)?;
 
             let ResponsePayload::Sign(signed) = res else {
                 unreachable!();
