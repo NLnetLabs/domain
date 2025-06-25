@@ -200,7 +200,7 @@ fn do_start(filename: &str, args: &[String]) {
         .keys()
         .iter()
         .filter_map(|(pr, k)| match rolltype {
-            RollType::KskRoll => {
+            RollType::KskRoll | RollType::KskDoubleDsRoll => {
                 if let KeyType::Ksk(keystate) = k.keytype() {
                     Some((keystate.clone(), pr))
                 } else {
@@ -555,6 +555,9 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
             Action::ReportDsPropagated => println!(
                 "\tReport that the DS RRset has propagated at the parent"
             ),
+            Action::WaitDsPropagated => {
+                println!("\tWait until DS RRset has propagated at the parent")
+            }
         }
     }
 }
