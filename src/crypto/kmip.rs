@@ -429,12 +429,18 @@ pub mod sign {
             let client = self
                 .conn_pool
                 .get()
-                .inspect_err(|err| error!("Error while obtaining KMIP pool connection: {err}"))
+                .inspect_err(|err| {
+                    error!(
+                        "Error while obtaining KMIP pool connection: {err}"
+                    )
+                })
                 .map_err(|_| SignError)?;
 
             let res = client
                 .do_request(request)
-                .inspect_err(|err| error!("Error while sending KMIP request: {err}"))
+                .inspect_err(|err| {
+                    error!("Error while sending KMIP request: {err}")
+                })
                 .map_err(|_| SignError)?;
 
             let ResponsePayload::Sign(signed) = res else {
