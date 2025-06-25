@@ -9,8 +9,8 @@
 //! # Usage
 //!
 //! ```
-//! # use domain::new_base::name::RevNameBuf;
-//! # use domain::new_zonefile::simple::{ZonefileScanner, Entry};
+//! # use domain::new::base::name::RevNameBuf;
+//! # use domain::new::zonefile::simple::{ZonefileScanner, Entry};
 //! let zonefile: &[u8] = br#"
 //! @   IN 42 SOA m r 20 7200 600 3600000 60
 //!           A 127.0.0.1

@@ -17,7 +17,7 @@
 //! as the line numbers they spanned.
 //!
 //! ```
-//! # use domain::new_zonefile::entries::Entries;
+//! # use domain::new::zonefile::entries::Entries;
 //! // Any type implementing 'std::io::BufRead' is appropriate.
 //! let zonefile = b"Hello World!; (hi!)\nThis (entry\nspans\nlines)\n".as_slice();
 //! let mut expected = [
