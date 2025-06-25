@@ -353,4 +353,14 @@ jobs:
     - name: Build
       run: cargo build --all-targets $DOMAIN_FEATURES
 
+    # Save to the cache.
+    - name: Save to the cache
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+
 # TODO: Use 'cargo-semver-checks' on releases.
