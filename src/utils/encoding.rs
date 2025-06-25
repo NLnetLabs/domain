@@ -19,6 +19,8 @@ impl Base16Enc {
     ///
     /// This returns the minimum size of the destination buffer for a call to
     /// [`encode()`], accounting for any carry-over data currently saved.
+    ///
+    /// [`encode()`]: Self::encode()
     pub const fn encoded_len(&self, decoded_len: usize) -> usize {
         decoded_len * 2
     }
@@ -31,6 +33,8 @@ impl Base16Enc {
     ///
     /// Panics if `encoded` is too small to fit the encoded data; call
     /// [`encoded_len()`] to determine how big it should be.
+    ///
+    /// [`encoded_len()`]: Self::encoded_len()
     pub fn encode<'e>(
         &mut self,
         decoded: &[u8],

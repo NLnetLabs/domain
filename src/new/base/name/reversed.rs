@@ -192,7 +192,7 @@ impl<'a> Scan<'a> for &'a RevName {
     ///
     /// This parses a domain name, following the [specification].
     ///
-    /// [specification]: crate::new_zonefile#specification
+    /// [specification]: crate::new::zonefile#specification
     fn scan(
         scanner: &mut Scanner<'_>,
         alloc: &'a bumpalo::Bump,
@@ -556,7 +556,7 @@ impl Scan<'_> for RevNameBuf {
     ///
     /// This parses a domain name, following the [specification].
     ///
-    /// [specification]: crate::new_zonefile#specification
+    /// [specification]: crate::new::zonefile#specification
     fn scan(
         scanner: &mut Scanner<'_>,
         alloc: &'_ bumpalo::Bump,

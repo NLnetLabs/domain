@@ -163,7 +163,7 @@ impl<'a> Scan<'a> for &'a Label {
     ///
     /// This parses a domain name label, following the [specification].
     ///
-    /// [specification]: crate::new_zonefile#specification
+    /// [specification]: crate::new::zonefile#specification
     fn scan(
         scanner: &mut Scanner<'_>,
         alloc: &'a bumpalo::Bump,
@@ -392,7 +392,7 @@ impl Scan<'_> for LabelBuf {
     ///
     /// This parses a domain name label, following the [specification].
     ///
-    /// [specification]: crate::new_zonefile#specification
+    /// [specification]: crate::new::zonefile#specification
     fn scan(
         scanner: &mut Scanner<'_>,
         _alloc: &'_ bumpalo::Bump,

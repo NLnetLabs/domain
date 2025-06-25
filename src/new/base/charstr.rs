@@ -448,7 +448,7 @@ impl<'a> Scan<'a> for &'a CharStr {
     ///
     /// This parses the `d-word` syntax from [the specification].
     ///
-    /// [the specification]: crate::new_zonefile#specification
+    /// [the specification]: crate::new::zonefile#specification
     fn scan(
         scanner: &mut Scanner<'_>,
         alloc: &'a bumpalo::Bump,

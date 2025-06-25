@@ -22,6 +22,8 @@ impl Base16Dec {
     ///
     /// This returns the minimum size of the destination buffer for a call to
     /// [`decode()`], accounting for any carry-over data currently saved.
+    ///
+    /// [`decode()`]: Self::decode()
     pub const fn decoded_len(&self, encoded_len: usize) -> usize {
         (self.carry[1] as usize + encoded_len) / 2
     }
@@ -31,10 +33,15 @@ impl Base16Dec {
     /// A partial byte, if any, will be saved for a future call to
     /// [`decode()`] -- or [`finish()`] if there is no more data left.
     ///
+    /// [`decode()`]: Self::decode()
+    /// [`finish()`]: Self::finish()
+    ///
     /// # Panics
     ///
     /// Panics if `decoded` is too small to fit the decoded data; call
     /// [`decoded_len()`] to determine how big it should be.
+    ///
+    /// [`decoded_len()`]: Self::decoded_len()
     pub fn decode<'e>(
         &mut self,
         mut encoded: &[u8],

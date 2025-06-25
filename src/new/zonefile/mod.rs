@@ -147,7 +147,7 @@
 //! zone file format, which specifies how record data of that type should be
 //! formatted in zone files.  As new record types are added occasionally, they
 //! are the extensible part of the zone file format.  The format for a record
-//! data type is documented on its type in [`new_rdata`](crate::new_rdata).
+//! data type is documented on its type in [`rdata`](super::rdata).
 
 #![cfg(feature = "zonefile")]
 #![cfg_attr(docsrs, doc(cfg(feature = "zonefile")))]
