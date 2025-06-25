@@ -249,7 +249,7 @@ pub enum AlgorithmError {
 //--- Display, Error
 
 impl fmt::Display for AlgorithmError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             AlgorithmError::Unsupported => "unsupported algorithm",
             AlgorithmError::BadSig => "bad signature",

@@ -1,20 +1,20 @@
 use super::{
-    ComposeSvcParamValue, LongSvcParam, PushError, ParseSvcParamValue,
-    SvcParamsBuilder, SvcParams, SvcParamValue, UnknownSvcParam,
+    ComposeSvcParamValue, LongSvcParam, ParseSvcParamValue, PushError,
+    SvcParamValue, SvcParams, SvcParamsBuilder, UnknownSvcParam,
 };
 use crate::base::iana::SvcParamKey;
 use crate::base::net::{Ipv4Addr, Ipv6Addr};
 use crate::base::wire::{Compose, Parse, ParseError};
 use crate::utils::base64;
+use core::fmt::Write as _;
+use core::str::FromStr;
+use core::{fmt, hash, mem, str};
 use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
 };
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 use octseq::str::Str;
-use core::{fmt, hash, mem, str};
-use core::fmt::Write as _;
-use core::str::FromStr;
 
 //============ AllValues =====================================================
 
@@ -71,7 +71,7 @@ macro_rules! values_enum {
                     parser.remaining()
                 ).expect("invalid SvcParams");
 
-                Self::Unknown(unsafe { 
+                Self::Unknown(unsafe {
                     UnknownSvcParam::new_unchecked(key, octets)
                 })
             }
@@ -154,7 +154,7 @@ macro_rules! values_enum {
         }
 
         //--- PartialEq and Eq
-        
+
         impl<Octs, OtherOcts> PartialEq<AllValues<OtherOcts>>
         for AllValues<Octs>
         where
@@ -194,7 +194,7 @@ macro_rules! values_enum {
         //--- Display and Debug
 
         impl<Octs: Octets> fmt::Display for AllValues<Octs> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match self {
                     $(
                         Self::$type(v) => v.fmt(f),
@@ -430,7 +430,9 @@ impl Mandatory<[u8]> {
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         LongSvcParam::check_len(slice.len())?;
         if slice.len() % usize::from(SvcParamKey::COMPOSE_LEN) != 0 {
-            return Err(ParseError::form_error("invalid mandatory parameter"))
+            return Err(ParseError::form_error(
+                "invalid mandatory parameter",
+            ));
         }
         Ok(())
     }
@@ -445,11 +447,11 @@ impl<Octs: AsRef<[u8]>> Mandatory<Octs> {
     /// Returns an error if the octets builder runs out of space or the
     /// resulting value would be longer than 65,535 octets.
     pub fn from_keys(
-        keys: impl Iterator<Item = SvcParamKey>
+        keys: impl Iterator<Item = SvcParamKey>,
     ) -> Result<Self, BuildValueError>
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder
+        <Octs as FromBuilder>::Builder: EmptyBuilder,
     {
         let mut octets = EmptyBuilder::empty();
         for item in keys {
@@ -457,7 +459,7 @@ impl<Octs: AsRef<[u8]>> Mandatory<Octs> {
         }
         let octets = Octs::from_builder(octets);
         if LongSvcParam::check_len(octets.as_ref().len()).is_err() {
-            return Err(BuildValueError::LongSvcParam)
+            return Err(BuildValueError::LongSvcParam);
         }
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
@@ -482,9 +484,8 @@ impl<Octs: Octets + ?Sized> Iterator for MandatoryIter<'_, Octs> {
             return None;
         }
         Some(
-            SvcParamKey::parse(
-                &mut self.parser
-            ).expect("invalid mandatory parameter")
+            SvcParamKey::parse(&mut self.parser)
+                .expect("invalid mandatory parameter"),
         )
     }
 }
@@ -492,7 +493,7 @@ impl<Octs: Octets + ?Sized> Iterator for MandatoryIter<'_, Octs> {
 //--- Display
 
 impl<Octs: Octets + ?Sized> fmt::Display for Mandatory<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, v) in self.iter().enumerate() {
             if i == 0 {
                 write!(f, "mandatory={}", v)?;
@@ -520,20 +521,22 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
     /// contains more values than fit into a service binding parameter value,
     /// or the underlying octets builder runs out of space.
     pub fn mandatory(
-        &mut self, keys: impl AsRef<[SvcParamKey]>,
+        &mut self,
+        keys: impl AsRef<[SvcParamKey]>,
     ) -> Result<(), PushValueError> {
         self.push_raw(
             Mandatory::KEY,
             u16::try_from(
-                keys.as_ref().len() * usize::from(SvcParamKey::COMPOSE_LEN)
-            ).map_err(|_| PushValueError::LongSvcParam)?,
+                keys.as_ref().len() * usize::from(SvcParamKey::COMPOSE_LEN),
+            )
+            .map_err(|_| PushValueError::LongSvcParam)?,
             |octs| {
                 keys.as_ref().iter().try_for_each(|item| item.compose(octs))
             },
-        ).map_err(Into::into)
+        )
+        .map_err(Into::into)
     }
 }
-
 
 //------------ Alpn ----------------------------------------------------------
 
@@ -612,19 +615,23 @@ impl<'a, Octs: Octets + ?Sized> Iterator for AlpnIter<'a, Octs> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.parser.remaining() == 0 {
-            return None
+            return None;
         }
         let len = usize::from(
-            u8::parse(&mut self.parser).expect("invalid alpn parameter")
+            u8::parse(&mut self.parser).expect("invalid alpn parameter"),
         );
-        Some(self.parser.parse_octets(len).expect("invalid alpn parameter"))
+        Some(
+            self.parser
+                .parse_octets(len)
+                .expect("invalid alpn parameter"),
+        )
     }
 }
 
 //--- Display
 
 impl<Octs: Octets + ?Sized> fmt::Display for Alpn<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, v) in self.iter().enumerate() {
             if i == 0 {
                 f.write_str("alpn=")?;
@@ -658,31 +665,25 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
     /// Returns an error if there already is an ALPN value, or if `protocols`
     /// contains more values than fit into a service binding parameter value,
     /// or the underlying octets builder runs out of space.
-    pub fn alpn(
-        &mut self, protocols: &[&[u8]],
-    ) -> Result<(), PushAlpnError> {
+    pub fn alpn(&mut self, protocols: &[&[u8]]) -> Result<(), PushAlpnError> {
         // Check that everything is a-okay.
         let mut len = 0u16;
         for proto in protocols.iter() {
-            let proto_len = u8::try_from(
-                proto.len()
-            ).map_err(|_| PushAlpnError::InvalidProtocol)?;
-            len = len.checked_add(
-                u16::from(proto_len) + u8::COMPOSE_LEN
-            ).ok_or(PushAlpnError::LongSvcParam)?;
+            let proto_len = u8::try_from(proto.len())
+                .map_err(|_| PushAlpnError::InvalidProtocol)?;
+            len = len
+                .checked_add(u16::from(proto_len) + u8::COMPOSE_LEN)
+                .ok_or(PushAlpnError::LongSvcParam)?;
         }
-        self.push_raw(
-            Alpn::KEY,
-            len,
-            |octs| {
-                protocols.iter().try_for_each(|proto| {
-                    u8::try_from(
-                        proto.len()
-                    ).expect("long protocol").compose(octs)?;
-                    octs.append_slice(proto)
-                })
-            }
-        ).map_err(Into::into)
+        self.push_raw(Alpn::KEY, len, |octs| {
+            protocols.iter().try_for_each(|proto| {
+                u8::try_from(proto.len())
+                    .expect("long protocol")
+                    .compose(octs)?;
+                octs.append_slice(proto)
+            })
+        })
+        .map_err(Into::into)
     }
 }
 
@@ -702,7 +703,9 @@ impl<Target> AlpnBuilder<Target> {
     where
         Target: EmptyBuilder,
     {
-        AlpnBuilder { target: Target::empty() }
+        AlpnBuilder {
+            target: Target::empty(),
+        }
     }
 
     /// Appends the given protocol name to the builder.
@@ -710,31 +713,36 @@ impl<Target> AlpnBuilder<Target> {
     /// Returns an error if the name is too long or the ALPN value would
     /// become too long or the underlying octets builder runs out of space.
     pub fn push(
-        &mut self, protocol: impl AsRef<[u8]>
+        &mut self,
+        protocol: impl AsRef<[u8]>,
     ) -> Result<(), BuildAlpnError>
-    where Target: OctetsBuilder + AsRef<[u8]> {
+    where
+        Target: OctetsBuilder + AsRef<[u8]>,
+    {
         let protocol = protocol.as_ref();
         if protocol.is_empty() {
-            return Err(BuildAlpnError::InvalidProtocol)
+            return Err(BuildAlpnError::InvalidProtocol);
         }
-        let len = u8::try_from(
-            protocol.len()
-        ).map_err(|_| BuildAlpnError::InvalidProtocol)?;
+        let len = u8::try_from(protocol.len())
+            .map_err(|_| BuildAlpnError::InvalidProtocol)?;
         LongSvcParam::check_len(
-            self.target.as_ref().len().checked_add(
-                protocol.len() + 1
-            ).expect("long Alpn value")
-        ).map_err(|_| BuildAlpnError::LongSvcParam)?;
+            self.target
+                .as_ref()
+                .len()
+                .checked_add(protocol.len() + 1)
+                .expect("long Alpn value"),
+        )
+        .map_err(|_| BuildAlpnError::LongSvcParam)?;
         len.compose(&mut self.target)?;
-        self.target.append_slice(
-            protocol
-        ).map_err(|_| BuildAlpnError::ShortBuf)
+        self.target
+            .append_slice(protocol)
+            .map_err(|_| BuildAlpnError::ShortBuf)
     }
 
     /// Converts the builder into an imutable ALPN value.
     pub fn freeze(self) -> Alpn<Target::Octets>
     where
-        Target: FreezeBuilder
+        Target: FreezeBuilder,
     {
         unsafe { Alpn::from_octets_unchecked(self.target.freeze()) }
     }
@@ -761,7 +769,7 @@ impl NoDefaultAlpn {
 impl NoDefaultAlpn {
     /// Parses a no-default-alpn value from its wire-format.
     pub fn parse<Src: Octets + ?Sized>(
-        _parser: &mut Parser<Src>,
+        _parser: &mut Parser<'_, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Self)
     }
@@ -775,15 +783,16 @@ impl SvcParamValue for NoDefaultAlpn {
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs> for NoDefaultAlpn {
+impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs>
+    for NoDefaultAlpn
+{
     fn parse_value(
         key: SvcParamKey,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if key == Self::KEY {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -795,7 +804,8 @@ impl ComposeSvcParamValue for NoDefaultAlpn {
     }
 
     fn compose_value<Target: OctetsBuilder + ?Sized>(
-        &self, _target: &mut Target,
+        &self,
+        _target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         Ok(())
     }
@@ -804,7 +814,7 @@ impl ComposeSvcParamValue for NoDefaultAlpn {
 //--- Display
 
 impl fmt::Display for NoDefaultAlpn {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("nodefaultalpn")
     }
 }
@@ -847,7 +857,7 @@ impl Port {
 
     /// Parses a port value from its wire-format.
     pub fn parse<Src: Octets + ?Sized>(
-        parser: &mut Parser<Src>,
+        parser: &mut Parser<'_, Src>,
     ) -> Result<Self, ParseError> {
         u16::parse(parser).map(Port::new)
     }
@@ -874,8 +884,7 @@ impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs> for Port {
     ) -> Result<Option<Self>, ParseError> {
         if key == Self::KEY {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -883,11 +892,12 @@ impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs> for Port {
 
 impl ComposeSvcParamValue for Port {
     fn compose_len(&self) -> u16 {
-        u16::COMPOSE_LEN 
+        u16::COMPOSE_LEN
     }
 
     fn compose_value<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.0.compose(target)
     }
@@ -896,7 +906,7 @@ impl ComposeSvcParamValue for Port {
 //--- Display
 
 impl fmt::Display for Port {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "port={}", self.0)
     }
 }
@@ -966,20 +976,18 @@ impl<Octs: AsRef<[u8]>> Ech<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        Self::from_octets(
-            parser.parse_octets(parser.remaining())?
-        ).map_err(Into::into)
+        Self::from_octets(parser.parse_octets(parser.remaining())?)
+            .map_err(Into::into)
     }
 }
 
 //--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Ech<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.as_slice().is_empty() {
             f.write_str("ech")
-        }
-        else {
+        } else {
             f.write_str("ech=")?;
             base64::display(self.as_slice(), f)
         }
@@ -998,9 +1006,11 @@ impl<Octs: Octets + ?Sized> SvcParams<Octs> {
 impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
     /// Adds a port value with the given port number.
     pub fn ech<Source: AsRef<[u8]> + ?Sized>(
-        &mut self, ech: &Source
+        &mut self,
+        ech: &Source,
     ) -> Result<(), PushValueError> {
-        self.push(Ech::from_slice(ech.as_ref())?).map_err(Into::into)
+        self.push(Ech::from_slice(ech.as_ref())?)
+            .map_err(Into::into)
     }
 }
 
@@ -1039,11 +1049,11 @@ impl<Octs: AsRef<[u8]>> Ipv4Hint<Octs> {
     /// addresses or if the octets builder to be used for building runs out
     /// of space.
     pub fn from_addrs(
-        addrs: impl IntoIterator<Item = Ipv4Addr>
+        addrs: impl IntoIterator<Item = Ipv4Addr>,
     ) -> Result<Self, BuildValueError>
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder
+        <Octs as FromBuilder>::Builder: EmptyBuilder,
     {
         let mut octets = EmptyBuilder::empty();
         for item in addrs {
@@ -1051,7 +1061,7 @@ impl<Octs: AsRef<[u8]>> Ipv4Hint<Octs> {
         }
         let octets = Octs::from_builder(octets);
         if LongSvcParam::check_len(octets.as_ref().len()).is_err() {
-            return Err(BuildValueError::LongSvcParam)
+            return Err(BuildValueError::LongSvcParam);
         }
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
@@ -1074,7 +1084,7 @@ impl Ipv4Hint<[u8]> {
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         LongSvcParam::check_len(slice.len())?;
         if slice.len() % usize::from(Ipv4Addr::COMPOSE_LEN) != 0 {
-            return Err(ParseError::form_error("invalid ipv4hint parameter"))
+            return Err(ParseError::form_error("invalid ipv4hint parameter"));
         }
         Ok(())
     }
@@ -1097,15 +1107,14 @@ impl<Octs: Octets + ?Sized> Iterator for Ipv4HintIter<'_, Octs> {
             return None;
         }
         Some(
-            Ipv4Addr::parse(
-                &mut self.parser
-            ).expect("invalid ipv4hint parameter")
+            Ipv4Addr::parse(&mut self.parser)
+                .expect("invalid ipv4hint parameter"),
         )
     }
 }
 
 impl<Octs: Octets + ?Sized> fmt::Display for Ipv4Hint<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, v) in self.iter().enumerate() {
             if i == 0 {
                 write!(f, "ipv4hint={}", v)?;
@@ -1133,17 +1142,23 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
     /// contains more values than fit into a service binding parameter value,
     /// or the underlying octets builder runs out of space.
     pub fn ipv4hint(
-        &mut self, addrs: impl AsRef<[Ipv4Addr]>,
+        &mut self,
+        addrs: impl AsRef<[Ipv4Addr]>,
     ) -> Result<(), PushValueError> {
         self.push_raw(
             Ipv4Hint::KEY,
             u16::try_from(
-                addrs.as_ref().len() * usize::from(Ipv4Addr::COMPOSE_LEN)
-            ).map_err(|_| PushValueError::LongSvcParam)?,
+                addrs.as_ref().len() * usize::from(Ipv4Addr::COMPOSE_LEN),
+            )
+            .map_err(|_| PushValueError::LongSvcParam)?,
             |octs| {
-                addrs.as_ref().iter().try_for_each(|item| item.compose(octs))
+                addrs
+                    .as_ref()
+                    .iter()
+                    .try_for_each(|item| item.compose(octs))
             },
-        ).map_err(Into::into)
+        )
+        .map_err(Into::into)
     }
 }
 
@@ -1182,11 +1197,11 @@ impl<Octs: AsRef<[u8]>> Ipv6Hint<Octs> {
     /// addresses or if the octets builder to be used for building runs out
     /// of space.
     pub fn from_addrs(
-        addrs: impl IntoIterator<Item = Ipv6Addr>
+        addrs: impl IntoIterator<Item = Ipv6Addr>,
     ) -> Result<Self, BuildValueError>
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder
+        <Octs as FromBuilder>::Builder: EmptyBuilder,
     {
         let mut octets = EmptyBuilder::empty();
         for item in addrs {
@@ -1194,7 +1209,7 @@ impl<Octs: AsRef<[u8]>> Ipv6Hint<Octs> {
         }
         let octets = Octs::from_builder(octets);
         if LongSvcParam::check_len(octets.as_ref().len()).is_err() {
-            return Err(BuildValueError::LongSvcParam)
+            return Err(BuildValueError::LongSvcParam);
         }
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
@@ -1217,7 +1232,7 @@ impl Ipv6Hint<[u8]> {
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         LongSvcParam::check_len(slice.len())?;
         if slice.len() % usize::from(Ipv6Addr::COMPOSE_LEN) != 0 {
-            return Err(ParseError::form_error("invalid ipv6hint parameter"))
+            return Err(ParseError::form_error("invalid ipv6hint parameter"));
         }
         Ok(())
     }
@@ -1242,9 +1257,8 @@ impl<Octs: Octets + ?Sized> Iterator for Ipv6HintIter<'_, Octs> {
             return None;
         }
         Some(
-            Ipv6Addr::parse(
-                &mut self.parser
-            ).expect("invalid ipv6hint parameter")
+            Ipv6Addr::parse(&mut self.parser)
+                .expect("invalid ipv6hint parameter"),
         )
     }
 }
@@ -1252,7 +1266,7 @@ impl<Octs: Octets + ?Sized> Iterator for Ipv6HintIter<'_, Octs> {
 //--- Display
 
 impl<Octs: Octets + ?Sized> fmt::Display for Ipv6Hint<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, v) in self.iter().enumerate() {
             if i == 0 {
                 write!(f, "ipv6hint={}", v)?;
@@ -1280,17 +1294,23 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
     /// contains more values than fit into a service binding parameter value,
     /// or the underlying octets builder runs out of space.
     pub fn ipv6hint(
-        &mut self, addrs: impl AsRef<[Ipv6Addr]>,
+        &mut self,
+        addrs: impl AsRef<[Ipv6Addr]>,
     ) -> Result<(), PushValueError> {
         self.push_raw(
             Ipv6Hint::KEY,
             u16::try_from(
-                addrs.as_ref().len() * usize::from(Ipv6Addr::COMPOSE_LEN)
-            ).map_err(|_| PushValueError::LongSvcParam)?,
+                addrs.as_ref().len() * usize::from(Ipv6Addr::COMPOSE_LEN),
+            )
+            .map_err(|_| PushValueError::LongSvcParam)?,
             |octs| {
-                addrs.as_ref().iter().try_for_each(|item| item.compose(octs))
+                addrs
+                    .as_ref()
+                    .iter()
+                    .try_for_each(|item| item.compose(octs))
             },
-        ).map_err(Into::into)
+        )
+        .map_err(Into::into)
     }
 }
 
@@ -1343,9 +1363,8 @@ impl<Octs: AsRef<[u8]>> DohPath<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        Self::from_octets(
-            parser.parse_octets(parser.remaining())?
-        ).map_err(Into::into)
+        Self::from_octets(parser.parse_octets(parser.remaining())?)
+            .map_err(Into::into)
     }
 }
 
@@ -1363,8 +1382,7 @@ impl<Octs> FromStr for DohPath<Octs>
 where
     Octs: FromBuilder,
     <Octs as FromBuilder>::Builder:
-        EmptyBuilder
-        + FreezeBuilder<Octets = Octs>
+        EmptyBuilder + FreezeBuilder<Octets = Octs>,
 {
     type Err = BuildValueError;
 
@@ -1379,11 +1397,10 @@ where
 //--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for DohPath<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.as_slice().is_empty() {
             f.write_str("dohpath")
-        }
-        else {
+        } else {
             f.write_str("dohpath=")?;
             let mut s = self.as_slice();
 
@@ -1428,18 +1445,14 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
     /// Returns an error if there already is a ‘dohpath’ value, `template`
     /// is too long to fit in a service binding parameter value,
     /// or the underlying octets builder runs out of space.
-    pub fn dohpath(
-        &mut self, template: &str
-    ) -> Result<(), PushValueError> {
+    pub fn dohpath(&mut self, template: &str) -> Result<(), PushValueError> {
         self.push_raw(
             DohPath::KEY,
-            u16::try_from(
-                template.len()
-            ).map_err(|_| PushValueError::LongSvcParam)?,
-            |octs| {
-                octs.append_slice(template.as_bytes())
-            },
-        ).map_err(Into::into)
+            u16::try_from(template.len())
+                .map_err(|_| PushValueError::LongSvcParam)?,
+            |octs| octs.append_slice(template.as_bytes()),
+        )
+        .map_err(Into::into)
     }
 }
 
@@ -1472,10 +1485,10 @@ impl<T: Into<ShortBuf>> From<T> for BuildValueError {
 //--- Display and Error
 
 impl fmt::Display for BuildValueError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::LongSvcParam => f.write_str("long SVCB value"),
-            Self::ShortBuf => ShortBuf.fmt(f)
+            Self::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
@@ -1500,7 +1513,7 @@ pub enum PushValueError {
 
 impl From<LongSvcParam> for PushValueError {
     fn from(_: LongSvcParam) -> Self {
-            Self::LongSvcParam
+        Self::LongSvcParam
     }
 }
 
@@ -1531,11 +1544,11 @@ impl<T: Into<ShortBuf>> From<T> for PushValueError {
 //--- Display and Error
 
 impl fmt::Display for PushValueError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateKey => f.write_str("duplicate key"),
             Self::LongSvcParam => f.write_str("long SVCB value"),
-            Self::ShortBuf => ShortBuf.fmt(f)
+            Self::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
@@ -1569,11 +1582,11 @@ impl<T: Into<ShortBuf>> From<T> for BuildAlpnError {
 //--- Display and Error
 
 impl fmt::Display for BuildAlpnError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidProtocol => f.write_str("invalid ALPN protocol"),
             Self::LongSvcParam => f.write_str("long SVCB value"),
-            Self::ShortBuf => ShortBuf.fmt(f)
+            Self::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
@@ -1628,12 +1641,12 @@ impl<T: Into<ShortBuf>> From<T> for PushAlpnError {
 //--- Display and Error
 
 impl fmt::Display for PushAlpnError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateKey => f.write_str("duplicate key"),
             Self::InvalidProtocol => f.write_str("invalid ALPN protocol"),
             Self::LongSvcParam => f.write_str("long SVCB value"),
-            Self::ShortBuf => ShortBuf.fmt(f)
+            Self::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
@@ -1649,23 +1662,17 @@ mod test {
 
     #[test]
     fn test_vectors_alpn_escape() {
-        let mut parser = Parser::from_ref(b"\
+        let mut parser = Parser::from_ref(
+            b"\
             \x08\
             \x66\x5c\x6f\x6f\x2c\x62\x61\x72\
             \x02\
             \x68\x32\
-        ".as_ref());
+        "
+            .as_ref(),
+        );
         let alpn = Alpn::parse(&mut parser).unwrap();
         assert_eq!(parser.remaining(), 0);
-        assert!(
-            alpn.iter().eq(
-                [
-                    br"f\oo,bar".as_ref(),
-                    b"h2".as_ref(),
-                ]
-            )
-        );
+        assert!(alpn.iter().eq([br"f\oo,bar".as_ref(), b"h2".as_ref(),]));
     }
-
 }
-

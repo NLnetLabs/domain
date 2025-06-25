@@ -313,8 +313,7 @@ impl WritableZone for WriteZone {
         // Extract (and finish) the created diff, if any.
         let diff = self.diff.lock().unwrap().take();
 
-        if diff.is_some() && new_soa_rr.is_some() {
-            let diff = diff.unwrap();
+        if let Some((diff, new_soa_rr)) = diff.zip(new_soa_rr) {
             let diff = arc_into_inner(diff).unwrap();
             let mut diff = Mutex::into_inner(diff).unwrap();
 
@@ -323,7 +322,7 @@ impl WritableZone for WriteZone {
                 self.add_soa_remove_diff_entry(old_soa_rr, &mut diff);
 
             let new_serial =
-                self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
+                self.add_soa_add_diff_entry(Some(new_soa_rr), &mut diff);
 
             if old_serial.is_some() && new_serial.is_some() {
                 out_diff = match diff.build() {
@@ -785,7 +784,7 @@ impl From<WriteApexError> for io::Error {
 }
 
 impl fmt::Display for WriteApexError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             WriteApexError::NotAllowed => {
                 f.write_str("operation not allowed")
