@@ -134,6 +134,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
     } else if keytype == "zsk" {
@@ -143,6 +144,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
     } else if keytype == "csk" {
@@ -152,6 +154,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
     } else {

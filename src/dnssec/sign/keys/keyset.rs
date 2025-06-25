@@ -19,9 +19,11 @@
 //! let mut ks = KeySet::new(Name::from_str("example.com").unwrap());
 //!
 //! // Add two keys.
-//! ks.add_key_ksk("first KSK.key".to_string(), None, SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now());
+//! ks.add_key_ksk("first KSK.key".to_string(), None,
+//!    SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now(), true);
 //! ks.add_key_zsk("first ZSK.key".to_string(),
-//!     Some("first ZSK.private".to_string()), SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now());
+//!     Some("first ZSK.private".to_string()),
+//!     SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now(), true);
 //!
 //! // Save the state.
 //! let json = serde_json::to_string(&ks).unwrap();
@@ -109,11 +111,15 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
+        available: bool,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
-        let keystate: KeyState = Default::default();
+        let keystate = KeyState {
+            available,
+            ..Default::default()
+        };
         let key = Key::new(
             privref,
             KeyType::Ksk(keystate),
@@ -137,11 +143,15 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
+        available: bool,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
-        let keystate: KeyState = Default::default();
+        let keystate = KeyState {
+            available,
+            ..Default::default()
+        };
         let key = Key::new(
             privref,
             KeyType::Zsk(keystate),
@@ -165,11 +175,15 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
+        available: bool,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
-        let keystate: KeyState = Default::default();
+        let keystate = KeyState {
+            available,
+            ..Default::default()
+        };
         let key = Key::new(
             privref,
             KeyType::Csk(keystate.clone(), keystate),
@@ -418,6 +432,7 @@ impl KeySet {
             };
             if *keystate
                 != (KeyState {
+                    available: true,
                     old: false,
                     signer: false,
                     present: false,
@@ -491,6 +506,7 @@ impl KeySet {
             };
             if *keystate
                 != (KeyState {
+                    available: true,
                     old: false,
                     signer: false,
                     present: false,
@@ -569,6 +585,7 @@ impl KeySet {
                 KeyType::Ksk(ref mut keystate) => {
                     if *keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -586,6 +603,7 @@ impl KeySet {
                 KeyType::Zsk(ref mut keystate) => {
                     if *keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -602,6 +620,7 @@ impl KeySet {
                 KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
                     if *ksk_keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -617,6 +636,7 @@ impl KeySet {
 
                     if *zsk_keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -705,6 +725,7 @@ impl KeySet {
                 | KeyType::Zsk(ref mut keystate) => {
                     if *keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -722,6 +743,7 @@ impl KeySet {
                 KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
                     if *ksk_keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -737,6 +759,7 @@ impl KeySet {
 
                     if *zsk_keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -863,7 +886,8 @@ pub enum KeyType {
 
 /// State of a key.
 ///
-/// The state is expressed as four booleans:
+/// The state is expressed as five booleans:
+/// * available. The key is available as an incoming key during key rolls.
 /// * old. Set if the key is on its way out.
 /// * signer. Set if the key either signes the DNSKEY RRset or the rest of the
 ///   zone.
@@ -871,6 +895,7 @@ pub enum KeyType {
 /// * at_parent. If the key has a DS record at the parent.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct KeyState {
+    available: bool,
     old: bool,
     signer: bool,
     present: bool,
@@ -1993,6 +2018,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
         ks.add_key_zsk(
@@ -2001,6 +2027,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             1,
             UnixTime::now(),
+            true,
         )
         .unwrap();
 
@@ -2084,6 +2111,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             2,
             UnixTime::now(),
+            true,
         )
         .unwrap();
         ks.add_key_zsk(
@@ -2092,6 +2120,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             3,
             UnixTime::now(),
+            true,
         )
         .unwrap();
 
@@ -2217,6 +2246,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
 
@@ -2293,6 +2323,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             4,
             UnixTime::now(),
+            true,
         )
         .unwrap();
 
