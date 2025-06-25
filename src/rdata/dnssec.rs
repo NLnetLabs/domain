@@ -4,6 +4,24 @@
 //!
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
+use core::cmp::Ordering;
+use core::convert::TryInto;
+use core::time::Duration;
+use core::{cmp, fmt, hash, str};
+
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::vec::Vec;
+
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
+};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
+#[cfg(feature = "std")]
+use time::{Date, Month, PrimitiveDateTime, Time};
+
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlgorithm, Rtype, SecurityAlgorithm};
 use crate::base::name::{FlattenInto, ParsedName, ToName};
@@ -16,19 +34,6 @@ use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::Ttl;
 use crate::utils::{base16, base64};
-use core::cmp::Ordering;
-use core::convert::TryInto;
-use core::{cmp, fmt, hash, str};
-use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
-};
-use octseq::octets::{Octets, OctetsFrom, OctetsInto};
-use octseq::parse::Parser;
-#[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
-#[cfg(feature = "std")]
-use std::vec::Vec;
-use time::{Date, Month, PrimitiveDateTime, Time};
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -75,7 +80,9 @@ impl<Octs> Dnskey<Octs> {
     {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecurityAlgorithm::COMPOSE_LEN,
+                u16::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + SecurityAlgorithm::COMPOSE_LEN,
             )
             .checked_add(public_key.as_ref().len())
             .expect("long key"),
@@ -386,7 +393,9 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Dnskey<Octs> {
             u16::try_from(self.public_key.as_ref().len())
                 .expect("long key")
                 .checked_add(
-                    u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecurityAlgorithm::COMPOSE_LEN,
+                    u16::COMPOSE_LEN
+                        + u8::COMPOSE_LEN
+                        + SecurityAlgorithm::COMPOSE_LEN,
                 )
                 .expect("long key"),
         )
@@ -699,6 +708,45 @@ impl Timestamp {
     #[must_use]
     pub fn into_int(self) -> u32 {
         self.0.into_int()
+    }
+
+    /// Return a SystemTime that has to meet two requirements:
+    /// 1) The SystemTime value has a duration since UNIX_EPOCH that
+    ///    modulo 2**32 is equal to our value.
+    /// 2) The time difference between the SystemTime value and the
+    ///    reference fits within an i32.
+    #[must_use]
+    pub fn to_system_time(&self, reference: SystemTime) -> SystemTime {
+        // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
+        // the timestamp may be too far in the future. We may have to add
+        // n * 2**32 for some unknown value of n.
+        const POW_2_32: u64 = 0x1_0000_0000;
+        let ref_secs =
+            reference.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let k = ref_secs / POW_2_32;
+        let ref_secs_mod = ref_secs % POW_2_32;
+        let ts_secs = self.into_int() as u64;
+        let ts_secs = if ts_secs < ref_secs_mod {
+            if ref_secs_mod - ts_secs <= POW_2_32 / 2 {
+                // Close enough, use k.
+                ts_secs + k * POW_2_32
+            } else {
+                // ts_secs is really beyond ref_secs, use k+1.
+                ts_secs + (k + 1) * POW_2_32
+            }
+        } else {
+            // ts_secs >= ref_secs_mod
+            if ts_secs - ref_secs_mod < POW_2_32 / 2 {
+                // Close enough, use k.
+                ts_secs + k * POW_2_32
+            } else {
+                // ts_secs is really old than ref_secs. Try to use k-1
+                // but only if k is not zero.
+                let k = if k > 0 { k - 1 } else { k };
+                ts_secs + k * POW_2_32
+            }
+        };
+        UNIX_EPOCH + Duration::from_secs(ts_secs)
     }
 }
 
@@ -2637,8 +2685,9 @@ impl Iterator for RtypeBitmapIter<'_> {
         if self.data.is_empty() {
             return None;
         }
-        let res =
-            Rtype::from_int(self.block | ((self.octet as u16) << 3) | self.bit);
+        let res = Rtype::from_int(
+            self.block | ((self.octet as u16) << 3) | self.bit,
+        );
         self.advance();
         Some(res)
     }
@@ -2752,7 +2801,8 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn dnskey_compose_parse_scan() {
-        let rdata = Dnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key0").unwrap();
+        let rdata =
+            Dnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
         test_scan(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
@@ -2823,8 +2873,13 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn ds_compose_parse_scan() {
-        let rdata =
-            Ds::new(10, SecurityAlgorithm::RSASHA1, DigestAlgorithm::SHA256, b"key").unwrap();
+        let rdata = Ds::new(
+            10,
+            SecurityAlgorithm::RSASHA1,
+            DigestAlgorithm::SHA256,
+            b"key",
+        )
+        .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
         test_scan(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
@@ -2969,9 +3024,13 @@ mod test {
 
     #[test]
     fn dnskey_flags() {
-        let dnskey =
-            Dnskey::new(257, 3, SecurityAlgorithm::RSASHA256, bytes::Bytes::new())
-                .unwrap();
+        let dnskey = Dnskey::new(
+            257,
+            3,
+            SecurityAlgorithm::RSASHA256,
+            bytes::Bytes::new(),
+        )
+        .unwrap();
         assert!(dnskey.is_zone_key());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());
