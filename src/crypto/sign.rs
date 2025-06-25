@@ -957,10 +957,13 @@ impl From<openssl::GenerateError> for GenerateError {
 impl From<kmip::GenerateError> for GenerateError {
     fn from(value: kmip::GenerateError) -> Self {
         match value {
-            kmip::GenerateError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
+            kmip::GenerateError::UnsupportedAlgorithm(_) => {
+                GenerateError::UnsupportedAlgorithm
             }
-            kmip::GenerateError::Implementation => Self::Implementation,
+            kmip::GenerateError::UnsupportedKeySize { .. } => {
+                GenerateError::UnsupportedAlgorithm
+            }
+            kmip::GenerateError::Kmip(_) => GenerateError::Implementation,
         }
     }
 }

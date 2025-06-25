@@ -16,34 +16,52 @@ use kmip::types::{
 };
 use log::error;
 
+pub use kmip::client::ConnectionSettings;
+
 use crate::{
     base::iana::SecurityAlgorithm,
     crypto::{common::rsa_encode, kmip_pool::KmipConnPool},
     rdata::Dnskey,
 };
 
-pub use kmip::client::ConnectionSettings;
-
 /// An error in generating a key pair with OpenSSL.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
-    /// The requested algorithm was not supported.
-    UnsupportedAlgorithm,
+    /// The requested algorithm is not supported.
+    UnsupportedAlgorithm(SecurityAlgorithm),
 
-    /// An implementation failure occurred.
-    ///
-    /// This includes memory allocation failures.
-    Implementation,
+    // The requested key size for the given algorithm is not supported.
+    UnsupportedKeySize {
+        algorithm: SecurityAlgorithm,
+        min: u32,
+        max: u32,
+        requested: u32,
+    },
+
+    /// A problem occurred while communicating with the KMIP server.
+    Kmip(String),
 }
 
 //--- Formatting
 
 impl fmt::Display for GenerateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::UnsupportedAlgorithm => "algorithm not supported",
-            Self::Implementation => "an internal error occurred",
-        })
+        match self {
+            Self::UnsupportedAlgorithm(algorithm) => {
+                write!(f, "algorithm {algorithm} not supported")
+            }
+            Self::UnsupportedKeySize {
+                algorithm,
+                min,
+                max,
+                requested,
+            } => {
+                write!(f, "key size {requested} for algorithm {algorithm} must be in the range {min}..={max}")
+            }
+            Self::Kmip(err) => {
+                write!(f, "a problem occurred while communicating with the KMIP server: {err}")
+            }
+        }
     }
 }
 
@@ -239,14 +257,14 @@ pub mod sign {
         PublicKeyTemplateAttribute, RequestPayload,
     };
     use kmip::types::response::ResponsePayload;
-    use log::{error, warn};
+    use log::{debug, error};
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::{DigestBuilder, DigestType};
-    use crate::crypto::kmip::PublicKey;
+    use crate::crypto::kmip::{GenerateError, PublicKey};
     use crate::crypto::kmip_pool::KmipConnPool;
     use crate::crypto::sign::{
-        GenerateError, GenerateParams, SignError, SignRaw, Signature,
+        GenerateParams, SignError, SignRaw, Signature,
     };
     use crate::rdata::Dnskey;
 
@@ -417,7 +435,9 @@ pub mod sign {
                     Err(kmip::client::Error::ItemNotFound(err))
                         if retries > 0 =>
                     {
-                        warn!("KMIP item not found error, will retry: {err}");
+                        error!(
+                            "KMIP item not found error, will retry: {err}"
+                        );
                         tokio::task::block_in_place(|| {
                             std::thread::sleep(Duration::from_secs(3));
                         });
@@ -556,7 +576,12 @@ pub mod sign {
                 //    RSA/SHA-256 keys MUST NOT be less than 512 bits and MUST
                 //    NOT be more than 4096 bits."
                 if !(512..=4096).contains(&bits) {
-                    return Err(GenerateError::UnsupportedAlgorithm);
+                    return Err(GenerateError::UnsupportedKeySize {
+                        algorithm: SecurityAlgorithm::RSASHA256,
+                        min: 512,
+                        max: 4096,
+                        requested: bits,
+                    });
                 }
 
                 if use_cryptographic_params {
@@ -580,7 +605,9 @@ pub mod sign {
                 }
             }
             GenerateParams::RsaSha512 { .. } => {
-                todo!()
+                return Err(GenerateError::UnsupportedAlgorithm(
+                    SecurityAlgorithm::RSASHA512,
+                ));
             }
             GenerateParams::EcdsaP256Sha256 => {
                 // PyKMIP doesn't support ECDSA:
@@ -659,21 +686,21 @@ pub mod sign {
         // Execute the request and capture the response
         let response = client.do_request(request).map_err(|err| {
             error!("KMIP request failed: {err}");
-            error!(
+            debug!(
                 "KMIP last request: {}",
                 client.last_req_diag_str().unwrap_or_default()
             );
-            error!(
+            debug!(
                 "KMIP last response: {}",
                 client.last_res_diag_str().unwrap_or_default()
             );
-            GenerateError::Implementation
+            GenerateError::Kmip(err.to_string())
         })?;
 
         // Process the successful response
         let ResponsePayload::CreateKeyPair(payload) = response else {
             error!("KMIP request failed: Wrong response type received!");
-            return Err(GenerateError::Implementation);
+            return Err(GenerateError::Kmip("Unable to parse KMIP response: payload should be CreateKeyPair".to_string()));
         };
 
         Ok(KeyPair {
@@ -693,6 +720,7 @@ mod tests {
     use std::fs::File;
     use std::io::{BufReader, Read};
     use std::string::ToString;
+    use std::time::SystemTime;
     use std::vec::Vec;
 
     use kmip::client::ConnectionSettings;
@@ -701,14 +729,6 @@ mod tests {
     use crate::crypto::kmip_pool::ConnectionManager;
     use crate::crypto::sign::SignRaw;
     use crate::logging::init_logging;
-    use kmip::types::common::{
-        CryptographicAlgorithm, CryptographicParameters, Data,
-        HashingAlgorithm, UniqueIdentifier,
-    };
-    use kmip::types::request::RequestPayload;
-    use kmip::types::response::ResponsePayload;
-    use std::thread::sleep;
-    use std::time::SystemTime;
 
     #[test]
     #[ignore = "Requires running PyKMIP"]
@@ -772,7 +792,7 @@ mod tests {
             pool,
         );
         dbg!(&res);
-        let key = res.unwrap();
+        let _key = res.unwrap();
 
         // let dnskey = key.dnskey();
         // eprintln!("DNSKEY: {}", dnskey);
