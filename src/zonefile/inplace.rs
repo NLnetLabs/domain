@@ -77,6 +77,9 @@ pub struct Zonefile {
     /// The last TTL.
     last_ttl: Ttl,
 
+    /// The $TTL.
+    dollar_ttl: Option<Ttl>,
+
     /// The last class.
     last_class: Option<Class>,
 
@@ -111,6 +114,7 @@ impl Zonefile {
             origin: None,
             last_owner: None,
             last_ttl: Ttl::from_secs(3600),
+            dollar_ttl: None,
             last_class: None,
             require_valid: true,
         }
@@ -212,7 +216,7 @@ impl Zonefile {
             match EntryScanner::new(self)?.scan_entry()? {
                 ScannedEntry::Entry(entry) => return Ok(Some(entry)),
                 ScannedEntry::Origin(origin) => self.origin = Some(origin),
-                ScannedEntry::Ttl(ttl) => self.last_ttl = ttl,
+                ScannedEntry::Ttl(ttl) => self.dollar_ttl = Some(ttl),
                 ScannedEntry::Empty => {}
                 ScannedEntry::Eof => return Ok(None),
             }
@@ -411,7 +415,10 @@ impl<'a> EntryScanner<'a> {
                 self.zonefile.last_ttl = ttl;
                 ttl
             }
-            None => self.zonefile.last_ttl,
+            None => match self.zonefile.dollar_ttl {
+                Some(dollar_ttl) => dollar_ttl,
+                None => self.zonefile.last_ttl,
+            },
         };
 
         let data = ZoneRecordData::scan(rtype, self)?;
@@ -1618,7 +1625,7 @@ impl From<BadSymbol> for EntryError {
 }
 
 impl fmt::Display for EntryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.msg)?;
         #[cfg(feature = "std")]
         if let Some(context) = &self.context {
@@ -1641,7 +1648,7 @@ pub struct Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}: {}", self.line, self.col, self.err)
     }
 }
@@ -1659,7 +1666,7 @@ mod test {
     use octseq::Parser;
     use std::vec::Vec;
 
-    fn with_entry(s: &str, op: impl FnOnce(EntryScanner)) {
+    fn with_entry(s: &str, op: impl FnOnce(EntryScanner<'_>)) {
         let mut zone = Zonefile::with_capacity(s.len());
         zone.extend_from_slice(s.as_bytes());
         let entry = EntryScanner::new(&mut zone).unwrap();
@@ -1773,6 +1780,9 @@ mod test {
                             ZoneRecordData::Unknown(_)
                         ) {
                             assert_eq!(first, &parsed);
+                            // impl PartialEq for Record does NOT compare TTLs
+                            // so check that explicitly.
+                            assert_eq!(first.ttl(), parsed.ttl());
                         }
                     }
                     _ => panic!(),
@@ -1840,5 +1850,61 @@ mod test {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/stroverflow.yaml"
         ));
+    }
+
+    #[test]
+    fn test_multiple_dollar_ttls_multiple_missing_ttls() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/multiple_dollar_ttls_multiple_missing_ttls.yaml"
+        ))
+    }
+
+    #[test]
+    fn test_multiple_dollar_ttls_no_missing_ttls() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/multiple_dollar_ttls_no_missing_ttls.yaml"
+        ))
+    }
+
+    #[test]
+    fn test_no_dollar_ttl_no_missing_ttls() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/no_dollar_ttl_no_missing_ttls.yaml"
+        ))
+    }
+
+    #[test]
+    fn test_no_dollar_ttl_one_missing_ttl() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/no_dollar_ttl_one_missing_ttl.yaml"
+        ))
+    }
+
+    #[test]
+    fn test_top_dollar_ttl_and_missing_ttl() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/top_dollar_ttl_and_missing_ttl.yaml"
+        ))
+    }
+
+    #[test]
+    fn test_top_dollar_ttl_no_missing_ttls() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/top_dollar_ttl_no_missing_ttls.yaml"
+        ))
+    }
+
+    #[test]
+    fn test_rfc_1035_class_ttl_type_rdata() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/rfc_1035_class_ttl_type_rdata.yaml"
+        ))
+    }
+
+    #[test]
+    fn test_rfc_1035_ttl_class_type_rdata() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/rfc_1035_ttl_class_type_rdata.yaml"
+        ))
     }
 }

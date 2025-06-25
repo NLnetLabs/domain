@@ -63,7 +63,9 @@ impl<Octs> Cdnskey<Octs> {
     {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecurityAlgorithm::COMPOSE_LEN,
+                u16::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + SecurityAlgorithm::COMPOSE_LEN,
             )
             .checked_add(public_key.as_ref().len())
             .expect("long key"),
@@ -281,7 +283,9 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cdnskey<Octs> {
             u16::try_from(self.public_key.as_ref().len())
                 .expect("long key")
                 .checked_add(
-                    u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecurityAlgorithm::COMPOSE_LEN,
+                    u16::COMPOSE_LEN
+                        + u8::COMPOSE_LEN
+                        + SecurityAlgorithm::COMPOSE_LEN,
                 )
                 .expect("long key"),
         )
@@ -308,7 +312,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cdnskey<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Cdnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} {} ", self.flags, self.protocol, self.algorithm)?;
         base64::display(&self.public_key, f)
     }
@@ -317,7 +321,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Cdnskey<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cdnskey")
             .field("flags", &self.flags)
             .field("protocol", &self.protocol)
@@ -650,7 +654,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cds<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Cds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} ",
@@ -666,7 +670,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Cds<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cds")
             .field("key_tag", &self.key_tag)
             .field("algorithm", &self.algorithm)
@@ -711,7 +715,8 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cdnskey_compose_parse_scan() {
-        let rdata = Cdnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key").unwrap();
+        let rdata =
+            Cdnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cdnskey::parse(parser));
         test_scan(&["10", "11", "5", "a2V5"], Cdnskey::scan, &rdata);
@@ -722,8 +727,13 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cds_compose_parse_scan() {
-        let rdata =
-            Cds::new(10, SecurityAlgorithm::RSASHA1, DigestAlgorithm::SHA256, b"key").unwrap();
+        let rdata = Cds::new(
+            10,
+            SecurityAlgorithm::RSASHA1,
+            DigestAlgorithm::SHA256,
+            b"key",
+        )
+        .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));
         test_scan(&["10", "5", "2", "6b6579"], Cds::scan, &rdata);
