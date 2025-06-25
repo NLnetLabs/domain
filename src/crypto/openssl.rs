@@ -791,6 +791,9 @@ pub mod sign {
             GenerateParams::RsaSha256 { bits } => {
                 Rsa::generate(bits).and_then(PKey::from_rsa)?
             }
+            GenerateParams::RsaSha512 { bits } => {
+                Rsa::generate(bits).and_then(PKey::from_rsa)?
+            }
             GenerateParams::EcdsaP256Sha256 => {
                 let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
                 PKey::from_ec_key(openssl::ec::EcKey::generate(&group)?)?
