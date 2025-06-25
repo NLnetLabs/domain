@@ -10,6 +10,7 @@
 /// RUST_LOG=DEBUG
 /// ```
 #[cfg(feature = "tracing-subscriber")]
+#[allow(dead_code)]
 pub fn init_logging() {
     use tracing_subscriber::EnvFilter;
     tracing_subscriber::fmt()

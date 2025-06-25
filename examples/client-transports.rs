@@ -325,7 +325,7 @@ where
     // Get the reply
     println!("Wating for Validator reply");
     let reply = request.get_response().await;
-    println!("Validator reply: {:?}", reply);
+    println!("Validator reply: {reply:?}");
 }
 
 #[cfg(feature = "tsig")]
@@ -369,7 +369,7 @@ where
                 .expect("Failed while getting a TSIG signed response. This is probably expected as the server will not know the TSIG key we are using unless you have ensured that is the case.");
         match reply {
             Some(reply) => {
-                println!("Signed reply: {:?}", reply);
+                println!("Signed reply: {reply:?}");
             }
             None => break,
         }

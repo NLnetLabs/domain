@@ -10,9 +10,11 @@ New
 Bug fixes
 
 * In-place zone parser yields incorrect TTLs. ([538])
+* Generalize ZoneUpdater to support any Record type, not just ParsedRecord. ([#535])
 
 Other changes
 
+[#535]: https://github.com/NLnetLabs/domain/pull/535
 [#538]: https://github.com/NLnetLabs/domain/pull/538
 
 ## 0.11.0

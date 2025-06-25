@@ -375,7 +375,7 @@ pub mod sign {
     //--- Conversion from bytes
 
     impl KeyPair {
-        /// Import a key pair from bytes into OpenSSL.
+        /// Import a key pair from bytes into Ring.
         pub fn from_bytes<Octs>(
             secret: &SecretKeyBytes,
             public: &Dnskey<Octs>,

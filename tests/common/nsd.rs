@@ -74,7 +74,7 @@ impl Config {
             writeln!(target, "    ip-address: {}@{}", addr.ip(), addr.port())?
         }
         if let Some(port) = self.port {
-            writeln!(target, "    port: {}", port)?
+            writeln!(target, "    port: {port}")?
         }
         if let Some(path) = self.database.as_ref() {
             writeln!(target, "    database: {}", path.display())?
@@ -89,7 +89,7 @@ impl Config {
             writeln!(target, "    pidfile: {}", path.display())?
         }
         if let Some(name) = self.username.as_ref() {
-            writeln!(target, "    username: {}", name)?
+            writeln!(target, "    username: {name}")?
         }
         if let Some(path) = self.zonesdir.as_ref() {
             writeln!(target, "    zonesdir: {}", path.display())?
@@ -101,7 +101,7 @@ impl Config {
             writeln!(target, "    xfrdir: {}", path.display())?
         }
         if let Some(value) = self.verbosity {
-            writeln!(target, "    verbosity: {}", value)?
+            writeln!(target, "    verbosity: {value}")?
         }
 
         // zone: clauses
@@ -150,7 +150,7 @@ impl KeyConfig {
         writeln!(target, "    algorithm: {}", self.algorithm)?;
         let mut secret = String::new();
         base64::display(&self.secret, &mut secret).unwrap();
-        writeln!(target, "    secret: {}", secret)?;
+        writeln!(target, "    secret: {secret}")?;
         Ok(())
     }
 }
@@ -186,7 +186,7 @@ impl ZoneConfig {
         writeln!(target, "    name: {}", self.name)?;
         writeln!(target, "    zonefile: {}", self.zonefile.display())?;
         for acl in &self.provide_xfr {
-            writeln!(target, "    provide-xfr: {}", acl)?;
+            writeln!(target, "    provide-xfr: {acl}")?;
         }
         writeln!(target, "remote-control:\n    control-enable: no")?;
         Ok(())
@@ -230,13 +230,13 @@ impl fmt::Display for Acl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.ip_addr)?;
         if let Some(net) = self.ip_net {
-            write!(f, "/{}", net)?;
+            write!(f, "/{net}")?;
         }
         if let Some(port) = self.ip_port {
-            write!(f, "@{}", port)?;
+            write!(f, "@{port}")?;
         }
         match self.key {
-            Some(ref key) => write!(f, " {}", key)?,
+            Some(ref key) => write!(f, " {key}")?,
             None => write!(f, " NOKEY")?,
         }
         Ok(())
