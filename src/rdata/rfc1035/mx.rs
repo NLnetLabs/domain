@@ -5,14 +5,12 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{FlattenInto, ParsedName, ToName};
-use crate::base::rdata::{
-    ComposeRecordData, ParseRecordData, RecordData,
-};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
-use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
-use core::fmt;
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
+use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
@@ -24,7 +22,7 @@ use octseq::parse::Parser;
 /// the owner name.
 ///
 /// The Mx record type is defined in [RFC 1035, section 3.3.9][1].
-/// 
+///
 /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.9
 #[derive(Clone, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -69,7 +67,9 @@ impl<N> Mx<N> {
     pub(in crate::rdata) fn flatten<TargetName>(
         self,
     ) -> Result<Mx<TargetName>, N::AppendError>
-    where N: FlattenInto<TargetName> {
+    where
+        N: FlattenInto<TargetName>,
+    {
         Ok(Mx::new(self.preference, self.exchange.try_flatten_into()?))
     }
 
@@ -223,7 +223,7 @@ impl<Name: ToName> ComposeRecordData for Mx<Name> {
 //--- Display
 
 impl<N: fmt::Display> fmt::Display for Mx<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}.", self.preference, self.exchange)
     }
 }
@@ -265,4 +265,3 @@ mod test {
         test_scan(&["12", "mail.example.com"], Mx::scan, &rdata);
     }
 }
-

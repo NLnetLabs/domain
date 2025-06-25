@@ -8,12 +8,12 @@
 //! The option is defined in [RFC 7871](https://tools.ietf.org/html/rfc7871)
 //! which also includes some guidance on its use.
 
-use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::net::IpAddr;
 use super::super::wire::{Compose, Composer, FormError, ParseError};
-use super::{Opt, OptData, ComposeOptData, ParseOptData};
+use super::{ComposeOptData, Opt, OptData, ParseOptData};
+use core::fmt;
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
@@ -53,7 +53,7 @@ pub struct ClientSubnet {
 impl ClientSubnet {
     /// The option code for this option.
     pub(super) const CODE: OptionCode = OptionCode::CLIENT_SUBNET;
-    
+
     /// Creates a new client subnet value.
     ///
     /// The function is very forgiving regarding the arguments and corrects
@@ -103,7 +103,7 @@ impl ClientSubnet {
 
     /// Parses a value from its wire format.
     pub fn parse<Octs: AsRef<[u8]>>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         const ERR_ADDR_LEN: &str = "invalid address length in client \
                                     subnet option";
@@ -197,8 +197,7 @@ impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for ClientSubnet {
     ) -> Result<Option<Self>, ParseError> {
         if code == OptionCode::CLIENT_SUBNET {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -210,7 +209,8 @@ impl ComposeOptData for ClientSubnet {
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         let prefix_bytes = prefix_bytes(self.source_prefix_len);
         match self.addr {
@@ -237,20 +237,26 @@ impl ComposeOptData for ClientSubnet {
 //--- Display
 
 impl fmt::Display for ClientSubnet {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.addr {
             IpAddr::V4(a) => {
                 if self.scope_prefix_len != 0 {
-                    write!(f, "{}/{}/{}", a, self.source_prefix_len,
-                        self.scope_prefix_len)?;
+                    write!(
+                        f,
+                        "{}/{}/{}",
+                        a, self.source_prefix_len, self.scope_prefix_len
+                    )?;
                 } else {
                     write!(f, "{}/{}", a, self.source_prefix_len)?;
                 }
             }
             IpAddr::V6(a) => {
                 if self.scope_prefix_len != 0 {
-                    write!(f, "{}/{}/{}", a, self.source_prefix_len,
-                        self.scope_prefix_len)?;
+                    write!(
+                        f,
+                        "{}/{}/{}",
+                        a, self.source_prefix_len, self.scope_prefix_len
+                    )?;
                 } else {
                     write!(f, "{}/{}", a, self.source_prefix_len)?;
                 }
@@ -282,9 +288,11 @@ impl<Target: Composer> OptBuilder<'_, Target> {
         scope_prefix_len: u8,
         addr: IpAddr,
     ) -> Result<(), Target::AppendError> {
-        self.push(
-            &ClientSubnet::new(source_prefix_len, scope_prefix_len, addr)
-        )
+        self.push(&ClientSubnet::new(
+            source_prefix_len,
+            scope_prefix_len,
+            addr,
+        ))
     }
 }
 
@@ -359,13 +367,13 @@ fn normalize_prefix_len(addr: IpAddr, len: u8) -> u8 {
 
 //============ Testing =======================================================
 
-#[cfg(all(test, feature="std", feature = "bytes"))]
+#[cfg(all(test, feature = "std", feature = "bytes"))]
 mod tests {
-    use super::*;
     use super::super::test::test_option_compose_parse;
+    use super::*;
+    use core::str::FromStr;
     use octseq::builder::infallible;
     use std::vec::Vec;
-    use core::str::FromStr;
 
     macro_rules! check {
         ($name:ident, $addr:expr, $prefix:expr, $exp:expr, $ok:expr) => {
@@ -397,13 +405,13 @@ mod tests {
     check!(prefix_min, "192.0.2.0", 0, "0.0.0.0", true);
     check!(prefix_max, "192.0.2.0", 32, "192.0.2.0", true);
     check!(prefix_too_long, "192.0.2.0", 100, "192.0.2.0", false);
-    
+
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn client_subnet_compose_parse() {
         test_option_compose_parse(
             &ClientSubnet::new(4, 6, IpAddr::from_str("127.0.0.1").unwrap()),
-            |parser| ClientSubnet::parse(parser)
+            |parser| ClientSubnet::parse(parser),
         );
     }
 }

@@ -101,7 +101,7 @@ impl Serial {
     pub const COMPOSE_LEN: u16 = u32::COMPOSE_LEN;
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         u32::parse(parser).map(Into::into)
     }
@@ -147,7 +147,7 @@ impl str::FromStr for Serial {
 //--- Display
 
 impl fmt::Display for Serial {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -190,7 +190,7 @@ impl CanonicalOrd for Serial {
 pub struct IllegalSignatureTime(());
 
 impl fmt::Display for IllegalSignatureTime {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("illegal signature time")
     }
 }

@@ -444,7 +444,7 @@ impl From<QueryError> for std::io::Error {
 }
 
 impl fmt::Display for QueryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.kind.error_str(), self.io)
     }
 }
@@ -481,7 +481,7 @@ impl QueryErrorKind {
 }
 
 impl fmt::Display for QueryErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Connect => "connecting failed",
             Self::Send => "sending request failed",
