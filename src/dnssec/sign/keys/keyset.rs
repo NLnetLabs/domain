@@ -1357,7 +1357,7 @@ pub enum RollType {
 }
 
 impl RollType {
-    fn rollfn(&self) -> fn(RollOp, &mut KeySet) -> Result<(), Error> {
+    fn rollfn(&self) -> fn(RollOp<'_>, &mut KeySet) -> Result<(), Error> {
         match self {
             RollType::KskRoll => ksk_roll,
             RollType::KskDoubleDsRoll => ksk_double_ds_roll,
@@ -1460,7 +1460,7 @@ impl fmt::Display for Error {
     }
 }
 
-fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
+fn ksk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current KSK-roll state is idle. We need to
@@ -1753,7 +1753,7 @@ fn ksk_double_ds_roll_actions(rollstate: RollState) -> Vec<Action> {
     actions
 }
 
-fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
+fn zsk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current ZSK-roll state is idle. We need
@@ -2028,7 +2028,7 @@ fn zsk_double_signature_roll_actions(rollstate: RollState) -> Vec<Action> {
     actions
 }
 
-fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
+fn csk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current CSK-roll state is idle. We need

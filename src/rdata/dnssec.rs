@@ -78,7 +78,9 @@ impl<Octs> Dnskey<Octs> {
     {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecurityAlgorithm::COMPOSE_LEN,
+                u16::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + SecurityAlgorithm::COMPOSE_LEN,
             )
             .checked_add(public_key.as_ref().len())
             .expect("long key"),
@@ -389,7 +391,9 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Dnskey<Octs> {
             u16::try_from(self.public_key.as_ref().len())
                 .expect("long key")
                 .checked_add(
-                    u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecurityAlgorithm::COMPOSE_LEN,
+                    u16::COMPOSE_LEN
+                        + u8::COMPOSE_LEN
+                        + SecurityAlgorithm::COMPOSE_LEN,
                 )
                 .expect("long key"),
         )
@@ -416,7 +420,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Dnskey<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Dnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} {} ", self.flags, self.protocol, self.algorithm)?;
         base64::display(&self.public_key, f)
     }
@@ -425,7 +429,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Dnskey<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Dnskey")
             .field("flags", &self.flags)
             .field("protocol", &self.protocol)
@@ -751,7 +755,7 @@ impl Timestamp {
     pub const COMPOSE_LEN: u16 = Serial::COMPOSE_LEN;
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         Serial::parse(parser).map(Self)
     }
@@ -821,7 +825,7 @@ impl str::FromStr for Timestamp {
 //--- Display
 
 impl fmt::Display for Timestamp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -1392,7 +1396,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} {} {} {} {} {}. ",
@@ -1416,7 +1420,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Rrsig")
             .field("type_covered", &self.type_covered)
             .field("algorithm", &self.algorithm)
@@ -1719,7 +1723,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}. {}", self.next_name, self.types)
     }
 }
@@ -1731,7 +1735,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Nsec")
             .field("next_name", &self.next_name)
             .field("types", &self.types)
@@ -2061,7 +2065,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Ds<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} ",
@@ -2077,7 +2081,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Ds")
             .field("key_tag", &self.key_tag)
             .field("algorithm", &self.algorithm)
@@ -2175,7 +2179,7 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
         self.0.as_ref()
     }
 
-    pub fn iter(&self) -> RtypeBitmapIter {
+    pub fn iter(&self) -> RtypeBitmapIter<'_> {
         RtypeBitmapIter::new(self.0.as_ref())
     }
 
@@ -2305,7 +2309,7 @@ impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut iter = self.iter();
         if let Some(rtype) = iter.next() {
             fmt::Display::fmt(&rtype, f)?;
@@ -2331,7 +2335,7 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for RtypeBitmap<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("RtypeBitmap(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -2405,7 +2409,7 @@ where
         {
             type Value = RtypeBitmap<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a record type bitmap")
             }
 
@@ -2458,7 +2462,7 @@ where
         {
             type Value = RtypeBitmap<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a record type bitmap")
             }
 
@@ -2680,8 +2684,9 @@ impl Iterator for RtypeBitmapIter<'_> {
         if self.data.is_empty() {
             return None;
         }
-        let res =
-            Rtype::from_int(self.block | ((self.octet as u16) << 3) | self.bit);
+        let res = Rtype::from_int(
+            self.block | ((self.octet as u16) << 3) | self.bit,
+        );
         self.advance();
         Some(res)
     }
@@ -2722,7 +2727,7 @@ impl From<RtypeBitmapErrorEnum> for RtypeBitmapError {
 //--- Display and Error
 
 impl fmt::Display for RtypeBitmapError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             RtypeBitmapErrorEnum::ShortInput => ParseError::ShortInput.fmt(f),
             RtypeBitmapErrorEnum::BadRtypeBitmap => {
@@ -2768,7 +2773,7 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 pub struct IllegalSignatureTime(());
 
 impl fmt::Display for IllegalSignatureTime {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("illegal signature time")
     }
 }
@@ -2795,7 +2800,8 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn dnskey_compose_parse_scan() {
-        let rdata = Dnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key0").unwrap();
+        let rdata =
+            Dnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
         test_scan(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
@@ -2866,8 +2872,13 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn ds_compose_parse_scan() {
-        let rdata =
-            Ds::new(10, SecurityAlgorithm::RSASHA1, DigestAlgorithm::SHA256, b"key").unwrap();
+        let rdata = Ds::new(
+            10,
+            SecurityAlgorithm::RSASHA1,
+            DigestAlgorithm::SHA256,
+            b"key",
+        )
+        .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
         test_scan(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
@@ -3012,9 +3023,13 @@ mod test {
 
     #[test]
     fn dnskey_flags() {
-        let dnskey =
-            Dnskey::new(257, 3, SecurityAlgorithm::RSASHA256, bytes::Bytes::new())
-                .unwrap();
+        let dnskey = Dnskey::new(
+            257,
+            3,
+            SecurityAlgorithm::RSASHA256,
+            bytes::Bytes::new(),
+        )
+        .unwrap();
         assert!(dnskey.is_zone_key());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());

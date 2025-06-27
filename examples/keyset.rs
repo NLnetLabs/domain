@@ -373,7 +373,7 @@ fn do_status(filename: &str, args: &[String]) {
                     pubref,
                     key.privref().unwrap_or_default(),
                 );
-                println!("\t\tState: {}", keystate);
+                println!("\t\tState: {keystate}");
             }
             KeyType::Csk(keystate_ksk, keystate_zsk) => {
                 println!(
@@ -381,8 +381,8 @@ fn do_status(filename: &str, args: &[String]) {
                     pubref,
                     key.privref().unwrap_or_default(),
                 );
-                println!("\t\tKSK role state: {}", keystate_ksk,);
-                println!("\t\tZSK role state: {}", keystate_zsk,);
+                println!("\t\tKSK role state: {keystate_ksk}");
+                println!("\t\tZSK role state: {keystate_zsk}");
             }
         }
         let ts = key.timestamps();
@@ -476,7 +476,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.present() {
-                        println!("\t\t\t{}", pubref);
+                        println!("\t\t\t{pubref}");
                     }
                 }
                 println!("\t\tKeys signing the DNSKEY RRset:");
@@ -485,7 +485,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         KeyType::Ksk(keystate)
                         | KeyType::Csk(keystate, _) => {
                             if keystate.signer() {
-                                println!("\t\t\t{}", pubref);
+                                println!("\t\t\t{pubref}");
                             }
                         }
                         KeyType::Zsk(_) | KeyType::Include(_) => (),
@@ -500,7 +500,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         KeyType::Zsk(keystate)
                         | KeyType::Csk(_, keystate) => {
                             if keystate.signer() {
-                                println!("\t\t{}", pubref);
+                                println!("\t\t{pubref}");
                             }
                         }
                         KeyType::Ksk(_) | KeyType::Include(_) => (),
@@ -518,7 +518,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.at_parent() {
-                        println!("\t\t{}", pubref);
+                        println!("\t\t{pubref}");
                     }
                 }
             }
@@ -533,7 +533,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.at_parent() {
-                        println!("\t\t{}", pubref);
+                        println!("\t\t{pubref}");
                     }
                 }
             }

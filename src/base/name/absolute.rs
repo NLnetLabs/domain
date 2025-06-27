@@ -403,7 +403,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
 ///
 impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// Returns an iterator over the labels of the domain name.
-    pub fn iter(&self) -> NameIter {
+    pub fn iter(&self) -> NameIter<'_> {
         NameIter::new(self.0.as_ref())
     }
 
@@ -715,7 +715,7 @@ impl<Octs> Name<Octs> {
 
     /// Peeks at a parser and returns the length of a name at its beginning.
     fn parse_name_len<Source: AsRef<[u8]> + ?Sized>(
-        parser: &Parser<Source>,
+        parser: &Parser<'_, Source>,
     ) -> Result<usize, ParseError> {
         let len = {
             let mut tmp = parser.peek_all();
@@ -922,7 +922,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Name<Octs> {
     /// This will produce the domain name in ‘common display format’ without
     /// the trailing dot with the exception of a root name which will be just
     /// a dot.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_root() {
             return f.write_str(".");
         }
@@ -941,7 +941,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Name<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Name<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Name({})", self.fmt_with_dot())
     }
 }
@@ -1028,7 +1028,7 @@ where
         {
             type Value = Name<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an absolute domain name")
             }
 
@@ -1071,7 +1071,7 @@ where
         {
             type Value = Name<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an absolute domain name")
             }
 
@@ -1203,7 +1203,7 @@ impl From<NameError> for ParseError {
 //--- Display and Error
 
 impl fmt::Display for NameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             DnameErrorEnum::BadLabel(ref err) => err.fmt(f),
             DnameErrorEnum::CompressedName => {

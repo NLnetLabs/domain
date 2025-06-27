@@ -3,7 +3,7 @@ name = "domain-macros"
 
 # Copied from 'domain'.
 version = "0.11.1-dev"
-rust-version = "1.68.2"
+rust-version = "1.79.0"
 edition = "2021"
 
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]

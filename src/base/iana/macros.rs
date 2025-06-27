@@ -114,7 +114,7 @@ macro_rules! int_enum {
         //--- Debug
 
         impl core::fmt::Debug for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 match self.to_mnemonic().and_then(|bytes| {
                     core::str::from_utf8(bytes).ok()
                 }) {
@@ -209,7 +209,10 @@ macro_rules! int_enum_str_decimal {
         scan_impl!($ianatype);
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
                 write!(f, "{}", self.to_int())
             }
         }
@@ -281,7 +284,10 @@ macro_rules! int_enum_str_with_decimal {
         }
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
                 match self.to_mnemonic_str() {
                     Some(m) => {
                         write!(f, "{m}({})", self.to_int())
@@ -392,7 +398,10 @@ macro_rules! int_enum_str_with_prefix {
         }
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
                 match self.to_mnemonic_str() {
                     Some(m) => f.write_str(m),
                     None => {
@@ -519,7 +528,10 @@ macro_rules! from_str_error {
         }
 
         impl core::fmt::Display for FromStrError {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
                 $description.fmt(f)
             }
         }

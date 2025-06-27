@@ -1,118 +1,366 @@
-name: ci
-# Don't run on push as well as pull_request otherwise the jobs will be run
-# twice [1]. Run on pull_request instead of push as otherwise code is not
-# built & tested against the PR target branch as if it were already merged
-# (thus hiding issues until post-merge).
-# [1]: https://github.com/orgs/community/discussions/26940
-on: pull_request
-jobs:
-  test:
-    name: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [1.79.0, stable, beta, nightly]
-    env:
-        RUSTFLAGS: "-D warnings"
-        # We use 'vcpkg' to install OpenSSL on Windows.
-        VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
-        VCPKGRS_TRIPLET: x64-windows-release
-        # Ensure that OpenSSL is dynamically linked.
-        VCPKGRS_DYNAMIC: 1
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v1
-    - name: Install Rust
-      uses: hecrj/setup-rust-action@v2
-      with:
-        rust-version: ${{ matrix.rust }}
-    - if: matrix.os == 'ubuntu-latest'
-      run: sudo apt-get install -y libssl-dev
-    - if: matrix.os == 'windows-latest'
-      id: vcpkg
-      uses: johnwason/vcpkg-action@v6
-      with:
-        pkgs: openssl
-        triplet: ${{ env.VCPKGRS_TRIPLET }}
-        token: ${{ github.token }}
-        github-binarycache: true
-    - if: matrix.rust == 'stable'
-      run: rustup component add clippy
-    - if: matrix.rust == 'stable'
-      run: cargo clippy --all-features --all-targets -- -D warnings
-    - if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
-      run: cargo fmt --all -- --check
-    - run: cargo check --no-default-features --all-targets
-    - run: cargo test --all-features
+# ======================================================
+# Continuous Integration: making sure the codebase works
+# ======================================================
+#
+# This workflow tests modifications to 'domain', ensuring that 'domain' can be
+# used by others successfully.  It verifies certain aspects of the codebase,
+# such as the formatting and feature flag combinations, and runs the full test
+# suite.  It runs on Ubuntu, Mac OS, and Windows.
 
-  minimal-versions:
+name: CI
+
+# When the worflow runs
+# ---------------------
+on:
+  # Execute when a pull request's head changes (e.g. new commits are added or
+  # the commit history is rewritten) ... but only if build-related files
+  # change.
+  pull_request:
+    types: [synchronize]
+    paths:
+      - '**.rs'
+      - 'Cargo.{toml,lock}'
+      - '.github/workflows/ci.yml'
+
+  # If a pull request is merged, at least one commit is added to the target
+  # branch.  If the target is another pull request, it will be caught by the
+  # above event.  We miss PRs that merge to a non-PR branch, except for the
+  # 'main' branch.
+
+  # Execute when a commit is pushed to 'main' (including merged PRs) or to a
+  # release tag ... but only if build-related files change.
+  push:
+    branches:
+      - 'main'
+      - 'releases/**'
+    paths:
+      - '**.rs'
+      - 'Cargo.{toml,lock}'
+      - '.github/workflows/ci.yml'
+
+  # Rebuild 'main' every week.  This will account for changes to dependencies
+  # and to Rust, either of which can trigger new failures.  Rust releases are
+  # every 6 weeks, on a Thursday; this event runs every Friday.
+  schedule:
+    - cron: '0 10 * * FRI'
+
+# Jobs
+# ----------------------------------------------------------------------------
+jobs:
+
+  # Check Formatting
+  # ----------------
+  #
+  # NOTE: This job is run even if no '.rs' files have changed.  Inserting such
+  # a check would require using a separate workflow file or using third-party
+  # actions.  Most commits do change '.rs' files, and 'cargo-fmt' is pretty
+  # fast, so optimizing this is not necessary.
+  check-fmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    #
+    # Disable the cache since it's not relevant for formatting.
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt
+        cache: false
+
+    # Do the actual formatting check.
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+  # Determine MSRV
+  # --------------
+  #
+  # The MSRV needs to be determined as we will test 'domain' against the Rust
+  # compiler at that version.
+  determine-msrv:
+    name: Determine MSRV
+    runs-on: ubuntu-latest
+    outputs:
+      msrv: ${{ steps.determine-msrv.outputs.msrv }}
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Determine the MSRV.
+    - name: Determine MSRV
+      id: determine-msrv
+      run: |
+        msrv=`cargo metadata --no-deps --format-version 1 | jq -r '.packages[]|select(.name=="domain")|.rust_version'`
+        echo "msrv=$msrv" >> "$GITHUB_OUTPUT"
+
+  # Check Feature Flags
+  # -------------------
+  #
+  # Rust does not provide any way to check that all possible feature flag
+  # combinations will succeed, so we need to try them manually here.  We will
+  # assume this choice is not influenced by the OS or Rust version.
+  check-feature-flags:
+    name: Check feature flags
+    runs-on: ubuntu-latest
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        cache: false
+
+    # Restore a cache of dependencies and 'target'.
+    - name: Restore a dependency cache
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+
+    # Do the actual feature flag checks.
+    #
+    # NOTE: This does not benefit from the 'target' folder cached by a 'cargo
+    # check --all-features --all-targets' execution.  Due to the minimal
+    # dependency set, it still runs fairly quickly.
+    - name: Check empty feature set
+      run: cargo check --all-targets --no-default-features
+
+    # Check the required feature flags for every example.
+    - name: Check required features of examples
+      run: |
+        # Scrape crate metadata and construct the right 'check' commands.
+        # Cargo deosn't have an option to select the right features for us.
+        # See: https://github.com/rust-lang/cargo/issues/4663
+        cargo metadata --no-deps --format-version 1 \
+        | jq -r '.packages[].targets[]|select(.kind|any(.=="example"))|{name,features:(.["required-features"]|join(","))}|"\(.name) \(.features)"' \
+        | while read -r name features; do
+          cargo check --example=$name --no-default-features --features=$features
+        done
+
+  # Check Minimal Versions
+  # ----------------------
+  #
+  # Ensure that 'domain' compiles with the oldest compatible versions of all
+  # packages, even those 'domain' depends upon indirectly.
+  check-minimal-versions:
     name: Check minimal versions
     runs-on: ubuntu-latest
     env:
-        RUSTFLAGS: "-D warnings"
+      RUSTFLAGS: "-D warnings"
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v1
-    - name: Install Rust
-      uses: hecrj/setup-rust-action@v2
-      with:
-        rust-version: "1.79.0"
-    - name: Install OpenSSL
-      run: sudo apt-get install -y libssl-dev
-    - name: Install nightly Rust
-      run: rustup install nightly
-    - name: Check with minimal-versions
-      run: |
-        cargo +nightly update -Z minimal-versions
-        cargo check --all-features --all-targets --locked
 
-  # Note: This deliberately doesn't try to run the examples as some of them
-  # don't terminate and/or attempt to make network connections that will fail
-  # or perhaps be a nuisance to real name servers if run regularly by CI.
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust nightly
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: nightly
+        cache: false
+
+    # TODO: Cache minimal-version dependencies?
+
+    # Lock all dependencies to their minimal versions.
+    - name: Lock dependencies to minimal versions
+      run: cargo +nightly update -Z minimal-versions
+
+    # Check that 'domain' compiles.
+    #
+    # NOTE: This does not benefit from the 'target' folder cached by a 'cargo
+    # check --all-features --all-targets' execution.  It may be worthwhile to
+    # cache this 'target' folder separately (TODO).
+    - name: Check
+      run: cargo check --all-targets --all-features --locked
+
+  # Clippy
+  # ------
   #
-  # Note: This is just a band aid, ideally there would be a way for Cargo to
-  # build/run examples using the feature set specified in Cargo.toml itself,
-  # but that isn't currently possible (see [1]).
-  # 
-  # [1]: https://github.com/rust-lang/cargo/issues/4663)
-  build-examples:
-    name: Build examples
+  # We run Clippy separately, and only on nightly Rust because it offers a
+  # superset of the lints.
+  #
+  # 'cargo clippy' and 'cargo build' can share some state for fast execution,
+  # but it's faster to execute them in parallel than to establish an ordering
+  # between them.
+  clippy:
+    name: Clippy
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust nightly
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: nightly
+        components: clippy
+        cache: false
+
+    # Restore a cache of dependencies and 'target'.
+    - name: Restore from cache
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+
+    # Do the actually Clippy run.
+    - name: Check Clippy
+      run: cargo +nightly clippy --all-targets --all-features
+
+  # Test
+  # ----
+  #
+  # Ensure that 'domain' compiles and its test suite passes, on a large number
+  # of operating systems and Rust versions.
+  test:
+    name: Test
+    needs: determine-msrv
     strategy:
       matrix:
-        rust: [1.79.0, stable, beta, nightly]
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+        rust: ["${{ needs.determine-msrv.outputs.msrv }}", stable, nightly]
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: "-D warnings"
+      DOMAIN_FEATURES: "--all-features"
     steps:
+
+    # Load the repository.
     - name: Checkout repository
-      uses: actions/checkout@v1
-    - name: Install Rust
-      uses: hecrj/setup-rust-action@v2
-      with:
-        rust-version: ${{ matrix.rust }}
-    - name: Compile all examples
+      uses: actions/checkout@v4
+
+    # Prepare the environment on Windows
+    - name: Prepare Windows environment
+      if: matrix.os == 'windows-latest'
       shell: bash
-      # TODO: Emit matrix elements based on inspecting Cargo.toml so that
-      # each example runs as its own GitHub Actions step/job?
       run: |
-        # Generate the set of cargo check --example X --features Y commands to
-        # run and store them in a temporary script. This command works by
-        # extracting the example blocks from the Cargo.toml file and the set
-        # of features that the block indicates are needed to run the example.
-        # E.g. given this block in Cargo.toml:
-        # 
-        #   [[example]]
-        #   name = "lookup"
-        #   required-features = ["resolv"]
-        #
-        # It outputs a line that looks like this:
-        #
-        #   cargo check --example lookup --features resolv
-        #
-        # One line per example is output and the set of lines directed to a temporary
-        # shell script file which is then run in the next step.
+        # Cargo doesn't support enabling all but one feature, so determine the
+        # complete feature list and filter out 'openssl'.
+        features=`cargo metadata --no-deps --format-version 1 | jq -r '.packages[]|select(.name == "domain")|.features|keys|map(select(.!="openssl"))|join(",")'`
+        # Overwrite the 'DOMAIN_FEATURES' environment variable.
+        echo "DOMAIN_FEATURES=--features=$features" >> "$GITHUB_ENV"
+        # See <https://github.com/actions/runner-images/issues/12432>
+        echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=rust-lld" >> "$GITHUB_ENV"
 
-        cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] | contains("example")) | "cargo check --example \(.name) --features \(."required-features" | flatten | join(","))"' > ${{ runner.temp }}/check-examples.sh
+    # Set up the Rust toolchain.
+    - name: Set up Rust ${{ matrix.rust }}
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+        cache: false
 
-        # Run the temporary script:
+    # Restore a cache of dependencies and 'target'.
+    - name: Restore from cache
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+    
+    # Build and run the test suite.
+    - name: Test
+      run: cargo test --all-targets $DOMAIN_FEATURES
 
-        bash -x -e ${{ runner.temp }}/check-examples.sh
+  # Build Cache
+  # -----------
+  #
+  # Prepare a cache for checking and building 'domain', on 'main'.
+  cache:
+    name: Cache
+    needs: determine-msrv
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+        rust: ["${{ needs.determine-msrv.outputs.msrv }}", stable, nightly]
+    runs-on: ${{ matrix.os }}
+    if: github.ref == 'refs/heads/main'
+    env:
+      RUSTFLAGS: "-D warnings"
+      DOMAIN_FEATURES: "--all-features"
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Prepare the environment on Windows
+    - name: Prepare Windows environment
+      if: matrix.os == 'windows-latest'
+      shell: bash
+      run: |
+        # Cargo doesn't support enabling all but one feature, so determine the
+        # complete feature list and filter out 'openssl'.
+        features=`cargo metadata --no-deps --format-version 1 | jq -r '.packages[]|select(.name == "domain")|.features|keys|map(select(.!="openssl"))|join(",")'`
+        # Overwrite the 'DOMAIN_FEATURES' environment variable.
+        echo "DOMAIN_FEATURES=--features=$features" >> "$GITHUB_ENV"
+        # See <https://github.com/actions/runner-images/issues/12432>
+        mkdir -p .cargo
+        printf '[target.x86_64-pc-windows-msvc]\nlinker = "rust-lld"\n' >> .cargo/config.toml
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust ${{ matrix.rust }}
+      id: setup-rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+        cache: false
+
+    # Restore a cache of dependencies and 'target'.
+    - name: Restore from cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+
+    # Build all of 'domain'.
+    - name: Build
+      run: cargo build --all-targets $DOMAIN_FEATURES
+
+    # Save to the cache.
+    - name: Save to the cache
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ~/.cargo
+          target/
+        # Cache by OS and Rust version.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+
+# TODO: Use 'cargo-semver-checks' on releases.

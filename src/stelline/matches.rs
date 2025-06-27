@@ -29,14 +29,14 @@ impl Matches {
 pub struct DidNotMatch;
 
 impl Entry {
-    pub fn match_multi_msg_ordered(&self) -> OrderedMultiMatcher {
+    pub fn match_multi_msg_ordered(&self) -> OrderedMultiMatcher<'_> {
         OrderedMultiMatcher {
             entry: self,
             answer_idx: 0,
         }
     }
 
-    pub fn match_multi_msg_unordered(&self) -> UnorderedMultiMatcher {
+    pub fn match_multi_msg_unordered(&self) -> UnorderedMultiMatcher<'_> {
         let all_answers =
             self.sections.answer.iter().flatten().cloned().collect();
         UnorderedMultiMatcher {
