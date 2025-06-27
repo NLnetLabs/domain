@@ -788,7 +788,8 @@ pub mod sign {
     ) -> Result<KeyPair, GenerateError> {
         let algorithm = params.algorithm();
         let pkey = match params {
-            GenerateParams::RsaSha256 { bits } => {
+            GenerateParams::RsaSha256 { bits }
+            | GenerateParams::RsaSha512 { bits } => {
                 Rsa::generate(bits).and_then(PKey::from_rsa)?
             }
             GenerateParams::EcdsaP256Sha256 => {
