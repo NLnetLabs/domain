@@ -95,6 +95,9 @@ use super::openssl;
 #[cfg(feature = "ring")]
 use super::ring;
 
+#[cfg(feature = "kmip")]
+use super::kmip;
+
 //----------- GenerateParams -------------------------------------------------
 
 /// Parameters for generating a secret key.
@@ -112,6 +115,12 @@ pub enum GenerateParams {
         /// part 1 revision 5], page 54, table 2.
         ///
         /// [NIST SP 800-57 part 1 revision 5]: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
+        bits: u32,
+    },
+
+    /// Generate an RSA/SHA-512 keypair.
+    RsaSha512 {
+        /// The number of bits in the public modulus.
         bits: u32,
     },
 
@@ -135,6 +144,7 @@ impl GenerateParams {
     pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
             Self::RsaSha256 { .. } => SecurityAlgorithm::RSASHA256,
+            Self::RsaSha512 { .. } => SecurityAlgorithm::RSASHA512,
             Self::EcdsaP256Sha256 => SecurityAlgorithm::ECDSAP256SHA256,
             Self::EcdsaP384Sha384 => SecurityAlgorithm::ECDSAP384SHA384,
             Self::Ed25519 => SecurityAlgorithm::ED25519,
@@ -303,6 +313,10 @@ pub enum KeyPair {
     /// A key backed by OpenSSL.
     #[cfg(feature = "openssl")]
     OpenSSL(openssl::sign::KeyPair),
+
+    /// A key backed by a KMIP capable HSM.
+    #[cfg(feature = "kmip")]
+    Kmip(kmip::sign::KeyPair),
 }
 
 //--- Conversion to and from bytes
@@ -359,6 +373,8 @@ impl SignRaw for KeyPair {
             Self::Ring(key) => key.algorithm(),
             #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.algorithm(),
+            #[cfg(feature = "kmip")]
+            Self::Kmip(key) => key.algorithm(),
         }
     }
 
@@ -368,6 +384,8 @@ impl SignRaw for KeyPair {
             Self::Ring(key) => key.dnskey(),
             #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.dnskey(),
+            #[cfg(feature = "kmip")]
+            Self::Kmip(key) => key.dnskey(),
         }
     }
 
@@ -377,6 +395,8 @@ impl SignRaw for KeyPair {
             Self::Ring(key) => key.sign_raw(data),
             #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.sign_raw(data),
+            #[cfg(feature = "kmip")]
+            Self::Kmip(key) => key.sign_raw(data),
         }
     }
 }
@@ -929,6 +949,21 @@ impl From<openssl::GenerateError> for GenerateError {
                 Self::UnsupportedAlgorithm
             }
             openssl::GenerateError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+#[cfg(feature = "kmip")]
+impl From<kmip::GenerateError> for GenerateError {
+    fn from(value: kmip::GenerateError) -> Self {
+        match value {
+            kmip::GenerateError::UnsupportedAlgorithm(_) => {
+                GenerateError::UnsupportedAlgorithm
+            }
+            kmip::GenerateError::UnsupportedKeySize { .. } => {
+                GenerateError::UnsupportedAlgorithm
+            }
+            kmip::GenerateError::Kmip(_) => GenerateError::Implementation,
         }
     }
 }
