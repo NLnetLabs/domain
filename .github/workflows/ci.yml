@@ -12,11 +12,10 @@ name: CI
 # When the worflow runs
 # ---------------------
 on:
-  # Execute when a pull request's head changes (e.g. new commits are added or
-  # the commit history is rewritten) ... but only if build-related files
-  # change.
+  # Execute when a pull request is (re-) opened or its head changes (e.g. new
+  # commits are added or the commit history is rewritten) ... but only if
+  # build-related files change.
   pull_request:
-    types: [synchronize]
     paths:
       - '**.rs'
       - 'Cargo.{toml,lock}'
