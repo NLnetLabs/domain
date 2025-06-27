@@ -26,11 +26,9 @@ use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "std")]
 use std::vec::Vec;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
-use std::time::Duration;
 use time::{Date, Month, PrimitiveDateTime, Time};
 
 //------------ Dnskey --------------------------------------------------------
@@ -708,44 +706,45 @@ impl Timestamp {
         self.0.into_int()
     }
 
-    /// Return a SystemTime that has to meet two requirements:
+    /// Return a SystemTime that meets two requirements:
     /// 1) The SystemTime value has a duration since UNIX_EPOCH that
-    ///    modulo 2**32 is equal to our value.
+    ///    modulo 2**32 is equal to our Timestamp value.
     /// 2) The time difference between the SystemTime value and the
-    ///    reference fits within an i32.
+    ///    reference time fits in an i32.
+    ///
+    /// This can be used to sort Timestamp values.
     #[must_use]
     pub fn to_system_time(&self, reference: SystemTime) -> SystemTime {
-	// Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
-	// the timestamp may be too far in the future. We may have to add
-	// n * 2**32 for some unknown value of n.
-	const POW_2_32: u64 = 0x1_0000_0000;
-	let ref_secs = reference.duration_since(UNIX_EPOCH).unwrap().as_secs();
-	let k = ref_secs / POW_2_32;
-	let ref_secs_mod = ref_secs % POW_2_32;
-	let ts_secs = self.into_int() as u64;
-	let ts_secs =
-	    if ts_secs < ref_secs_mod {
-		if ref_secs_mod - ts_secs <= POW_2_32/2 {
-		    // Close enough, use k.
-		    ts_secs + k*POW_2_32
-		}
-		else {
-		    // ts_secs is really beyond ref_secs, use k+1.
-		    ts_secs + (k+1)*POW_2_32
-		}
-	    } else { // ts_secs >= ref_secs_mod
-		if ts_secs - ref_secs_mod < POW_2_32/2 {
-		    // Close enough, use k.
-		    ts_secs + k*POW_2_32
-		}
-		else {
-		    // ts_secs is really old than ref_secs. Try to use k-1
-		    // but only if k is not zero.
-		    let k = if k > 0 { k-1 } else { k };
-		    ts_secs + k*POW_2_32
-		}
-	    };
-	UNIX_EPOCH + Duration::from_secs(ts_secs)
+        // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
+        // the timestamp may be too far in the future. We may have to add
+        // n * 2**32 for some unknown value of n.
+        const POW_2_32: u64 = 0x1_0000_0000;
+        let ref_secs =
+            reference.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let k = ref_secs / POW_2_32;
+        let ref_secs_mod = ref_secs % POW_2_32;
+        let ts_secs = self.into_int() as u64;
+        let ts_secs = if ts_secs < ref_secs_mod {
+            if ref_secs_mod - ts_secs <= POW_2_32 / 2 {
+                // Close enough, use k.
+                ts_secs + k * POW_2_32
+            } else {
+                // ts_secs is really beyond ref_secs, use k+1.
+                ts_secs + (k + 1) * POW_2_32
+            }
+        } else {
+            // ts_secs >= ref_secs_mod
+            if ts_secs - ref_secs_mod < POW_2_32 / 2 {
+                // Close enough, use k.
+                ts_secs + k * POW_2_32
+            } else {
+                // ts_secs is really old than ref_secs. Try to use k-1
+                // but only if k is not zero.
+                let k = if k > 0 { k - 1 } else { k };
+                ts_secs + k * POW_2_32
+            }
+        };
+        UNIX_EPOCH + Duration::from_secs(ts_secs)
     }
 }
 
@@ -3037,46 +3036,117 @@ mod test {
 
     #[test]
     fn timestamp_to_system_time() {
-	struct Params {
-	    ts: u32,
-	    ref_ts: u64,
-	    res: u64
-	}
-	let tests = vec![
-	    // Simple cases, ts and ref_ts mod 2**32 are within 2*31-1.
-	    // First ts less than ref_ts mod 2**32.
-	    Params { ts: 0x0000_0000, ref_ts: 0x1_7fff_ffff, res: 0x1_0000_0000 },
-	    Params { ts: 0x7fff_ffff, ref_ts: 0x1_8000_0000, res: 0x1_7fff_ffff },
-	    Params { ts: 0x8000_0000, ref_ts: 0x1_ffff_ffff, res: 0x1_8000_0000 },
-	    // Then ts larger than ref_ts mod 2**32.
-	    Params { ts: 0x7fff_ffff, ref_ts: 0x1_0000_0000, res: 0x1_7fff_ffff },
-	    Params { ts: 0x8000_0000, ref_ts: 0x1_7fff_ffff, res: 0x1_8000_0000 },
-	    Params { ts: 0xffff_ffff, ref_ts: 0x1_8000_0000, res: 0x1_ffff_ffff },
+        struct Params {
+            ts: u32,
+            ref_ts: u64,
+            res: u64,
+        }
+        let tests = vec![
+            // Simple cases, ts and ref_ts mod 2**32 are within 2*31-1.
+            // First ts less than ref_ts mod 2**32.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x1_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x1_8000_0000,
+            },
+            // Then ts larger than ref_ts mod 2**32.
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_0000_0000,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x1_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_ffff_ffff,
+            },
+            // Next, cases where the difference between ts and ref_ts mod 2**32
+            // are at least 2**31+1.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_8000_0001,
+                res: 0x2_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_fffe,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x2_7fff_fffe,
+            },
+            Params {
+                ts: 0x8000_0001,
+                ref_ts: 0x1_0000_0000,
+                res: 0x0_8000_0001,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_7fff_fffe,
+                res: 0x0_ffff_ffff,
+            },
+            // Test cases where the difference is exactly 2**31.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_0000_0000,
+                res: 0x0_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x0_ffff_ffff,
+            },
+            // Special case: ERA 0. We don't want values before UNIX_EPOCH.
+            Params {
+                ts: 0x8000_0001,
+                ref_ts: 0x0_0000_0000,
+                res: 0x0_8000_0001,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x0_7fff_fffe,
+                res: 0x0_ffff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x0_0000_0000,
+                res: 0x0_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x0_7fff_ffff,
+                res: 0x0_ffff_ffff,
+            },
+        ];
 
-	    // Next, cases where the difference between ts and ref_ts mod 2**32
-	    // are at least 2**31+1.
-	    Params { ts: 0x0000_0000, ref_ts: 0x1_8000_0001, res: 0x2_0000_0000 },
-	    Params { ts: 0x7fff_fffe, ref_ts: 0x1_ffff_ffff, res: 0x2_7fff_fffe },
-	    Params { ts: 0x8000_0001, ref_ts: 0x1_0000_0000, res: 0x0_8000_0001 },
-	    Params { ts: 0xffff_ffff, ref_ts: 0x1_7fff_fffe, res: 0x0_ffff_ffff },
-	    // Test cases where the difference is exactly 2**31.
-	    Params { ts: 0x0000_0000, ref_ts: 0x1_8000_0000, res: 0x1_0000_0000 },
-	    Params { ts: 0x7fff_ffff, ref_ts: 0x1_ffff_ffff, res: 0x1_7fff_ffff },
-	    Params { ts: 0x8000_0000, ref_ts: 0x1_0000_0000, res: 0x0_8000_0000 },
-	    Params { ts: 0xffff_ffff, ref_ts: 0x1_7fff_ffff, res: 0x0_ffff_ffff },
-	    // Special case: ERA 0. We don't want values before UNIX_EPOCH.
-	    Params { ts: 0x8000_0001, ref_ts: 0x0_0000_0000, res: 0x0_8000_0001 },
-	    Params { ts: 0xffff_ffff, ref_ts: 0x0_7fff_fffe, res: 0x0_ffff_ffff },
-	    Params { ts: 0x8000_0000, ref_ts: 0x0_0000_0000, res: 0x0_8000_0000 },
-	    Params { ts: 0xffff_ffff, ref_ts: 0x0_7fff_ffff, res: 0x0_ffff_ffff },
-	];
-
-	for t in tests {
-	    let ts = Timestamp(Serial(t.ts));
-	    let ref_ts = UNIX_EPOCH + Duration::from_secs(t.ref_ts);
-	    let res = ts.to_system_time(ref_ts);
-	    let res = res.duration_since(UNIX_EPOCH).unwrap().as_secs();
-	    assert_eq!(res, t.res);
-	}
+        for t in tests {
+            let ts = Timestamp(Serial(t.ts));
+            let ref_ts = UNIX_EPOCH + Duration::from_secs(t.ref_ts);
+            let res = ts.to_system_time(ref_ts);
+            let res = res.duration_since(UNIX_EPOCH).unwrap().as_secs();
+            assert_eq!(res, t.res);
+        }
     }
 }
