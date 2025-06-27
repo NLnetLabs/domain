@@ -16,7 +16,6 @@ on:
   # the commit history is rewritten) ... but only if build-related files
   # change.
   pull_request:
-    types: [synchronize]
     paths:
       - '**.rs'
       - 'Cargo.{toml,lock}'
