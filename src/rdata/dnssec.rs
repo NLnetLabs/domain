@@ -26,6 +26,7 @@ use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
+#[cfg(feature = "std")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "std")]
 use std::vec::Vec;
@@ -714,6 +715,7 @@ impl Timestamp {
     ///
     /// This can be used to sort Timestamp values.
     #[must_use]
+    #[cfg(feature = "std")]
     pub fn to_system_time(&self, reference: SystemTime) -> SystemTime {
         // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
         // the timestamp may be too far in the future. We may have to add
@@ -3035,6 +3037,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn timestamp_to_system_time() {
         struct Params {
             ts: u32,
