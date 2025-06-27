@@ -207,7 +207,7 @@ fn do_start(filename: &str, args: &[String]) {
                     None
                 }
             }
-            RollType::ZskRoll => {
+            RollType::ZskRoll | RollType::ZskDoubleSignatureRoll => {
                 if let KeyType::Zsk(keystate) = k.keytype() {
                     Some((keystate.clone(), pr))
                 } else {
