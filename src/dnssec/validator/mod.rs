@@ -1,17 +1,3 @@
-// Validator
-
-#![cfg(all(
-    feature = "unstable-validator",
-    any(feature = "ring", feature = "openssl")
-))]
-#![cfg_attr(
-    docsrs,
-    doc(cfg(all(
-        feature = "unstable-validator",
-        any(feature = "ring", feature = "openssl")
-    )))
-)]
-
 //! This module provides a DNSSEC validator as described in RFCs
 //! [4033](https://www.rfc-editor.org/info/rfc4033),
 //! [4034](https://www.rfc-editor.org/info/rfc4034),
@@ -115,8 +101,26 @@
 //! # }
 //! ```
 
+#![cfg(feature = "unstable-validator")]
+// NOTE: Users should not interact with the `unstable-crypto-backend` feature
+// directly, we deliberately show them the features they should use instead.
+#![cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    )))
+)]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
+
+// Fail if 'ring' or 'openssl' is not enabled.
+const _: () = {
+    assert!(
+        cfg!(feature = "unstable-crypto-backend"),
+        "'unstable-validator' cannot be used without enabling 'ring' or 'openssl'",
+    );
+};
 
 pub mod anchor;
 pub mod base;
