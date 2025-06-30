@@ -33,6 +33,15 @@
     not(all(feature = "unstable-crypto-sign", feature = "ring")),
     doc = "`ring::sign`"
 )]
+//! ,
+#![cfg_attr(
+    all(feature = "unstable-crypto-sign", feature = "kmip"),
+    doc = "[`kmip::sign`]"
+)]
+#![cfg_attr(
+    not(all(feature = "unstable-crypto-sign", feature = "kmip")),
+    doc = "`kmip::sign`"
+)]
 //! , and
 #![cfg_attr(feature = "unstable-crypto-sign", doc = "[`sign`]")]
 #![cfg_attr(not(feature = "unstable-crypto-sign"), doc = "`sign`")]
@@ -73,22 +82,22 @@
 //!
 //! In addition to private key operations, this module provides the
 #![cfg_attr(
-    any(feature = "ring", feature = "openssl"),
+    any(feature = "ring", feature = "openssl", feature = "kmip"),
     doc = "[`common::PublicKey`]"
 )]
 #![cfg_attr(
-    not(any(feature = "ring", feature = "openssl")),
+    not(any(feature = "ring", feature = "openssl", feature = "kmip")),
     doc = "`common::PublicKey`"
 )]
 //! type for signature verification.
 //!
 //! The module also support computing message digests using the
 #![cfg_attr(
-    any(feature = "ring", feature = "openssl"),
+    any(feature = "ring", feature = "openssl", feature = "kmip"),
     doc = "[`common::DigestBuilder`]"
 )]
 #![cfg_attr(
-    not(any(feature = "ring", feature = "openssl")),
+    not(any(feature = "ring", feature = "openssl", feature = "kmip")),
     doc = "`common::DigestBuilder`"
 )]
 //! type.
@@ -128,6 +137,8 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 pub mod common;
+pub mod kmip;
+pub mod kmip_pool;
 pub mod openssl;
 pub mod ring;
 pub mod sign;
