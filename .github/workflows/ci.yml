@@ -119,7 +119,7 @@ jobs:
       id: determine-examples
       run: |
         examples=`cargo metadata --no-deps --format-version 1 \
-          | jq '[.packages[].targets[]|select(.kind|any(.=="example"))|{example:.name,features:(.["required-features"]|join(","))}]'`
+          | jq -c '[.packages[].targets[]|select(.kind|any(.=="example"))|{example:.name,features:(.["required-features"]|join(","))}]'`
         echo "examples=$examples" >> "$GITHUB_OUTPUT"
 
   # Check Feature Flags
