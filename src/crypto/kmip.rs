@@ -10,8 +10,9 @@ use core::fmt;
 use std::{string::String, vec::Vec};
 
 use bcder::decode::SliceSource;
+use bytes::BufMut;
 use kmip::types::{
-    common::{KeyMaterial, TransparentRSAPublicKey},
+    common::{KeyFormatType, KeyMaterial, TransparentRSAPublicKey},
     response::ManagedObject,
 };
 use log::error;
@@ -154,7 +155,7 @@ impl PublicKey {
         let res = client
             .get_key(&self.public_key_id)
             .inspect_err(|err| error!("{err}"))?;
-
+        dbg!(&res);
         let ManagedObject::PublicKey(public_key) = res.cryptographic_object
         else {
             return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object was expected to be a PublicKey but was instead: {}", res.cryptographic_object)));
@@ -184,48 +185,71 @@ impl PublicKey {
 
         let octets = match public_key.key_block.key_value.key_material {
             KeyMaterial::Bytes(bytes) => {
-                // This is what we get with PyKMIP using RSASHA256 and
-                // Fortanix using ECDSAP256SHA256. With Fortanix it
-                // appears to be a DER encoded SubjectPublicKeyInfo
-                // data structure of the form:
-                // SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
-                //  algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
-                //    algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
-                //    parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
-                //  subjectPublicKey BIT_STRING @23+66: (520 bit)
-                let source = SliceSource::new(&bytes);
-                let public_key =
-                    rpki::crypto::PublicKey::decode(source).unwrap();
-                let bits = public_key.bits().to_vec();
+                // Note: With Fortanix the ECDSAP256SHA256 key data appears to
+                // be a DER encoded SubjectPublicKeyInfo data structure of the
+                // form:
+                //   SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
+                //     algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
+                //       algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
+                //       parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
+                //     subjectPublicKey BIT_STRING @23+66: (520 bit)
 
-                // For RSA, the bits are also DER encoded of the form:
-                //   RSAPrivateKey SEQUENCE (2 elem)
-                //     version Version INTEGER (1024 bit) 140670898145304244147145320460151523064481569650486421654946000437850…
-                //     modulus INTEGER 65537
-                //
-                // or is it really:
-                //   RSAPrivateKey SEQUENCE (2 elem)
-                //     modulus INTEGER
-                //     publicExponent INTEGER
+                // Handle key format type PKCS1
+                match public_key.key_block.key_format_type {
+                    KeyFormatType::PKCS1 => {
+                        // PyKMIP outputs PKCS#1 ASN.1 DER encoded RSA public
+                        // key data like so:
+                        //   RSAPublicKey::=SEQUENCE{
+                        //     modulus INTEGER, -- n
+                        //     publicExponent INTEGER -- e }
+                        //
+                        // Parse it an encode the modulus and exponent as 
+                        let source = SliceSource::new(&bytes);
+                        bcder::Mode::Der.decode(source, |cons| {
+                            cons.take_sequence(|cons| {
+                                fn trim_leading_zeroes(bytes: &[u8]) -> &[u8] {
+                                    bytes
+                                        .iter()
+                                        .position(|&v| v != 0)
+                                        .map(|idx| &bytes[idx..])
+                                        .unwrap_or_default()
+                                }
+                                let modulus = bcder::Unsigned::take_from(cons)?;
+                                let public_exponent = bcder::Unsigned::take_from(cons)?;
+                                let m = modulus.as_slice();
+                                let m = trim_leading_zeroes(m);
+                                let e = public_exponent.as_slice();
+                                let e = trim_leading_zeroes(e);
+                                let e_len = e.len();
+                                let mut res = vec![];
+                                assert!(e_len >= 1 && e_len <= (4096/8));
+                                if e_len < 255 {
+                                    res.put_u8(e_len as u8);
+                                } else {
+                                    res.put_u8(0);
+                                    res.extend_from_slice(&(e_len as u16).to_be_bytes());
+                                }
+                                res.extend_from_slice(e);
+                                res.extend_from_slice(m);
+                                Ok(res)
+                            })
+                        }).unwrap()
+                    },
 
-                // if public_key.algorithm() == PublicKeyFormat::Rsa {
-                //     let source = SliceSource::new(&bits);
-                //     let mut modulus = vec![];
-                //     let mut public_exponent = vec![];
-                //     bcder::Mode::Der.decode(source, |cons| {
-                //         cons.take_sequence(|cons| {
-                //             modulus = bcder::string::BitString::take_from(cons)?.octet_slice().unwrap().to_vec();
-                //             public_exponent = BitString::take_from(cons)?.octet_slice().unwrap().to_vec();
-                //             Ok(())
-                //         })
-                //     }).unwrap();
-                //     rsa_encode(&public_exponent, &modulus)
-                // } else {
-                bits
-                // }
+                    KeyFormatType::Raw => {
+                        // Fortanix DSM
+                        let source = SliceSource::new(&bytes);
+                        let public_key =
+                            rpki::crypto::PublicKey::decode(source).unwrap();
+                        public_key.bits().to_vec()
+                    }
+
+                    _ => todo!(),
+                }
             }
 
             KeyMaterial::TransparentRSAPublicKey(
+                // Nameshed-HSM-Relay
                 TransparentRSAPublicKey {
                     modulus,
                     public_exponent,
@@ -249,17 +273,19 @@ pub mod sign {
     use kmip::types::common::{
         CryptographicAlgorithm, CryptographicParameters,
         CryptographicUsageMask, Data, DigitalSignatureAlgorithm,
-        HashingAlgorithm, UniqueIdentifier,
+        HashingAlgorithm, PaddingMethod, UniqueIdentifier,
     };
     use kmip::types::request::{
         self, CommonTemplateAttribute, PrivateKeyTemplateAttribute,
         PublicKeyTemplateAttribute, RequestPayload,
     };
-    use kmip::types::response::ResponsePayload;
+    use kmip::types::response::{
+        CreateKeyPairResponsePayload, ResponsePayload,
+    };
     use log::{debug, error};
 
     use crate::base::iana::SecurityAlgorithm;
-    use crate::crypto::common::{DigestBuilder, DigestType};
+    use crate::crypto::common::DigestType;
     use crate::crypto::kmip::{GenerateError, PublicKey};
     use crate::crypto::kmip_pool::KmipConnPool;
     use crate::crypto::sign::{
@@ -331,7 +357,10 @@ pub mod sign {
             .unwrap()
         }
 
-        fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
+        fn sign_raw(
+            &self,
+            data: &[u8],
+        ) -> Result<Signature, SignError> {
             // https://www.rfc-editor.org/rfc/rfc5702.html#section-3
             // 3.  RRSIG Resource Records
             //   "The value of the signature field in the RRSIG RR follows the
@@ -356,9 +385,8 @@ pub mod sign {
             //
             //    hex 30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20"
             //
-            // We assume that the HSM signing operation implements this signing
-            // operation according to these rules.
-
+            // KMIP HSMs implement the Sign opration operation according to
+            // these rules.
             let (crypto_alg, hashing_alg, digest_type) = match self.algorithm
             {
                 SecurityAlgorithm::RSASHA256 => (
@@ -374,51 +402,14 @@ pub mod sign {
                 _ => return Err(SignError),
             };
 
-            // TODO: For HSMs that don't support hashing do we have to do
-            // hashing ourselves here after signing? Note: PyKMIP doesn't
-            // support CryptographicParameters (and thus also not
-            // HashingFunction) nor does it support the Hash operation.
-            // Maybe via crypto::common::DigestBuilder?
-            //
-            // TODO: Where do we find out what the HSM supports? Trying an
-            // operation then falling back each time it fails is inefficient.
-            // We can presumably instead discover this on first use of the
-            // HSM, ala how Krill does HSM probing. We would need to know the
-            // result of such probing, which features are supported, here. We
-            // only have access to the KMIP connection pool here, so I guess
-            // that has to be able to tell us what we want to know.
-            //
-            // Note: OpenDNSSEC does its own hashing. Trying to do SHA256
-            // hashing ourselves and then not passing a hashing algorithm to
-            // the Sign operation below results (with Fortanix at least) in
-            // error "Must specify HashingAlgorithm". OpenDNSSEC code comments
-            // say this is done because "some HSMs don't really handle
-            // CKM_SHA1_RSA_PKCS well".
-            let mut ctx = DigestBuilder::new(digest_type);
-            ctx.update(data);
-            let digest = ctx.finish();
-            let mut data = digest.as_ref();
-
-            // OpenDNSSEC says that for RSA the prefix must be added to the
-            // buffer manually first as "CKM_RSA_PKCS does the padding, but
-            // cannot know the identifier prefix, so we need to add that
-            // ourselves."
-            let mut new_data;
-            if matches!(self.algorithm, SecurityAlgorithm::RSASHA256) {
-                new_data = vec![
-                    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48,
-                    0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04,
-                    0x20,
-                ];
-                new_data.extend_from_slice(data);
-                data = &new_data;
-            }
-
             let request = RequestPayload::Sign(
                 Some(UniqueIdentifier(self.private_key_id.clone())),
                 Some(
                     CryptographicParameters::default()
-                        // .with_padding_method(PaddingMethod::)
+                        // PyKMIP requires that the padding method be
+                        // specified otherwise it complains with: "For
+                        // signing, a padding method must be specified."
+                        .with_padding_method(PaddingMethod::PKCS1_v1_5)
                         .with_hashing_algorithm(hashing_alg)
                         .with_cryptographic_algorithm(crypto_alg),
                 ),
@@ -449,13 +440,6 @@ pub mod sign {
 
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => {
-                    // Ok(Signature::RsaSha256(Box::<[u8; 64]>::new(
-                    //     signed
-                    //         .signature_data
-                    //         .into_boxed_slice()
-                    //         .inspect_err(|err| eprintln!("Signing7: Error"))
-                    //         .map_err(|_| SignError)?,
-                    // )))
                     Ok(Signature::RsaSha256(
                         signed.signature_data.into_boxed_slice(),
                     ))
@@ -696,13 +680,46 @@ pub mod sign {
             return Err(GenerateError::Kmip("Unable to parse KMIP response: payload should be CreateKeyPair".to_string()));
         };
 
-        Ok(KeyPair {
+        let CreateKeyPairResponsePayload {
+            private_key_unique_identifier,
+            public_key_unique_identifier,
+        } = payload;
+
+        let key_pair = KeyPair {
             algorithm,
-            private_key_id: payload.private_key_unique_identifier.to_string(),
-            public_key_id: payload.public_key_unique_identifier.to_string(),
+            private_key_id: private_key_unique_identifier.to_string(),
+            public_key_id: public_key_unique_identifier.to_string(),
             conn_pool,
             flags,
-        })
+        };
+
+        // Activate the key if not already, otherwise it cannot be used for signing.
+        if !activate_on_create {
+            let request =
+                RequestPayload::Activate(Some(private_key_unique_identifier));
+
+            // Execute the request and capture the response
+            let response = client.do_request(request).map_err(|err| {
+                eprintln!("KMIP activate private key request failed: {err}");
+                eprintln!(
+                    "KMIP last request: {}",
+                    client.last_req_diag_str().unwrap_or_default()
+                );
+                eprintln!(
+                    "KMIP last response: {}",
+                    client.last_res_diag_str().unwrap_or_default()
+                );
+                GenerateError::Kmip(err.to_string())
+            })?;
+
+            // Process the successful response
+            let ResponsePayload::Activate(_) = response else {
+                error!("KMIP request failed: Wrong response type received!");
+                return Err(GenerateError::Kmip("Unable to parse KMIP response: payload should be Activate".to_string()));
+            };
+        }
+
+        Ok(key_pair)
     }
 }
 
@@ -779,16 +796,16 @@ mod tests {
         );
         let res = generate(
             generated_key_name,
-            //crate::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
-            crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
+            crate::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
+            // crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
             pool,
         );
         dbg!(&res);
-        let _key = res.unwrap();
+        let key = res.unwrap();
 
-        // let dnskey = key.dnskey();
-        // eprintln!("DNSKEY: {}", dnskey);
+        let dnskey = key.dnskey();
+        eprintln!("DNSKEY: {}", dnskey);
     }
 
     #[test]
@@ -855,11 +872,12 @@ mod tests {
         let dnskey = key.dnskey();
         eprintln!("DNSKEY: {}", dnskey);
 
-        // // Fortanix: Activating the public key also activates the private key.
-        // // Attempting to then activate the private key fails as it is already
-        // // active. Yet signing fails with "Object is not yet active"...
         client.activate_key(key.public_key_id()).unwrap();
-        // // client.activate_key(key.private_key_id()).unwrap();
+
+        // Fortanix: Activating the public key also activates the private key.
+        // Attempting to then activate the private key fails as it is already
+        // active. Yet signing fails with "Object is not yet active"...
+        // client.activate_key(key.private_key_id()).unwrap();
 
         // // This works round the not yet active yet error.
         // sleep(Duration::from_secs(5));
