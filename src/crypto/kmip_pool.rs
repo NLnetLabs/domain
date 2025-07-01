@@ -23,13 +23,13 @@ use openssl::ssl::SslStream;
 /// supports elements of KMIP 1.2 [1] but not KMIP 1.3 [2], but prior to KMIP
 /// 1.3 it is required for servers to support TLS 1.0, and RustLS doesn't
 /// support TLS < 1.2.
-/// 
+///
 /// [1]: https://docs.oasis-open.org/kmip/profiles/v1.2/os/kmip-profiles-v1.2-os.html#_Toc409613167
 /// [2]: https://docs.oasis-open.org/kmip/profiles/v1.3/os/kmip-profiles-v1.3-os.html#_Toc473103053
 pub type KmipTlsClient = Client<SslStream<TcpStream>>;
 
 /// A pool of already connected KMIP clients.
-/// 
+///
 /// This pool can be used to acquire a KMIP client without first having to
 /// wait for it to connect at the TCP/TLS level, and without unnecessarily
 /// closing the connection when finished.

@@ -357,10 +357,7 @@ pub mod sign {
             .unwrap()
         }
 
-        fn sign_raw(
-            &self,
-            data: &[u8],
-        ) -> Result<Signature, SignError> {
+        fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
             // https://www.rfc-editor.org/rfc/rfc5702.html#section-3
             // 3.  RRSIG Resource Records
             //   "The value of the signature field in the RRSIG RR follows the
@@ -439,11 +436,9 @@ pub mod sign {
             };
 
             match self.algorithm {
-                SecurityAlgorithm::RSASHA256 => {
-                    Ok(Signature::RsaSha256(
-                        signed.signature_data.into_boxed_slice(),
-                    ))
-                }
+                SecurityAlgorithm::RSASHA256 => Ok(Signature::RsaSha256(
+                    signed.signature_data.into_boxed_slice(),
+                )),
                 SecurityAlgorithm::ECDSAP256SHA256 => {
                     let signature = openssl::ecdsa::EcdsaSig::from_der(
                         &signed.signature_data,
