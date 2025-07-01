@@ -13,10 +13,26 @@ use std::net::TcpStream;
 use std::{sync::Arc, time::Duration};
 
 use kmip::client::{Client, ConnectionSettings};
+
+// TODO: Remove the hard-coded use of OpenSSL?
 use openssl::ssl::SslStream;
 
+/// A KMIP client used to send KMIP requests and receive KMIP responses.
+///
+/// Note: Currently depends on OpenSSL because our KMIP implementation
+/// supports elements of KMIP 1.2 [1] but not KMIP 1.3 [2], but prior to KMIP
+/// 1.3 it is required for servers to support TLS 1.0, and RustLS doesn't
+/// support TLS < 1.2.
+/// 
+/// [1]: https://docs.oasis-open.org/kmip/profiles/v1.2/os/kmip-profiles-v1.2-os.html#_Toc409613167
+/// [2]: https://docs.oasis-open.org/kmip/profiles/v1.3/os/kmip-profiles-v1.3-os.html#_Toc473103053
 pub type KmipTlsClient = Client<SslStream<TcpStream>>;
 
+/// A pool of already connected KMIP clients.
+/// 
+/// This pool can be used to acquire a KMIP client without first having to
+/// wait for it to connect at the TCP/TLS level, and without unnecessarily
+/// closing the connection when finished.
 pub type KmipConnPool = r2d2::Pool<ConnectionManager>;
 
 /// Manages KMIP TCP + TLS connection creation.
