@@ -10,12 +10,11 @@ use core::fmt;
 use std::{string::String, vec::Vec};
 
 use bcder::decode::SliceSource;
-use bytes::BufMut;
 use kmip::types::{
     common::{KeyFormatType, KeyMaterial, TransparentRSAPublicKey},
     response::ManagedObject,
 };
-use log::error;
+use log::{debug, error};
 
 pub use kmip::client::ConnectionSettings;
 
@@ -23,6 +22,7 @@ use crate::{
     base::iana::SecurityAlgorithm,
     crypto::{common::rsa_encode, kmip_pool::KmipConnPool},
     rdata::Dnskey,
+    utils::base16,
 };
 
 /// An error in generating a key pair with OpenSSL.
@@ -184,6 +184,8 @@ impl PublicKey {
 
         let octets = match public_key.key_block.key_value.key_material {
             KeyMaterial::Bytes(bytes) => {
+                debug!("Key Format Type: {:?}", public_key.key_block.key_format_type);
+                debug!("Key bytes as hex: {}", base16::encode_display(&bytes));
                 // Note: With Fortanix the ECDSAP256SHA256 key data appears to
                 // be a DER encoded SubjectPublicKeyInfo data structure of the
                 // form:
@@ -204,43 +206,24 @@ impl PublicKey {
                         //
                         // Parse it an encode the modulus and exponent as 
                         let source = SliceSource::new(&bytes);
-                        bcder::Mode::Der.decode(source, |cons| {
-                            cons.take_sequence(|cons| {
-                                fn trim_leading_zeroes(bytes: &[u8]) -> &[u8] {
-                                    bytes
-                                        .iter()
-                                        .position(|&v| v != 0)
-                                        .map(|idx| &bytes[idx..])
-                                        .unwrap_or_default()
-                                }
-                                let modulus = bcder::Unsigned::take_from(cons)?;
-                                let public_exponent = bcder::Unsigned::take_from(cons)?;
-                                let m = modulus.as_slice();
-                                let m = trim_leading_zeroes(m);
-                                let e = public_exponent.as_slice();
-                                let e = trim_leading_zeroes(e);
-                                let e_len = e.len();
-                                let mut res = vec![];
-                                assert!(e_len >= 1 && e_len <= (4096/8));
-                                if e_len < 255 {
-                                    res.put_u8(e_len as u8);
-                                } else {
-                                    res.put_u8(0);
-                                    res.extend_from_slice(&(e_len as u16).to_be_bytes());
-                                }
-                                res.extend_from_slice(e);
-                                res.extend_from_slice(m);
-                                Ok(res)
-                            })
-                        }).unwrap()
+                        encode_asn1_rsa_key_as_dnskey_rdata(source)
                     },
 
                     KeyFormatType::Raw => {
-                        // Fortanix DSM
+                        // For an RSA key Fortanix DSM supplies:
+                        //   SubjectPublicKeyInfo SEQUENCE (2 elem)
+                        //     algorithm AlgorithmIdentifier SEQUENCE (2 elem)
+                        //       algorithm OBJECT IDENTIFIER 1.2.840.113549.1.1.1 rsaEncryption (PKCS #1)
+                        //       parameter ANY NULL
+                        //     subjectPublicKey BIT STRING (2160 bit) 001100001000001000000001000010100000001010000010000000010000000100000…
+                        //       SEQUENCE (2 elem)
+                        //         INTEGER (2048 bit) 229677698057230630160769379936346719377896297586216888467726484346678…
+                        //         INTEGER 65537
                         let source = SliceSource::new(&bytes);
                         let public_key =
                             rpki::crypto::PublicKey::decode(source).unwrap();
-                        public_key.bits().to_vec()
+                        let source = SliceSource::new(public_key.bits());
+                        encode_asn1_rsa_key_as_dnskey_rdata(source)
                     }
 
                     _ => todo!(),
@@ -260,6 +243,25 @@ impl PublicKey {
 
         Ok(Dnskey::new(flags, 3, algorithm, octets).unwrap())
     }
+}
+
+//   RSAPublicKey::=SEQUENCE{
+//     modulus INTEGER, -- n
+//     publicExponent INTEGER -- e }
+fn encode_asn1_rsa_key_as_dnskey_rdata(
+    source: SliceSource<'_>,
+) -> Vec<u8> {
+    bcder::Mode::Der
+        .decode(source, |cons| {
+            cons.take_sequence(|cons| {
+                let modulus = bcder::Unsigned::take_from(cons)?;
+                let public_exponent = bcder::Unsigned::take_from(cons)?;
+                let n = modulus.as_slice();
+                let e = public_exponent.as_slice();
+                Ok(crate::crypto::common::rsa_encode(e, n))
+            })
+        })
+        .unwrap()
 }
 
 #[cfg(feature = "unstable-crypto-sign")]
