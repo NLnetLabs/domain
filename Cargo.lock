@@ -628,7 +628,7 @@ dependencies = [
 [[package]]
 name = "kmip-protocol"
 version = "0.5.0"
-source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#a85e5f83e6a1217dbd06c9aa9ce4201a24c5eefa"
+source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#8b9bef377247046e8d6094114890fdc5e0827c60"
 dependencies = [
  "cfg-if",
  "enum-display-derive",
