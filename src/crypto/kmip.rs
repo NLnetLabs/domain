@@ -155,7 +155,6 @@ impl PublicKey {
         let res = client
             .get_key(&self.public_key_id)
             .inspect_err(|err| error!("{err}"))?;
-        dbg!(&res);
         let ManagedObject::PublicKey(public_key) = res.cryptographic_object
         else {
             return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object was expected to be a PublicKey but was instead: {}", res.cryptographic_object)));
@@ -165,7 +164,7 @@ impl PublicKey {
         //   "“Raw” key format is intended to be applied to symmetric keys
         //    and not asymmetric keys"
         //
-        // As we deal in assymetric keys (RSA, ECDSA), not symmetric keys,
+        // As we deal in asymmetric keys (RSA, ECDSA), not symmetric keys,
         // we should not encounter public_key.key_block.key_format_type ==
         // KeyFormatType::Raw. However, Fortanix DSM returns
         // KeyFormatType::Raw when fetching key data for an ECDSA public key.
