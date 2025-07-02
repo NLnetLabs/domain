@@ -283,7 +283,7 @@ pub mod sign {
     use kmip::types::response::{
         CreateKeyPairResponsePayload, ResponsePayload,
     };
-    use log::{debug, error};
+    use tracing::{debug, error};
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::DigestType;
