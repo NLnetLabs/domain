@@ -16,7 +16,7 @@ use kmip::types::{
 };
 use log::{debug, error};
 
-pub use kmip::client::ConnectionSettings;
+pub use kmip::client::{ClientCertificate, ConnectionSettings};
 
 use crate::{
     base::iana::SecurityAlgorithm,
