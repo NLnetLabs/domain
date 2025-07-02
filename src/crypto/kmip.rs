@@ -14,7 +14,7 @@ use kmip::types::{
     common::{KeyFormatType, KeyMaterial, TransparentRSAPublicKey},
     response::ManagedObject,
 };
-use log::{debug, error};
+use tracing::{debug, error};
 
 pub use kmip::client::{ClientCertificate, ConnectionSettings};
 
