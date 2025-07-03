@@ -9,7 +9,7 @@ use core::fmt;
 
 use std::{string::String, vec::Vec};
 
-use bcder::{decode::SliceSource, BitString, Oid};
+use bcder::{decode::SliceSource, BitString, ConstOid, Oid};
 use kmip::types::{
     common::{KeyFormatType, KeyMaterial, TransparentRSAPublicKey},
     response::ManagedObject,
