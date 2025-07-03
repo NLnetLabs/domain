@@ -70,6 +70,23 @@ impl fmt::Display for GenerateError {
 
 impl std::error::Error for GenerateError {}
 
+/// [RFC 4055](https://tools.ietf.org/html/rfc4055) `rsaEncryption`
+///
+/// Identifies an RSA public key with no limitation to either RSASSA-PSS or
+/// RSAES-OEAP.
+pub const RSA_ENCRYPTION_OID: ConstOid
+    = Oid(&[42, 134, 72, 134, 247, 13, 1, 1, 1]);
+
+/// [RFC 5480](https://tools.ietf.org/html/rfc5480) `ecPublicKey`.
+///
+/// Identifies public keys for elliptic curve cryptography.
+pub const EC_PUBLIC_KEY_OID: ConstOid = Oid(&[42, 134, 72, 206, 61, 2, 1]);
+
+/// [RFC 5480](https://tools.ietf.org/html/rfc5480) `secp256r1`.
+///
+/// Identifies the P-256 curve for elliptic curve cryptography.
+pub const SECP256R1_OID: ConstOid = Oid(&[42, 134, 72, 206, 61, 3, 1, 7]);
+
 pub struct PublicKey {
     algorithm: SecurityAlgorithm,
 
@@ -239,7 +256,7 @@ impl PublicKey {
                                 cons.take_sequence(|cons| {
                                     cons.take_sequence(|cons| {
                                         let algorithm = Oid::take_from(cons)?;
-                                        if algorithm != rpki::oid::RSA_ENCRYPTION {
+                                        if algorithm != RSA_ENCRYPTION_OID {
                                             return Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm rsaEncryption is supported"));
                                         } 
                                         // Ignore the parameters.
@@ -295,11 +312,11 @@ impl PublicKey {
                                 cons.take_sequence(|cons| {
                                     cons.take_sequence(|cons| {
                                         let algorithm = Oid::take_from(cons)?;
-                                        if algorithm != rpki::oid::EC_PUBLIC_KEY {
+                                        if algorithm != EC_PUBLIC_KEY_OID {
                                             Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm id-ecPublicKey is supported"))
                                         } else {
                                             let named_curve = Oid::take_from(cons)?;
-                                            if named_curve != rpki::oid::SECP256R1 {
+                                            if named_curve != SECP256R1_OID {
                                                return Err(cons.content_err("Only SubjectPublicKeyInfo with namedCurve secp256r1 is supported"));
                                             }
                                             Ok(())

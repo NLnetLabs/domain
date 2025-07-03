@@ -117,12 +117,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
-
-[[package]]
 name = "bcder"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -179,10 +173,7 @@ checksum = "c469d952047f47f91b68d1cba3f10d63c11d73e4636f24f08daf0278abf01c4d"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
- "js-sys",
  "num-traits",
- "serde",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -280,7 +271,6 @@ dependencies = [
  "r2d2",
  "rand",
  "ring",
- "rpki",
  "rstest",
  "rustls-pemfile",
  "rustversion",
@@ -1123,22 +1113,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rpki"
-version = "0.18.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98a043d99463db58c05283f5ae5d9ced858cc3483011747264e21f50b9201cdd"
-dependencies = [
- "base64",
- "bcder",
- "bytes",
- "chrono",
- "log",
- "ring",
- "untrusted",
- "uuid",
 ]
 
 [[package]]
