@@ -9,7 +9,7 @@ use core::fmt;
 
 use std::{string::String, vec::Vec};
 
-use bcder::decode::SliceSource;
+use bcder::{decode::SliceSource, BitString, Oid};
 use kmip::types::{
     common::{KeyFormatType, KeyMaterial, TransparentRSAPublicKey},
     response::ManagedObject,
@@ -184,33 +184,45 @@ impl PublicKey {
 
         let octets = match public_key.key_block.key_value.key_material {
             KeyMaterial::Bytes(bytes) => {
+                debug!("Cryptographic Algorithm: {:?}", public_key.key_block.cryptographic_algorithm);
                 debug!("Key Format Type: {:?}", public_key.key_block.key_format_type);
                 debug!("Key bytes as hex: {}", base16::encode_display(&bytes));
-                // Note: With Fortanix the ECDSAP256SHA256 key data appears to
-                // be a DER encoded SubjectPublicKeyInfo data structure of the
-                // form:
-                //   SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
-                //     algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
-                //       algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
-                //       parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
-                //     subjectPublicKey BIT_STRING @23+66: (520 bit)
 
                 // Handle key format type PKCS1
-                match public_key.key_block.key_format_type {
-                    KeyFormatType::PKCS1 => {
+                match (algorithm, public_key.key_block.key_format_type) {
+                    (SecurityAlgorithm::RSASHA256, KeyFormatType::PKCS1) => {
                         // PyKMIP outputs PKCS#1 ASN.1 DER encoded RSA public
                         // key data like so:
                         //   RSAPublicKey::=SEQUENCE{
                         //     modulus INTEGER, -- n
                         //     publicExponent INTEGER -- e }
-                        //
-                        // Parse it an encode the modulus and exponent as 
                         let source = SliceSource::new(&bytes);
-                        encode_asn1_rsa_key_as_dnskey_rdata(source)
+                        let mut modulus = None;
+                        let mut public_exponent = None;
+                        bcder::Mode::Der
+                            .decode(source, |cons| {
+                                cons.take_sequence(|cons| {
+                                    modulus = Some(bcder::Unsigned::take_from(cons)?);
+                                    public_exponent = Some(bcder::Unsigned::take_from(cons)?);
+                                    Ok(())
+                                })
+                            }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse PKCS#1 RSASHA256 SubjectPublicKeyInfo: {err}")))?;
+
+                        let Some(modulus) = modulus else {
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse PKCS#1 RSASHA256 SubjectPublicKeyInfo: missing modulus".into()));
+                        };
+
+                        let Some(public_exponent) = public_exponent else {
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse PKCS#1 RSASHA256 SubjectPublicKeyInfo: missing public exponent".into()));
+                        };
+
+                        let n = modulus.as_slice();
+                        let e = public_exponent.as_slice();
+                        crate::crypto::common::rsa_encode(e, n)
                     },
 
-                    KeyFormatType::Raw => {
-                        // For an RSA key Fortanix DSM supplies:
+                    (SecurityAlgorithm::RSASHA256, KeyFormatType::Raw) => {
+                        // For an RSA key Fortanix DSM supplies: (from https://asn1js.eu/)
                         //   SubjectPublicKeyInfo SEQUENCE (2 elem)
                         //     algorithm AlgorithmIdentifier SEQUENCE (2 elem)
                         //       algorithm OBJECT IDENTIFIER 1.2.840.113549.1.1.1 rsaEncryption (PKCS #1)
@@ -220,10 +232,119 @@ impl PublicKey {
                         //         INTEGER (2048 bit) 229677698057230630160769379936346719377896297586216888467726484346678…
                         //         INTEGER 65537
                         let source = SliceSource::new(&bytes);
-                        let public_key =
-                            rpki::crypto::PublicKey::decode(source).unwrap();
-                        let source = SliceSource::new(public_key.bits());
-                        encode_asn1_rsa_key_as_dnskey_rdata(source)
+                        let mut modulus = None;
+                        let mut public_exponent = None;
+                        bcder::Mode::Der
+                            .decode(source, |cons| {
+                                cons.take_sequence(|cons| {
+                                    cons.take_sequence(|cons| {
+                                        let algorithm = Oid::take_from(cons)?;
+                                        if algorithm != rpki::oid::RSA_ENCRYPTION {
+                                            return Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm rsaEncryption is supported"));
+                                        } 
+                                        // Ignore the parameters.
+                                        Ok(())
+                                    })?;
+                                    cons.take_sequence(|cons| {
+                                        modulus = Some(bcder::Unsigned::take_from(cons)?);
+                                        public_exponent = Some(bcder::Unsigned::take_from(cons)?);
+                                        Ok(())
+                                    })
+                                })
+                            }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: {err}")))?;
+
+                        let Some(modulus) = modulus else {
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: missing modulus".into()));
+                        };
+
+                        let Some(public_exponent) = public_exponent else {
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: missing public exponent".into()));
+                        };
+
+                        let n = modulus.as_slice();
+                        let e = public_exponent.as_slice();
+                        crate::crypto::common::rsa_encode(e, n)
+                    }
+
+                    (SecurityAlgorithm::ECDSAP256SHA256, KeyFormatType::Raw) => {
+                        // For an ECDSA key Fortanix DSM supplies: (from https://asn1js.eu/)
+                        //   SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
+                        //     algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
+                        //       algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
+                        //       parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
+                        //     subjectPublicKey BIT_STRING @23+66: (520 bit)
+                        //
+                        // From: https://www.rfc-editor.org/rfc/rfc5480.html#section-2.1.1
+                        //   The parameter for id-ecPublicKey is as follows and MUST always be
+                        //   present:
+                        //
+                        //     ECParameters ::= CHOICE {
+                        //       namedCurve         OBJECT IDENTIFIER
+                        //       -- implicitCurve   NULL
+                        //       -- specifiedCurve  SpecifiedECDomain
+                        //     }
+                        //       -- implicitCurve and specifiedCurve MUST NOT be used in PKIX.
+                        //       -- Details for SpecifiedECDomain can be found in [X9.62].
+                        //       -- Any future additions to this CHOICE should be coordinated
+                        //       -- with ANSI X9.
+                        let source = SliceSource::new(&bytes);
+                        tracing::info!("SPKI bytes: {}", base16::encode_display(&bytes));
+                        let mut bits = None;
+                        bcder::Mode::Der
+                            .decode(source, |cons| {
+                                cons.take_sequence(|cons| {
+                                    cons.take_sequence(|cons| {
+                                        let algorithm = Oid::take_from(cons)?;
+                                        if algorithm != rpki::oid::EC_PUBLIC_KEY {
+                                            Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm id-ecPublicKey is supported"))
+                                        } else {
+                                            let named_curve = Oid::take_from(cons)?;
+                                            if named_curve != rpki::oid::SECP256R1 {
+                                               return Err(cons.content_err("Only SubjectPublicKeyInfo with namedCurve secp256r1 is supported"));
+                                            }
+                                            Ok(())
+                                        }
+                                    })?;
+                                    bits = Some(BitString::take_from(cons)?);
+                                    Ok(())
+                                })
+                            }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo: {err}")))?;
+
+                        let Some(bits) = bits else {
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()));
+                        };
+
+                        // https://www.rfc-editor.org/rfc/rfc5480#section-2.2
+                        //   "The subjectPublicKey from SubjectPublicKeyInfo is the ECC public key.
+                        //    ECC public keys have the following syntax:
+                        //
+                        //        ECPoint ::= OCTET STRING
+                        //    ...
+                        //    The first octet of the OCTET STRING indicates whether the key is
+                        //    compressed or uncompressed.  The uncompressed form is indicated
+                        //    by 0x04 and the compressed form is indicated by either 0x02 or
+                        //    0x03 (see 2.3.3 in [SEC1]).  The public key MUST be rejected if
+                        //    any other value is included in the first octet."
+                        let Some(octets) = bits.octet_slice() else {
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()));
+                        };
+
+                        if octets.len() != 65 {
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [0x04, <32-byte X value>, <32-byte Y value>]".into()));
+                        }
+
+                        // Note: OpenDNSSEC doesn't support the compressed form either.
+                        let compression_flag = octets[0];
+                        if compression_flag != 0x04 {
+                            return Err(kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: unknown compression flag {compression_flag:?}")))?;
+                        }
+
+                        // Expect octet string to be X | Y (| denotes concatenation) where
+                        // X and Y are each 32 bytes (because P-256 uses 256 bit values and
+                        // 256 bits are 32 bytes).
+
+                        // Skip the compression flag.
+                        octets[1..].to_vec()
                     }
 
                     _ => todo!(),
@@ -243,25 +364,6 @@ impl PublicKey {
 
         Ok(Dnskey::new(flags, 3, algorithm, octets).unwrap())
     }
-}
-
-//   RSAPublicKey::=SEQUENCE{
-//     modulus INTEGER, -- n
-//     publicExponent INTEGER -- e }
-fn encode_asn1_rsa_key_as_dnskey_rdata(
-    source: SliceSource<'_>,
-) -> Vec<u8> {
-    bcder::Mode::Der
-        .decode(source, |cons| {
-            cons.take_sequence(|cons| {
-                let modulus = bcder::Unsigned::take_from(cons)?;
-                let public_exponent = bcder::Unsigned::take_from(cons)?;
-                let n = modulus.as_slice();
-                let e = public_exponent.as_slice();
-                Ok(crate::crypto::common::rsa_encode(e, n))
-            })
-        })
-        .unwrap()
 }
 
 #[cfg(feature = "unstable-crypto-sign")]
@@ -293,6 +395,7 @@ pub mod sign {
         GenerateParams, SignError, SignRaw, Signature,
     };
     use crate::rdata::Dnskey;
+    use crate::utils::base16;
 
     #[derive(Clone, Debug)]
     pub struct KeyPair {
@@ -400,17 +503,22 @@ pub mod sign {
                 _ => return Err(SignError),
             };
 
+            // PyKMIP requires that the padding method be specified otherwise
+            // it complains with: "For signing, a padding method must be
+            // specified."
+            let mut cryptographic_parameters =
+                CryptographicParameters::default()
+                    .with_hashing_algorithm(hashing_alg)
+                    .with_cryptographic_algorithm(crypto_alg);
+
+            if self.algorithm == SecurityAlgorithm::RSASHA256 {
+                cryptographic_parameters = cryptographic_parameters
+                    .with_padding_method(PaddingMethod::PKCS1_v1_5);
+            }
+
             let request = RequestPayload::Sign(
                 Some(UniqueIdentifier(self.private_key_id.clone())),
-                Some(
-                    CryptographicParameters::default()
-                        // PyKMIP requires that the padding method be
-                        // specified otherwise it complains with: "For
-                        // signing, a padding method must be specified."
-                        .with_padding_method(PaddingMethod::PKCS1_v1_5)
-                        .with_hashing_algorithm(hashing_alg)
-                        .with_cryptographic_algorithm(crypto_alg),
-                ),
+                Some(cryptographic_parameters),
                 Data(data.as_ref().to_vec()),
             );
 
@@ -436,21 +544,53 @@ pub mod sign {
                 unreachable!();
             };
 
+            debug!("Algorithm: {}", self.algorithm);
+            debug!(
+                "Signature Data: {}",
+                base16::encode_display(&signed.signature_data)
+            );
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => Ok(Signature::RsaSha256(
                     signed.signature_data.into_boxed_slice(),
                 )),
                 SecurityAlgorithm::ECDSAP256SHA256 => {
+                    // ECDSA signature received from Fortanix DSM, decoded
+                    // using this command:
+                    //
+                    //   $ echo '<hex encoded signature data>' | xxd -r -p | dumpasn1 -
+                    //     0  69: SEQUENCE {
+                    //     2  33:   INTEGER
+                    //          :     00 C6 A7 D1 2E A1 0C B4 96 BD D9 A5 48 2C 9B F4
+                    //          :     0C EC 9F FC EF 1A 0D 59 BB B9 24 F3 FE DA DC F8
+                    //          :     9E
+                    //    37  32:   INTEGER
+                    //          :     4B A7 22 69 F2 F8 65 88 63 D0 25 D3 A9 D5 92 4F
+                    //          :     A2 21 BD 59 CD 27 60 6D 16 C3 79 EF B4 0A CA 33
+                    //          :   }
+                    //
+                    // Where the two integer values are known as 'r' and 's'.
+                    // let source = SliceSource::new(&signed.signature_data);
+                    // let (r, s) = bcder::Mode::Der
+                    //     .decode(source, |cons| {
+                    //         cons.take_sequence(|cons| {
+                    //             let r = bcder::Unsigned::take_from(cons)?;
+                    //             let s = bcder::Unsigned::take_from(cons)?;
+                    //             Ok((r, s))
+                    //         })
+                    //     })
+                    //     .unwrap();
+
+                    // 3046022100e4e87c417196c6e5cd63f93e94929ccda6d04fc0a7446922baf3070e854ec4f4022100a1ecd098008329de9bc93fb2ded6aaceecc921f7183d6b3cfc673b3ef8af219e
                     let signature = openssl::ecdsa::EcdsaSig::from_der(
                         &signed.signature_data,
                     )
                     .unwrap();
-                    let mut r = signature.r().to_vec_padded(32).unwrap();
+                    let mut sig = signature.r().to_vec_padded(32).unwrap();
                     let mut s = signature.s().to_vec_padded(32).unwrap();
-                    r.append(&mut s);
+                    sig.append(&mut s);
 
                     Ok(Signature::EcdsaP256Sha256(Box::<[u8; 64]>::new(
-                        r.try_into().map_err(|_| SignError)?,
+                        sig.try_into().map_err(|_| SignError)?,
                     )))
                 }
                 SecurityAlgorithm::ECDSAP384SHA384 => {
@@ -729,12 +869,15 @@ mod tests {
     use std::time::SystemTime;
     use std::vec::Vec;
 
+    use bcder::decode::SliceSource;
     use kmip::client::ConnectionSettings;
+    use openssl::bn::BigNum;
 
     use crate::crypto::kmip::sign::generate;
     use crate::crypto::kmip_pool::ConnectionManager;
     use crate::crypto::sign::SignRaw;
     use crate::logging::init_logging;
+    use crate::utils::base16;
 
     #[test]
     #[ignore = "Requires running PyKMIP"]
