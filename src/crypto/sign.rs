@@ -181,7 +181,7 @@ pub trait SignRaw {
     /// algorithm as returned by [`algorithm()`].
     ///
     /// [`algorithm()`]: Self::algorithm()
-    fn dnskey(&self) -> Dnskey<Vec<u8>>;
+    fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError>;
 
     /// Sign the given bytes.
     ///
@@ -316,7 +316,7 @@ pub enum KeyPair {
 
     /// A key backed by a KMIP capable HSM.
     #[cfg(feature = "kmip")]
-    Kmip(kmip::sign::KeyPair),
+    Kmip(self::kmip::sign::KeyPair),
 }
 
 //--- Conversion to and from bytes
@@ -378,7 +378,7 @@ impl SignRaw for KeyPair {
         }
     }
 
-    fn dnskey(&self) -> Dnskey<Vec<u8>> {
+    fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
         match self {
             #[cfg(feature = "ring")]
             Self::Ring(key) => key.dnskey(),
@@ -424,7 +424,10 @@ pub fn generate(
     #[cfg(feature = "openssl")]
     {
         let key = openssl::sign::generate(params, flags)?;
-        return Ok((key.to_bytes(), key.dnskey()));
+        return Ok((
+            key.to_bytes(),
+            key.dnskey().map_err(|_| GenerateError::Implementation)?,
+        ));
     }
 
     // Otherwise fail.

@@ -9,7 +9,9 @@
 //!  - Handle loss of connectivity by re-creating the connection when an
 //!    existing connection is considered to be "broken" at the network
 //!    level.
+use core::fmt::Display;
 use std::net::TcpStream;
+use std::string::String;
 use std::{sync::Arc, time::Duration};
 
 use kmip::client::{Client, ConnectionSettings};
@@ -35,6 +37,21 @@ pub type KmipTlsClient = Client<SslStream<TcpStream>>;
 /// closing the connection when finished.
 pub type KmipConnPool = r2d2::Pool<ConnectionManager>;
 
+#[derive(Clone, Debug)]
+pub struct KmipConnError(String);
+
+impl From<r2d2::Error> for KmipConnError {
+    fn from(err: r2d2::Error) -> Self {
+        Self(format!("{err}"))
+    }
+}
+
+impl Display for KmipConnError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Manages KMIP TCP + TLS connection creation.
 ///
 /// Uses the [r2d2] crate to manage a pool of connections.
@@ -51,12 +68,9 @@ impl ConnectionManager {
     pub fn create_connection_pool(
         conn_settings: Arc<ConnectionSettings>,
         max_conncurrent_connections: u32,
-        max_life_time: Duration,
-        max_idle_time: Duration,
-    ) -> Result<KmipConnPool, ()> {
-        let max_life_time = Some(max_life_time);
-        let max_idle_time = Some(max_idle_time);
-
+        max_life_time: Option<Duration>,
+        max_idle_time: Option<Duration>,
+    ) -> Result<KmipConnPool, KmipConnError> {
         let pool = r2d2::Pool::builder()
             // Don't pre-create idle connections to the KMIP server
             .min_idle(Some(0))
@@ -84,7 +98,7 @@ impl ConnectionManager {
             .connection_timeout(conn_settings.connect_timeout.unwrap_or(Duration::from_secs(30)))
 
             // Use our connection manager to create connections in the pool and to verify their health
-            .build(ConnectionManager { conn_settings }).unwrap();
+            .build(ConnectionManager { conn_settings })?;
 
         Ok(pool)
     }

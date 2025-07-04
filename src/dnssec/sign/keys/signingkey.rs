@@ -1,6 +1,6 @@
 use crate::base::iana::SecurityAlgorithm;
 use crate::base::Name;
-use crate::crypto::sign::SignRaw;
+use crate::crypto::sign::{SignError, SignRaw};
 use crate::rdata::Dnskey;
 use std::fmt::Debug;
 use std::vec::Vec;
@@ -122,7 +122,7 @@ where
         self.inner.algorithm()
     }
 
-    pub fn dnskey(&self) -> Dnskey<Vec<u8>> {
+    pub fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
         self.inner.dnskey()
     }
 }

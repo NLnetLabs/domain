@@ -202,7 +202,7 @@ where
                     "Signed {} RRSET at {} with keytag {}",
                     rrset.rtype(),
                     rrset.owner(),
-                    key.dnskey().key_tag()
+                    key.dnskey()?.key_tag()
                 );
             }
         }
@@ -310,7 +310,7 @@ where
         rrset.ttl(),
         expiration,
         inception,
-        key.dnskey().key_tag(),
+        key.dnskey()?.key_tag(),
         // The fns provided by `ToName` state in their RustDoc that they
         // "Converts the name into a single, uncompressed name" which matches
         // the RFC 4034 section 3.1.7 requirement that "A sender MUST NOT use
@@ -476,7 +476,7 @@ mod tests {
         let key = SigningKey::new(apex_owner.clone(), 0, TestKey::default());
         let (inception, expiration) =
             (Timestamp::from(0), Timestamp::from(0));
-        let dnskey = key.dnskey().convert();
+        let dnskey = key.dnskey().unwrap().convert();
 
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
@@ -665,7 +665,7 @@ mod tests {
 
         // Prepare a zone signing key and a key signing key.
         let keys = [&mk_dnssec_signing_key(true)];
-        let dnskey = keys[0].dnskey().convert();
+        let dnskey = keys[0].dnskey().unwrap().convert();
 
         // Generate RRSIGs. Use the default signing config and thus also the
         // DefaultSigningKeyUsageStrategy which will honour the purpose of the
@@ -710,7 +710,7 @@ mod tests {
 
         // Prepare a zone signing key and a key signing key.
         let keys = [&mk_dnssec_signing_key(true)];
-        let dnskey = keys[0].dnskey().convert();
+        let dnskey = keys[0].dnskey().unwrap().convert();
 
         let generated_records = sign_sorted_zone_records(
             &apex,
@@ -754,7 +754,7 @@ mod tests {
 
         // Prepare a zone signing key and a key signing key.
         let keys = [&mk_dnssec_signing_key(true)];
-        let dnskey = keys[0].dnskey().convert();
+        let dnskey = keys[0].dnskey().unwrap().convert();
 
         let generated_records = sign_sorted_zone_records(
             &apex,
@@ -829,7 +829,7 @@ mod tests {
 
         let dnskeys = keys
             .iter()
-            .map(|k| k.dnskey().convert())
+            .map(|k| k.dnskey().unwrap().convert())
             .collect::<Vec<_>>();
 
         let zsk = &dnskeys[zsk_idx];
@@ -1016,8 +1016,8 @@ mod tests {
         let keys =
             [&mk_dnssec_signing_key(false), &mk_dnssec_signing_key(false)];
 
-        let zsk1 = keys[0].dnskey().convert();
-        let zsk2 = keys[1].dnskey().convert();
+        let zsk1 = keys[0].dnskey().unwrap().convert();
+        let zsk2 = keys[1].dnskey().unwrap().convert();
 
         let generated_records = sign_sorted_zone_records(
             &apex_owner,
@@ -1067,7 +1067,7 @@ mod tests {
     fn generate_rrsigs_for_already_signed_zone() {
         let keys = [&mk_dnssec_signing_key(true)];
 
-        let dnskey = keys[0].dnskey().convert();
+        let dnskey = keys[0].dnskey().unwrap().convert();
 
         let apex = Name::from_str("example.").unwrap();
         let mut records = SortedRecords::default();
@@ -1218,10 +1218,15 @@ mod tests {
             SecurityAlgorithm::ED25519
         }
 
-        fn dnskey(&self) -> Dnskey<Vec<u8>> {
+        fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
             let flags = 0;
-            Dnskey::new(flags, 3, SecurityAlgorithm::ED25519, self.0.to_vec())
-                .unwrap()
+            Ok(Dnskey::new(
+                flags,
+                3,
+                SecurityAlgorithm::ED25519,
+                self.0.to_vec(),
+            )
+            .unwrap())
         }
 
         fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {

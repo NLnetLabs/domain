@@ -20,7 +20,7 @@ pub use kmip::client::{ClientCertificate, ConnectionSettings};
 
 use crate::{
     base::iana::SecurityAlgorithm,
-    crypto::{common::rsa_encode, kmip_pool::KmipConnPool},
+    crypto::{common::{rsa_encode, trim_leading_zeroes}, kmip_pool::KmipConnPool},
     rdata::Dnskey,
     utils::base16,
 };
@@ -305,7 +305,6 @@ impl PublicKey {
                         //       -- Any future additions to this CHOICE should be coordinated
                         //       -- with ANSI X9.
                         let source = SliceSource::new(&bytes);
-                        tracing::info!("SPKI bytes: {}", base16::encode_display(&bytes));
                         let mut bits = None;
                         bcder::Mode::Der
                             .decode(source, |cons| {
@@ -346,8 +345,9 @@ impl PublicKey {
                             return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()));
                         };
 
+                        // Expect octet string to be [<compression flag byte>, <32-byte X value>, <32-byte Y value>].
                         if octets.len() != 65 {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [0x04, <32-byte X value>, <32-byte Y value>]".into()));
+                            return Err(kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [<compression flag byte>, <32-byte X value>, <32-byte Y value>]: {} ({} bytes)", base16::encode_display(octets), octets.len())));
                         }
 
                         // Note: OpenDNSSEC doesn't support the compressed form either.
@@ -359,7 +359,6 @@ impl PublicKey {
                         // Expect octet string to be X | Y (| denotes concatenation) where
                         // X and Y are each 32 bytes (because P-256 uses 256 bit values and
                         // 256 bits are 32 bytes).
-
                         // Skip the compression flag.
                         octets[1..].to_vec()
                     }
@@ -405,7 +404,7 @@ pub mod sign {
     use tracing::{debug, error};
 
     use crate::base::iana::SecurityAlgorithm;
-    use crate::crypto::common::DigestType;
+    use crate::crypto::common::{trim_leading_zeroes, DigestType};
     use crate::crypto::kmip::{GenerateError, PublicKey};
     use crate::crypto::kmip_pool::KmipConnPool;
     use crate::crypto::sign::{
@@ -413,6 +412,14 @@ pub mod sign {
     };
     use crate::rdata::Dnskey;
     use crate::utils::base16;
+    use bcder::decode::SliceSource;
+
+    impl From<kmip::client::Error> for SignError {
+        fn from(err: kmip::client::Error) -> Self {
+            error!("KMIP error: {err}");
+            SignError
+        }
+    }
 
     #[derive(Clone, Debug)]
     pub struct KeyPair {
@@ -467,15 +474,13 @@ pub mod sign {
             self.algorithm
         }
 
-        fn dnskey(&self) -> Dnskey<Vec<u8>> {
-            // TODO: SAFETY
-            PublicKey::new(
+        fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
+            Ok(PublicKey::new(
                 self.public_key_id.clone(),
                 self.algorithm,
                 self.conn_pool.clone(),
             )
-            .dnskey(self.flags)
-            .unwrap()
+            .dnskey(self.flags)?)
         }
 
         fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
@@ -505,7 +510,7 @@ pub mod sign {
             //
             // KMIP HSMs implement the Sign opration operation according to
             // these rules.
-            let (crypto_alg, hashing_alg, digest_type) = match self.algorithm
+            let (crypto_alg, hashing_alg, _digest_type) = match self.algorithm
             {
                 SecurityAlgorithm::RSASHA256 => (
                     CryptographicAlgorithm::RSA,
@@ -586,25 +591,23 @@ pub mod sign {
                     //          :   }
                     //
                     // Where the two integer values are known as 'r' and 's'.
-                    // let source = SliceSource::new(&signed.signature_data);
-                    // let (r, s) = bcder::Mode::Der
-                    //     .decode(source, |cons| {
-                    //         cons.take_sequence(|cons| {
-                    //             let r = bcder::Unsigned::take_from(cons)?;
-                    //             let s = bcder::Unsigned::take_from(cons)?;
-                    //             Ok((r, s))
-                    //         })
-                    //     })
-                    //     .unwrap();
+                    tracing::info!("Parsing received signature: {}", base16::encode_display(&signed.signature_data));
+                    let source = SliceSource::new(&signed.signature_data);
+                    let (r, s) = bcder::Mode::Der
+                        .decode(source, |cons| {
+                            cons.take_sequence(|cons| {
+                                let r = bcder::Unsigned::take_from(cons)?;
+                                let s = bcder::Unsigned::take_from(cons)?;
+                                Ok((r, s))
+                            })
+                        })
+                        .map_err(|err| {
+                            error!("Failed to parse ECDSAP256SHA256 signature as ASN.1 DER encoded (r, s) sequence: {err} ({})", base16::encode_display(&signed.signature_data));
+                            SignError
+                        })?;
 
-                    // 3046022100e4e87c417196c6e5cd63f93e94929ccda6d04fc0a7446922baf3070e854ec4f4022100a1ecd098008329de9bc93fb2ded6aaceecc921f7183d6b3cfc673b3ef8af219e
-                    let signature = openssl::ecdsa::EcdsaSig::from_der(
-                        &signed.signature_data,
-                    )
-                    .unwrap();
-                    let mut sig = signature.r().to_vec_padded(32).unwrap();
-                    let mut s = signature.s().to_vec_padded(32).unwrap();
-                    sig.append(&mut s);
+                    let mut sig = trim_leading_zeroes(r.as_slice()).to_vec();
+                    sig.extend_from_slice(trim_leading_zeroes(s.as_slice()));
 
                     Ok(Signature::EcdsaP256Sha256(Box::<[u8; 64]>::new(
                         sig.try_into().map_err(|_| SignError)?,
@@ -886,15 +889,12 @@ mod tests {
     use std::time::SystemTime;
     use std::vec::Vec;
 
-    use bcder::decode::SliceSource;
     use kmip::client::ConnectionSettings;
-    use openssl::bn::BigNum;
 
     use crate::crypto::kmip::sign::generate;
     use crate::crypto::kmip_pool::ConnectionManager;
     use crate::crypto::sign::SignRaw;
     use crate::logging::init_logging;
-    use crate::utils::base16;
 
     #[test]
     #[ignore = "Requires running PyKMIP"]
@@ -930,8 +930,8 @@ mod tests {
         let pool = ConnectionManager::create_connection_pool(
             conn_settings.into(),
             16384,
-            Duration::from_secs(60),
-            Duration::from_secs(60),
+            Some(Duration::from_secs(60)),
+            Some(Duration::from_secs(60)),
         )
         .unwrap();
 
@@ -960,7 +960,7 @@ mod tests {
         dbg!(&res);
         let key = res.unwrap();
 
-        let dnskey = key.dnskey();
+        let dnskey = key.dnskey().unwrap();
         eprintln!("DNSKEY: {}", dnskey);
     }
 
@@ -992,8 +992,8 @@ mod tests {
         let pool = ConnectionManager::create_connection_pool(
             conn_settings.into(),
             16384,
-            Duration::from_secs(60),
-            Duration::from_secs(60),
+            Some(Duration::from_secs(60)),
+            Some(Duration::from_secs(60)),
         )
         .unwrap();
 
@@ -1025,7 +1025,7 @@ mod tests {
 
         // sleep(Duration::from_secs(5));
 
-        let dnskey = key.dnskey();
+        let dnskey = key.dnskey().unwrap();
         eprintln!("DNSKEY: {}", dnskey);
 
         client.activate_key(key.public_key_id()).unwrap();
