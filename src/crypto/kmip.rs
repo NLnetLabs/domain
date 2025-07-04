@@ -591,7 +591,7 @@ pub mod sign {
                     //          :   }
                     //
                     // Where the two integer values are known as 'r' and 's'.
-                    tracing::info!("Parsing received signature: {}", base16::encode_display(&signed.signature_data));
+                    debug!("Parsing received signature: {}", base16::encode_display(&signed.signature_data));
                     let source = SliceSource::new(&signed.signature_data);
                     let (r, s) = bcder::Mode::Der
                         .decode(source, |cons| {
