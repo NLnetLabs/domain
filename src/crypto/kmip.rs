@@ -432,6 +432,8 @@ pub mod sign {
 
         conn_pool: KmipConnPool,
 
+        dnskey: Dnskey<Vec<u8>>,
+
         flags: u16,
     }
 
@@ -442,14 +444,26 @@ pub mod sign {
             private_key_id: &str,
             public_key_id: &str,
             conn_pool: KmipConnPool,
-        ) -> Self {
-            Self {
+        ) -> Result<Self, SignError> {
+            let dnskey = PublicKey::new(
+                public_key_id.to_string(),
+                algorithm,
+                conn_pool.clone(),
+            )
+            .dnskey(flags)?;
+
+            Ok(Self {
                 algorithm,
                 private_key_id: private_key_id.to_string(),
                 public_key_id: public_key_id.to_string(),
                 conn_pool,
                 flags,
-            }
+                dnskey,
+            })
+        }
+
+        pub fn algorithm(&self) -> SecurityAlgorithm {
+            self.algorithm
         }
 
         pub fn private_key_id(&self) -> &str {
@@ -467,6 +481,10 @@ pub mod sign {
                 self.conn_pool.clone(),
             )
         }
+
+        pub fn flags(&self) -> u16 {
+            self.flags
+        }
     }
 
     impl SignRaw for KeyPair {
@@ -475,12 +493,7 @@ pub mod sign {
         }
 
         fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
-            Ok(PublicKey::new(
-                self.public_key_id.clone(),
-                self.algorithm,
-                self.conn_pool.clone(),
-            )
-            .dnskey(self.flags)?)
+            Ok(self.dnskey.clone())
         }
 
         fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
@@ -830,6 +843,11 @@ pub mod sign {
             GenerateError::Kmip(err.to_string())
         })?;
 
+        // Drop the KMIP client so that it will be returned to the pool and
+        // thus be available below when KeyPair::new() is invoked and tries
+        // to fetch the details needed to determine the DNSKEY RR.
+        drop(client);
+
         // Process the successful response
         let ResponsePayload::CreateKeyPair(payload) = response else {
             error!("KMIP request failed: Wrong response type received!");
@@ -841,16 +859,19 @@ pub mod sign {
             public_key_unique_identifier,
         } = payload;
 
-        let key_pair = KeyPair {
+        let key_pair = KeyPair::new(
             algorithm,
-            private_key_id: private_key_unique_identifier.to_string(),
-            public_key_id: public_key_unique_identifier.to_string(),
-            conn_pool,
             flags,
-        };
+            private_key_unique_identifier.as_str(),
+            public_key_unique_identifier.as_str(),
+            conn_pool.clone())
+            .map_err(|err| GenerateError::Kmip(err.to_string()))?;
 
         // Activate the key if not already, otherwise it cannot be used for signing.
         if !activate_on_create {
+            let client = conn_pool
+                .get()
+                .map_err(|err| GenerateError::Kmip(format!("Key generation failed: Cannot connect to KMIP server: {err}")))?;
             let request =
                 RequestPayload::Activate(Some(private_key_unique_identifier));
 
