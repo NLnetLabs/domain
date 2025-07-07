@@ -20,7 +20,7 @@ pub use kmip::client::{ClientCertificate, ConnectionSettings};
 
 use crate::{
     base::iana::SecurityAlgorithm,
-    crypto::{common::{rsa_encode, trim_leading_zeroes}, kmip_pool::KmipConnPool},
+    crypto::{common::rsa_encode, kmip_pool::KmipConnPool},
     rdata::Dnskey,
     utils::base16,
 };
@@ -166,7 +166,7 @@ impl PublicKey {
         })?;
 
         // Note: OpenDNSSEC queries the public key ID, _unless_ it was
-        // configured not to store the public key in the HSM (by setting
+        // configured not the public key in the HSM (by setting
         // CKA_TOKEN false) in which case there is no public key and so it
         // uses the private key object handle instead.
         let res = client
@@ -416,8 +416,7 @@ pub mod sign {
 
     impl From<kmip::client::Error> for SignError {
         fn from(err: kmip::client::Error) -> Self {
-            error!("KMIP error: {err}");
-            SignError
+            err.to_string().into()
         }
     }
 
@@ -535,7 +534,7 @@ pub mod sign {
                     HashingAlgorithm::SHA256,
                     DigestType::Sha256,
                 ),
-                _ => return Err(SignError),
+                alg => return Err(format!("Algorithm not supported for KMIP signing: {alg}").into()),
             };
 
             // PyKMIP requires that the padding method be specified otherwise
@@ -561,20 +560,13 @@ pub mod sign {
             let client = self
                 .conn_pool
                 .get()
-                .inspect_err(|err| {
-                    error!(
-                        "Error while obtaining KMIP pool connection: {err}"
-                    )
-                })
-                .map_err(|_| SignError)?;
+                .map_err(|err| format!("Error while obtaining KMIP pool connection: {err}"))?;
 
             let res = client
                 .do_request(request)
-                .inspect_err(|err| {
-                    error!("Error while sending KMIP request: {err}")
-                })
-                .map_err(|_| SignError)?;
+                .map_err(|err| format!("Error while sending KMIP request: {err}"))?;
 
+            tracing::trace!("Checking sign payload");
             let ResponsePayload::Sign(signed) = res else {
                 unreachable!();
             };
@@ -584,11 +576,13 @@ pub mod sign {
                 "Signature Data: {}",
                 base16::encode_display(&signed.signature_data)
             );
-            match self.algorithm {
-                SecurityAlgorithm::RSASHA256 => Ok(Signature::RsaSha256(
+
+            match (self.algorithm, signed.signature_data.len()) {
+                (SecurityAlgorithm::RSASHA256, _) => Ok(Signature::RsaSha256(
                     signed.signature_data.into_boxed_slice(),
                 )),
-                SecurityAlgorithm::ECDSAP256SHA256 => {
+
+                (SecurityAlgorithm::ECDSAP256SHA256, _) => {
                     // ECDSA signature received from Fortanix DSM, decoded
                     // using this command:
                     //
@@ -615,42 +609,46 @@ pub mod sign {
                             })
                         })
                         .map_err(|err| {
-                            error!("Failed to parse ECDSAP256SHA256 signature as ASN.1 DER encoded (r, s) sequence: {err} ({})", base16::encode_display(&signed.signature_data));
-                            SignError
+                            format!("Failed to parse KMIP generated ECDSAP256SHA256 signature as ASN.1 DER encoded (r, s) sequence: {err} (0x{})", base16::encode_display(&signed.signature_data))
                         })?;
 
-                    let mut sig = trim_leading_zeroes(r.as_slice()).to_vec();
-                    sig.extend_from_slice(trim_leading_zeroes(s.as_slice()));
 
                     Ok(Signature::EcdsaP256Sha256(Box::<[u8; 64]>::new(
-                        sig.try_into().map_err(|_| SignError)?,
+                        sig.try_into().map_err(|_| format!("Incorrect KMIP ECDSAP256SHA256 signature length: {sig_len} != 64 bytes (r={}, s={})", base16::encode_display(r.as_slice()), base16::encode_display(s.as_slice())))?,
                     )))
                 }
-                SecurityAlgorithm::ECDSAP384SHA384 => {
+
+                (SecurityAlgorithm::ECDSAP384SHA384, 96) => {
                     Ok(Signature::EcdsaP384Sha384(Box::<[u8; 96]>::new(
                         signed
                             .signature_data
                             .try_into()
-                            .map_err(|_| SignError)?,
+                            .unwrap()
                     )))
                 }
-                SecurityAlgorithm::ED25519 => {
+                (SecurityAlgorithm::ED25519, 64) => {
                     Ok(Signature::Ed25519(Box::<[u8; 64]>::new(
                         signed
                             .signature_data
                             .try_into()
-                            .map_err(|_| SignError)?,
+                            .unwrap()
                     )))
                 }
-                SecurityAlgorithm::ED448 => {
+
+                (SecurityAlgorithm::ED448, 114) => {
                     Ok(Signature::Ed448(Box::<[u8; 114]>::new(
                         signed
                             .signature_data
                             .try_into()
-                            .map_err(|_| SignError)?,
+                            .unwrap()
                     )))
                 }
-                _ => Err(SignError)?,
+
+                (alg, sig_len) => {
+                    Err(format!("KMIP signature algorithm not supported or signature length incorrect: {sig_len} byte {alg} signature (0x{})",
+                        base16::encode_display(&signed.signature_data
+                    )))?
+                }
             }
         }
     }
@@ -666,7 +664,9 @@ pub mod sign {
     ) -> Result<KeyPair, GenerateError> {
         let algorithm = params.algorithm();
 
-        let client = conn_pool.get().map_err(|_| SignError).unwrap();
+        let client = conn_pool
+            .get()
+            .map_err(|err| GenerateError::Kmip(format!("Key generation failed: Cannot connect to KMIP server: {err}")))?;
 
         // TODO: Determine this on first use of the HSM?
         // PyKMIP doesn't support ActivationDate.
@@ -842,6 +842,7 @@ pub mod sign {
             );
             GenerateError::Kmip(err.to_string())
         })?;
+        tracing::trace!("Key generation operation complete");
 
         // Drop the KMIP client so that it will be returned to the pool and
         // thus be available below when KeyPair::new() is invoked and tries
@@ -858,6 +859,8 @@ pub mod sign {
             private_key_unique_identifier,
             public_key_unique_identifier,
         } = payload;
+
+        tracing::trace!("Creating KeyPair with DNSKEY");
 
         let key_pair = KeyPair::new(
             algorithm,
@@ -876,6 +879,7 @@ pub mod sign {
                 RequestPayload::Activate(Some(private_key_unique_identifier));
 
             // Execute the request and capture the response
+            tracing::trace!("Activating KMIP key...");
             let response = client.do_request(request).map_err(|err| {
                 eprintln!("KMIP activate private key request failed: {err}");
                 eprintln!(
@@ -888,6 +892,7 @@ pub mod sign {
                 );
                 GenerateError::Kmip(err.to_string())
             })?;
+            tracing::trace!("Activate operation complete");
 
             // Process the successful response
             let ResponsePayload::Activate(_) = response else {
