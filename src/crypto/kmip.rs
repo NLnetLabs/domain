@@ -550,6 +550,10 @@ pub mod sign {
                     .with_padding_method(PaddingMethod::PKCS1_v1_5);
             }
 
+            // TODO: We could optionally add a KMIP Message Extension to the
+            // request via which we signal support for domain format response
+            // data, so that the Nameshed HSM Relay doesn't have to convert
+            // from PKCS#11 format to the format needed by domain.
             let request = RequestPayload::Sign(
                 Some(UniqueIdentifier(self.private_key_id.clone())),
                 Some(cryptographic_parameters),
