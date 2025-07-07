@@ -612,6 +612,20 @@ pub mod sign {
                             format!("Failed to parse KMIP generated ECDSAP256SHA256 signature as ASN.1 DER encoded (r, s) sequence: {err} (0x{})", base16::encode_display(&signed.signature_data))
                         })?;
 
+                    let r_trimmed = trim_leading_zeroes(r.as_slice());
+                    if r_trimmed.len() > 32 {
+                        return Err(format!("Incorrect KMIP ECDSAP256SHA256 signature length: r > 32 bytes, r={})", base16::encode_display(r.as_slice())).into());
+                    }
+                    let mut sig = r_trimmed.to_vec();
+                    sig.resize(32, 0);
+
+                    let s_trimmed = trim_leading_zeroes(s.as_slice());
+                    if s_trimmed.len() > 32 {
+                        return Err(format!("Incorrect KMIP ECDSAP256SHA256 signature length: s > 32 bytes, s={})", base16::encode_display(s.as_slice())).into());
+                    }
+                    sig.extend_from_slice(s_trimmed);
+                    sig.resize(64, 0);
+                    let sig_len = sig.len();
 
                     Ok(Signature::EcdsaP256Sha256(Box::<[u8; 64]>::new(
                         sig.try_into().map_err(|_| format!("Incorrect KMIP ECDSAP256SHA256 signature length: {sig_len} != 64 bytes (r={}, s={})", base16::encode_display(r.as_slice()), base16::encode_display(s.as_slice())))?,
