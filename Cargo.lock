@@ -618,7 +618,7 @@ dependencies = [
 [[package]]
 name = "kmip-protocol"
 version = "0.5.0"
-source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#8b9bef377247046e8d6094114890fdc5e0827c60"
+source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#e7dc73910e91f2e0053a2b9c413cfbf2c4a36d51"
 dependencies = [
  "cfg-if",
  "enum-display-derive",
@@ -632,6 +632,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_derive",
+ "tracing",
  "trait-set",
 ]
 
