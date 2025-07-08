@@ -401,10 +401,11 @@ pub mod sign {
     use kmip::types::response::{
         CreateKeyPairResponsePayload, ResponsePayload,
     };
+    use openssl::ecdsa::EcdsaSig;
     use tracing::{debug, error};
 
     use crate::base::iana::SecurityAlgorithm;
-    use crate::crypto::common::{trim_leading_zeroes, DigestType};
+    use crate::crypto::common::DigestType;
     use crate::crypto::kmip::{GenerateError, PublicKey};
     use crate::crypto::kmip_pool::KmipConnPool;
     use crate::crypto::sign::{
@@ -412,7 +413,6 @@ pub mod sign {
     };
     use crate::rdata::Dnskey;
     use crate::utils::base16;
-    use bcder::decode::SliceSource;
 
     impl From<kmip::client::Error> for SignError {
         fn from(err: kmip::client::Error) -> Self {
@@ -602,37 +602,12 @@ pub mod sign {
                     //          :   }
                     //
                     // Where the two integer values are known as 'r' and 's'.
-                    debug!("Parsing received signature: {}", base16::encode_display(&signed.signature_data));
-                    let source = SliceSource::new(&signed.signature_data);
-                    let (r, s) = bcder::Mode::Der
-                        .decode(source, |cons| {
-                            cons.take_sequence(|cons| {
-                                let r = bcder::Unsigned::take_from(cons)?;
-                                let s = bcder::Unsigned::take_from(cons)?;
-                                Ok((r, s))
-                            })
-                        })
-                        .map_err(|err| {
-                            format!("Failed to parse KMIP generated ECDSAP256SHA256 signature as ASN.1 DER encoded (r, s) sequence: {err} (0x{})", base16::encode_display(&signed.signature_data))
-                        })?;
-
-                    let r_trimmed = trim_leading_zeroes(r.as_slice());
-                    if r_trimmed.len() > 32 {
-                        return Err(format!("Incorrect KMIP ECDSAP256SHA256 signature length: r > 32 bytes, r={})", base16::encode_display(r.as_slice())).into());
-                    }
-                    let mut sig = r_trimmed.to_vec();
-                    sig.resize(32, 0);
-
-                    let s_trimmed = trim_leading_zeroes(s.as_slice());
-                    if s_trimmed.len() > 32 {
-                        return Err(format!("Incorrect KMIP ECDSAP256SHA256 signature length: s > 32 bytes, s={})", base16::encode_display(s.as_slice())).into());
-                    }
-                    sig.extend_from_slice(s_trimmed);
-                    sig.resize(64, 0);
-                    let sig_len = sig.len();
-
+                    let signature = EcdsaSig::from_der(&signed.signature_data).unwrap();
+                    let mut r = signature.r().to_vec_padded(32).unwrap();
+                    let mut s = signature.s().to_vec_padded(32).unwrap();
+                    r.append(&mut s);
                     Ok(Signature::EcdsaP256Sha256(Box::<[u8; 64]>::new(
-                        sig.try_into().map_err(|_| format!("Incorrect KMIP ECDSAP256SHA256 signature length: {sig_len} != 64 bytes (r={}, s={})", base16::encode_display(r.as_slice()), base16::encode_display(s.as_slice())))?,
+                        r.try_into().unwrap()
                     )))
                 }
 
