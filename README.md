@@ -27,7 +27,7 @@ and additional building blocks and features are being added.
 
 ## Applications
 
-We are maintaining several applications that are built on top op domain, 
+We are maintaining several applications that are built on top of domain, 
 including:
 
 * [nameshed](https://github.com/NLnetLabs/nameshed) – a primary nameserver /
@@ -35,8 +35,7 @@ including:
 * [dnsi](https://github.com/NLnetLabs/dnsi) – a command-line tool to inspect
   various aspects of the DNS
 * [dnst](https://nlnetlabs.nl/projects/domain/dnst/) – a set of binaries
-  that reimplement some of the widely used ldns  utilities in the Rust
-  programming language.
+  that reimplement some of the widely used ldns utilities in Rust
 * [mimir](https://github.com/NLnetLabs/mimir) – a DNS proxy and load balancer
 
 ## Minimal Supported Rust Versions
