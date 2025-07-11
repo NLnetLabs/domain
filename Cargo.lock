@@ -618,7 +618,7 @@ dependencies = [
 [[package]]
 name = "kmip-protocol"
 version = "0.5.0"
-source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#e7dc73910e91f2e0053a2b9c413cfbf2c4a36d51"
+source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#2454c6bd29ff3c7e711724e67d50f374ec0c249b"
 dependencies = [
  "cfg-if",
  "enum-display-derive",
@@ -639,7 +639,7 @@ dependencies = [
 [[package]]
 name = "kmip-ttlv"
 version = "0.4.0"
-source = "git+https://github.com/NLnetLabs/kmip-ttlv?branch=next#38e72487d218f57649b5173483296be8946ef4d1"
+source = "git+https://github.com/NLnetLabs/kmip-ttlv?branch=next#ffe005638e150db0c1f1435a607f292d82b634b1"
 dependencies = [
  "cfg-if",
  "hex",
