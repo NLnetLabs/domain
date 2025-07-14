@@ -502,6 +502,15 @@ pub mod sign {
             }
         }
 
+        fn flags(&self) -> u16 {
+            match *self {
+                KeyPair::RsaSha256 { flags, .. } => flags,
+                KeyPair::EcdsaP256Sha256 { flags, .. } => flags,
+                KeyPair::EcdsaP384Sha384 { flags, .. } => flags,
+                KeyPair::Ed25519(_, flags) => flags,
+            }
+        }
+
         fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
             match self {
                 Self::RsaSha256 { key, flags, rng: _ } => {

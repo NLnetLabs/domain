@@ -384,6 +384,7 @@ impl PublicKey {
 
 #[cfg(feature = "unstable-crypto-sign")]
 pub mod sign {
+    use core::str::FromStr;
     use std::boxed::Box;
     use std::string::{String, ToString};
     use std::time::SystemTime;
@@ -403,6 +404,7 @@ pub mod sign {
     };
     use openssl::ecdsa::EcdsaSig;
     use tracing::{debug, error};
+    use url::Url;
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::DigestType;
@@ -443,13 +445,13 @@ pub mod sign {
             private_key_id: &str,
             public_key_id: &str,
             conn_pool: KmipConnPool,
-        ) -> Result<Self, SignError> {
+        ) -> Result<Self, GenerateError> {
             let dnskey = PublicKey::new(
                 public_key_id.to_string(),
                 algorithm,
                 conn_pool.clone(),
             )
-            .dnskey(flags)?;
+            .dnskey(flags).map_err(|err| GenerateError::Kmip(err.to_string()))?;
 
             Ok(Self {
                 algorithm,
@@ -459,6 +461,25 @@ pub mod sign {
                 flags,
                 dnskey,
             })
+        }
+
+        pub fn new_from_urls(
+            priv_key_url: KeyUrl,
+            pub_key_url: KeyUrl,
+            conn_pool: KmipConnPool,
+        ) -> Result<Self, GenerateError> {
+            if priv_key_url.algorithm() != pub_key_url.algorithm() {
+                return Err(GenerateError::Kmip(format!("Private and public key URLs have different algorithms: {} vs {}", priv_key_url.algorithm(), pub_key_url.algorithm()).into()));
+            } else if priv_key_url.flags() != pub_key_url.flags() {
+                return Err(GenerateError::Kmip(format!("Private and public key URLs have different flags: {} vs {}", priv_key_url.flags(), pub_key_url.flags()).into()));
+            } else if priv_key_url.server_id() != pub_key_url.server_id() {
+                return Err(GenerateError::Kmip(format!("Private and public key URLs have different server IDs: {} vs {}", priv_key_url.server_id(), pub_key_url.server_id()).into()));
+            } else if priv_key_url.server_id() != conn_pool.server_id() {
+                return Err(GenerateError::Kmip(format!("Key URLs have different server ID to the KMIP connection pool: {} vs {}", priv_key_url.server_id(), conn_pool.server_id()).into()));
+            } else {
+                Self::new(priv_key_url.algorithm(), priv_key_url.flags(), priv_key_url.key_id(), pub_key_url.key_id(), conn_pool)
+            }
+
         }
 
         pub fn algorithm(&self) -> SecurityAlgorithm {
@@ -484,11 +505,49 @@ pub mod sign {
         pub fn flags(&self) -> u16 {
             self.flags
         }
+
+        pub fn public_key_url(&self) -> Result<Url, SignError> {
+            self.mk_key_url(&self.public_key_id)
+        }
+
+        pub fn private_key_url(&self) -> Result<Url, SignError> {
+            self.mk_key_url(&self.private_key_id)
+        }
+
+        fn mk_key_url(&self, key_id: &str) -> Result<Url, SignError> {
+            // We have to store the algorithm in the URL because the DNSSEC
+            // algorithm (e.g. 5 and 7) don't necessarily correspond to the
+            // cryptographic algorithm of the key known to the HSM. And we
+            // have to store the flags in the URL because these are not known
+            // to the HSM, they say someting about the use to which the key
+            // will be put of which the HSM is unaware.
+            let url = format!(
+                "kmip://{}/keys/{}?algorithm={}&flags={}",
+                self.conn_pool.server_id(),
+                key_id,
+                self.algorithm,
+                self.flags
+            );
+        
+            let url = Url::parse(&url).map_err::<SignError, _>(|err| {
+                format!("unable to parse {url} as URL: {err}").into()
+            })?;
+        
+            Ok(url)
+        }
+        
+        pub fn conn_pool(&self) -> &KmipConnPool {
+            &self.conn_pool
+        }
     }
 
     impl SignRaw for KeyPair {
         fn algorithm(&self) -> SecurityAlgorithm {
             self.algorithm
+        }
+        
+        fn flags(&self) -> u16 {
+            self.flags
         }
 
         fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
@@ -646,6 +705,183 @@ pub mod sign {
         }
     }
 
+    /// A URL that represents a key stored in a KMIP compatible HSM.
+    /// 
+    /// The URL structure is:
+    /// 
+    ///   kmip://<server_id>/keys/<key_id>?algorithm=<algorithm>&flags=<flags>
+    /// 
+    /// The algorithm and flags must be stored in the URL because they are
+    /// DNSSEC specific and not properties of the key itself and thus not
+    /// known to or stored by the HSM.
+    /// 
+    /// While algorithm may seem to be something known to and stored by the
+    /// HSM, DNSSEC complicates that by aliasing multiple algorithm numbers to
+    /// the same cryptographic algorithm, and we need to know when using the
+    /// key which _DNSSEC_ algorithm number to use.
+    /// 
+    /// The server_id could be the actual address of the target, but does not
+    /// have to be. There are multiple for this:
+    /// 
+    ///   - In a highly available clustered deployment across multiple subnets
+    ///     it could be that the clustered HSM is available to the clustered
+    ///     application via different names/IP addresses in different subnets
+    ///     of the deployment. Using an abstract server_id which is mapped via
+    ///     local configuration in the subnet to the correct hostname/FQDN/IP
+    ///     address for that subnet allows the correct target address to be
+    ///     determined at the point of access.
+    ///   - Using the actual hostname/FQDN/IP address may make it confusing
+    ///     for an operator trying to understand where the key is actually
+    ///     stored. This can happen for example if the product name for the
+    ///     HSM is say Fortanix DSM, while the domain name used to access the
+    ///     HSM might be eu.smartkey.io, which having no mention of the name
+    ///     Fortanix in the FQDN is not immediately obvious that it has any
+    ///     relationship with Fortanix.
+    ///   - If the same HSM is used for different use cases via use of HSM
+    ///     partitions, referring to the HSM by its address may not make it
+    ///     clear which partition is being used, so using a more meaningful
+    ///     name like 'testing' or such could make it clearer where the key is
+    ///     actually being stored.
+    ///   - Storing the username and password in the key URL will cause many
+    ///     copies of those credentials to be stored, one per key, which is
+    ///     harder to secure than if they are only in a single location and
+    ///     looked up on actual access.
+    ///   - Storing the username and password in the key URL would cause the
+    ///     URL to become unusable if the credentials were rotated even though
+    ///     the location at which the key is stored has not changed.
+    ///   - Even if the FQDN, port number, username and password are all
+    ///     correct, there may need to be more settings specified in order to
+    ///     connect to the HSM some of which would not fit easily into a URL
+    ///     such as TLS client certficate details and whether or not to
+    ///     require the server TLS certificate to be valid (which can be
+    ///     inconvenient in test setups using self-signed certificates).
+    /// 
+    /// Thus an abstract server_id is stored in the key URL and it is the
+    /// responsibility of the user of the key URL to map the server id to the
+    /// full set of settings required to successfully connect to the HSM to
+    /// make use of the key.
+    pub struct KeyUrl {
+        url: Url,
+        server_id: String,
+        key_id: String,
+        algorithm: SecurityAlgorithm,
+        flags: u16,
+    }
+
+    impl KeyUrl {
+        fn new(
+            url: Url,
+            server_id: String,
+            key_id: String,
+            algorithm: SecurityAlgorithm,
+            flags: u16
+        ) -> Self {
+            Self { url, server_id, key_id, algorithm, flags }
+        }
+        
+        pub fn new_public_key_url(key_pair: &KeyPair) -> Result<Self, SignError> {
+            Ok(Self {
+                url: Self::mk_url(key_pair, &key_pair.public_key_id)?,
+                server_id: key_pair.conn_pool.server_id().to_string(),
+                key_id: key_pair.public_key_id.clone(),
+                algorithm: key_pair.algorithm,
+                flags: key_pair.flags,
+            })
+        }
+
+        pub fn new_private_key_url(key_pair: &KeyPair) -> Result<Self, SignError> {
+            Ok(Self {
+                url: Self::mk_url(key_pair, &key_pair.private_key_id)?,
+                server_id: key_pair.conn_pool.server_id().to_string(),
+                key_id: key_pair.private_key_id.clone(),
+                algorithm: key_pair.algorithm,
+                flags: key_pair.flags,
+            })
+        }
+
+        pub fn url(&self) -> &str {
+            self.url.as_ref()
+        }
+            
+        pub fn server_id(&self) -> &str {
+            &self.server_id
+        }
+
+        pub fn key_id(&self) -> &str {
+            &self.key_id
+        }
+                
+        pub fn algorithm(&self) -> SecurityAlgorithm {
+            self.algorithm
+        }
+        
+        pub fn flags(&self) -> u16 {
+            self.flags
+        }
+
+        pub fn into_url(self) -> Url {
+            self.url
+        }
+    }
+
+    impl KeyUrl {
+        fn mk_url(key_pair: &KeyPair, key_id: &str) -> Result<Url, SignError> {
+            // We have to store the algorithm in the URL because the DNSSEC
+            // algorithm (e.g. 5 and 7) don't necessarily correspond to the
+            // cryptographic algorithm of the key known to the HSM. And we
+            // have to store the flags in the URL because these are not known
+            // to the HSM, they say someting about the use to which the key
+            // will be put of which the HSM is unaware.
+            let url = format!(
+                "kmip://{}/keys/{}?algorithm={}&flags={}",
+                key_pair.conn_pool().server_id(),
+                key_id,
+                key_pair.algorithm,
+                key_pair.flags
+            );
+
+            let url = Url::parse(&url).map_err::<SignError, _>(|err| {
+                format!("unable to parse {url} as URL: {err}").into()
+            })?;
+
+            Ok(url)
+        }
+    }
+
+    impl TryFrom<Url> for KeyUrl {
+        type Error = SignError;
+    
+        fn try_from(url: Url) -> Result<Self, Self::Error> {
+            let server_id = url.host_str().ok_or(format!("Key lacks hostname component: {url}"))?.to_string();
+
+            let url_path = url.path().to_string();
+            let key_id = url_path
+                .strip_prefix("/keys/")
+                .ok_or(format!("Key URL lacks /keys/ path component: {url}"))?;
+
+            let key_id = key_id.to_string();
+            let mut flags = None;
+            let mut algorithm = None;
+            for (k, v) in url.query_pairs() {
+                match &*k {
+                    "flags" => flags = Some(v.parse::<u16>().map_err(|err| format!("Key URL flags value is invalid: {err}"))?),
+                    "algorithm" => algorithm = Some(SecurityAlgorithm::from_str(&v).map_err(|err| format!("Key URL algorithm value is invalid: {err}"))?),
+                    unknown => Err(format!("Key URL contains unknown query parameter: {unknown}"))?,
+                }
+            }
+            let algorithm = algorithm.ok_or(format!("Key URL lacks algorithm query parameter: {url}"))?;
+            let flags = flags.ok_or(format!("Key URL lacks flags query parameter: {url}"))?;
+
+            Ok(Self {
+                url,
+                server_id,
+                key_id,
+                algorithm,
+                flags,
+            })
+        }
+    }
+
     //----------- generate() -------------------------------------------------
 
     /// Generate a new secret key for the given algorithm.
@@ -659,7 +895,7 @@ pub mod sign {
 
         let client = conn_pool
             .get()
-            .map_err(|err| GenerateError::Kmip(format!("Key generation failed: Cannot connect to KMIP server: {err}")))?;
+            .map_err(|err| GenerateError::Kmip(format!("Key generation failed: Cannot connect to KMIP server {}: {err}", conn_pool.server_id())))?;
 
         // TODO: Determine this on first use of the HSM?
         // PyKMIP doesn't support ActivationDate.
@@ -867,7 +1103,7 @@ pub mod sign {
         if !activate_on_create {
             let client = conn_pool
                 .get()
-                .map_err(|err| GenerateError::Kmip(format!("Key generation failed: Cannot connect to KMIP server: {err}")))?;
+                .map_err(|err| GenerateError::Kmip(format!("Key generation failed: Cannot connect to KMIP server {}: {err}", conn_pool.server_id())))?;
             let request =
                 RequestPayload::Activate(Some(private_key_unique_identifier));
 
@@ -896,6 +1132,10 @@ pub mod sign {
 
         Ok(key_pair)
     }
+
+    //----------- TODO: destroy() --------------------------------------------
+
+    // TODO
 }
 
 #[cfg(test)]
@@ -947,6 +1187,7 @@ mod tests {
 
         eprintln!("Creating pool...");
         let pool = ConnectionManager::create_connection_pool(
+            "Test server".to_string(),
             conn_settings.into(),
             16384,
             Some(Duration::from_secs(60)),
@@ -1009,6 +1250,7 @@ mod tests {
 
         eprintln!("Creating pool...");
         let pool = ConnectionManager::create_connection_pool(
+            "Test server".to_string(),
             conn_settings.into(),
             16384,
             Some(Duration::from_secs(60)),

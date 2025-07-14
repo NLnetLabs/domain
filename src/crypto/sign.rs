@@ -36,7 +36,7 @@
 //!
 //! // Check that the owner, algorithm, and key tag matched expectations.
 //! assert_eq!(key_pair.algorithm(), SecurityAlgorithm::ED25519);
-//! assert_eq!(key_pair.dnskey().key_tag(), 56037);
+//! assert_eq!(key_pair.dnskey().unwrap().key_tag(), 56037);
 //! ```
 //!
 //! # Generating keys
@@ -175,6 +175,8 @@ pub trait SignRaw {
     ///
     /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
     fn algorithm(&self) -> SecurityAlgorithm;
+
+    fn flags(&self) -> u16;
 
     /// The public key.
     ///
@@ -376,6 +378,17 @@ impl SignRaw for KeyPair {
             Self::OpenSSL(key) => key.algorithm(),
             #[cfg(feature = "kmip")]
             Self::Kmip(key) => key.algorithm(),
+        }
+    }
+
+    fn flags(&self) -> u16 {
+        match self {
+            #[cfg(feature = "ring")]
+            Self::Ring(key) => key.flags(),
+            #[cfg(feature = "openssl")]
+            Self::OpenSSL(key) => key.flags(),
+            #[cfg(feature = "kmip")]
+            Self::Kmip(key) => key.flags(),
         }
     }
 

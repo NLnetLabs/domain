@@ -10,14 +10,53 @@
 //!    existing connection is considered to be "broken" at the network
 //!    level.
 use core::fmt::Display;
+use core::ops::Deref;
 use std::net::TcpStream;
 use std::string::String;
 use std::{sync::Arc, time::Duration};
 
 use kmip::client::{Client, ConnectionSettings};
-
 // TODO: Remove the hard-coded use of OpenSSL?
 use openssl::ssl::SslStream;
+use r2d2::PooledConnection;
+
+//------------ KmipConnError -------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct KmipConnError(String);
+
+impl From<r2d2::Error> for KmipConnError {
+    fn from(err: r2d2::Error) -> Self {
+        Self(format!("{err}"))
+    }
+}
+
+impl Display for KmipConnError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+//------------ KmipConn ------------------------------------------------------
+
+/// A KMIP connection pool connection.
+pub struct KmipConn {
+    conn: PooledConnection<ConnectionManager>,
+}
+
+impl KmipConn {
+    fn new(conn: PooledConnection<ConnectionManager>) -> Self {
+        Self { conn }
+    }
+}
+
+impl Deref for KmipConn {
+    type Target = KmipTlsClient;
+
+    fn deref(&self) -> &Self::Target {
+        self.conn.deref()
+    }
+}
 
 /// A KMIP client used to send KMIP requests and receive KMIP responses.
 ///
@@ -35,20 +74,82 @@ pub type KmipTlsClient = Client<SslStream<TcpStream>>;
 /// This pool can be used to acquire a KMIP client without first having to
 /// wait for it to connect at the TCP/TLS level, and without unnecessarily
 /// closing the connection when finished.
-pub type KmipConnPool = r2d2::Pool<ConnectionManager>;
-
 #[derive(Clone, Debug)]
-pub struct KmipConnError(String);
-
-impl From<r2d2::Error> for KmipConnError {
-    fn from(err: r2d2::Error) -> Self {
-        Self(format!("{err}"))
-    }
+pub struct KmipConnPool {
+    server_id: String,
+    conn_settings: Arc<ConnectionSettings>,
+    pool: r2d2::Pool<ConnectionManager>,
 }
 
-impl Display for KmipConnError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.0)
+impl KmipConnPool {
+    pub fn new(
+        server_id: String,
+        conn_settings: Arc<ConnectionSettings>,
+        max_conncurrent_connections: u32,
+        max_life_time: Option<Duration>,
+        max_idle_time: Option<Duration>,
+    ) -> Result<KmipConnPool, KmipConnError> {
+        let pool = r2d2::Pool::builder()
+            // Don't pre-create idle connections to the KMIP server
+            .min_idle(Some(0))
+
+            // Create at most this many concurrent connections to the KMIP
+            // server
+            .max_size(max_conncurrent_connections)
+
+            // Don't verify that a connection is usable when fetching it from
+            // the pool (as doing so requires sending a request to the server
+            // and we might as well just try the actual request that we want
+            // the connection for)
+            .test_on_check_out(false)
+
+            // Don't use the default logging behaviour as `[ERROR] [r2d2]
+            // Server error: ...` is a bit confusing for end users who
+            // shouldn't know or care that we use the r2d2 crate.
+            // .error_handler(Box::new(ErrorLoggingHandler))
+
+            // Don't keep using the same connection for longer than around N
+            // minutes (unless in use in which case it will wait until the
+            // connection is returned to the pool before closing it) - maybe
+            // long held connections would run into problems with some
+            // firewalls.
+            .max_lifetime(max_life_time)
+
+            // Don't keep connections open that were not used in the last N
+            // minutes.
+            .idle_timeout(max_idle_time)
+
+            // Don't wait longer than N seconds for a new connection to be
+            // established, instead try again to connect.
+            .connection_timeout(
+                conn_settings
+                    .connect_timeout
+                    .unwrap_or(Duration::from_secs(30)),
+            )
+
+            // Use our connection manager to create connections in the pool
+            // and to verify their health
+            .build(ConnectionManager {
+                conn_settings: conn_settings.clone(),
+            })?;
+
+        Ok(Self {
+            server_id,
+            conn_settings,
+            pool,
+        })
+    }
+
+    pub fn server_id(&self) -> &str {
+        &self.server_id
+    }
+
+    pub fn conn_settings(&self) -> &ConnectionSettings {
+        &self.conn_settings
+    }
+
+    pub fn get(&self) -> Result<KmipConn, KmipConnError> {
+        Ok(KmipConn::new(self.pool.get()?))
     }
 }
 
@@ -66,41 +167,19 @@ impl ConnectionManager {
     /// Create a pool of up-to N TCP + TLS connections to the KMIP server.
     #[rustfmt::skip]
     pub fn create_connection_pool(
+        server_id: String,
         conn_settings: Arc<ConnectionSettings>,
         max_conncurrent_connections: u32,
         max_life_time: Option<Duration>,
         max_idle_time: Option<Duration>,
     ) -> Result<KmipConnPool, KmipConnError> {
-        let pool = r2d2::Pool::builder()
-            // Don't pre-create idle connections to the KMIP server
-            .min_idle(Some(0))
-
-            // Create at most this many concurrent connections to the KMIP server
-            .max_size(max_conncurrent_connections)
-
-            // Don't verify that a connection is usable when fetching it from the pool (as doing so requires sending a
-            // request to the server and we might as well just try the actual request that we want the connection for)
-            .test_on_check_out(false)
-
-            // Don't use the default logging behaviour as `[ERROR] [r2d2] Server error: ...` is a bit confusing for end
-            // users who shouldn't know or care that we use the r2d2 crate.
-            // .error_handler(Box::new(ErrorLoggingHandler))
-
-            // Don't keep using the same connection for longer than around N minutes (unless in use in which case it
-            // will wait until the connection is returned to the pool before closing it) - maybe long held connections
-            // would run into problems with some firewalls.
-            .max_lifetime(max_life_time)
-
-            // Don't keep connections open that were not used in the last N minutes.
-            .idle_timeout(max_idle_time)
-
-            // Don't wait longer than N seconds for a new connection to be established, instead try again to connect.
-            .connection_timeout(conn_settings.connect_timeout.unwrap_or(Duration::from_secs(30)))
-
-            // Use our connection manager to create connections in the pool and to verify their health
-            .build(ConnectionManager { conn_settings })?;
-
-        Ok(pool)
+        Ok(KmipConnPool::new(
+            server_id,
+            conn_settings,
+            max_conncurrent_connections,
+            max_life_time,
+            max_idle_time
+        )?)
     }
 
     /// Connect using the given connection settings to a KMIP server.

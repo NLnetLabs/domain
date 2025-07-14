@@ -685,6 +685,10 @@ pub mod sign {
             self.algorithm
         }
 
+        fn flags(&self) -> u16 {
+            self.flags
+        }
+
         fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => {
