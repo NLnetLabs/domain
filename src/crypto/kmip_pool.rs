@@ -166,13 +166,13 @@ impl ConnectionManager {
         max_life_time: Option<Duration>,
         max_idle_time: Option<Duration>,
     ) -> Result<KmipConnPool, KmipConnError> {
-        Ok(KmipConnPool::new(
+        KmipConnPool::new(
             server_id,
             conn_settings,
             max_conncurrent_connections,
             max_life_time,
             max_idle_time
-        )?)
+        )
     }
 
     /// Connect using the given connection settings to a KMIP server.
