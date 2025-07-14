@@ -74,8 +74,8 @@ impl std::error::Error for GenerateError {}
 ///
 /// Identifies an RSA public key with no limitation to either RSASSA-PSS or
 /// RSAES-OEAP.
-pub const RSA_ENCRYPTION_OID: ConstOid
-    = Oid(&[42, 134, 72, 134, 247, 13, 1, 1, 1]);
+pub const RSA_ENCRYPTION_OID: ConstOid =
+    Oid(&[42, 134, 72, 134, 247, 13, 1, 1, 1]);
 
 /// [RFC 5480](https://tools.ietf.org/html/rfc5480) `ecPublicKey`.
 ///
@@ -258,7 +258,7 @@ impl PublicKey {
                                         let algorithm = Oid::take_from(cons)?;
                                         if algorithm != RSA_ENCRYPTION_OID {
                                             return Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm rsaEncryption is supported"));
-                                        } 
+                                        }
                                         // Ignore the parameters.
                                         Ok(())
                                     })?;
@@ -451,7 +451,8 @@ pub mod sign {
                 algorithm,
                 conn_pool.clone(),
             )
-            .dnskey(flags).map_err(|err| GenerateError::Kmip(err.to_string()))?;
+            .dnskey(flags)
+            .map_err(|err| GenerateError::Kmip(err.to_string()))?;
 
             Ok(Self {
                 algorithm,
@@ -477,9 +478,14 @@ pub mod sign {
             } else if priv_key_url.server_id() != conn_pool.server_id() {
                 return Err(GenerateError::Kmip(format!("Key URLs have different server ID to the KMIP connection pool: {} vs {}", priv_key_url.server_id(), conn_pool.server_id()).into()));
             } else {
-                Self::new(priv_key_url.algorithm(), priv_key_url.flags(), priv_key_url.key_id(), pub_key_url.key_id(), conn_pool)
+                Self::new(
+                    priv_key_url.algorithm(),
+                    priv_key_url.flags(),
+                    priv_key_url.key_id(),
+                    pub_key_url.key_id(),
+                    conn_pool,
+                )
             }
-
         }
 
         pub fn algorithm(&self) -> SecurityAlgorithm {
@@ -528,14 +534,14 @@ pub mod sign {
                 self.algorithm,
                 self.flags
             );
-        
+
             let url = Url::parse(&url).map_err::<SignError, _>(|err| {
                 format!("unable to parse {url} as URL: {err}").into()
             })?;
-        
+
             Ok(url)
         }
-        
+
         pub fn conn_pool(&self) -> &KmipConnPool {
             &self.conn_pool
         }
@@ -545,7 +551,7 @@ pub mod sign {
         fn algorithm(&self) -> SecurityAlgorithm {
             self.algorithm
         }
-        
+
         fn flags(&self) -> u16 {
             self.flags
         }
@@ -593,7 +599,12 @@ pub mod sign {
                     HashingAlgorithm::SHA256,
                     DigestType::Sha256,
                 ),
-                alg => return Err(format!("Algorithm not supported for KMIP signing: {alg}").into()),
+                alg => {
+                    return Err(format!(
+                        "Algorithm not supported for KMIP signing: {alg}"
+                    )
+                    .into())
+                }
             };
 
             // PyKMIP requires that the padding method be specified otherwise
@@ -620,14 +631,13 @@ pub mod sign {
             );
 
             // Execute the request and capture the response
-            let client = self
-                .conn_pool
-                .get()
-                .map_err(|err| format!("Error while obtaining KMIP pool connection: {err}"))?;
+            let client = self.conn_pool.get().map_err(|err| {
+                format!("Error while obtaining KMIP pool connection: {err}")
+            })?;
 
-            let res = client
-                .do_request(request)
-                .map_err(|err| format!("Error while sending KMIP request: {err}"))?;
+            let res = client.do_request(request).map_err(|err| {
+                format!("Error while sending KMIP request: {err}")
+            })?;
 
             tracing::trace!("Checking sign payload");
             let ResponsePayload::Sign(signed) = res else {
@@ -706,23 +716,23 @@ pub mod sign {
     }
 
     /// A URL that represents a key stored in a KMIP compatible HSM.
-    /// 
+    ///
     /// The URL structure is:
-    /// 
+    ///
     ///   kmip://<server_id>/keys/<key_id>?algorithm=<algorithm>&flags=<flags>
-    /// 
+    ///
     /// The algorithm and flags must be stored in the URL because they are
     /// DNSSEC specific and not properties of the key itself and thus not
     /// known to or stored by the HSM.
-    /// 
+    ///
     /// While algorithm may seem to be something known to and stored by the
     /// HSM, DNSSEC complicates that by aliasing multiple algorithm numbers to
     /// the same cryptographic algorithm, and we need to know when using the
     /// key which _DNSSEC_ algorithm number to use.
-    /// 
+    ///
     /// The server_id could be the actual address of the target, but does not
     /// have to be. There are multiple for this:
-    /// 
+    ///
     ///   - In a highly available clustered deployment across multiple subnets
     ///     it could be that the clustered HSM is available to the clustered
     ///     application via different names/IP addresses in different subnets
@@ -755,7 +765,7 @@ pub mod sign {
     ///     such as TLS client certficate details and whether or not to
     ///     require the server TLS certificate to be valid (which can be
     ///     inconvenient in test setups using self-signed certificates).
-    /// 
+    ///
     /// Thus an abstract server_id is stored in the key URL and it is the
     /// responsibility of the user of the key URL to map the server id to the
     /// full set of settings required to successfully connect to the HSM to
@@ -774,12 +784,20 @@ pub mod sign {
             server_id: String,
             key_id: String,
             algorithm: SecurityAlgorithm,
-            flags: u16
+            flags: u16,
         ) -> Self {
-            Self { url, server_id, key_id, algorithm, flags }
+            Self {
+                url,
+                server_id,
+                key_id,
+                algorithm,
+                flags,
+            }
         }
-        
-        pub fn new_public_key_url(key_pair: &KeyPair) -> Result<Self, SignError> {
+
+        pub fn new_public_key_url(
+            key_pair: &KeyPair,
+        ) -> Result<Self, SignError> {
             Ok(Self {
                 url: Self::mk_url(key_pair, &key_pair.public_key_id)?,
                 server_id: key_pair.conn_pool.server_id().to_string(),
@@ -789,7 +807,9 @@ pub mod sign {
             })
         }
 
-        pub fn new_private_key_url(key_pair: &KeyPair) -> Result<Self, SignError> {
+        pub fn new_private_key_url(
+            key_pair: &KeyPair,
+        ) -> Result<Self, SignError> {
             Ok(Self {
                 url: Self::mk_url(key_pair, &key_pair.private_key_id)?,
                 server_id: key_pair.conn_pool.server_id().to_string(),
@@ -802,7 +822,7 @@ pub mod sign {
         pub fn url(&self) -> &str {
             self.url.as_ref()
         }
-            
+
         pub fn server_id(&self) -> &str {
             &self.server_id
         }
@@ -810,11 +830,11 @@ pub mod sign {
         pub fn key_id(&self) -> &str {
             &self.key_id
         }
-                
+
         pub fn algorithm(&self) -> SecurityAlgorithm {
             self.algorithm
         }
-        
+
         pub fn flags(&self) -> u16 {
             self.flags
         }
@@ -825,7 +845,10 @@ pub mod sign {
     }
 
     impl KeyUrl {
-        fn mk_url(key_pair: &KeyPair, key_id: &str) -> Result<Url, SignError> {
+        fn mk_url(
+            key_pair: &KeyPair,
+            key_id: &str,
+        ) -> Result<Url, SignError> {
             // We have to store the algorithm in the URL because the DNSSEC
             // algorithm (e.g. 5 and 7) don't necessarily correspond to the
             // cryptographic algorithm of the key known to the HSM. And we
@@ -850,27 +873,49 @@ pub mod sign {
 
     impl TryFrom<Url> for KeyUrl {
         type Error = SignError;
-    
+
         fn try_from(url: Url) -> Result<Self, Self::Error> {
-            let server_id = url.host_str().ok_or(format!("Key lacks hostname component: {url}"))?.to_string();
+            let server_id = url
+                .host_str()
+                .ok_or(format!("Key lacks hostname component: {url}"))?
+                .to_string();
 
             let url_path = url.path().to_string();
-            let key_id = url_path
-                .strip_prefix("/keys/")
-                .ok_or(format!("Key URL lacks /keys/ path component: {url}"))?;
+            let key_id = url_path.strip_prefix("/keys/").ok_or(format!(
+                "Key URL lacks /keys/ path component: {url}"
+            ))?;
 
             let key_id = key_id.to_string();
             let mut flags = None;
             let mut algorithm = None;
             for (k, v) in url.query_pairs() {
                 match &*k {
-                    "flags" => flags = Some(v.parse::<u16>().map_err(|err| format!("Key URL flags value is invalid: {err}"))?),
-                    "algorithm" => algorithm = Some(SecurityAlgorithm::from_str(&v).map_err(|err| format!("Key URL algorithm value is invalid: {err}"))?),
-                    unknown => Err(format!("Key URL contains unknown query parameter: {unknown}"))?,
+                    "flags" => {
+                        flags = Some(v.parse::<u16>().map_err(|err| {
+                            format!("Key URL flags value is invalid: {err}")
+                        })?)
+                    }
+                    "algorithm" => {
+                        algorithm =
+                            Some(SecurityAlgorithm::from_str(&v).map_err(
+                                |err| {
+                                    format!(
+                                "Key URL algorithm value is invalid: {err}"
+                            )
+                                },
+                            )?)
+                    }
+                    unknown => Err(format!(
+                        "Key URL contains unknown query parameter: {unknown}"
+                    ))?,
                 }
             }
-            let algorithm = algorithm.ok_or(format!("Key URL lacks algorithm query parameter: {url}"))?;
-            let flags = flags.ok_or(format!("Key URL lacks flags query parameter: {url}"))?;
+            let algorithm = algorithm.ok_or(format!(
+                "Key URL lacks algorithm query parameter: {url}"
+            ))?;
+            let flags = flags.ok_or(format!(
+                "Key URL lacks flags query parameter: {url}"
+            ))?;
 
             Ok(Self {
                 url,
@@ -1096,8 +1141,9 @@ pub mod sign {
             flags,
             private_key_unique_identifier.as_str(),
             public_key_unique_identifier.as_str(),
-            conn_pool.clone())
-            .map_err(|err| GenerateError::Kmip(err.to_string()))?;
+            conn_pool.clone(),
+        )
+        .map_err(|err| GenerateError::Kmip(err.to_string()))?;
 
         // Activate the key if not already, otherwise it cannot be used for signing.
         if !activate_on_create {

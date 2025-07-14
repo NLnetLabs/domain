@@ -92,33 +92,27 @@ impl KmipConnPool {
         let pool = r2d2::Pool::builder()
             // Don't pre-create idle connections to the KMIP server
             .min_idle(Some(0))
-
             // Create at most this many concurrent connections to the KMIP
             // server
             .max_size(max_conncurrent_connections)
-
             // Don't verify that a connection is usable when fetching it from
             // the pool (as doing so requires sending a request to the server
             // and we might as well just try the actual request that we want
             // the connection for)
             .test_on_check_out(false)
-
             // Don't use the default logging behaviour as `[ERROR] [r2d2]
             // Server error: ...` is a bit confusing for end users who
             // shouldn't know or care that we use the r2d2 crate.
             // .error_handler(Box::new(ErrorLoggingHandler))
-
             // Don't keep using the same connection for longer than around N
             // minutes (unless in use in which case it will wait until the
             // connection is returned to the pool before closing it) - maybe
             // long held connections would run into problems with some
             // firewalls.
             .max_lifetime(max_life_time)
-
             // Don't keep connections open that were not used in the last N
             // minutes.
             .idle_timeout(max_idle_time)
-
             // Don't wait longer than N seconds for a new connection to be
             // established, instead try again to connect.
             .connection_timeout(
@@ -126,7 +120,6 @@ impl KmipConnPool {
                     .connect_timeout
                     .unwrap_or(Duration::from_secs(30)),
             )
-
             // Use our connection manager to create connections in the pool
             // and to verify their health
             .build(ConnectionManager {
