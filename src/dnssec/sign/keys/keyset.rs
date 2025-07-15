@@ -19,9 +19,11 @@
 //! let mut ks = KeySet::new(Name::from_str("example.com").unwrap());
 //!
 //! // Add two keys.
-//! ks.add_key_ksk("first KSK.key".to_string(), None, SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now());
+//! ks.add_key_ksk("first KSK.key".to_string(), None,
+//!    SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now(), true);
 //! ks.add_key_zsk("first ZSK.key".to_string(),
-//!     Some("first ZSK.private".to_string()), SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now());
+//!     Some("first ZSK.private".to_string()),
+//!     SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now(), true);
 //!
 //! // Save the state.
 //! let json = serde_json::to_string(&ks).unwrap();
@@ -109,11 +111,15 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
+        available: bool,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
-        let keystate: KeyState = Default::default();
+        let keystate = KeyState {
+            available,
+            ..Default::default()
+        };
         let key = Key::new(
             privref,
             KeyType::Ksk(keystate),
@@ -137,11 +143,15 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
+        available: bool,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
-        let keystate: KeyState = Default::default();
+        let keystate = KeyState {
+            available,
+            ..Default::default()
+        };
         let key = Key::new(
             privref,
             KeyType::Zsk(keystate),
@@ -165,11 +175,15 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
+        available: bool,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
-        let keystate: KeyState = Default::default();
+        let keystate = KeyState {
+            available,
+            ..Default::default()
+        };
         let key = Key::new(
             privref,
             KeyType::Csk(keystate.clone(), keystate),
@@ -418,6 +432,7 @@ impl KeySet {
             };
             if *keystate
                 != (KeyState {
+                    available: true,
                     old: false,
                     signer: false,
                     present: false,
@@ -445,6 +460,76 @@ impl KeySet {
         if !keys.iter().any(|(_, k)| {
             if let KeyType::Ksk(keystate) = &k.keytype {
                 !keystate.old && keystate.present
+            } else {
+                false
+            }
+        }) {
+            return Err(Error::NoSuitableKeyPresent);
+        }
+        Ok(())
+    }
+
+    fn update_ksk_double_ds(
+        &mut self,
+        mode: Mode,
+        old: &[&str],
+        new: &[&str],
+    ) -> Result<(), Error> {
+        let mut tmpkeys = self.keys.clone();
+        let keys: &mut HashMap<String, Key> = match mode {
+            Mode::DryRun => &mut tmpkeys,
+            Mode::ForReal => &mut self.keys,
+        };
+        let mut algs_old = HashSet::new();
+        for k in old {
+            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            let KeyType::Ksk(ref mut keystate) = key.keytype else {
+                return Err(Error::WrongKeyType);
+            };
+
+            // Set old for any key we find.
+            keystate.old = true;
+
+            // Add algorithm
+            algs_old.insert(key.algorithm);
+        }
+        let mut algs_new = HashSet::new();
+        for k in new {
+            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            let KeyType::Ksk(ref mut keystate) = key.keytype else {
+                return Err(Error::WrongKeyType);
+            };
+            if *keystate
+                != (KeyState {
+                    available: true,
+                    old: false,
+                    signer: false,
+                    present: false,
+                    at_parent: false,
+                })
+            {
+                return Err(Error::WrongKeyState);
+            }
+
+            keystate.at_parent = true;
+
+            // Add algorithm
+            algs_new.insert(key.algorithm);
+        }
+
+        // Make sure the sets of algorithms are the same.
+        if algs_old != algs_new {
+            return Err(Error::AlgorithmSetsMismatch);
+        }
+
+        // Make sure we have at least one key in the right state.
+        if !keys.iter().any(|(_, k)| {
+            if let KeyType::Ksk(keystate) = &k.keytype {
+                !keystate.old && keystate.at_parent
             } else {
                 false
             }
@@ -491,6 +576,7 @@ impl KeySet {
             };
             if *keystate
                 != (KeyState {
+                    available: true,
                     old: false,
                     signer: false,
                     present: false,
@@ -502,6 +588,80 @@ impl KeySet {
 
             // Move key state to Incoming.
             keystate.present = true;
+            key.timestamps.published = Some(now.clone());
+
+            // Add algorithm
+            algs_new.insert(key.algorithm);
+        }
+
+        // Make sure the sets of algorithms are the same.
+        if algs_old != algs_new {
+            return Err(Error::AlgorithmSetsMismatch);
+        }
+
+        // Make sure we have at least one key in incoming state.
+        if !keys.iter().any(|(_, k)| {
+            if let KeyType::Zsk(keystate) = &k.keytype {
+                !keystate.old || keystate.present
+            } else {
+                false
+            }
+        }) {
+            return Err(Error::NoSuitableKeyPresent);
+        }
+        Ok(())
+    }
+
+    fn update_zsk_double_signature(
+        &mut self,
+        mode: Mode,
+        old: &[&str],
+        new: &[&str],
+    ) -> Result<(), Error> {
+        let mut tmpkeys = self.keys.clone();
+        let keys: &mut HashMap<String, Key> = match mode {
+            Mode::DryRun => &mut tmpkeys,
+            Mode::ForReal => &mut self.keys,
+        };
+        let mut algs_old = HashSet::new();
+        for k in old {
+            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            let KeyType::Zsk(ref mut keystate) = key.keytype else {
+                return Err(Error::WrongKeyType);
+            };
+
+            // Set old for any key we find.
+            keystate.old = true;
+
+            // Add algorithm
+            algs_old.insert(key.algorithm);
+        }
+        let now = UnixTime::now();
+        let mut algs_new = HashSet::new();
+        for k in new {
+            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+                return Err(Error::KeyNotFound);
+            };
+            let KeyType::Zsk(ref mut keystate) = key.keytype else {
+                return Err(Error::WrongKeyType);
+            };
+            if *keystate
+                != (KeyState {
+                    available: true,
+                    old: false,
+                    signer: false,
+                    present: false,
+                    at_parent: false,
+                })
+            {
+                return Err(Error::WrongKeyState);
+            }
+
+            // Move key state to Incoming.
+            keystate.present = true;
+            keystate.signer = true;
             key.timestamps.published = Some(now.clone());
 
             // Add algorithm
@@ -569,6 +729,7 @@ impl KeySet {
                 KeyType::Ksk(ref mut keystate) => {
                     if *keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -586,6 +747,7 @@ impl KeySet {
                 KeyType::Zsk(ref mut keystate) => {
                     if *keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -602,6 +764,7 @@ impl KeySet {
                 KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
                     if *ksk_keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -617,6 +780,7 @@ impl KeySet {
 
                     if *zsk_keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -705,6 +869,7 @@ impl KeySet {
                 | KeyType::Zsk(ref mut keystate) => {
                     if *keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -722,6 +887,7 @@ impl KeySet {
                 KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
                     if *ksk_keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -737,6 +903,7 @@ impl KeySet {
 
                     if *zsk_keystate
                         != (KeyState {
+                            available: true,
                             old: false,
                             signer: false,
                             present: false,
@@ -863,7 +1030,8 @@ pub enum KeyType {
 
 /// State of a key.
 ///
-/// The state is expressed as four booleans:
+/// The state is expressed as five booleans:
+/// * available. The key is available as an incoming key during key rolls.
 /// * old. Set if the key is on its way out.
 /// * signer. Set if the key either signes the DNSKEY RRset or the rest of the
 ///   zone.
@@ -871,6 +1039,7 @@ pub enum KeyType {
 /// * at_parent. If the key has a DS record at the parent.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct KeyState {
+    available: bool,
     old: bool,
     signer: bool,
     present: bool,
@@ -1141,6 +1310,11 @@ pub enum Action {
     /// the DS records.
     ReportDsPropagated,
 
+    /// Wait for the update FS records to have propagated to all
+    /// secondaries that serve the parent zone. Waiting is necessary to
+    /// avoid removing the CDS and CDNSKEY records too soon.
+    WaitDsPropagated,
+
     /// Report whether updated RRSIG records have propagated to all
     /// secondaries that the serve the zone. For propagation it is
     /// sufficient to track the signatures on the SOA record. Report the
@@ -1157,24 +1331,38 @@ pub enum Action {
 /// The type of key roll to perform.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum RollType {
-    /// A KSK roll.
+    /// A KSK roll. This implements the Double-Signature ZSK Roll as described
+    /// in Section 4.1.2 of RFC 6781.
     KskRoll,
 
-    /// A ZSK roll.
+    /// An alternative KSK roll. This implements the Double-DS KSK Roll as
+    /// described in Section 4.1.2 of RFC 6781.
+    KskDoubleDsRoll,
+
+    /// A ZSK roll. This implements the Pre-Publish ZSK Roll as described
+    /// in Section 4.1.1.1. of RFC 6781.
     ZskRoll,
 
-    /// A CSK roll.
+    /// An alternative ZSK roll. This implements the Double-Signature ZSK
+    /// Roll as described in Section 4.1.1.2. of RFC 6781.
+    ZskDoubleSignatureRoll,
+
+    /// A CSK roll. This implements neither of the two algorithms in
+    /// Section 4.1.3. of RFC 6781.
     CskRoll,
 
-    /// An algorithm roll.
+    /// An algorithm roll. This implements the 'liberal approach' as
+    /// described in Section 4.1.4 of RFC 6781.
     AlgorithmRoll,
 }
 
 impl RollType {
-    fn rollfn(&self) -> fn(RollOp, &mut KeySet) -> Result<(), Error> {
+    fn rollfn(&self) -> fn(RollOp<'_>, &mut KeySet) -> Result<(), Error> {
         match self {
             RollType::KskRoll => ksk_roll,
+            RollType::KskDoubleDsRoll => ksk_double_ds_roll,
             RollType::ZskRoll => zsk_roll,
+            RollType::ZskDoubleSignatureRoll => zsk_double_signature_roll,
             RollType::CskRoll => csk_roll,
             RollType::AlgorithmRoll => algorithm_roll,
         }
@@ -1182,7 +1370,11 @@ impl RollType {
     fn roll_actions_fn(&self) -> fn(RollState) -> Vec<Action> {
         match self {
             RollType::KskRoll => ksk_roll_actions,
+            RollType::KskDoubleDsRoll => ksk_double_ds_roll_actions,
             RollType::ZskRoll => zsk_roll_actions,
+            RollType::ZskDoubleSignatureRoll => {
+                zsk_double_signature_roll_actions
+            }
             RollType::CskRoll => csk_roll_actions,
             RollType::AlgorithmRoll => algorithm_roll_actions,
         }
@@ -1268,16 +1460,17 @@ impl fmt::Display for Error {
     }
 }
 
-fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
+fn ksk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current KSK-roll state is idle. We need to
             // check all conflicting key rolls as well. The way we check is
             // to allow specified non-conflicting rolls and consider
             // everything else as a conflict.
-            if let Some(rolltype) =
-                ks.rollstates.keys().find(|k| **k != RollType::ZskRoll)
-            {
+            if let Some(rolltype) = ks.rollstates.keys().find(|k| {
+                **k != RollType::ZskRoll
+                    && **k != RollType::ZskDoubleSignatureRoll
+            }) {
                 if *rolltype == RollType::KskRoll {
                     return Err(Error::WrongStateForRollOperation);
                 } else {
@@ -1389,6 +1582,134 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
     Ok(())
 }
 
+fn ksk_double_ds_roll(
+    rollop: RollOp<'_>,
+    ks: &mut KeySet,
+) -> Result<(), Error> {
+    match rollop {
+        RollOp::Start(old, new) => {
+            // First check if the current KSK-roll state is idle. We need to
+            // check all conflicting key rolls as well. The way we check is
+            // to allow specified non-conflicting rolls and consider
+            // everything else as a conflict.
+            if let Some(rolltype) = ks.rollstates.keys().find(|k| {
+                **k != RollType::ZskRoll
+                    && **k != RollType::ZskDoubleSignatureRoll
+            }) {
+                if *rolltype == RollType::KskDoubleDsRoll {
+                    return Err(Error::WrongStateForRollOperation);
+                } else {
+                    return Err(Error::ConflictingRollInProgress);
+                }
+            }
+            // Check if we can move the states of the keys
+            ks.update_ksk_double_ds(Mode::DryRun, old, new)?;
+            // Move the states of the keys
+            ks.update_ksk_double_ds(Mode::ForReal, old, new)
+                .expect("Should have been checked by DryRun");
+        }
+        RollOp::Propagation1 => {
+            // Set the ds_visible time of new KSKs to the current time.
+            let now = UnixTime::now();
+            for k in ks.keys.values_mut() {
+                let KeyType::Ksk(ref keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old || !keystate.at_parent {
+                    continue;
+                }
+
+                k.timestamps.ds_visible = Some(now.clone());
+            }
+        }
+        RollOp::CacheExpire1(ttl) => {
+            for k in ks.keys.values_mut() {
+                let KeyType::Ksk(ref keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old || !keystate.present {
+                    continue;
+                }
+
+                let ds_visible = k
+                    .timestamps
+                    .ds_visible
+                    .as_ref()
+                    .expect("Should have been set in Propagation1");
+                let elapsed = ds_visible.elapsed();
+                let ttl = Duration::from_secs(ttl.into());
+                if elapsed < ttl {
+                    return Err(Error::Wait(ttl - elapsed));
+                }
+            }
+
+            // Old keys are no longer present and signing, new keys will
+            // be present and signing.
+            for k in &mut ks.keys.values_mut() {
+                if let KeyType::Ksk(ref mut keystate) = k.keytype {
+                    if keystate.old && keystate.present {
+                        keystate.present = false;
+                        keystate.signer = false;
+                    }
+
+                    if !keystate.old && keystate.at_parent {
+                        keystate.present = true;
+                        keystate.signer = true;
+                    }
+                }
+            }
+        }
+        RollOp::Propagation2 => {
+            // Set the visible time of new keys to the current time.
+            let now = UnixTime::now();
+            for k in ks.keys.values_mut() {
+                let KeyType::Ksk(ref keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old || !keystate.present {
+                    continue;
+                }
+
+                k.timestamps.visible = Some(now.clone());
+            }
+        }
+        RollOp::CacheExpire2(ttl) => {
+            for k in ks.keys.values_mut() {
+                let KeyType::Ksk(ref keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old || !keystate.present {
+                    continue;
+                }
+
+                let visible = k
+                    .timestamps
+                    .ds_visible
+                    .as_ref()
+                    .expect("Should have been set in Propagation2");
+                let elapsed = visible.elapsed();
+                let ttl = Duration::from_secs(ttl.into());
+                if elapsed < ttl {
+                    return Err(Error::Wait(ttl - elapsed));
+                }
+            }
+
+            // Move old DS records out
+            for k in ks.keys.values_mut() {
+                let KeyType::Ksk(ref mut keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old && keystate.at_parent {
+                    keystate.at_parent = false;
+                    k.timestamps.withdrawn = Some(UnixTime::now());
+                }
+            }
+        }
+        RollOp::Done => (),
+    }
+    Ok(())
+}
+
 fn ksk_roll_actions(rollstate: RollState) -> Vec<Action> {
     let mut actions = Vec::new();
     match rollstate {
@@ -1411,16 +1732,40 @@ fn ksk_roll_actions(rollstate: RollState) -> Vec<Action> {
     actions
 }
 
-fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
+fn ksk_double_ds_roll_actions(rollstate: RollState) -> Vec<Action> {
+    let mut actions = Vec::new();
+    match rollstate {
+        RollState::Propagation1 => {
+            actions.push(Action::CreateCdsRrset);
+            actions.push(Action::UpdateDsRrset);
+            actions.push(Action::ReportDsPropagated);
+        }
+        RollState::CacheExpire1(_) => (),
+        RollState::Propagation2 => {
+            actions.push(Action::RemoveCdsRrset);
+            actions.push(Action::UpdateDnskeyRrset);
+            actions.push(Action::ReportDnskeyPropagated);
+        }
+        RollState::CacheExpire2(_) => (),
+        RollState::Done => {
+            actions.push(Action::CreateCdsRrset);
+            actions.push(Action::UpdateDsRrset);
+            actions.push(Action::WaitDsPropagated);
+        } // Missing: RemoveCdsRrset, This would require one more state,
+    }
+    actions
+}
+
+fn zsk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current ZSK-roll state is idle. We need
             // to check all conflicting key rolls as well. The way we check
             // is to allow specified non-conflicting rolls and consider
             // everything else as a conflict.
-            if let Some(rolltype) =
-                ks.rollstates.keys().find(|k| **k != RollType::KskRoll)
-            {
+            if let Some(rolltype) = ks.rollstates.keys().find(|k| {
+                **k != RollType::KskRoll && **k != RollType::KskDoubleDsRoll
+            }) {
                 if *rolltype == RollType::ZskRoll {
                     return Err(Error::WrongStateForRollOperation);
                 } else {
@@ -1533,6 +1878,117 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
     Ok(())
 }
 
+fn zsk_double_signature_roll(
+    rollop: RollOp<'_>,
+    ks: &mut KeySet,
+) -> Result<(), Error> {
+    match rollop {
+        RollOp::Start(old, new) => {
+            // First check if the current ZSK-roll state is idle. We need
+            // to check all conflicting key rolls as well. The way we check
+            // is to allow specified non-conflicting rolls and consider
+            // everything else as a conflict.
+            if let Some(rolltype) = ks.rollstates.keys().find(|k| {
+                **k != RollType::KskRoll && **k != RollType::KskDoubleDsRoll
+            }) {
+                if *rolltype == RollType::ZskDoubleSignatureRoll {
+                    return Err(Error::WrongStateForRollOperation);
+                } else {
+                    return Err(Error::ConflictingRollInProgress);
+                }
+            }
+            // Check if we can move the states of the keys
+            ks.update_zsk_double_signature(Mode::DryRun, old, new)?;
+            // Move the states of the keys
+            ks.update_zsk_double_signature(Mode::ForReal, old, new)
+                .expect("Should have been checked with DryRun");
+        }
+        RollOp::Propagation1 => {
+            // Set the visiable time of new ZSKs to the current time.
+            let now = UnixTime::now();
+            for k in ks.keys.values_mut() {
+                let KeyType::Zsk(ref keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old || !keystate.present {
+                    continue;
+                }
+
+                k.timestamps.visible = Some(now.clone());
+                k.timestamps.rrsig_visible = Some(now.clone());
+            }
+        }
+        RollOp::CacheExpire1(ttl) => {
+            for k in ks.keys.values_mut() {
+                let KeyType::Zsk(ref keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old || !keystate.present {
+                    continue;
+                }
+
+                let visible = k
+                    .timestamps
+                    .visible
+                    .as_ref()
+                    .expect("Should have been set in Propagation1");
+                let elapsed = visible.elapsed();
+                let ttl = Duration::from_secs(ttl.into());
+                if elapsed < ttl {
+                    return Err(Error::Wait(ttl - elapsed));
+                }
+            }
+
+            // Move the Leaving keys to Retired.
+            let now = UnixTime::now();
+            for k in ks.keys.values_mut() {
+                let KeyType::Zsk(ref mut keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old {
+                    keystate.present = false;
+                    keystate.signer = false;
+                    k.timestamps.withdrawn = Some(now.clone());
+                }
+            }
+        }
+        RollOp::Propagation2 => {
+            // Set the published time of new RRSIG records to the current time.
+            for k in ks.keys.values_mut() {
+                let KeyType::Zsk(ref keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old || !keystate.signer {
+                    continue;
+                }
+            }
+        }
+        RollOp::CacheExpire2(ttl) => {
+            for k in ks.keys.values_mut() {
+                let KeyType::Zsk(ref keystate) = k.keytype else {
+                    continue;
+                };
+                if keystate.old || !keystate.signer {
+                    continue;
+                }
+
+                let rrsig_visible = k
+                    .timestamps
+                    .rrsig_visible
+                    .as_ref()
+                    .expect("Should have been set in Propagation2");
+                let elapsed = rrsig_visible.elapsed();
+                let ttl = Duration::from_secs(ttl.into());
+                if elapsed < ttl {
+                    return Err(Error::Wait(ttl - elapsed));
+                }
+            }
+        }
+        RollOp::Done => (),
+    }
+    Ok(())
+}
+
 fn zsk_roll_actions(rollstate: RollState) -> Vec<Action> {
     let mut actions = Vec::new();
     match rollstate {
@@ -1553,7 +2009,29 @@ fn zsk_roll_actions(rollstate: RollState) -> Vec<Action> {
     actions
 }
 
-fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
+fn zsk_double_signature_roll_actions(rollstate: RollState) -> Vec<Action> {
+    let mut actions = Vec::new();
+    match rollstate {
+        RollState::Propagation1 => {
+            actions.push(Action::UpdateDnskeyRrset);
+            actions.push(Action::UpdateRrsig);
+            actions.push(Action::ReportDnskeyPropagated);
+            actions.push(Action::ReportRrsigPropagated);
+        }
+        RollState::CacheExpire1(_) => (),
+        RollState::Propagation2 => {
+            actions.push(Action::UpdateDnskeyRrset);
+            actions.push(Action::UpdateRrsig);
+            actions.push(Action::ReportDnskeyPropagated);
+            actions.push(Action::ReportRrsigPropagated);
+        }
+        RollState::CacheExpire2(_) => (),
+        RollState::Done => (),
+    }
+    actions
+}
+
+fn csk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current CSK-roll state is idle. We need
@@ -1776,7 +2254,7 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
 // An algorithm roll is similar to a CSK roll. The main difference is that
 // to zone is signed with all keys before introducing the DS records for
 // the new KSKs or CSKs.
-fn algorithm_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
+fn algorithm_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current algorithm-roll state is idle. We need
@@ -1993,6 +2471,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
         ks.add_key_zsk(
@@ -2001,6 +2480,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             1,
             UnixTime::now(),
+            true,
         )
         .unwrap();
 
@@ -2084,6 +2564,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             2,
             UnixTime::now(),
+            true,
         )
         .unwrap();
         ks.add_key_zsk(
@@ -2092,6 +2573,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             3,
             UnixTime::now(),
+            true,
         )
         .unwrap();
 
@@ -2149,6 +2631,87 @@ mod tests {
         assert_eq!(actions, []);
         ks.delete_key("first ZSK").unwrap();
 
+        ks.add_key_zsk(
+            "third ZSK".to_string(),
+            None,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            4,
+            UnixTime::now(),
+            true,
+        )
+        .unwrap();
+
+        let actions = ks
+            .start_roll(
+                RollType::ZskDoubleSignatureRoll,
+                &["second ZSK"],
+                &["third ZSK"],
+            )
+            .unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::UpdateDnskeyRrset,
+                Action::UpdateRrsig,
+                Action::ReportDnskeyPropagated,
+                Action::ReportRrsigPropagated
+            ]
+        );
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "second ZSK", "third ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        let mut zs = zone_sigs(&ks);
+        zs.sort();
+        assert_eq!(zs, ["second ZSK", "third ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions = ks
+            .propagation1_complete(RollType::ZskDoubleSignatureRoll, 3600)
+            .unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions =
+            ks.cache_expired1(RollType::ZskDoubleSignatureRoll).unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::UpdateDnskeyRrset,
+                Action::UpdateRrsig,
+                Action::ReportDnskeyPropagated,
+                Action::ReportRrsigPropagated
+            ]
+        );
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "third ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions = ks
+            .propagation2_complete(RollType::ZskDoubleSignatureRoll, 3600)
+            .unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions =
+            ks.cache_expired2(RollType::ZskDoubleSignatureRoll).unwrap();
+        assert_eq!(actions, []);
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["first KSK", "third ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions = ks.roll_done(RollType::ZskDoubleSignatureRoll).unwrap();
+        assert_eq!(actions, []);
+        ks.delete_key("second ZSK").unwrap();
+
         let actions = ks
             .start_roll(RollType::KskRoll, &["first KSK"], &["second KSK"])
             .unwrap();
@@ -2158,11 +2721,11 @@ mod tests {
         );
         let mut dk = dnskey(&ks);
         dk.sort();
-        assert_eq!(dk, ["first KSK", "second KSK", "second ZSK"]);
+        assert_eq!(dk, ["first KSK", "second KSK", "third ZSK"]);
         let mut dks = dnskey_sigs(&ks);
         dks.sort();
         assert_eq!(dks, ["first KSK", "second KSK"]);
-        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
         assert_eq!(ds_keys(&ks), ["first KSK"]);
 
         let actions =
@@ -2182,11 +2745,11 @@ mod tests {
         );
         let mut dk = dnskey(&ks);
         dk.sort();
-        assert_eq!(dk, ["first KSK", "second KSK", "second ZSK"]);
+        assert_eq!(dk, ["first KSK", "second KSK", "third ZSK"]);
         let mut dks = dnskey_sigs(&ks);
         dks.sort();
         assert_eq!(dks, ["first KSK", "second KSK"]);
-        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
         assert_eq!(ds_keys(&ks), ["second KSK"]);
 
         let actions =
@@ -2202,14 +2765,104 @@ mod tests {
         );
         let mut dk = dnskey(&ks);
         dk.sort();
-        assert_eq!(dk, ["second KSK", "second ZSK"]);
+        assert_eq!(dk, ["second KSK", "third ZSK"]);
         assert_eq!(dnskey_sigs(&ks), ["second KSK"]);
-        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
         assert_eq!(ds_keys(&ks), ["second KSK"]);
 
         let actions = ks.roll_done(RollType::KskRoll).unwrap();
         assert_eq!(actions, []);
         ks.delete_key("first KSK").unwrap();
+
+        ks.add_key_ksk(
+            "third KSK".to_string(),
+            None,
+            SecurityAlgorithm::ECDSAP256SHA256,
+            5,
+            UnixTime::now(),
+            true,
+        )
+        .unwrap();
+
+        let actions = ks
+            .start_roll(
+                RollType::KskDoubleDsRoll,
+                &["second KSK"],
+                &["third KSK"],
+            )
+            .unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::CreateCdsRrset,
+                Action::UpdateDsRrset,
+                Action::ReportDsPropagated
+            ]
+        );
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["second KSK", "third ZSK"]);
+        let mut dks = dnskey_sigs(&ks);
+        dks.sort();
+        assert_eq!(dks, ["second KSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
+        let mut dsks = ds_keys(&ks);
+        dsks.sort();
+        assert_eq!(dsks, ["second KSK", "third KSK"]);
+
+        let actions = ks
+            .propagation1_complete(RollType::KskDoubleDsRoll, 3600)
+            .unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired1(RollType::KskDoubleDsRoll).unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::RemoveCdsRrset,
+                Action::UpdateDnskeyRrset,
+                Action::ReportDnskeyPropagated
+            ]
+        );
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["third KSK", "third ZSK"]);
+        let mut dks = dnskey_sigs(&ks);
+        dks.sort();
+        assert_eq!(dks, ["third KSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
+        let mut dsks = ds_keys(&ks);
+        dsks.sort();
+        assert_eq!(dsks, ["second KSK", "third KSK"]);
+
+        let actions = ks
+            .propagation2_complete(RollType::KskDoubleDsRoll, 3600)
+            .unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired2(RollType::KskDoubleDsRoll).unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::CreateCdsRrset,
+                Action::UpdateDsRrset,
+                Action::WaitDsPropagated
+            ]
+        );
+        let mut dk = dnskey(&ks);
+        dk.sort();
+        assert_eq!(dk, ["third KSK", "third ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["third KSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
+        assert_eq!(ds_keys(&ks), ["third KSK"]);
+
+        let actions = ks.roll_done(RollType::KskDoubleDsRoll).unwrap();
+        assert_eq!(actions, []);
+        ks.delete_key("second KSK").unwrap();
 
         ks.add_key_csk(
             "first CSK".to_string(),
@@ -2217,13 +2870,14 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
 
         let actions = ks
             .start_roll(
                 RollType::CskRoll,
-                &["second KSK", "second ZSK"],
+                &["third KSK", "third ZSK"],
                 &["first CSK"],
             )
             .unwrap();
@@ -2233,12 +2887,12 @@ mod tests {
         );
         let mut dk = dnskey(&ks);
         dk.sort();
-        assert_eq!(dk, ["first CSK", "second KSK", "second ZSK"]);
+        assert_eq!(dk, ["first CSK", "third KSK", "third ZSK"]);
         let mut dks = dnskey_sigs(&ks);
         dks.sort();
-        assert_eq!(dks, ["first CSK", "second KSK"]);
-        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
-        assert_eq!(ds_keys(&ks), ["second KSK"]);
+        assert_eq!(dks, ["first CSK", "third KSK"]);
+        assert_eq!(zone_sigs(&ks), ["third ZSK"]);
+        assert_eq!(ds_keys(&ks), ["third KSK"]);
 
         let actions =
             ks.propagation1_complete(RollType::CskRoll, 3600).unwrap();
@@ -2259,10 +2913,10 @@ mod tests {
         );
         let mut dk = dnskey(&ks);
         dk.sort();
-        assert_eq!(dk, ["first CSK", "second KSK", "second ZSK"]);
+        assert_eq!(dk, ["first CSK", "third KSK", "third ZSK"]);
         let mut dks = dnskey_sigs(&ks);
         dks.sort();
-        assert_eq!(dks, ["first CSK", "second KSK"]);
+        assert_eq!(dks, ["first CSK", "third KSK"]);
         assert_eq!(zone_sigs(&ks), ["first CSK"]);
         assert_eq!(ds_keys(&ks), ["first CSK"]);
 
@@ -2284,8 +2938,8 @@ mod tests {
 
         let actions = ks.roll_done(RollType::CskRoll).unwrap();
         assert_eq!(actions, []);
-        ks.delete_key("second KSK").unwrap();
-        ks.delete_key("second ZSK").unwrap();
+        ks.delete_key("third KSK").unwrap();
+        ks.delete_key("third ZSK").unwrap();
 
         ks.add_key_csk(
             "second CSK".to_string(),
@@ -2293,6 +2947,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             4,
             UnixTime::now(),
+            true,
         )
         .unwrap();
 

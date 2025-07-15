@@ -134,6 +134,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
     } else if keytype == "zsk" {
@@ -143,6 +144,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
     } else if keytype == "csk" {
@@ -152,6 +154,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
+            true,
         )
         .unwrap();
     } else {
@@ -197,14 +200,14 @@ fn do_start(filename: &str, args: &[String]) {
         .keys()
         .iter()
         .filter_map(|(pr, k)| match rolltype {
-            RollType::KskRoll => {
+            RollType::KskRoll | RollType::KskDoubleDsRoll => {
                 if let KeyType::Ksk(keystate) = k.keytype() {
                     Some((keystate.clone(), pr))
                 } else {
                     None
                 }
             }
-            RollType::ZskRoll => {
+            RollType::ZskRoll | RollType::ZskDoubleSignatureRoll => {
                 if let KeyType::Zsk(keystate) = k.keytype() {
                     Some((keystate.clone(), pr))
                 } else {
@@ -370,7 +373,7 @@ fn do_status(filename: &str, args: &[String]) {
                     pubref,
                     key.privref().unwrap_or_default(),
                 );
-                println!("\t\tState: {}", keystate);
+                println!("\t\tState: {keystate}");
             }
             KeyType::Csk(keystate_ksk, keystate_zsk) => {
                 println!(
@@ -378,8 +381,8 @@ fn do_status(filename: &str, args: &[String]) {
                     pubref,
                     key.privref().unwrap_or_default(),
                 );
-                println!("\t\tKSK role state: {}", keystate_ksk,);
-                println!("\t\tZSK role state: {}", keystate_zsk,);
+                println!("\t\tKSK role state: {keystate_ksk}");
+                println!("\t\tZSK role state: {keystate_zsk}");
             }
         }
         let ts = key.timestamps();
@@ -473,7 +476,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.present() {
-                        println!("\t\t\t{}", pubref);
+                        println!("\t\t\t{pubref}");
                     }
                 }
                 println!("\t\tKeys signing the DNSKEY RRset:");
@@ -482,7 +485,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         KeyType::Ksk(keystate)
                         | KeyType::Csk(keystate, _) => {
                             if keystate.signer() {
-                                println!("\t\t\t{}", pubref);
+                                println!("\t\t\t{pubref}");
                             }
                         }
                         KeyType::Zsk(_) | KeyType::Include(_) => (),
@@ -497,7 +500,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         KeyType::Zsk(keystate)
                         | KeyType::Csk(_, keystate) => {
                             if keystate.signer() {
-                                println!("\t\t{}", pubref);
+                                println!("\t\t{pubref}");
                             }
                         }
                         KeyType::Ksk(_) | KeyType::Include(_) => (),
@@ -515,7 +518,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.at_parent() {
-                        println!("\t\t{}", pubref);
+                        println!("\t\t{pubref}");
                     }
                 }
             }
@@ -530,7 +533,7 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                         | KeyType::Include(keystate) => keystate,
                     };
                     if status.at_parent() {
-                        println!("\t\t{}", pubref);
+                        println!("\t\t{pubref}");
                     }
                 }
             }
@@ -552,6 +555,9 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
             Action::ReportDsPropagated => println!(
                 "\tReport that the DS RRset has propagated at the parent"
             ),
+            Action::WaitDsPropagated => {
+                println!("\tWait until DS RRset has propagated at the parent")
+            }
         }
     }
 }
