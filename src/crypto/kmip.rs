@@ -877,7 +877,7 @@ pub mod sign {
         fn try_from(url: Url) -> Result<Self, Self::Error> {
             let server_id = url
                 .host_str()
-                .ok_or(format!("Key lacks hostname component: {url}"))?
+                .ok_or(format!("Key URL lacks hostname component: {url}"))?
                 .to_string();
 
             let url_path = url.path().to_string();
