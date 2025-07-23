@@ -1232,6 +1232,10 @@ mod tests {
         fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {
             Ok(Signature::Ed25519(TEST_SIGNATURE_RAW.into()))
         }
+
+        fn flags(&self) -> u16 {
+            todo!()
+        }
     }
 
     impl Default for TestKey {
