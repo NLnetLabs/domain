@@ -402,6 +402,7 @@ pub mod sign {
     use kmip::types::response::{
         CreateKeyPairResponsePayload, ResponsePayload,
     };
+    use log::trace;
     use openssl::ecdsa::EcdsaSig;
     use tracing::{debug, error};
     use url::Url;
@@ -644,12 +645,11 @@ pub mod sign {
                 unreachable!();
             };
 
-            debug!("Algorithm: {}", self.algorithm);
-            debug!(
-                "Signature Data: {}",
+            trace!(
+                "Algorithm: {}, Signature Data: {}",
+                self.algorithm,
                 base16::encode_display(&signed.signature_data)
             );
-
             match (self.algorithm, signed.signature_data.len()) {
                 (SecurityAlgorithm::RSASHA256, _) => Ok(Signature::RsaSha256(
                     signed.signature_data.into_boxed_slice(),
