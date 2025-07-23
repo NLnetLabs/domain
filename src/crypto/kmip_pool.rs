@@ -74,21 +74,23 @@ pub type KmipTlsClient = Client<SslStream<TcpStream>>;
 /// This pool can be used to acquire a KMIP client without first having to
 /// wait for it to connect at the TCP/TLS level, and without unnecessarily
 /// closing the connection when finished.
+// TODO: Move this to the kmip-protocol crate and add an AsyncConnPool variant
+// implemented using the bb8 crate instead of the r2d2 crate.
 #[derive(Clone, Debug)]
-pub struct KmipConnPool {
+pub struct SyncConnPool {
     server_id: String,
     conn_settings: Arc<ConnectionSettings>,
     pool: r2d2::Pool<ConnectionManager>,
 }
 
-impl KmipConnPool {
+impl SyncConnPool {
     pub fn new(
         server_id: String,
         conn_settings: Arc<ConnectionSettings>,
         max_conncurrent_connections: u32,
         max_life_time: Option<Duration>,
         max_idle_time: Option<Duration>,
-    ) -> Result<KmipConnPool, KmipConnError> {
+    ) -> Result<SyncConnPool, KmipConnError> {
         let pool = r2d2::Pool::builder()
             // Don't pre-create idle connections to the KMIP server
             .min_idle(Some(0))
@@ -165,8 +167,8 @@ impl ConnectionManager {
         max_conncurrent_connections: u32,
         max_life_time: Option<Duration>,
         max_idle_time: Option<Duration>,
-    ) -> Result<KmipConnPool, KmipConnError> {
-        KmipConnPool::new(
+    ) -> Result<SyncConnPool, KmipConnError> {
+        SyncConnPool::new(
             server_id,
             conn_settings,
             max_conncurrent_connections,

@@ -20,7 +20,7 @@ pub use kmip::client::{ClientCertificate, ConnectionSettings};
 
 use crate::{
     base::iana::SecurityAlgorithm,
-    crypto::{common::rsa_encode, kmip_pool::KmipConnPool},
+    crypto::{common::rsa_encode, kmip_pool::SyncConnPool},
     rdata::Dnskey,
     utils::base16,
 };
@@ -92,14 +92,14 @@ pub struct PublicKey {
 
     public_key_id: String,
 
-    conn_pool: KmipConnPool,
+    conn_pool: SyncConnPool,
 }
 
 impl PublicKey {
     pub fn new(
         public_key_id: String,
         algorithm: SecurityAlgorithm,
-        conn_pool: KmipConnPool,
+        conn_pool: SyncConnPool,
     ) -> Self {
         Self {
             public_key_id,
@@ -410,7 +410,7 @@ pub mod sign {
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::DigestType;
     use crate::crypto::kmip::{GenerateError, PublicKey};
-    use crate::crypto::kmip_pool::KmipConnPool;
+    use crate::crypto::kmip_pool::SyncConnPool;
     use crate::crypto::sign::{
         GenerateParams, SignError, SignRaw, Signature,
     };
@@ -432,7 +432,7 @@ pub mod sign {
 
         public_key_id: String,
 
-        conn_pool: KmipConnPool,
+        conn_pool: SyncConnPool,
 
         dnskey: Dnskey<Vec<u8>>,
 
@@ -445,7 +445,7 @@ pub mod sign {
             flags: u16,
             private_key_id: &str,
             public_key_id: &str,
-            conn_pool: KmipConnPool,
+            conn_pool: SyncConnPool,
         ) -> Result<Self, GenerateError> {
             let dnskey = PublicKey::new(
                 public_key_id.to_string(),
@@ -468,7 +468,7 @@ pub mod sign {
         pub fn new_from_urls(
             priv_key_url: KeyUrl,
             pub_key_url: KeyUrl,
-            conn_pool: KmipConnPool,
+            conn_pool: SyncConnPool,
         ) -> Result<Self, GenerateError> {
             if priv_key_url.algorithm() != pub_key_url.algorithm() {
                 return Err(GenerateError::Kmip(format!("Private and public key URLs have different algorithms: {} vs {}", priv_key_url.algorithm(), pub_key_url.algorithm()).into()));
@@ -543,7 +543,7 @@ pub mod sign {
             Ok(url)
         }
 
-        pub fn conn_pool(&self) -> &KmipConnPool {
+        pub fn conn_pool(&self) -> &SyncConnPool {
             &self.conn_pool
         }
     }
@@ -934,7 +934,7 @@ pub mod sign {
         name: String,
         params: GenerateParams, // TODO: Is this enough? Or do we need to take SecurityAlgorithm as input instead of GenerateParams to ensure we don't lose distinctions like 5 vs 7 which are both RSASHA1?
         flags: u16,
-        conn_pool: KmipConnPool,
+        conn_pool: SyncConnPool,
     ) -> Result<KeyPair, GenerateError> {
         let algorithm = params.algorithm();
 
