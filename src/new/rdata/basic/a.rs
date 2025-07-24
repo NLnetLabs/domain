@@ -13,6 +13,9 @@ use crate::new::base::{
 };
 use crate::utils::dst::UnsizedCopy;
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- A --------------------------------------------------------------
 
 /// The IPv4 address of a host responsible for this domain.
@@ -210,6 +213,72 @@ impl<'a> ParseRecordDataBytes<'a> for &'a A {
         match rtype {
             RType::A => Self::parse_bytes(bytes),
             _ => Err(ParseError),
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for A {
+    /// Scan the data for an A record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-a = ipv4-addr ws*
+    ///   ipv4-addr = ipv4-octet "." ipv4-octet "." ipv4-octet "." ipv4-octet
+    ///   # A decimal number between 0 and 255, inclusive.
+    ///   ipv4-octet = [0-9]+
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let addr = scanner
+            .scan_plain_token()?
+            .parse::<Ipv4Addr>()
+            .map_err(|_| ScanError::Custom("invalid IPv4 address"))?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self::from(addr))
+        } else {
+            Err(ScanError::Custom("unexpected data at end of A record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use core::net::Ipv4Addr;
+
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::A;
+
+        let cases = [
+            (
+                b"127.0.0.1" as &[u8],
+                Ok(A::from(Ipv4Addr::new(127, 0, 0, 1))),
+            ),
+            (
+                b"a" as &[u8],
+                Err(ScanError::Custom("invalid IPv4 address")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(A::scan(&mut scanner, &alloc, &mut buffer), expected);
         }
     }
 }
