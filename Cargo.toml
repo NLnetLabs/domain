@@ -73,7 +73,7 @@ net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 tsig        = ["bytes", "ring", "smallvec"]
-zonefile    = ["bytes", "serde", "std"]
+zonefile    = ["bytes", "serde", "std", "bumpalo"] # new: ["std", "bumpalo", "dep:time"]
 
 # Unstable features
 unstable-new = []
@@ -147,7 +147,7 @@ required-features = ["net", "tokio-stream", "tracing-subscriber", "unstable-clie
 
 [[example]]
 name = "read-zone"
-required-features = ["zonefile"]
+required-features = ["zonefile", "unstable-new"]
 
 [[example]]
 name = "query-zone"
