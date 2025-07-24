@@ -6,6 +6,9 @@ use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 use super::wire::U32;
 
 //----------- Serial ---------------------------------------------------------
@@ -99,6 +102,39 @@ impl From<Serial> for u32 {
 impl fmt::Display for Serial {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.get().fmt(f)
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for Serial {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        use core::num::IntErrorKind;
+
+        scanner
+            .scan_plain_token()?
+            .parse::<u32>()
+            .map_err(|err| {
+                ScanError::Custom(match err.kind() {
+                    IntErrorKind::PosOverflow => {
+                        "specified serial number will overflow"
+                    }
+                    IntErrorKind::InvalidDigit => {
+                        "serial numbers can only contain digits"
+                    }
+                    IntErrorKind::NegOverflow => {
+                        "serial numbers must be non-negative"
+                    }
+                    // We have already checked for other kinds of errors.
+                    _ => unreachable!(),
+                })
+            })
+            .map(Self::from)
     }
 }
 
