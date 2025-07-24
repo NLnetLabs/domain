@@ -64,3 +64,4 @@
 pub mod base;
 pub mod edns;
 pub mod rdata;
+pub mod zonefile;
