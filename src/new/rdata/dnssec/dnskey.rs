@@ -2,17 +2,21 @@
 
 use core::{cmp::Ordering, fmt};
 
-use domain_macros::*;
-
-use crate::new::base::{
-    build::BuildInMessage,
-    name::NameCompressor,
-    wire::{AsBytes, TruncationError, U16},
-    CanonicalRecordData,
+use crate::{
+    new::base::{
+        build::BuildInMessage,
+        name::NameCompressor,
+        wire::{
+            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes,
+            SplitBytesZC, TruncationError, U16,
+        },
+        CanonicalRecordData,
+    },
+    utils::dst::UnsizedCopy,
 };
 
 #[cfg(feature = "zonefile")]
-use crate::{new::base::wire::ParseBytesZC, utils::decoding::Base64Dec};
+use crate::utils::decoding::Base64Dec;
 
 #[cfg(feature = "zonefile")]
 use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
@@ -115,6 +119,15 @@ impl<'a> Scan<'a> for &'a DNSKey {
         buffer.truncate(start);
 
         Ok(record)
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<DNSKey> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }
 

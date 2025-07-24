@@ -721,6 +721,15 @@ impl AsRef<[u8]> for UnparsedRecordData {
     }
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<UnparsedRecordData> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //============ Tests =========================================================
 
 #[cfg(test)]

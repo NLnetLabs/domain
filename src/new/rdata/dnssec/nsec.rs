@@ -319,6 +319,15 @@ impl<'a> Scan<'a> for &'a TypeBitmaps {
     }
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<TypeBitmaps> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //============ Tests =========================================================
 
 #[cfg(test)]

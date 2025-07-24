@@ -209,6 +209,15 @@ impl fmt::Debug for Txt {
     }
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<Txt> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //--- Equality
 
 impl PartialEq for Txt {

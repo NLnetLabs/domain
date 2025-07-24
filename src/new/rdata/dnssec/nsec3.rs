@@ -4,11 +4,14 @@ use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
-use crate::new::base::{
-    build::BuildInMessage,
-    name::NameCompressor,
-    wire::{AsBytes, BuildBytes, SizePrefixed, TruncationError, U16},
-    CanonicalRecordData,
+use crate::{
+    new::base::{
+        build::BuildInMessage,
+        name::NameCompressor,
+        wire::{AsBytes, BuildBytes, SizePrefixed, TruncationError, U16},
+        CanonicalRecordData,
+    },
+    utils::dst::UnsizedCopy,
 };
 
 #[cfg(feature = "zonefile")]
@@ -280,6 +283,15 @@ impl<'a> Scan<'a> for &'a NSec3Param {
         buffer.truncate(start);
 
         Ok(record)
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<NSec3Param> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }
 

@@ -341,7 +341,7 @@ pub mod sign {
             flags: u16,
 
             /// Random number generator.
-            rng: Arc<dyn ring::rand::SecureRandom>,
+            rng: Arc<dyn ring::rand::SecureRandom + Send + Sync>,
         },
 
         /// An ECDSA P-256/SHA-256 keypair.
@@ -353,7 +353,7 @@ pub mod sign {
             flags: u16,
 
             /// Random number generator.
-            rng: Arc<dyn ring::rand::SecureRandom>,
+            rng: Arc<dyn ring::rand::SecureRandom + Send + Sync>,
         },
 
         /// An ECDSA P-384/SHA-384 keypair.
@@ -365,7 +365,7 @@ pub mod sign {
             flags: u16,
 
             /// Random number generator.
-            rng: Arc<dyn ring::rand::SecureRandom>,
+            rng: Arc<dyn ring::rand::SecureRandom + Send + Sync>,
         },
 
         /// An Ed25519 keypair.

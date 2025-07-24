@@ -204,6 +204,15 @@ impl<'a> Scan<'a> for &'a RevName {
     }
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<RevName> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //--- Equality
 
 impl PartialEq for RevName {
