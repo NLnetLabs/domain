@@ -2,9 +2,12 @@
 
 use core::iter::FusedIterator;
 
-use crate::{
-    new::base::{name::RevNameBuf, Header, Message, MessageItem},
-    new::rdata::{Opt, RecordData},
+use crate::new::{
+    base::{
+        name::{NameBuf, RevNameBuf},
+        Header, Message, MessageItem,
+    },
+    rdata::{Opt, RecordData},
 };
 
 use super::{ParseBytesZC, ParseError, SplitMessageBytes};
@@ -33,7 +36,7 @@ pub struct MessageParser<'a> {
 ///
 /// This is the concrete type of items parsed by [`MessageParser`].
 pub type ParsedMessageItem<'a> =
-    MessageItem<RevNameBuf, RecordData<'a, RevNameBuf>, &'a Opt>;
+    MessageItem<RevNameBuf, RecordData<'a, NameBuf>, &'a Opt>;
 
 //--- Construction
 
