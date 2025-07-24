@@ -28,7 +28,7 @@ use std::{io, path::PathBuf, vec::Vec};
 
 use crate::new::{
     base::{
-        name::{RevName, RevNameBuf},
+        name::{Name, NameBuf, RevName, RevNameBuf},
         RClass, Record, TTL,
     },
     rdata::RecordData,
@@ -365,12 +365,12 @@ impl<R: io::BufRead> ZonefileScanner<R> {
             // to the bump allocator).  So we just parse as 'RevNameBuf' and
             // push all names onto the bump allocator afterwards.  Hopefully,
             // the compiler is able to inline this fairly large type away.
-            <RecordData<'a, RevNameBuf>>::scan(&mut scanner, alloc, buffer)
+            <RecordData<'a, NameBuf>>::scan(&mut scanner, alloc, buffer)
                 .map_err(RecordError::DataError)?
                 .map_names(|name| {
                     let bytes = alloc.alloc_slice_copy(name.as_bytes());
-                    // SAFETY: 'RevName::as_bytes()' is always valid.
-                    unsafe { RevName::from_bytes_unchecked(bytes) }
+                    // SAFETY: 'Name::as_bytes()' is always valid.
+                    unsafe { Name::from_bytes_unchecked(bytes) }
                 });
         Ok(Record {
             rname: owner,
@@ -385,7 +385,7 @@ impl<R: io::BufRead> ZonefileScanner<R> {
 //----------- Type Aliases ---------------------------------------------------
 
 /// A scanned record.
-pub type ScannedRecord<'a> = Record<&'a RevName, RecordData<'a, &'a RevName>>;
+pub type ScannedRecord<'a> = Record<&'a RevName, RecordData<'a, &'a Name>>;
 
 /// An entry in a zonefile.
 #[derive(Debug, PartialEq, Eq)]
@@ -568,13 +568,13 @@ mod tests {
     use core::net::Ipv4Addr;
     use std::path::PathBuf;
 
-    use crate::{
-        new::base::{
-            name::RevNameBuf,
+    use crate::new::{
+        base::{
+            name::{NameBuf, RevNameBuf},
             wire::{U16, U32},
             RClass, RType, Record, Serial, TTL,
         },
-        new::rdata::{Mx, Ns, RecordData, Soa, A},
+        rdata::{Mx, Ns, RecordData, Soa, A},
     };
 
     use super::{Entry, ZonefileScanner};
@@ -620,7 +620,7 @@ $INCLUDE <SUBSYS>ISI-MAILBOXES.TXT
         .map(A::from);
 
         let records = [
-            Record::<RevNameBuf, RecordData<'_, RevNameBuf>> {
+            Record::<RevNameBuf, RecordData<'_, NameBuf>> {
                 rname: origin.clone(),
                 rtype: RType::SOA,
                 rclass: RClass::IN,
