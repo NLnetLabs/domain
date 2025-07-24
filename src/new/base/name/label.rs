@@ -185,6 +185,15 @@ impl<'a> From<&'a Label> for &'a [u8] {
     }
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<Label> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //--- Comparison
 
 impl PartialEq for Label {
