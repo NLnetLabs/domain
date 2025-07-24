@@ -7,6 +7,9 @@ use core::str::FromStr;
 
 use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 use super::{
     build::{BuildInMessage, NameCompressor},
     parse::{ParseMessageBytes, SplitMessageBytes},
@@ -446,6 +449,42 @@ impl fmt::Display for CharStrParseError {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a CharStr {
+    /// Scan a character string.
+    ///
+    /// This parses the `d-word` syntax from [the specification].
+    ///
+    /// [the specification]: crate::new::zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let start = buffer.len();
+        match scanner.scan_token(buffer)? {
+            Some(token) if token.len() > 255 => {
+                buffer.truncate(start);
+                Err(ScanError::Custom("overlong character string"))
+            }
+
+            Some(token) => {
+                let bytes = alloc.alloc_slice_copy(token);
+                buffer.truncate(start);
+                // SAFETY: 'token' consists of up to 255 bytes.
+                Ok(unsafe { core::mem::transmute::<&[u8], Self>(bytes) })
+            }
+
+            None => {
+                buffer.truncate(start);
+                Err(ScanError::Incomplete)
+            }
+        }
+    }
+}
+
 //============ Tests =========================================================
 
 #[cfg(test)]
@@ -472,5 +511,29 @@ mod test {
             Ok(&mut [] as &mut [u8])
         );
         assert_eq!(buffer, &bytes[..6]);
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"hello" as &[u8], Ok(b"hello" as &[u8])),
+            (b"\"hi\"and\"bye\"" as &[u8], Ok(b"hiandbye")),
+            (b"\"\"" as &[u8], Ok(b"")),
+            (b"" as &[u8], Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                <&CharStr>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|c| &c.octets),
+                expected
+            );
+        }
     }
 }
