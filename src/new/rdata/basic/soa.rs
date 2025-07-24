@@ -10,6 +10,9 @@ use crate::new::base::{
 };
 use crate::new::base::{CanonicalRecordData, Serial};
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Soa ------------------------------------------------------------
 
 /// The start of a zone of authority.
@@ -354,6 +357,117 @@ impl<'a, N: SplitBytes<'a>> ParseRecordDataBytes<'a> for Soa<N> {
         match rtype {
             RType::SOA => Self::parse_bytes(bytes),
             _ => Err(ParseError),
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for Soa<N> {
+    /// Scan the data for a SOA record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-soa = name ws+ name ws+ u32 ws+ u32 ws+ u32 ws+ u32 ws+ u32 ws*
+    /// # An unsigned 32-bit integer.
+    /// u32 = [0-9]+
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let mname = N::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let rname = N::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let serial = Serial::scan(scanner, alloc, buffer)?;
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let refresh = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let retry = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let expire = u32::scan(scanner, alloc, buffer)?.into();
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+        let minimum = u32::scan(scanner, alloc, buffer)?.into();
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self {
+                rname,
+                mname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            })
+        } else {
+            Err(ScanError::Custom("unexpected data at end of SOA record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new::base::{name::RevNameBuf, wire::U32, Serial};
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::Soa;
+
+        let cases = [
+            (
+                b"VENERA Action.domains 20 7200 600 3600000 60" as &[u8],
+                Ok((
+                    "VENERA.com",
+                    "Action.domains.com",
+                    20,
+                    7200,
+                    600,
+                    3600000,
+                    60,
+                )),
+            ),
+            (b"VENERA" as &[u8], Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let origin = "com".parse::<RevNameBuf>().unwrap();
+            let mut scanner = Scanner::new(input, Some(&origin));
+            let expected = expected.map(|expected| Soa::<RevNameBuf> {
+                mname: expected.0.parse().unwrap(),
+                rname: expected.1.parse().unwrap(),
+                serial: Serial::from(expected.2),
+                refresh: U32::new(expected.3),
+                retry: U32::new(expected.4),
+                expire: U32::new(expected.5),
+                minimum: U32::new(expected.6),
+            });
+            assert_eq!(
+                <Soa<RevNameBuf>>::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
         }
     }
 }
