@@ -199,3 +199,21 @@ impl<N: ?Sized + CanonicalName> CanonicalName for &mut N {
         (**self).cmp_lowercase_composed(*other)
     }
 }
+
+#[cfg(feature = "alloc")]
+impl<N: ?Sized + CanonicalName> CanonicalName for alloc::boxed::Box<N> {
+    fn build_lowercased_bytes<'b>(
+        &self,
+        bytes: &'b mut [u8],
+    ) -> Result<&'b mut [u8], TruncationError> {
+        (**self).build_lowercased_bytes(bytes)
+    }
+
+    fn cmp_composed(&self, other: &Self) -> Ordering {
+        (**self).cmp_composed(&*other)
+    }
+
+    fn cmp_lowercase_composed(&self, other: &Self) -> Ordering {
+        (**self).cmp_lowercase_composed(&*other)
+    }
+}
