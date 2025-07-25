@@ -279,7 +279,7 @@ where
 /// and re-use it across multiple calls.
 ///
 /// This function will sort the RRset in canonical ordering prior to signing.
-pub fn sign_rrset<N, Octs, D, Inner>(
+pub fn sign_rrset<N, D, Octs, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset: &Rrset<'_, N, D>,
     inception: Timestamp,
