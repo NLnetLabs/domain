@@ -302,6 +302,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
  "webpki-roots 0.26.11",
 ]
 
@@ -746,7 +747,7 @@ dependencies = [
 [[package]]
 name = "kmip-protocol"
 version = "0.5.0"
-source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#2454c6bd29ff3c7e711724e67d50f374ec0c249b"
+source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#d3c323caf199c982218a573ee7f5ab43075d0c27"
 dependencies = [
  "cfg-if",
  "enum-display-derive",

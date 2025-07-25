@@ -173,7 +173,7 @@ impl ConnectionManager {
             conn_settings,
             max_conncurrent_connections,
             max_life_time,
-            max_idle_time
+            max_idle_time,
         )
     }
 

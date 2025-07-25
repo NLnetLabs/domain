@@ -1,10 +1,6 @@
 #![cfg(feature = "kmip")]
 #![cfg_attr(docsrs, doc(cfg(feature = "kmip")))]
 
-//============ Error Types ===================================================
-
-//----------- GenerateError --------------------------------------------------
-
 use core::fmt;
 
 use std::{string::String, vec::Vec};
@@ -16,14 +12,18 @@ use kmip::types::{
 };
 use tracing::{debug, error};
 
-pub use kmip::client::{ClientCertificate, ConnectionSettings};
-
 use crate::{
     base::iana::SecurityAlgorithm,
     crypto::{common::rsa_encode, kmip_pool::SyncConnPool},
     rdata::Dnskey,
     utils::base16,
 };
+
+pub use kmip::client::{ClientCertificate, ConnectionSettings};
+
+//============ Error Types ===================================================
+
+//----------- GenerateError --------------------------------------------------
 
 /// An error in generating a key pair with OpenSSL.
 #[derive(Clone, Debug)]
@@ -393,11 +393,12 @@ pub mod sign {
     use kmip::types::common::{
         CryptographicAlgorithm, CryptographicParameters,
         CryptographicUsageMask, Data, DigitalSignatureAlgorithm,
-        HashingAlgorithm, PaddingMethod, UniqueIdentifier,
+        HashingAlgorithm, PaddingMethod, UniqueBatchItemID, UniqueIdentifier,
     };
     use kmip::types::request::{
-        self, CommonTemplateAttribute, PrivateKeyTemplateAttribute,
-        PublicKeyTemplateAttribute, RequestPayload,
+        self, BatchItem, CommonTemplateAttribute,
+        PrivateKeyTemplateAttribute, PublicKeyTemplateAttribute,
+        RequestPayload,
     };
     use kmip::types::response::{
         CreateKeyPairResponsePayload, ResponsePayload,
@@ -406,6 +407,7 @@ pub mod sign {
     use openssl::ecdsa::EcdsaSig;
     use tracing::{debug, error};
     use url::Url;
+    use uuid::Uuid;
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::DigestType;
@@ -438,6 +440,8 @@ pub mod sign {
 
         flags: u16,
     }
+
+    //--- Constructors
 
     impl KeyPair {
         pub fn new(
@@ -488,7 +492,11 @@ pub mod sign {
                 )
             }
         }
+    }
 
+    //--- Accessors
+
+    impl KeyPair {
         pub fn algorithm(&self) -> SecurityAlgorithm {
             self.algorithm
         }
@@ -521,6 +529,65 @@ pub mod sign {
             self.mk_key_url(&self.private_key_id)
         }
 
+        pub fn conn_pool(&self) -> &SyncConnPool {
+            &self.conn_pool
+        }
+    }
+
+    //--- Operations
+
+    impl KeyPair {
+        pub fn sign_raw_enqueue(
+            &self,
+            queue: &mut SignQueue,
+            data: &[u8],
+        ) -> Result<Option<Signature>, SignError> {
+            let request = self.sign_pre(data)?;
+            let operation = request.operation();
+            let batch_item_id =
+                UniqueBatchItemID(Uuid::new_v4().into_bytes().to_vec());
+            let batch_item =
+                BatchItem(operation, Some(batch_item_id), request);
+            queue.0.push(batch_item);
+            Ok(None)
+        }
+
+        pub fn sign_raw_submit_queue(
+            &self,
+            queue: &mut SignQueue,
+        ) -> Result<Vec<Signature>, SignError> {
+            // Execute the request and capture the response.
+            let client = self.conn_pool.get().map_err(|err| {
+                format!("Error while obtaining KMIP pool connection: {err}")
+            })?;
+
+            // Drain the queue.
+            let q_size = queue.0.capacity();
+            let mut empty = Vec::with_capacity(q_size);
+            std::mem::swap(&mut queue.0, &mut empty);
+            let queue = empty;
+
+            // This will block which could be problematic if executed from an
+            // async task handler thread as it will block execution of other
+            // tasks while waiting for the remote KMIP server to respond.
+            let res = client.do_requests(queue).map_err(|err| {
+                format!("Error while sending KMIP request: {err}")
+            })?;
+
+            let mut sigs = Vec::with_capacity(q_size);
+            for res in res {
+                let res = res?;
+                let sig = self.sign_post(res.payload.unwrap())?;
+                sigs.push(sig);
+            }
+
+            Ok(sigs)
+        }
+    }
+
+    //--- Internal details
+
+    impl KeyPair {
         fn mk_key_url(&self, key_id: &str) -> Result<Url, SignError> {
             // We have to store the algorithm in the URL because the DNSSEC
             // algorithm (e.g. 5 and 7) don't necessarily correspond to the
@@ -543,51 +610,7 @@ pub mod sign {
             Ok(url)
         }
 
-        pub fn conn_pool(&self) -> &SyncConnPool {
-            &self.conn_pool
-        }
-    }
-
-    impl SignRaw for KeyPair {
-        fn algorithm(&self) -> SecurityAlgorithm {
-            self.algorithm
-        }
-
-        fn flags(&self) -> u16 {
-            self.flags
-        }
-
-        fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
-            Ok(self.dnskey.clone())
-        }
-
-        fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
-            // https://www.rfc-editor.org/rfc/rfc5702.html#section-3
-            // 3.  RRSIG Resource Records
-            //   "The value of the signature field in the RRSIG RR follows the
-            //    RSASSA- PKCS1-v1_5 signature scheme and is calculated as
-            //    follows."
-            //    ...
-            //    hash = SHA-XXX(data)
-            //
-            //    Here XXX is either 256 or 512, depending on the algorithm used, as
-            //    specified in FIPS PUB 180-3; "data" is the wire format data of the
-            //    resource record set that is signed, as specified in [RFC4034].
-            //
-            //    signature = ( 00 | 01 | FF* | 00 | prefix | hash ) ** e (mod n)"
-            //    ...
-            //
-            // 3.1.  RSA/SHA-256 RRSIG Resource Records
-            //   "RSA/SHA-256 signatures are stored in the DNS using RRSIG resource
-            //    records (RRs) with algorithm number 8.
-            //
-            //    The prefix is the ASN.1 DER SHA-256 algorithm designator prefix, as
-            //    specified in PKCS #1 v2.1 [RFC3447]:
-            //
-            //    hex 30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20"
-            //
-            // KMIP HSMs implement the Sign opration operation according to
-            // these rules.
+        fn sign_pre(&self, data: &[u8]) -> Result<RequestPayload, SignError> {
             let (crypto_alg, hashing_alg, _digest_type) = match self.algorithm
             {
                 SecurityAlgorithm::RSASHA256 => (
@@ -607,39 +630,26 @@ pub mod sign {
                     .into())
                 }
             };
-
-            // PyKMIP requires that the padding method be specified otherwise
-            // it complains with: "For signing, a padding method must be
-            // specified."
             let mut cryptographic_parameters =
                 CryptographicParameters::default()
                     .with_hashing_algorithm(hashing_alg)
                     .with_cryptographic_algorithm(crypto_alg);
-
             if self.algorithm == SecurityAlgorithm::RSASHA256 {
                 cryptographic_parameters = cryptographic_parameters
                     .with_padding_method(PaddingMethod::PKCS1_v1_5);
             }
-
-            // TODO: We could optionally add a KMIP Message Extension to the
-            // request via which we signal support for domain format response
-            // data, so that the Nameshed HSM Relay doesn't have to convert
-            // from PKCS#11 format to the format needed by domain.
             let request = RequestPayload::Sign(
                 Some(UniqueIdentifier(self.private_key_id.clone())),
                 Some(cryptographic_parameters),
                 Data(data.as_ref().to_vec()),
             );
+            Ok(request)
+        }
 
-            // Execute the request and capture the response
-            let client = self.conn_pool.get().map_err(|err| {
-                format!("Error while obtaining KMIP pool connection: {err}")
-            })?;
-
-            let res = client.do_request(request).map_err(|err| {
-                format!("Error while sending KMIP request: {err}")
-            })?;
-
+        fn sign_post(
+            &self,
+            res: ResponsePayload,
+        ) -> Result<Signature, SignError> {
             tracing::trace!("Checking sign payload");
             let ResponsePayload::Sign(signed) = res else {
                 unreachable!();
@@ -712,6 +722,46 @@ pub mod sign {
                     )))?
                 }
             }
+        }
+    }
+
+    pub struct SignQueue(Vec<BatchItem>);
+
+    impl SignQueue {
+        pub fn new() -> Self {
+            Self(vec![])
+        }
+    }
+
+    impl SignRaw for KeyPair {
+        fn algorithm(&self) -> SecurityAlgorithm {
+            self.algorithm
+        }
+
+        fn flags(&self) -> u16 {
+            self.flags
+        }
+
+        fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
+            Ok(self.dnskey.clone())
+        }
+
+        fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
+            let request = self.sign_pre(data)?;
+
+            // Execute the request and capture the response.
+            let client = self.conn_pool.get().map_err(|err| {
+                format!("Error while obtaining KMIP pool connection: {err}")
+            })?;
+
+            // This will block which could be problematic if executed from an
+            // async task handler thread as it will block execution of other
+            // tasks while waiting for the remote KMIP server to respond.
+            let res = client.do_request(request).map_err(|err| {
+                format!("Error while sending KMIP request: {err}")
+            })?;
+
+            self.sign_post(res)
         }
     }
 

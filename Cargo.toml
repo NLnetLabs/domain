@@ -54,6 +54,7 @@ tokio-stream   = { version = "0.1.1", optional = true }
 tracing        = { version = "0.1.40", optional = true, features = ["log"] }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
 url            = { version = "2.5.4", optional = true }
+uuid           = { version = "1.17.0", optional = true, features = ["v4"] }
 
 [features]
 default     = ["std", "rand"]
@@ -71,7 +72,7 @@ tracing     = ["dep:log", "dep:tracing"]
 # Cryptographic backends
 ring        = ["dep:ring"]
 openssl     = ["dep:openssl"]
-kmip        = ["dep:kmip", "dep:r2d2", "dep:bcder", "dep:url"]
+kmip        = ["dep:kmip", "dep:r2d2", "dep:bcder", "dep:url", "dep:uuid"]
 
 # Crate features
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]

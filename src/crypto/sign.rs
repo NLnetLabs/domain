@@ -1074,13 +1074,13 @@ impl std::error::Error for SignError {}
 
 impl From<String> for SignError {
     fn from(err: String) -> Self {
-        Self(err)
+        SignError(err)
     }
 }
 
 impl From<&'static str> for SignError {
     fn from(err: &'static str) -> Self {
-        Self(err.to_string())
+        SignError(err.to_string())
     }
 }
 
