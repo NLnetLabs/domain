@@ -2249,6 +2249,7 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
         RollState::Done => {
             actions.push(Action::RemoveCdsRrset);
             actions.push(Action::UpdateDnskeyRrset);
+            actions.push(Action::WaitDnskeyPropagated);
         }
     }
     actions
