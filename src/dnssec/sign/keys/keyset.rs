@@ -1067,6 +1067,11 @@ impl KeyState {
     pub fn at_parent(&self) -> bool {
         self.at_parent
     }
+
+    /// Return whether this key is no long in use.
+    pub fn stale(&self) -> bool {
+        self.old && !self.signer && !self.present && !self.at_parent
+    }
 }
 
 impl Display for KeyState {
@@ -2765,7 +2770,11 @@ mod tests {
         let actions = ks.cache_expired2(RollType::KskRoll).unwrap();
         assert_eq!(
             actions,
-            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+            [
+                Action::RemoveCdsRrset,
+                Action::UpdateDnskeyRrset,
+                Action::WaitDnskeyPropagated
+            ]
         );
         let mut dk = dnskey(&ks);
         dk.sort();
@@ -2933,7 +2942,11 @@ mod tests {
         let actions = ks.cache_expired2(RollType::CskRoll).unwrap();
         assert_eq!(
             actions,
-            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+            [
+                Action::RemoveCdsRrset,
+                Action::UpdateDnskeyRrset,
+                Action::WaitDnskeyPropagated
+            ]
         );
         assert_eq!(dnskey(&ks), ["first CSK"]);
         assert_eq!(dnskey_sigs(&ks), ["first CSK"]);
@@ -3007,7 +3020,11 @@ mod tests {
         let actions = ks.cache_expired2(RollType::CskRoll).unwrap();
         assert_eq!(
             actions,
-            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+            [
+                Action::RemoveCdsRrset,
+                Action::UpdateDnskeyRrset,
+                Action::WaitDnskeyPropagated
+            ]
         );
         assert_eq!(dnskey(&ks), ["second CSK"]);
         assert_eq!(dnskey_sigs(&ks), ["second CSK"]);
