@@ -211,27 +211,15 @@ impl KeySet {
                 KeyType::Ksk(keystate)
                 | KeyType::Zsk(keystate)
                 | KeyType::Include(keystate) => {
-                    if !keystate.old
-                        || keystate.signer
-                        || keystate.present
-                        || keystate.at_parent
-                    {
+                    if !keystate.stale() {
                         return Err(Error::KeyNotOld);
                     }
                 }
                 KeyType::Csk(ksk_keystate, zsk_keystate) => {
-                    if !ksk_keystate.old
-                        || ksk_keystate.signer
-                        || ksk_keystate.present
-                        || ksk_keystate.at_parent
-                    {
+                    if !ksk_keystate.stale() {
                         return Err(Error::KeyNotOld);
                     }
-                    if !zsk_keystate.old
-                        || zsk_keystate.signer
-                        || zsk_keystate.present
-                        || zsk_keystate.at_parent
-                    {
+                    if !zsk_keystate.stale() {
                         return Err(Error::KeyNotOld);
                     }
                 }
@@ -1098,7 +1086,7 @@ impl Display for KeyState {
             (false, true, true) => write!(f, " (Active)")?,
             (true, true, true) => write!(f, " (Leaving)")?,
             (true, false, true) => write!(f, " (Retired)")?,
-            (true, false, false) => write!(f, " (Old)")?,
+            (true, false, false) => write!(f, " (Stale)")?,
             (_, _, _) => (),
         }
         Ok(())
@@ -1386,6 +1374,7 @@ impl RollType {
     }
 }
 
+#[derive(Debug)]
 enum RollOp<'a> {
     Start(&'a [&'a str], &'a [&'a str]),
     Propagation1,
@@ -1507,7 +1496,7 @@ fn ksk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
-                if keystate.old || !keystate.present {
+                if keystate.stale() {
                     continue;
                 }
 
@@ -1542,7 +1531,7 @@ fn ksk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
-                if keystate.old || !keystate.present {
+                if keystate.old || !keystate.at_parent {
                     continue;
                 }
 
@@ -1554,7 +1543,7 @@ fn ksk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
-                if keystate.old || !keystate.present {
+                if keystate.stale() {
                     continue;
                 }
 
@@ -1632,7 +1621,7 @@ fn ksk_double_ds_roll(
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
-                if keystate.old || !keystate.present {
+                if keystate.old || !keystate.at_parent {
                     continue;
                 }
 
