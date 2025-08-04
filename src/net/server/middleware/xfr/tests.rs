@@ -59,7 +59,7 @@ async fn axfr_with_example_zone() {
         "../../../../../test-data/zonefiles/nsd-example.txt"
     ));
 
-    let req = mk_axfr_request(zone.apex_name(), ());
+    let req = mk_axfr_request(zone.apex_name(), Default::default());
 
     let res = do_preprocess(zone.clone(), &req).await.unwrap();
 
@@ -127,7 +127,7 @@ async fn axfr_multi_response() {
         "../../../../../test-data/zonefiles/big.example.com.txt"
     ));
 
-    let req = mk_axfr_request(zone.apex_name(), ());
+    let req = mk_axfr_request(zone.apex_name(), Default::default());
 
     let res = do_preprocess(zone.clone(), &req).await.unwrap();
 
@@ -205,7 +205,7 @@ async fn axfr_not_allowed_over_udp() {
         "../../../../../test-data/zonefiles/nsd-example.txt"
     ));
 
-    let req = mk_udp_axfr_request(zone.apex_name(), ());
+    let req = mk_udp_axfr_request(zone.apex_name(), Default::default());
 
     let res = do_preprocess(zone, &req).await.unwrap();
 
@@ -247,7 +247,8 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     let zone_with_diffs = ZoneWithDiffs::new(zone.clone(), vec![]);
 
     // The following IXFR query
-    let req = mk_udp_ixfr_request(zone.apex_name(), Serial(1), ());
+    let req =
+        mk_udp_ixfr_request(zone.apex_name(), Serial(1), Default::default());
 
     let res = do_preprocess(zone_with_diffs, &req).await.unwrap();
 
@@ -385,7 +386,8 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     let zone_with_diffs = ZoneWithDiffs::new(zone.clone(), diffs);
 
     // The following IXFR query
-    let req = mk_ixfr_request(zone.apex_name(), Serial(1), ());
+    let req =
+        mk_ixfr_request(zone.apex_name(), Serial(1), Default::default());
 
     let res = do_preprocess(zone_with_diffs, &req).await.unwrap();
 
@@ -482,7 +484,8 @@ async fn ixfr_rfc1995_section7_udp_packet_overflow() {
         "../../../../../test-data/zonefiles/big.example.com.txt"
     ));
 
-    let req = mk_udp_ixfr_request(zone.apex_name(), Serial(0), ());
+    let req =
+        mk_udp_ixfr_request(zone.apex_name(), Serial(0), Default::default());
 
     let res = do_preprocess(zone.clone(), &req).await.unwrap();
 
@@ -508,6 +511,7 @@ async fn axfr_with_tsig_key() {
     // type over which the Request produced by TsigMiddlewareSvc is generic.
     // When the XfrMiddlewareSvc receives a Request<Octs, Authentication> it
     // passes it to the XfrDataProvider which in turn can inspect it.
+    #[derive(Clone)]
     struct KeyReceivingXfrDataProvider {
         key: Arc<Key>,
         checked: Arc<AtomicBool>,
@@ -687,23 +691,24 @@ fn mk_ixfr_request_for_transport<T>(
     Request::new(client_addr, received_at, msg, transport_specific, metadata)
 }
 
-async fn do_preprocess<RequestMeta, XDP: XfrDataProvider<RequestMeta>>(
+async fn do_preprocess<XDP>(
     zone: XDP,
-    req: &Request<Vec<u8>, RequestMeta>,
+    req: &Request<Vec<u8>, Option<Arc<Key>>>,
 ) -> Result<
     ControlFlow<
         XfrMiddlewareStream<
-            <TestNextSvc as Service>::Future,
-            <TestNextSvc as Service>::Stream,
-            <<TestNextSvc as Service>::Stream as Stream>::Item,
+            <TestNextSvc as Service<Vec<u8>, Option<Arc<Key>>>>::Future,
+            <TestNextSvc as Service<Vec<u8>, Option<Arc<Key>>>>::Stream,
+            <<TestNextSvc as Service<Vec<u8>, Option<Arc<Key>>>>::Stream as Stream>::Item,
         >,
     >,
     OptRcode,
 >
 where
+    XDP: XfrDataProvider<Option<Arc<Key>>> + Clone + Sync + Send + 'static,
     XDP::Diff: Debug + 'static,
 {
-    XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, RequestMeta, XDP>::preprocess(
+    XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, Option<Arc<Key>>, XDP>::preprocess(
         Arc::new(Semaphore::new(1)),
         Arc::new(Semaphore::new(1)),
         req,
@@ -773,16 +778,20 @@ async fn assert_stream_eq<
 #[derive(Clone)]
 struct TestNextSvc;
 
-impl Service<Vec<u8>, ()> for TestNextSvc {
+impl Service<Vec<u8>, Option<Arc<Key>>> for TestNextSvc {
     type Target = Vec<u8>;
     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
     type Future = Ready<Self::Stream>;
 
-    fn call(&self, _request: Request<Vec<u8>, ()>) -> Self::Future {
+    fn call(
+        &self,
+        _request: Request<Vec<u8>, Option<Arc<Key>>>,
+    ) -> Self::Future {
         todo!()
     }
 }
 
+#[derive(Clone)]
 struct ZoneWithDiffs {
     zone: Zone,
     diffs: Vec<Arc<InMemoryZoneDiff>>,
@@ -808,11 +817,11 @@ impl ZoneWithDiffs {
     }
 }
 
-impl XfrDataProvider for ZoneWithDiffs {
+impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneWithDiffs {
     type Diff = Arc<InMemoryZoneDiff>;
     fn request<Octs>(
         &self,
-        req: &Request<Octs, ()>,
+        req: &Request<Octs, RequestMeta>,
         diff_from: Option<Serial>,
     ) -> Pin<
         Box<
