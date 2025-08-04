@@ -502,7 +502,16 @@ pub mod sign {
             }
         }
 
-        fn dnskey(&self) -> Dnskey<Vec<u8>> {
+        fn flags(&self) -> u16 {
+            match *self {
+                KeyPair::RsaSha256 { flags, .. } => flags,
+                KeyPair::EcdsaP256Sha256 { flags, .. } => flags,
+                KeyPair::EcdsaP384Sha384 { flags, .. } => flags,
+                KeyPair::Ed25519(_, flags) => flags,
+            }
+        }
+
+        fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
             match self {
                 Self::RsaSha256 { key, flags, rng: _ } => {
                     let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
@@ -512,7 +521,7 @@ pub mod sign {
                     let public_key =
                         signature::RsaPublicKeyComponents { n, e };
                     let public = PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, public_key);
-                    public.dnskey(*flags)
+                    Ok(public.dnskey(*flags))
                 }
 
                 Self::EcdsaP256Sha256 { key, flags, rng: _ }
@@ -544,7 +553,7 @@ pub mod sign {
                             key.to_vec(),
                         ),
                     );
-                    public.dnskey(*flags)
+                    Ok(public.dnskey(*flags))
                 }
                 Self::Ed25519(key, flags) => {
                     let (algorithm, sec_alg) = match self {
@@ -561,7 +570,7 @@ pub mod sign {
                             key.to_vec(),
                         ),
                     );
-                    public.dnskey(*flags)
+                    Ok(public.dnskey(*flags))
                 }
             }
         }
@@ -575,35 +584,41 @@ pub mod sign {
                         .map(|()| {
                             Signature::RsaSha256(buf.into_boxed_slice())
                         })
-                        .map_err(|_| SignError)
+                        .map_err(|_| "Ring RSASHA256 signing failed".into())
                 }
 
                 Self::EcdsaP256Sha256 { key, flags: _, rng } => key
                     .sign(&**rng, data)
                     .map(|sig| Box::<[u8]>::from(sig.as_ref()))
-                    .map_err(|_| SignError)
+                    .map_err(|_| "Ring ECDSAP256SHA256 signing failed".into())
                     .and_then(|buf| {
                         buf.try_into()
                             .map(Signature::EcdsaP256Sha256)
-                            .map_err(|_| SignError)
+                            .map_err(|_| {
+                                "Ring ECDSAP256SHA256 signature too large"
+                                    .into()
+                            })
                     }),
 
                 Self::EcdsaP384Sha384 { key, flags: _, rng } => key
                     .sign(&**rng, data)
                     .map(|sig| Box::<[u8]>::from(sig.as_ref()))
-                    .map_err(|_| SignError)
+                    .map_err(|_| "Ring ECDSAP384SHA384 signing failed".into())
                     .and_then(|buf| {
                         buf.try_into()
                             .map(Signature::EcdsaP384Sha384)
-                            .map_err(|_| SignError)
+                            .map_err(|_| {
+                                "Ring ECDSAP384SHA384 signature too large"
+                                    .into()
+                            })
                     }),
 
                 Self::Ed25519(key, _) => {
                     let sig = key.sign(data);
                     let buf: Box<[u8]> = sig.as_ref().into();
-                    buf.try_into()
-                        .map(Signature::Ed25519)
-                        .map_err(|_| SignError)
+                    buf.try_into().map(Signature::Ed25519).map_err(|_| {
+                        "Ring ED25519 signature too large".into()
+                    })
                 }
             }
         }
@@ -716,7 +731,7 @@ pub mod sign {
                     crate::crypto::sign::generate(params.clone(), 256)
                         .unwrap();
                 let key = KeyPair::from_bytes(&sk, &pk).unwrap();
-                assert_eq!(key.dnskey(), pk);
+                assert_eq!(key.dnskey().unwrap(), pk);
             }
         }
 
@@ -737,7 +752,7 @@ pub mod sign {
                 let key =
                     KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
-                assert_eq!(key.dnskey(), *pub_key.data());
+                assert_eq!(key.dnskey().unwrap(), *pub_key.data());
             }
         }
 
