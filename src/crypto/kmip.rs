@@ -93,6 +93,8 @@ pub struct PublicKey {
     public_key_id: String,
 
     conn_pool: SyncConnPool,
+
+    public_key: Vec<u8>,
 }
 
 impl PublicKey {
@@ -100,22 +102,32 @@ impl PublicKey {
         public_key_id: String,
         algorithm: SecurityAlgorithm,
         conn_pool: SyncConnPool,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, kmip::client::Error> {
+        let public_key = Self::fetch_public_key(&public_key_id, &conn_pool)?;
+
+        Ok(Self {
             public_key_id,
             algorithm,
             conn_pool,
-        }
+            public_key,
+        })
     }
 
     pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
-    pub fn dnskey(
-        &self,
-        flags: u16,
-    ) -> Result<Dnskey<Vec<u8>>, kmip::client::Error> {
+    pub fn dnskey(&self, flags: u16) -> Dnskey<Vec<u8>> {
+        Dnskey::new(flags, 3, self.algorithm, self.public_key.clone())
+            .unwrap()
+    }
+}
+
+impl PublicKey {
+    fn fetch_public_key(
+        public_key_id: &str,
+        conn_pool: &SyncConnPool,
+    ) -> Result<Vec<u8>, kmip::client::Error> {
         // https://datatracker.ietf.org/doc/html/rfc5702#section-2
         // Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource
         // Records for DNSSEC
@@ -159,7 +171,7 @@ impl PublicKey {
         // including the exponent.  Leading zero octets are prohibited in
         // the exponent and modulus.
 
-        let client = self.conn_pool.get().inspect_err(|err| error!("{err}")).map_err(|err| {
+        let client = conn_pool.get().inspect_err(|err| error!("{err}")).map_err(|err| {
             kmip::client::Error::ServerError(format!(
                 "Error while attempting to acquire KMIP connection from pool: {err}"
             ))
@@ -170,7 +182,7 @@ impl PublicKey {
         // CKA_TOKEN false) in which case there is no public key and so it
         // uses the private key object handle instead.
         let res = client
-            .get_key(&self.public_key_id)
+            .get_key(public_key_id)
             .inspect_err(|err| error!("{err}"))?;
         let ManagedObject::PublicKey(public_key) = res.cryptographic_object
         else {
@@ -378,7 +390,7 @@ impl PublicKey {
             mat => return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object has unsupported key material type: {mat}"))),
         };
 
-        Ok(Dnskey::new(flags, 3, algorithm, octets).unwrap())
+        Ok(octets)
     }
 }
 
@@ -456,8 +468,8 @@ pub mod sign {
                 algorithm,
                 conn_pool.clone(),
             )
-            .dnskey(flags)
-            .map_err(|err| GenerateError::Kmip(err.to_string()))?;
+            .map_err(|err| GenerateError::Kmip(err.to_string()))?
+            .dnskey(flags);
 
             Ok(Self {
                 algorithm,
@@ -507,14 +519,6 @@ pub mod sign {
 
         pub fn public_key_id(&self) -> &str {
             &self.public_key_id
-        }
-
-        pub fn public_key(&self) -> PublicKey {
-            PublicKey::new(
-                self.public_key_id.clone(),
-                self.algorithm,
-                self.conn_pool.clone(),
-            )
         }
 
         pub fn flags(&self) -> u16 {
