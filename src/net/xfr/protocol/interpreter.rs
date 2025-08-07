@@ -25,16 +25,16 @@ use super::types::{Error, IxfrUpdateMode, ParsedRecord, XfrType};
 ///
 /// Each call to [`interpret_response()`] will return an [`XfrZoneUpdateIterator`]
 /// which when iterated over will produce a sequence of [`ZoneUpdate`]s for a
-/// single response message. The iterator emits [`ZoneUpdate::Complete`] when
+/// single response message. The iterator emits [`ZoneUpdate::Finished`] when
 /// the last record in the transfer is reached.
 ///
-/// If [`ZoneUpdate::Complete`] has not yet been emitted it means that the
+/// If [`ZoneUpdate::Finished`] has not yet been emitted it means that the
 /// sequence is incomplete and the next response message in the sequence
 /// should be passed to [`interpret_response()`].
 ///
 /// [`interpret_response()`]: XfrResponseInterpreter::interpret_response()
 /// [`ZoneUpdate`]: crate::zonetree::types::ZoneUpdate
-/// [`ZoneUpdate::Complete`]: crate::zonetree::types::ZoneUpdate
+/// [`ZoneUpdate::Finished`]: crate::zonetree::types::ZoneUpdate
 #[derive(Default)]
 pub struct XfrResponseInterpreter {
     /// Internal state.
