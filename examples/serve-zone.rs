@@ -124,10 +124,10 @@ async fn main() {
         1,
     );
     let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
-    let svc = TsigMiddlewareSvc::<_, _, _, ()>::new(svc, key_store);
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
     let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = TsigMiddlewareSvc::<_, _, _, ()>::new(svc, key_store);
     let svc = Arc::new(svc);
 
     let sock = UdpSocket::bind(&addr).await.unwrap();
