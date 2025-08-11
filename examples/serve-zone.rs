@@ -339,7 +339,7 @@ impl XfrDataProvider<Option<Key>> for ZoneTreeWithDiffs {
         Octs: Octets + Send + Sync,
     {
         if req.metadata().is_none() {
-            eprintln!("Rejecting");
+            eprintln!("Rejecting request due to missing TSIG key");
             return Box::pin(ready(Err(XfrDataProviderError::Refused)));
         }
         let res = req
