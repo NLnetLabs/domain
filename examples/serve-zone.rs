@@ -126,8 +126,8 @@ async fn main() {
         1,
     );
     let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = TsigMiddlewareSvc::new(svc, key_store);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = Arc::new(svc);
 
     let sock = UdpSocket::bind(&addr).await.unwrap();
