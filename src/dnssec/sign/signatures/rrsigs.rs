@@ -3,6 +3,7 @@ use core::convert::{AsRef, From};
 use core::fmt::Display;
 use core::marker::Send;
 
+use core::slice;
 use std::boxed::Box;
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -13,17 +14,17 @@ use octseq::{OctetsFrom, OctetsInto};
 use tracing::debug;
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::Rtype;
+use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
-use crate::base::Name;
-use crate::crypto::sign::SignRaw;
+use crate::base::{Name, Ttl};
+use crate::crypto::sign::{SignRaw, Signature};
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::signingkey::SigningKey;
 use crate::dnssec::sign::records::{RecordsIter, Rrset};
 use crate::rdata::dnssec::{ProtoRrsig, Timestamp};
-use crate::rdata::{Rrsig, ZoneRecordData};
+use crate::rdata::Rrsig;
 
 //------------ GenerateRrsigConfig -------------------------------------------
 
@@ -95,9 +96,9 @@ impl GenerateRrsigConfig {
 /// [RFC 9364]: https://www.rfc-editor.org/rfc/rfc9364
 // TODO: Add mutable iterator based variant.
 #[allow(clippy::type_complexity)]
-pub fn sign_sorted_zone_records<N, Octs, Inner>(
+pub fn sign_sorted_zone_records<N, Octs, D, Inner>(
     apex_owner: &N,
-    mut records: RecordsIter<'_, N, ZoneRecordData<Octs, N>>,
+    records: RecordsIter<'_, N, D>,
     keys: &[&SigningKey<Octs, Inner>],
     config: &GenerateRrsigConfig,
 ) -> Result<Vec<Record<N, Rrsig<Octs, N>>>, SigningError>
@@ -119,6 +120,55 @@ where
         + Clone
         + FromBuilder
         + From<&'static [u8]>,
+    D: CanonicalOrd + ComposeRecordData,
+{
+    sign_sorted_zone_records_with(
+        apex_owner,
+        records,
+        keys,
+        config,
+        sign_sorted_rrset_in::<N, Octs, D, Inner>,
+    )
+}
+
+#[allow(clippy::type_complexity)]
+pub fn sign_sorted_zone_records_with<'a, 'b, N, Octs, D, Inner, O, F>(
+    apex_owner: &N,
+    mut records: RecordsIter<'b, N, D>,
+    keys: &[&'a SigningKey<Octs, Inner>],
+    config: &GenerateRrsigConfig,
+    signer_fn: F,
+) -> Result<Vec<O>, SigningError>
+where
+    Inner: Debug + SignRaw,
+    N: ToName
+        + PartialEq
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + CanonicalOrd
+        + From<Name<Octs>>,
+    Octs: AsRef<[u8]>
+        + Debug
+        + From<Box<[u8]>>
+        + Send
+        + OctetsFrom<Vec<u8>>
+        + Clone
+        + FromBuilder
+        + From<&'static [u8]>,
+    D: RecordData,
+    F: Fn(
+        &'a SigningKey<Octs, Inner>,
+        Rtype,
+        Class,
+        N,
+        Ttl,
+        slice::Iter<'b, Record<N, D>>,
+        Timestamp,
+        Timestamp,
+        &mut Vec<u8>,
+    ) -> Result<O, SigningError>,
 {
     // The generated collection of RRSIG RRs that will be returned to the
     // caller.
@@ -190,9 +240,13 @@ where
             for key in keys {
                 let inception = config.inception;
                 let expiration = config.expiration;
-                let rrsig_rr = sign_sorted_rrset_in(
+                let rrsig_rr = signer_fn(
                     key,
-                    &rrset,
+                    rrset.rtype(),
+                    rrset.class(),
+                    rrset.owner().clone(),
+                    rrset.ttl(),
+                    rrset.iter(),
                     inception,
                     expiration,
                     &mut reusable_scratch,
@@ -232,10 +286,10 @@ pub fn sign_rrset<N, D, Octs, Inner>(
     expiration: Timestamp,
 ) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
 where
-    N: ToName + Debug + Clone + From<Name<Octs>>,
-    D: Clone + Debug + RecordData + ComposeRecordData + CanonicalOrd,
+    N: ToName + Debug + Clone + From<Name<Octs>> + CanonicalOrd,
     Inner: Debug + SignRaw,
     Octs: AsRef<[u8]> + Clone + Debug + OctetsFrom<Vec<u8>>,
+    D: CanonicalOrd + ComposeRecordData + Clone,
 {
     let mut records = rrset.as_slice().to_vec();
     records
@@ -243,7 +297,17 @@ where
     let rrset = Rrset::new(&records)
         .expect("records is not empty so new should not fail");
 
-    sign_sorted_rrset_in(key, &rrset, inception, expiration, &mut vec![])
+    sign_sorted_rrset_in(
+        key,
+        rrset.rtype(),
+        rrset.class(),
+        rrset.owner().clone(),
+        rrset.ttl(),
+        rrset.iter(),
+        inception,
+        expiration,
+        &mut vec![],
+    )
 }
 
 /// Generate `RRSIG` records for a given RRset.
@@ -269,24 +333,94 @@ where
 ///     https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2
 /// [RFC 6840 section 5.11]:
 ///     https://www.rfc-editor.org/rfc/rfc6840.html#section-5.11
-pub fn sign_sorted_rrset_in<N, D, Octs, Inner>(
-    key: &SigningKey<Octs, Inner>,
-    rrset: &Rrset<'_, N, D>,
+pub fn sign_sorted_rrset_in<'a, 'b, N, Octs, D, Inner>(
+    key: &'a SigningKey<Octs, Inner>,
+    rrset_rtype: Rtype,
+    rrset_class: Class,
+    rrset_owner: N,
+    rrset_ttl: Ttl,
+    rrset_iter: slice::Iter<'b, Record<N, D>>,
     inception: Timestamp,
     expiration: Timestamp,
     scratch: &mut Vec<u8>,
 ) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
 where
     N: ToName + Clone + Debug + From<Name<Octs>>,
-    D: RecordData + Debug + ComposeRecordData + CanonicalOrd,
     Inner: Debug + SignRaw,
     Octs: AsRef<[u8]> + Clone + Debug + OctetsFrom<Vec<u8>>,
+    D: CanonicalOrd + ComposeRecordData,
+{
+    let rrsig = sign_sorted_rrset_in_pre(
+        key,
+        rrset_rtype,
+        rrset_owner.rrsig_label_count(),
+        rrset_ttl,
+        rrset_iter,
+        inception,
+        expiration,
+        scratch,
+    )?;
+    let signature = key.raw_secret_key().sign_raw(&*scratch)?;
+    sign_sorted_rrset_in_post(
+        signature,
+        rrsig,
+        rrset_owner,
+        rrset_class,
+        rrset_ttl,
+    )
+}
+
+pub fn sign_sorted_rrset_in_post<N, Octs>(
+    signature: Signature,
+    rrsig: ProtoRrsig<N>,
+    rrset_owner: N,
+    rrset_class: Class,
+    rrset_ttl: Ttl,
+) -> Result<Record<N, Rrsig<Octs, N>>, SigningError>
+where
+    N: ToName + Clone + Debug + From<Name<Octs>>,
+    Octs: AsRef<[u8]> + Clone + Debug + OctetsFrom<Vec<u8>>,
+{
+    let signature = signature.as_ref().to_vec();
+    let Ok(signature) = signature.try_octets_into() else {
+        return Err(SigningError::OutOfMemory);
+    };
+
+    let rrsig = rrsig.into_rrsig(signature).expect("long signature");
+
+    // RFC 4034
+    // 3.1.3.  The Labels Field
+    //   ...
+    //   "The value of the Labels field MUST be less than or equal to the
+    //    number of labels in the RRSIG owner name."
+    debug_assert!(
+        (rrsig.labels() as usize) < rrset_owner.iter_labels().count()
+    );
+
+    Ok(Record::new(rrset_owner, rrset_class, rrset_ttl, rrsig))
+}
+
+pub fn sign_sorted_rrset_in_pre<N, Octs, D, Inner>(
+    key: &SigningKey<Octs, Inner>,
+    rrset_rtype: Rtype,
+    rrset_owner_rrsig_label_count: u8,
+    rrset_ttl: Ttl,
+    rrset_iter: slice::Iter<Record<N, D>>,
+    inception: Timestamp,
+    expiration: Timestamp,
+    scratch: &mut Vec<u8>,
+) -> Result<ProtoRrsig<N>, SigningError>
+where
+    N: ToName + Clone + Debug + From<Name<Octs>>,
+    Inner: Debug + SignRaw,
+    Octs: AsRef<[u8]> + Clone + Debug + OctetsFrom<Vec<u8>>,
+    D: CanonicalOrd + ComposeRecordData,
 {
     // RFC 4035
     // 2.2.  Including RRSIG RRs in a Zone
     //   ...
     //   "An RRSIG RR itself MUST NOT be signed"
-    if rrset.rtype() == Rtype::RRSIG {
+    if rrset_rtype == Rtype::RRSIG {
         return Err(SigningError::RrsigRrsMustNotBeSigned);
     }
 
@@ -304,10 +438,10 @@ where
     //    the same owner name will have different TTL values if the RRsets
     //    they cover have different TTL values."
     let rrsig = ProtoRrsig::new(
-        rrset.rtype(),
+        rrset_rtype,
         key.algorithm(),
-        rrset.owner().rrsig_label_count(),
-        rrset.ttl(),
+        rrset_owner_rrsig_label_count,
+        rrset_ttl,
         expiration,
         inception,
         key.dnskey().key_tag(),
@@ -329,32 +463,11 @@ where
     scratch.clear();
 
     rrsig.compose_canonical(scratch).unwrap();
-    for record in rrset.iter() {
+    for record in rrset_iter {
         record.compose_canonical(scratch).unwrap();
     }
-    let signature = key.raw_secret_key().sign_raw(&*scratch)?;
-    let signature = signature.as_ref().to_vec();
-    let Ok(signature) = signature.try_octets_into() else {
-        return Err(SigningError::OutOfMemory);
-    };
 
-    let rrsig = rrsig.into_rrsig(signature).expect("long signature");
-
-    // RFC 4034
-    // 3.1.3.  The Labels Field
-    //   ...
-    //   "The value of the Labels field MUST be less than or equal to the
-    //    number of labels in the RRSIG owner name."
-    debug_assert!(
-        (rrsig.labels() as usize) < rrset.owner().iter_labels().count()
-    );
-
-    Ok(Record::new(
-        rrset.owner().clone(),
-        rrset.class(),
-        rrset.ttl(),
-        rrsig,
-    ))
+    Ok(rrsig)
 }
 
 #[cfg(test)]
@@ -370,7 +483,7 @@ mod tests {
     use crate::dnssec::sign::test_util;
     use crate::dnssec::sign::test_util::*;
     use crate::rdata::dnssec::Timestamp;
-    use crate::rdata::Dnskey;
+    use crate::rdata::{Dnskey, ZoneRecordData};
     use crate::zonetree::StoredName;
 
     use super::*;
@@ -627,7 +740,8 @@ mod tests {
     #[test]
     fn generate_rrsigs_without_keys_generates_no_rrsigs() {
         let apex = Name::from_str("example.").unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.insert(mk_a_rr("example.")).unwrap();
         let no_keys: [&SigningKey<Bytes, KeyPair>; 0] = [];
 
@@ -660,7 +774,8 @@ mod tests {
         // full zone, in this case just for an A record. This test
         // deliberately does not include a SOA record as the zone is partial.
         let apex = Name::from_str(zone_apex).unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.insert(mk_a_rr(record_owner)).unwrap();
 
         // Prepare a zone signing key and a key signing key.
@@ -701,7 +816,8 @@ mod tests {
     #[test]
     fn generate_rrsigs_ignores_records_outside_the_zone() {
         let apex = Name::from_str("example.").unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
             mk_a_rr("in_zone.example."),
@@ -742,7 +858,8 @@ mod tests {
     #[test]
     fn generate_rrsigs_ignores_glue_records() {
         let apex = Name::from_str("example.").unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
             mk_ns_rr("example.", "early_sorting_glue."),
@@ -1006,7 +1123,8 @@ mod tests {
         let apex = "example.";
 
         let apex_owner = Name::from_str(apex).unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.extend([
             mk_soa_rr(apex, "some.mname.", "some.rname."),
             mk_ns_rr(apex, "ns.example."),
@@ -1070,7 +1188,8 @@ mod tests {
         let dnskey = keys[0].dnskey().convert();
 
         let apex = Name::from_str("example.").unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.extend([
             // -- example.
             mk_soa_rr("example.", "some.mname.", "some.rname."),
@@ -1190,7 +1309,7 @@ mod tests {
         dnskey: &Dnskey<Bytes>,
     ) -> Record<StoredName, R>
     where
-        R: From<Rrsig<Bytes, StoredName>>,
+        R: From<Rrsig<Bytes, StoredName>> + Send,
     {
         test_util::mk_rrsig_rr(
             name,
@@ -1216,6 +1335,10 @@ mod tests {
     impl SignRaw for TestKey {
         fn algorithm(&self) -> SecurityAlgorithm {
             SecurityAlgorithm::ED25519
+        }
+
+        fn flags(&self) -> u16 {
+            todo!()
         }
 
         fn dnskey(&self) -> Dnskey<Vec<u8>> {

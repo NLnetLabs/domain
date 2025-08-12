@@ -685,6 +685,10 @@ pub mod sign {
             self.algorithm
         }
 
+        fn flags(&self) -> u16 {
+            self.flags
+        }
+
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => {
@@ -749,7 +753,7 @@ pub mod sign {
             let signature = self
                 .sign(data)
                 .map(Vec::into_boxed_slice)
-                .map_err(|_| SignError)?;
+                .map_err(|err| format!("OpenSSL signing failed: {err}"))?;
 
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => {
@@ -759,22 +763,32 @@ pub mod sign {
                 SecurityAlgorithm::ECDSAP256SHA256 => signature
                     .try_into()
                     .map(Signature::EcdsaP256Sha256)
-                    .map_err(|_| SignError),
+                    .map_err(|_| {
+                        "OpenSSL ECDSAP256SHA256 signature too large".into()
+                    }),
+
                 SecurityAlgorithm::ECDSAP384SHA384 => signature
                     .try_into()
                     .map(Signature::EcdsaP384Sha384)
-                    .map_err(|_| SignError),
+                    .map_err(|_| {
+                        "OpenSSL ECDSAP384SHA384 signature too large".into()
+                    }),
 
-                SecurityAlgorithm::ED25519 => signature
-                    .try_into()
-                    .map(Signature::Ed25519)
-                    .map_err(|_| SignError),
+                SecurityAlgorithm::ED25519 => {
+                    signature.try_into().map(Signature::Ed25519).map_err(
+                        |_| "OpenSSL ED25519 signature too large".into(),
+                    )
+                }
+
                 SecurityAlgorithm::ED448 => signature
                     .try_into()
                     .map(Signature::Ed448)
-                    .map_err(|_| SignError),
+                    .map_err(|_| "OpenSSL ED448 signature too large".into()),
 
-                _ => unreachable!(),
+                alg => Err(format!(
+                    "OpenSSL signature algorithm not supported: {alg}"
+                )
+                .into()),
             }
         }
     }
@@ -788,10 +802,8 @@ pub mod sign {
     ) -> Result<KeyPair, GenerateError> {
         let algorithm = params.algorithm();
         let pkey = match params {
-            GenerateParams::RsaSha256 { bits } => {
-                Rsa::generate(bits).and_then(PKey::from_rsa)?
-            }
-            GenerateParams::RsaSha512 { bits } => {
+            GenerateParams::RsaSha256 { bits }
+            | GenerateParams::RsaSha512 { bits } => {
                 Rsa::generate(bits).and_then(PKey::from_rsa)?
             }
             GenerateParams::EcdsaP256Sha256 => {

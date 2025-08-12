@@ -81,6 +81,7 @@
 
 use std::boxed::Box;
 use std::fmt;
+use std::string::{String, ToString};
 use std::vec::Vec;
 
 use secrecy::{ExposeSecret, SecretBox};
@@ -174,6 +175,9 @@ pub trait SignRaw {
     ///
     /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
     fn algorithm(&self) -> SecurityAlgorithm;
+
+    /// TODO
+    fn flags(&self) -> u16;
 
     /// The public key.
     ///
@@ -375,6 +379,17 @@ impl SignRaw for KeyPair {
             Self::OpenSSL(key) => key.algorithm(),
             #[cfg(feature = "kmip")]
             Self::Kmip(key) => key.algorithm(),
+        }
+    }
+
+    fn flags(&self) -> u16 {
+        match self {
+            #[cfg(feature = "ring")]
+            Self::Ring(key) => key.flags(),
+            #[cfg(feature = "openssl")]
+            Self::OpenSSL(key) => key.flags(),
+            #[cfg(feature = "kmip")]
+            Self::Kmip(key) => key.flags(),
         }
     }
 
@@ -1044,16 +1059,28 @@ impl std::error::Error for GenerateError {}
 /// is an optional step, or where crashing is prohibited, may wish to recover
 /// from such an error differently (e.g. by foregoing signatures or informing
 /// an operator).
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct SignError;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignError(String);
 
 impl fmt::Display for SignError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("could not create a cryptographic signature")
+        write!(f, "could not create a cryptographic signature: {}", self.0)
     }
 }
 
 impl std::error::Error for SignError {}
+
+impl From<String> for SignError {
+    fn from(err: String) -> Self {
+        SignError(err)
+    }
+}
+
+impl From<&'static str> for SignError {
+    fn from(err: &'static str) -> Self {
+        SignError(err.to_string())
+    }
+}
 
 //----------- BindFormatError ------------------------------------------------
 
