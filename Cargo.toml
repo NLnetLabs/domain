@@ -40,7 +40,6 @@ parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
 openssl        = { version = "0.10.72", optional = true } # 0.10.70 upgrades to 'bitflags' 2.x
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
-r2d2           = { version = "0.8.9", optional = true }
 ring           = { version = "0.17.2", optional = true }
 bcder          = { version = "0.7", optional = true }
 rustversion    = { version = "1", optional = true }
@@ -72,7 +71,7 @@ tracing     = ["dep:log", "dep:tracing"]
 # Cryptographic backends
 ring        = ["dep:ring"]
 openssl     = ["dep:openssl"]
-kmip        = ["dep:kmip", "dep:r2d2", "dep:bcder", "dep:url", "dep:uuid", "dep:openssl"]
+kmip        = ["dep:kmip", "dep:bcder", "dep:url", "dep:uuid", "dep:openssl"]
 
 # Crate features
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]

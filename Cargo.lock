@@ -279,7 +279,6 @@ dependencies = [
  "parking_lot",
  "pretty_assertions",
  "proc-macro2",
- "r2d2",
  "rand",
  "ring",
  "rstest",
