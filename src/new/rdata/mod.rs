@@ -67,17 +67,18 @@ use core::fmt;
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
 
-use domain_macros::*;
-
-use crate::new::base::{
-    build::{BuildInMessage, NameCompressor},
-    name::CanonicalName,
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{
-        AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
-        TruncationError,
+use crate::{
+    new::base::{
+        build::{BuildInMessage, NameCompressor},
+        name::CanonicalName,
+        parse::{ParseMessageBytes, SplitMessageBytes},
+        wire::{
+            AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
+            TruncationError,
+        },
+        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
     },
-    CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
+    utils::dst::UnsizedCopy,
 };
 
 #[cfg(feature = "alloc")]
@@ -99,6 +100,8 @@ pub use dnssec::{
     DNSKey, DNSKeyFlags, DigestType, Ds, NSec, NSec3, NSec3Flags,
     NSec3HashAlg, NSec3Param, RRSig, SecAlg, TypeBitmaps,
 };
+
+use super::base::wire::ParseBytesZC;
 
 //----------- RecordData -----------------------------------------------------
 
@@ -742,5 +745,14 @@ impl BuildInMessage for UnknownRecordData {
             .ok_or(TruncationError)?
             .copy_from_slice(&self.octets);
         Ok(end)
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<UnknownRecordData> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }

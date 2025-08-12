@@ -400,7 +400,7 @@ impl Flags {
 //--- Display & FromStr
 
 impl fmt::Display for Flags {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut sep = "";
         if self.qr {
             write!(f, "QR")?;
@@ -883,7 +883,7 @@ impl HeaderSection {
 ///
 impl HeaderSection {
     pub fn parse<Octs: AsRef<[u8]>>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;
