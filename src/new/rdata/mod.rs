@@ -46,6 +46,9 @@
 //! IPv6 support (RFC 3596):
 //! - [`Aaaa`]
 //!
+//! DNAME support (RFC 6672):
+//! - [`DName`]
+//!
 //! EDNS support (RFC 6891):
 //! - [`Opt`]
 //!
@@ -88,6 +91,9 @@ use crate::new::base::name::{Name, NameBuf};
 
 mod basic;
 pub use basic::{CName, HInfo, Mx, Ns, Ptr, Soa, Txt, A};
+
+mod dname;
+pub use dname::DName;
 
 mod ipv6;
 pub use ipv6::Aaaa;
@@ -257,6 +263,9 @@ define_record_data! {
         /// The IPv6 address of a host responsible for this domain.
         Aaaa(Aaaa) = AAAA,
 
+        /// Redirection for the descendants of this domain.
+        DName(&'a DName) = DNAME,
+
         /// Extended DNS options.
         Opt(&'a Opt) = OPT,
 
@@ -298,6 +307,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::Mx(r) => RecordData::Mx(r.map_name(f)),
             Self::Txt(r) => RecordData::Txt(r),
             Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
             Self::RRSig(r) => RecordData::RRSig(r),
@@ -324,6 +334,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::Mx(r) => RecordData::Mx(r.map_name_by_ref(f)),
             Self::Txt(r) => RecordData::Txt(r),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
+            Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
             Self::RRSig(r) => RecordData::RRSig(r.clone()),
@@ -356,6 +367,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::Mx(r) => RecordData::Mx(r.clone()),
             Self::Txt(r) => RecordData::Txt(copy_to_bump(*r, bump)),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
+            Self::DName(r) => RecordData::DName(copy_to_bump(*r, bump)),
             Self::Opt(r) => RecordData::Opt(copy_to_bump(*r, bump)),
             Self::Ds(r) => RecordData::Ds(copy_to_bump(*r, bump)),
             Self::RRSig(r) => RecordData::RRSig(r.clone_to_bump(bump)),
@@ -405,6 +417,9 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             }
             RType::AAAA => {
                 Aaaa::parse_bytes(&contents[start..]).map(Self::Aaaa)
+            }
+            RType::DNAME => {
+                <&DName>::parse_bytes(&contents[start..]).map(Self::DName)
             }
             RType::OPT => {
                 <&Opt>::parse_bytes(&contents[start..]).map(Self::Opt)
