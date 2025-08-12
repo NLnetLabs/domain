@@ -276,6 +276,9 @@ impl RType {
     /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
     pub const AAAA: Self = Self::new(28);
 
+    /// The type of a [`DName`](crate::new::rdata::DName) record.
+    pub const DNAME: Self = Self::new(39);
+
     /// The type of an [`Opt`](crate::new::rdata::Opt) record.
     pub const OPT: Self = Self::new(41);
 
@@ -327,7 +330,7 @@ impl RType {
     /// - `NAPTR`
     /// - `KX`
     /// - `SRV`
-    /// - `DNAME`
+    /// - [`DNAME`](RType::DNAME)
     /// - `A6` (obsolete)
     /// - [`RRSIG`](RType::RRSIG)
     ///
@@ -342,6 +345,7 @@ impl RType {
                 | Self::SOA
                 | Self::PTR
                 | Self::MX
+                | Self::DNAME
                 | Self::RRSIG
         )
     }
@@ -377,6 +381,7 @@ impl fmt::Debug for RType {
             Self::MX => "RType::MX",
             Self::TXT => "RType::TXT",
             Self::AAAA => "RType::AAAA",
+            Self::DNAME => "RType::DNAME",
             Self::OPT => "RType::OPT",
             Self::DS => "RType::DS",
             Self::RRSIG => "RType::RRSIG",
