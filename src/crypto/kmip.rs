@@ -1,4 +1,4 @@
-#![cfg(feature = "kmip")]
+#![cfg(all(feature = "kmip", any(feature = "ring", feature = "openssl")))]
 #![cfg_attr(docsrs, doc(cfg(feature = "kmip")))]
 
 use core::fmt;
@@ -6,16 +6,17 @@ use core::fmt;
 use std::{string::String, vec::Vec};
 
 use bcder::{decode::SliceSource, BitString, ConstOid, Oid};
-use kmip::types::{
-    common::{KeyFormatType, KeyMaterial, TransparentRSAPublicKey},
-    response::ManagedObject,
+use kmip::{
+    client::pool::SyncConnPool,
+    types::{
+        common::{KeyFormatType, KeyMaterial, TransparentRSAPublicKey},
+        response::ManagedObject,
+    },
 };
 use tracing::{debug, error};
 
 use crate::{
-    base::iana::SecurityAlgorithm,
-    crypto::{common::rsa_encode, kmip_pool::SyncConnPool},
-    rdata::Dnskey,
+    base::iana::SecurityAlgorithm, crypto::common::rsa_encode, rdata::Dnskey,
     utils::base16,
 };
 
@@ -402,6 +403,7 @@ pub mod sign {
     use std::time::SystemTime;
     use std::vec::Vec;
 
+    use kmip::client::pool::SyncConnPool;
     use kmip::types::common::{
         CryptographicAlgorithm, CryptographicParameters,
         CryptographicUsageMask, Data, DigitalSignatureAlgorithm,
@@ -424,7 +426,6 @@ pub mod sign {
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::DigestType;
     use crate::crypto::kmip::{GenerateError, PublicKey};
-    use crate::crypto::kmip_pool::SyncConnPool;
     use crate::crypto::sign::{
         GenerateParams, SignError, SignRaw, Signature,
     };
@@ -1248,10 +1249,10 @@ mod tests {
     use std::time::SystemTime;
     use std::vec::Vec;
 
+    use kmip::client::pool::ConnectionManager;
     use kmip::client::ConnectionSettings;
 
     use crate::crypto::kmip::sign::generate;
-    use crate::crypto::kmip_pool::ConnectionManager;
     use crate::crypto::sign::SignRaw;
     use crate::logging::init_logging;
 

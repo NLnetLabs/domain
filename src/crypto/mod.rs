@@ -138,7 +138,6 @@
 
 pub mod common;
 pub mod kmip;
-pub mod kmip_pool;
 pub mod openssl;
 pub mod ring;
 pub mod sign;
