@@ -747,7 +747,7 @@ dependencies = [
 [[package]]
 name = "kmip-protocol"
 version = "0.5.0"
-source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#d3c323caf199c982218a573ee7f5ab43075d0c27"
+source = "git+https://github.com/NLnetLabs/kmip-protocol?branch=next#cde038ea7dd8947309af7f733e8c09ec62fa655f"
 dependencies = [
  "cfg-if",
  "enum-display-derive",
@@ -757,6 +757,7 @@ dependencies = [
  "log",
  "maybe-async",
  "openssl",
+ "r2d2",
  "rustc_version",
  "serde",
  "serde_bytes",
@@ -768,7 +769,7 @@ dependencies = [
 [[package]]
 name = "kmip-ttlv"
 version = "0.4.0"
-source = "git+https://github.com/NLnetLabs/kmip-ttlv?branch=next#ffe005638e150db0c1f1435a607f292d82b634b1"
+source = "git+https://github.com/NLnetLabs/kmip-ttlv?branch=next#4ca144e19e69375a6ccd63cf40b0e61f89462f97"
 dependencies = [
  "cfg-if",
  "hex",
