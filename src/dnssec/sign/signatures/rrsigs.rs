@@ -361,10 +361,16 @@ where
         scratch,
     )?;
     let signature = key.raw_secret_key().sign_raw(&*scratch)?;
-    signature_to_record(signature, rrsig, rrset_owner, rrset_class, rrset_ttl)
+    sign_sorted_rrset_in_post(
+        signature,
+        rrsig,
+        rrset_owner,
+        rrset_class,
+        rrset_ttl,
+    )
 }
 
-pub fn signature_to_record<N, Octs>(
+pub fn sign_sorted_rrset_in_post<N, Octs>(
     signature: Signature,
     rrsig: ProtoRrsig<N>,
     rrset_owner: N,
