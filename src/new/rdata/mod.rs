@@ -84,6 +84,9 @@ use crate::{
 #[cfg(feature = "alloc")]
 use crate::new::base::name::{Name, NameBuf};
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Concrete record data types -------------------------------------
 
 mod basic;
@@ -432,6 +435,118 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N> Scan<'a> for RecordData<'a, N>
+where
+    N: Scan<'a> + SplitBytes<'a> + SplitMessageBytes<'a>,
+{
+    /// Scan record data.
+    ///
+    /// Parses the `data` syntax from [the specification].
+    ///
+    /// [the specification]: crate::new::zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let rtype = RType::scan(scanner, alloc, buffer)?;
+
+        if !scanner.skip_ws() {
+            return Err(ScanError::Incomplete);
+        }
+
+        if scanner.remaining().starts_with(b"\\#") {
+            // Parse from the unknown record data format.
+            let data = <&'a UnknownRecordData>::scan(scanner, alloc, buffer)?;
+            return Self::parse_record_data_bytes(&data.octets, rtype)
+                .map_err(|_| ScanError::Custom("invalid unknown-data content for a known record data type"));
+        }
+
+        // Try all concrete parsers.
+        match rtype {
+            RType::A => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::A)
+            }
+
+            RType::NS => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::Ns)
+            }
+
+            RType::CNAME => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::CName)
+            }
+
+            RType::SOA => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::Soa)
+            }
+
+            RType::PTR => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::Ptr)
+            }
+
+            RType::HINFO => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::HInfo)
+            }
+
+            RType::MX => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::Mx)
+            }
+
+            RType::TXT => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::Txt)
+            }
+
+            RType::AAAA => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::Aaaa)
+            }
+
+            RType::DS => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::Ds)
+            }
+
+            RType::RRSIG => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::RRSig)
+            }
+
+            RType::NSEC => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::NSec)
+            }
+
+            RType::DNSKEY => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::DNSKey)
+            }
+
+            RType::NSEC3 => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::NSec3)
+            }
+
+            RType::NSEC3PARAM => {
+                Scan::scan(scanner, alloc, buffer)
+                    .map(Self::NSec3Param)
+            }
+
+            _ => Err(ScanError::Custom("the concrete format for this record type is currently unsupported")),
+        }
+    }
+}
+
 //----------- BoxedRecordData ------------------------------------------------
 
 /// A heap-allocated container for [`RecordData`].
@@ -748,11 +863,131 @@ impl BuildInMessage for UnknownRecordData {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a UnknownRecordData {
+    /// Scan record data from the generic format.
+    ///
+    /// Parses the `unknown-data` syntax from [the specification].
+    ///
+    /// [the specification]: crate::new::zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Allow the buffer to have previous content.
+        let start = buffer.len();
+
+        // Parse the special unknown data marker.
+        if !scanner
+            .remaining()
+            .strip_prefix(b"\\#")
+            .is_some_and(|r| r.first().map_or(true, u8::is_ascii_whitespace))
+        {
+            return Err(ScanError::Custom(
+                "missing marker for the unknown record data format",
+            ));
+        }
+        scanner.consume(2);
+
+        if !scanner.skip_ws() {
+            return Err(ScanError::Custom("missing data size field"));
+        }
+
+        // Parse the record data size.
+        let size: usize = scanner
+            .scan_plain_token()?
+            .parse::<u16>()
+            .map_err(|_| ScanError::Custom("invalid data size field"))?
+            .into();
+
+        // NOTE: We explicitly choose not to preallocate the expected size of
+        // the record, in case it's wrong and we end up over-allocating.
+
+        // Fill the buffer with the record data in bytes.
+        while buffer.len() < start + size {
+            if !scanner.skip_ws() {
+                return Err(ScanError::Custom("missing record data bytes"));
+            }
+
+            let token = scanner.scan_plain_token()?;
+
+            if buffer.len() > start + size + token.len() / 2 {
+                return Err(ScanError::Custom(
+                    "overlong unknown record data bytes",
+                ));
+            }
+
+            for chunk in token.as_bytes().chunks(2) {
+                let &[hi, lo] = chunk else {
+                    return Err(ScanError::Custom(
+                        "partial byte in unknown record data",
+                    ));
+                };
+
+                fn decode_hex(c: u8) -> Result<u8, ScanError> {
+                    match c {
+                        b'0'..=b'9' => Ok(c - b'0'),
+                        b'A'..=b'F' => Ok(c - b'A' + 10),
+                        b'a'..=b'f' => Ok(c - b'a' + 10),
+                        _ => Err(ScanError::Custom("unknown record data contained a non-hexadecimal value")),
+                    }
+                }
+
+                buffer.push((decode_hex(hi)? << 4) | decode_hex(lo)?);
+            }
+        }
+
+        debug_assert_eq!(buffer.len(), start + size);
+        let bytes = alloc.alloc_slice_copy(&buffer[start..]);
+        Ok(Self::parse_bytes(bytes)
+            .expect("Up to 64K of arbitrary bytes is always valid 'UnknownRecordData'"))
+    }
+}
+
 //--- Cloning
 
 #[cfg(feature = "alloc")]
 impl Clone for alloc::boxed::Box<UnknownRecordData> {
     fn clone(&self) -> Self {
         (*self).unsized_copy_into()
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_unknown() {
+        use crate::new::base::wire::AsBytes;
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::UnknownRecordData;
+
+        let cases = [
+            (b"\\# 0" as &[u8], Ok(&[] as &[u8])),
+            (b"\\# 1 5A", Ok(&[0x5A])),
+            (b"\\# 4 41 52 5a 4B", Ok(&[0x41, 0x52, 0x5a, 0x4B])),
+            (b"\\# 4 4152 5a4B", Ok(&[0x41, 0x52, 0x5a, 0x4B])),
+            (
+                b"\\# 4 415 25 a4B",
+                Err(ScanError::Custom("partial byte in unknown record data")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                <&UnknownRecordData>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|d| d.as_bytes()),
+                expected
+            );
+        }
     }
 }
