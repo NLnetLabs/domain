@@ -28,54 +28,7 @@ use crate::{
 
 pub use kmip::client::{ClientCertificate, ConnectionSettings};
 
-//============ Error Types ===================================================
-
-//----------- GenerateError --------------------------------------------------
-
-/// An error in generating a key pair with OpenSSL.
-#[derive(Clone, Debug)]
-pub enum GenerateError {
-    /// The requested algorithm is not supported.
-    UnsupportedAlgorithm(SecurityAlgorithm),
-
-    // The requested key size for the given algorithm is not supported.
-    UnsupportedKeySize {
-        algorithm: SecurityAlgorithm,
-        min: u32,
-        max: u32,
-        requested: u32,
-    },
-
-    /// A problem occurred while communicating with the KMIP server.
-    Kmip(String),
-}
-
-//--- Formatting
-
-impl fmt::Display for GenerateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnsupportedAlgorithm(algorithm) => {
-                write!(f, "algorithm {algorithm} not supported")
-            }
-            Self::UnsupportedKeySize {
-                algorithm,
-                min,
-                max,
-                requested,
-            } => {
-                write!(f, "key size {requested} for algorithm {algorithm} must be in the range {min}..={max}")
-            }
-            Self::Kmip(err) => {
-                write!(f, "a problem occurred while communicating with the KMIP server: {err}")
-            }
-        }
-    }
-}
-
-//--- Error
-
-impl std::error::Error for GenerateError {}
+//------------ Constants -----------------------------------------------------
 
 /// [RFC 4055](https://tools.ietf.org/html/rfc4055) `rsaEncryption`
 ///
@@ -93,6 +46,8 @@ pub const EC_PUBLIC_KEY_OID: ConstOid = Oid(&[42, 134, 72, 206, 61, 2, 1]);
 ///
 /// Identifies the P-256 curve for elliptic curve cryptography.
 pub const SECP256R1_OID: ConstOid = Oid(&[42, 134, 72, 206, 61, 3, 1, 7]);
+
+//------------ KeyUrl --------------------------------------------------------
 
 /// A URL that represents a key stored in a KMIP compatible HSM.
 ///
@@ -157,34 +112,52 @@ pub struct KeyUrl {
     flags: u16,
 }
 
-impl KeyUrl {
-    pub fn url(&self) -> &Url {
-        &self.url
-    }
+//--- Accessors
 
+impl KeyUrl {
+    /// The KMIP server ID.
     pub fn server_id(&self) -> &str {
         &self.server_id
     }
 
+    /// The KMIP key ID.
     pub fn key_id(&self) -> &str {
         &self.key_id
     }
 
+    /// The DNSSEC algorithm identifier for the key.
     pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
+    /// The DNSSEC flags for the key.
     pub fn flags(&self) -> u16 {
         self.flags
     }
+}
 
-    pub fn into_url(self) -> Url {
+//--- impl Into<Url>
+
+impl Into<Url> for KeyUrl {
+    fn into(self) -> Url {
         self.url
     }
 }
 
+//--- impl Deref
+
+impl std::ops::Deref for KeyUrl {
+    type Target = Url;
+
+    fn deref(&self) -> &Self::Target {
+        &self.url
+    }
+}
+
+//--- Conversions
+
 impl TryFrom<Url> for KeyUrl {
-    type Error = SignError;
+    type Error = String;
 
     fn try_from(url: Url) -> Result<Self, Self::Error> {
         let server_id = url
@@ -237,19 +210,41 @@ impl TryFrom<Url> for KeyUrl {
     }
 }
 
+//------------ PublicKey -----------------------------------------------------
+
+/// A public key for verifying a signature.
 pub struct PublicKey {
+    /// The DNSSEC algorithm for use with this public key.
     algorithm: SecurityAlgorithm,
 
+    /// The public key octets.
     public_key: Vec<u8>,
 }
 
 impl PublicKey {
-    pub fn from_metadata(
+    /// Create a public key from a key stored on a KMIP server.
+    ///
+    /// The public key details will be retrieved from the KMIP server.
+    ///
+    /// The DNSSEC algorithm is needed in order for [`Self::dnskey()`] to
+    /// generate a [`Dnskey`] and must match the cryptographic algorithm of
+    /// the key stored on the KMIP server.
+    ///
+    /// Note: This function will block while awaiting the response from the
+    /// KMIP server.
+    ///
+    /// If the KMIP operation fails an error or the response cannot be parsed
+    /// an error will be returned.
+    ///
+    /// If the cryptographic algorithm of the retrieved key does not match
+    /// the given DNSSEC algorithm an error will be returned.
+    pub fn for_key_id_and_dnssec_algorithm(
         public_key_id: &str,
         algorithm: SecurityAlgorithm,
         conn_pool: SyncConnPool,
-    ) -> Result<Self, kmip::client::Error> {
-        let public_key = Self::fetch_public_key(public_key_id, &conn_pool)?;
+    ) -> Result<Self, PublicKeyError> {
+        let public_key =
+            Self::fetch_public_key(public_key_id, algorithm, &conn_pool)?;
 
         Ok(Self {
             algorithm,
@@ -257,22 +252,31 @@ impl PublicKey {
         })
     }
 
-    pub fn from_url(
+    /// Create a public key from a key stored on a KMIP server.
+    ///
+    /// This is a thin wrapper around
+    /// [`Self::for_key_id_and_dnssec_algorithm`].
+    pub fn for_key_url(
         public_key_url: KeyUrl,
         conn_pool: SyncConnPool,
-    ) -> Result<Self, kmip::client::Error> {
-        Self::from_metadata(
+    ) -> Result<Self, PublicKeyError> {
+        Self::for_key_id_and_dnssec_algorithm(
             public_key_url.key_id(),
             public_key_url.algorithm(),
             conn_pool,
         )
     }
 
+    /// The DNSSEC algorithm of the key.
     pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
+    /// Generate a DNSKEY RR or this public key.
     pub fn dnskey(&self, flags: u16) -> Dnskey<Vec<u8>> {
+        // SAFETY: The key came from a KMIP server and was validated to have
+        // the expected length when the KMIP server response was parsed by
+        // fetch_public_key().
         Dnskey::new(flags, 3, self.algorithm, self.public_key.clone())
             .unwrap()
     }
@@ -281,8 +285,9 @@ impl PublicKey {
 impl PublicKey {
     fn fetch_public_key(
         public_key_id: &str,
+        expected_algorithm: SecurityAlgorithm,
         conn_pool: &SyncConnPool,
-    ) -> Result<Vec<u8>, kmip::client::Error> {
+    ) -> Result<Vec<u8>, PublicKeyError> {
         // https://datatracker.ietf.org/doc/html/rfc5702#section-2
         // Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource
         // Records for DNSSEC
@@ -340,7 +345,7 @@ impl PublicKey {
             .inspect_err(|err| error!("{err}"))?;
         let ManagedObject::PublicKey(public_key) = res.cryptographic_object
         else {
-            return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object was expected to be a PublicKey but was instead: {}", res.cryptographic_object)));
+            return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object was expected to be a PublicKey but was instead: {}", res.cryptographic_object)))?;
         };
 
         // https://docs.oasis-open.org/kmip/ug/v1.2/cn01/kmip-ug-v1.2-cn01.html#_Toc407027125
@@ -352,29 +357,19 @@ impl PublicKey {
         // == KeyFormatType::Raw. However, Fortanix DSM returns
         // KeyFormatType::Raw when fetching key data for an ECDSA public key.
 
-        // TODO: SAFETY
-        // TODO: We don't know that these lengths are correct, consult
-        // cryptographic_length() too?
-        let algorithm =
-            match public_key.key_block.cryptographic_algorithm.unwrap() {
-                kmip::types::common::CryptographicAlgorithm::RSA => {
-                    SecurityAlgorithm::RSASHA256
-                }
-                kmip::types::common::CryptographicAlgorithm::ECDSA => {
-                    SecurityAlgorithm::ECDSAP256SHA256
-                }
-                alg => return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object has unsupported cryptographic algorithm type: {alg}"))),
-            };
-
         let octets = match public_key.key_block.key_value.key_material {
             KeyMaterial::Bytes(bytes) => {
                 debug!("Cryptographic Algorithm: {:?}", public_key.key_block.cryptographic_algorithm);
+                debug!("Cryptographic Length: {:?}", public_key.key_block.cryptographic_length);
                 debug!("Key Format Type: {:?}", public_key.key_block.key_format_type);
+                debug!("Key Compression Type: {:?}", public_key.key_block.key_compression_type);
                 debug!("Key bytes as hex: {}", base16::encode_display(&bytes));
 
-                // Handle key format type PKCS1
-                match (algorithm, public_key.key_block.key_format_type) {
-                    (SecurityAlgorithm::RSASHA256, KeyFormatType::PKCS1) => {
+                match (expected_algorithm, public_key.key_block.key_format_type) {
+                    (SecurityAlgorithm::RSASHA1, KeyFormatType::PKCS1) |
+                    (SecurityAlgorithm::RSASHA1_NSEC3_SHA1, KeyFormatType::PKCS1) |
+                    (SecurityAlgorithm::RSASHA256, KeyFormatType::PKCS1) |
+                    (SecurityAlgorithm::RSASHA512, KeyFormatType::PKCS1) => {
                         // PyKMIP outputs PKCS#1 ASN.1 DER encoded RSA public
                         // key data like so:
                         //   RSAPublicKey::=SEQUENCE{
@@ -390,14 +385,14 @@ impl PublicKey {
                                     public_exponent = Some(bcder::Unsigned::take_from(cons)?);
                                     Ok(())
                                 })
-                            }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse PKCS#1 RSASHA256 SubjectPublicKeyInfo: {err}")))?;
+                            }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}")))?;
 
                         let Some(modulus) = modulus else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse PKCS#1 RSASHA256 SubjectPublicKeyInfo: missing modulus".into()));
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse DER encoded PKCS#1 RSAPublicKey: missing modulus".into()))?;
                         };
 
                         let Some(public_exponent) = public_exponent else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse PKCS#1 RSASHA256 SubjectPublicKeyInfo: missing public exponent".into()));
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse DER encoded PKCS#1 RSAPublicKey: missing public exponent".into()))?;
                         };
 
                         let n = modulus.as_slice();
@@ -405,7 +400,10 @@ impl PublicKey {
                         crate::crypto::common::rsa_encode(e, n)
                     },
 
-                    (SecurityAlgorithm::RSASHA256, KeyFormatType::Raw) => {
+                    (SecurityAlgorithm::RSASHA1, KeyFormatType::Raw) |
+                    (SecurityAlgorithm::RSASHA1_NSEC3_SHA1, KeyFormatType::Raw) |
+                    (SecurityAlgorithm::RSASHA256, KeyFormatType::Raw) |
+                    (SecurityAlgorithm::RSASHA512, KeyFormatType::Raw) => {
                         // For an RSA key Fortanix DSM supplies: (from https://asn1js.eu/)
                         //   SubjectPublicKeyInfo SEQUENCE (2 elem)
                         //     algorithm AlgorithmIdentifier SEQUENCE (2 elem)
@@ -438,11 +436,11 @@ impl PublicKey {
                             }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: {err}")))?;
 
                         let Some(modulus) = modulus else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: missing modulus".into()));
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: missing modulus".into()))?;
                         };
 
                         let Some(public_exponent) = public_exponent else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: missing public exponent".into()));
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: missing public exponent".into()))?;
                         };
 
                         let n = modulus.as_slice();
@@ -494,7 +492,7 @@ impl PublicKey {
                             }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo: {err}")))?;
 
                         let Some(bits) = bits else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()));
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()))?;
                         };
 
                         // https://www.rfc-editor.org/rfc/rfc5480#section-2.2
@@ -512,13 +510,13 @@ impl PublicKey {
                         //    MUST be rejected if any other value is included
                         //    in the first octet."
                         let Some(octets) = bits.octet_slice() else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()));
+                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()))?;
                         };
 
                         // Expect octet string to be [<compression flag byte>,
                         // <32-byte X value>, <32-byte Y value>].
                         if octets.len() != 65 {
-                            return Err(kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [<compression flag byte>, <32-byte X value>, <32-byte Y value>]: {} ({} bytes)", base16::encode_display(octets), octets.len())));
+                            return Err(kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [<compression flag byte>, <32-byte X value>, <32-byte Y value>]: {} ({} bytes)", base16::encode_display(octets), octets.len())))?;
                         }
 
                         // Note: OpenDNSSEC doesn't support the compressed
@@ -535,7 +533,12 @@ impl PublicKey {
                         octets[1..].to_vec()
                     }
 
-                    _ => todo!(),
+                    (expected, key_format_type) => {
+                        let alg = public_key.key_block.cryptographic_algorithm.map(|a| a.to_string()).unwrap_or("unknown algorithm".to_string());
+                        let len = public_key.key_block.cryptographic_length.map(|l| l.to_string()).unwrap_or("unknown length".to_string());
+                        let actual = format!("{alg} ({len}) as {key_format_type}");
+                        return Err(PublicKeyError::AlgorithmMismatch { expected, actual });
+                    }
                 }
             }
 
@@ -547,12 +550,14 @@ impl PublicKey {
                 },
             ) => rsa_encode(&public_exponent, &modulus),
 
-            mat => return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object has unsupported key material type: {mat}"))),
+            mat => return Err(kmip::client::Error::DeserializeError(format!("Fetched KMIP object has unsupported key material type: {mat}")))?,
         };
 
         Ok(octets)
     }
 }
+
+//============ sign ==========================================================
 
 #[cfg(feature = "unstable-crypto-sign")]
 /// Submodule for private keys and signing.
@@ -584,18 +589,16 @@ pub mod sign {
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::DigestType;
-    use crate::crypto::kmip::{GenerateError, KeyUrl, PublicKey};
+    use crate::crypto::kmip::{
+        GenerateError, KeyUrl, KeyUrlParseError, PublicKey,
+    };
     use crate::crypto::sign::{
         GenerateParams, SignError, SignRaw, Signature,
     };
     use crate::rdata::Dnskey;
     use crate::utils::base16;
 
-    impl From<kmip::client::Error> for SignError {
-        fn from(err: kmip::client::Error) -> Self {
-            err.to_string().into()
-        }
-    }
+    //----------- KeyPair ----------------------------------------------------
 
     /// A reference to a key pair stored in an [OASIS KMIP] compliant HSM
     /// server.
@@ -636,7 +639,7 @@ pub mod sign {
             public_key_id: &str,
             conn_pool: SyncConnPool,
         ) -> Result<Self, GenerateError> {
-            let dnskey = PublicKey::from_metadata(
+            let dnskey = PublicKey::for_key_id_and_dnssec_algorithm(
                 public_key_id,
                 algorithm,
                 conn_pool.clone(),
@@ -694,13 +697,14 @@ pub mod sign {
         }
 
         /// Get a KMIP URL for the private half of this key pair.
-        pub fn private_key_url(&self) -> Result<Url, SignError> {
-            self.mk_key_url(&self.private_key_id)
+        pub fn private_key_url(&self) -> Url {
+            //
+            self.mk_key_url(&self.private_key_id).unwrap()
         }
 
         /// Get a KMIP URL for the public half of this key pair.
-        pub fn public_key_url(&self) -> Result<Url, SignError> {
-            self.mk_key_url(&self.public_key_id)
+        pub fn public_key_url(&self) -> Url {
+            self.mk_key_url(&self.public_key_id).unwrap()
         }
 
         /// Get a reference to the KMIP HSM connection pool for this key pair.
@@ -776,7 +780,7 @@ pub mod sign {
 
     impl KeyPair {
         /// Make a KMIP URL for this key using the given KMIP ID.
-        fn mk_key_url(&self, key_id: &str) -> Result<Url, SignError> {
+        fn mk_key_url(&self, key_id: &str) -> Result<Url, KeyUrlParseError> {
             // We have to store the algorithm in the URL because the DNSSEC
             // algorithm (e.g. 5 and 7) don't necessarily correspond to the
             // cryptographic algorithm of the key known to the HSM. And we
@@ -791,8 +795,10 @@ pub mod sign {
                 self.flags
             );
 
-            let url = Url::parse(&url).map_err::<SignError, _>(|err| {
-                format!("unable to parse {url} as URL: {err}").into()
+            let url = Url::parse(&url).map_err(|err| {
+                KeyUrlParseError(format!(
+                    "unable to parse {url} as URL: {err}"
+                ))
             })?;
 
             Ok(url)
@@ -881,31 +887,10 @@ pub mod sign {
                     )))
                 }
 
-                (SecurityAlgorithm::ECDSAP384SHA384, 96) => {
-                    Ok(Signature::EcdsaP384Sha384(Box::<[u8; 96]>::new(
-                        signed
-                            .signature_data
-                            .try_into()
-                            .unwrap()
-                    )))
-                }
-                (SecurityAlgorithm::ED25519, 64) => {
-                    Ok(Signature::Ed25519(Box::<[u8; 64]>::new(
-                        signed
-                            .signature_data
-                            .try_into()
-                            .unwrap()
-                    )))
-                }
-
-                (SecurityAlgorithm::ED448, 114) => {
-                    Ok(Signature::Ed448(Box::<[u8; 114]>::new(
-                        signed
-                            .signature_data
-                            .try_into()
-                            .unwrap()
-                    )))
-                }
+                // TODO
+                //(SecurityAlgorithm::ECDSAP384SHA384, 96) => {},
+                //(SecurityAlgorithm::ED25519, 64) => {},
+                //(SecurityAlgorithm::ED448, 114) => {},
 
                 (alg, sig_len) => {
                     Err(format!("KMIP signature algorithm not supported or signature length incorrect: {sig_len} byte {alg} signature (0x{})",
@@ -916,10 +901,13 @@ pub mod sign {
         }
     }
 
+    //----------- SignQueue --------------------------------------------------
+
     /// A queue of KMIP signing operations pending batch submission.
     pub struct SignQueue(Vec<BatchItem>);
 
     impl SignQueue {
+        /// TODO
         pub fn new() -> Self {
             Self(vec![])
         }
@@ -1035,12 +1023,7 @@ pub mod sign {
                 //    RSA/SHA-256 keys MUST NOT be less than 512 bits and MUST
                 //    NOT be more than 4096 bits."
                 if !(512..=4096).contains(&bits) {
-                    return Err(GenerateError::UnsupportedKeySize {
-                        algorithm: SecurityAlgorithm::RSASHA256,
-                        min: 512,
-                        max: 4096,
-                        requested: bits,
-                    });
+                    return Err(GenerateError::UnsupportedAlgorithm);
                 }
 
                 if use_cryptographic_params {
@@ -1064,9 +1047,7 @@ pub mod sign {
                 }
             }
             GenerateParams::RsaSha512 { .. } => {
-                return Err(GenerateError::UnsupportedAlgorithm(
-                    SecurityAlgorithm::RSASHA512,
-                ));
+                return Err(GenerateError::UnsupportedAlgorithm);
             }
             GenerateParams::EcdsaP256Sha256 => {
                 // PyKMIP doesn't support ECDSA:
@@ -1111,15 +1092,18 @@ pub mod sign {
             }
             GenerateParams::EcdsaP384Sha384 => {
                 // RFC 8624 3.1 DNSSEC Signing: MAY
-                todo!()
+                // TODO
+                return Err(GenerateError::UnsupportedAlgorithm);
             }
             GenerateParams::Ed25519 => {
                 // RFC 8624 3.1 DNSSEC Signing: RECOMMENDED
-                todo!()
+                // TODO
+                return Err(GenerateError::UnsupportedAlgorithm);
             }
             GenerateParams::Ed448 => {
                 // RFC 8624 3.1 DNSSEC Signing: MAY
-                todo!()
+                // TODO
+                return Err(GenerateError::UnsupportedAlgorithm);
             }
         };
 
@@ -1219,10 +1203,125 @@ pub mod sign {
         Ok(key_pair)
     }
 
-    //----------- TODO: destroy() --------------------------------------------
+    //----------- destroy() --------------------------------------------------
 
     // TODO
 }
+
+//============ Error Types ===================================================
+
+//--- Conversion
+
+impl From<kmip::client::Error> for SignError {
+    fn from(err: kmip::client::Error) -> Self {
+        err.to_string().into()
+    }
+}
+
+//----------- GenerateError --------------------------------------------------
+
+/// An error occurred while generating a key pair with a KMIP server.
+#[derive(Clone, Debug)]
+pub enum GenerateError {
+    /// The requested algorithm is not supported.
+    UnsupportedAlgorithm,
+
+    /// A problem occurred while communicating with the KMIP server.
+    Kmip(String),
+}
+
+//--- Formatting
+
+impl fmt::Display for GenerateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedAlgorithm => {
+                write!(f, "algorithm not supported")
+            }
+            Self::Kmip(err) => {
+                write!(f, "a problem occurred while communicating with the KMIP server: {err}")
+            }
+        }
+    }
+}
+
+//--- impl Error
+
+impl std::error::Error for GenerateError {}
+
+//------------ KeyUrlError ---------------------------------------------------
+
+/// An error occurred while parsing a KMIP key URL.
+#[derive(Clone, Debug)]
+pub struct KeyUrlParseError(String);
+
+//--- Formatting
+
+impl fmt::Display for KeyUrlParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid key URL: {}", self.0)
+    }
+}
+
+//--- impl Error
+
+impl std::error::Error for KeyUrlParseError {}
+
+//--- Conversions
+
+impl From<String> for KeyUrlParseError {
+    fn from(err: String) -> Self {
+        KeyUrlParseError(err)
+    }
+}
+
+//------------ PublicKeyError ------------------------------------------------
+
+/// An error occurred while retrieving a KMIP public key.
+#[derive(Clone, Debug)]
+pub enum PublicKeyError {
+    /// The cryptographic algorithm of the KMIP key does not match the
+    /// specified DNSSEC algorithm.
+    AlgorithmMismatch {
+        /// The DNSSEC algorithm that was expected.
+        expected: SecurityAlgorithm,
+
+        /// The type of key data received from the KMIP server.
+        actual: String,
+    },
+
+    /// A problem occurred while communicating with the KMIP server.
+    Kmip(String),
+}
+
+//--- Formatting
+
+impl fmt::Display for PublicKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AlgorithmMismatch { expected, actual } => {
+                write!(f, "algorithm mismatch: expected {expected} but found {actual}")
+            }
+            Self::Kmip(err) => {
+                write!(f, "a problem occurred while communicating with the KMIP server: {err}")
+            }
+        }
+    }
+}
+
+//--- impl Error
+
+impl std::error::Error for PublicKeyError {}
+
+//--- Conversions
+
+impl From<kmip::client::Error> for PublicKeyError {
+    fn from(err: kmip::client::Error) -> Self {
+        PublicKeyError::Kmip(err.to_string())
+    }
+}
+
+//============ Testing =======================================================
 
 #[cfg(test)]
 mod tests {
