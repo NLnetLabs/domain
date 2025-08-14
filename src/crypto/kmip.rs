@@ -132,10 +132,10 @@ impl PublicKey {
         // https://datatracker.ietf.org/doc/html/rfc5702#section-2
         // Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource
         // Records for DNSSEC
+        //
         // 2.  DNSKEY Resource Records
-        //   "The format of the DNSKEY RR can be found in [RFC4034].
-        //   [RFC3110] describes the use of RSA/SHA-1 for DNSSEC
-        //   signatures."
+        //   "The format of the DNSKEY RR can be found in [RFC4034]. [RFC3110]
+        //   describes the use of RSA/SHA-1 for DNSSEC signatures."
         //                          |
         //                          |
         //                          v
@@ -144,16 +144,16 @@ impl PublicKey {
         // 2.  The DNSKEY Resource Record
         // 2.1.4.  The Public Key Field
         //   "The Public Key Field holds the public key material.  The
-        //    format depends on the algorithm of the key being stored and
-        //    is described in separate documents."
+        //    format depends on the algorithm of the key being stored and is
+        //    described in separate documents."
         //                          |
         //                          |
         //                          v
         // https://datatracker.ietf.org/doc/html/rfc3110#section-2
         // RSA/SHA-1 SIGs and RSA KEYs in the Domain Name System (DNS)
         // 2. RSA Public KEY Resource Records
-        //   "... The structure of the algorithm specific portion of the
-        //    RDATA part of such RRs is as shown below.
+        //   "... The structure of the algorithm specific portion of the RDATA
+        //    part of such RRs is as shown below.
         //
         //    Field             Size
         //    -----             ----
@@ -161,16 +161,15 @@ impl PublicKey {
         //    exponent          as specified by length field
         //    modulus           remaining space
         //
-        // For interoperability, the exponent and modulus are each limited
-        // to 4096 bits in length.  The public key exponent is a variable
-        // length unsigned integer.  Its length in octets is represented
-        // as one octet if it is in the range of 1 to 255 and by a zero
-        // octet followed by a two octet unsigned length if it is longer
-        // than 255 bytes.  The public key modulus field is a
-        // multiprecision unsigned integer.  The length of the modulus can
-        // be determined from the RDLENGTH and the preceding RDATA fields
-        // including the exponent.  Leading zero octets are prohibited in
-        // the exponent and modulus.
+        // For interoperability, the exponent and modulus are each limited to
+        // 4096 bits in length.  The public key exponent is a variable length
+        // unsigned integer.  Its length in octets is represented as one octet
+        // if it is in the range of 1 to 255 and by a zero octet followed by
+        // a two octet unsigned length if it is longer than 255 bytes.  The
+        // public key modulus field is a multiprecision unsigned integer.  The
+        // length of the modulus can be determined from the RDLENGTH and the
+        // preceding RDATA fields including the exponent.  Leading zero octets
+        // are prohibited in the exponent and modulus.
 
         let client = conn_pool.get().inspect_err(|err| error!("{err}")).map_err(|err| {
             kmip::client::Error::ServerError(format!(
@@ -179,9 +178,9 @@ impl PublicKey {
         })?;
 
         // Note: OpenDNSSEC queries the public key ID, _unless_ it was
-        // configured not the public key in the HSM (by setting
-        // CKA_TOKEN false) in which case there is no public key and so it
-        // uses the private key object handle instead.
+        // configured not the public key in the HSM (by setting CKA_TOKEN
+        // false) in which case there is no public key and so it uses the
+        // private key object handle instead.
         let res = client
             .get_key(public_key_id)
             .inspect_err(|err| error!("{err}"))?;
@@ -195,12 +194,13 @@ impl PublicKey {
         //    and not asymmetric keys"
         //
         // As we deal in asymmetric keys (RSA, ECDSA), not symmetric keys,
-        // we should not encounter public_key.key_block.key_format_type ==
-        // KeyFormatType::Raw. However, Fortanix DSM returns
+        // we should not encounter public_key.key_block.key_format_type
+        // == KeyFormatType::Raw. However, Fortanix DSM returns
         // KeyFormatType::Raw when fetching key data for an ECDSA public key.
 
         // TODO: SAFETY
-        // TODO: We don't know that these lengths are correct, consult cryptographic_length() too?
+        // TODO: We don't know that these lengths are correct, consult
+        // cryptographic_length() too?
         let algorithm =
             match public_key.key_block.cryptographic_algorithm.unwrap() {
                 kmip::types::common::CryptographicAlgorithm::RSA => {
@@ -344,35 +344,40 @@ impl PublicKey {
                         };
 
                         // https://www.rfc-editor.org/rfc/rfc5480#section-2.2
-                        //   "The subjectPublicKey from SubjectPublicKeyInfo is the ECC public key.
-                        //    ECC public keys have the following syntax:
+                        //   "The subjectPublicKey from SubjectPublicKeyInfo
+                        //    is the ECC public key. ECC public keys have the
+                        //    following syntax:
                         //
                         //        ECPoint ::= OCTET STRING
                         //    ...
-                        //    The first octet of the OCTET STRING indicates whether the key is
-                        //    compressed or uncompressed.  The uncompressed form is indicated
-                        //    by 0x04 and the compressed form is indicated by either 0x02 or
-                        //    0x03 (see 2.3.3 in [SEC1]).  The public key MUST be rejected if
-                        //    any other value is included in the first octet."
+                        //    The first octet of the OCTET STRING indicates
+                        //    whether the key is compressed or uncompressed.
+                        //    The uncompressed form is indicated by 0x04 and
+                        //    the compressed form is indicated by either 0x02
+                        //    or 0x03 (see 2.3.3 in [SEC1]).  The public key
+                        //    MUST be rejected if any other value is included
+                        //    in the first octet."
                         let Some(octets) = bits.octet_slice() else {
                             return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()));
                         };
 
-                        // Expect octet string to be [<compression flag byte>, <32-byte X value>, <32-byte Y value>].
+                        // Expect octet string to be [<compression flag byte>,
+                        // <32-byte X value>, <32-byte Y value>].
                         if octets.len() != 65 {
                             return Err(kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [<compression flag byte>, <32-byte X value>, <32-byte Y value>]: {} ({} bytes)", base16::encode_display(octets), octets.len())));
                         }
 
-                        // Note: OpenDNSSEC doesn't support the compressed form either.
+                        // Note: OpenDNSSEC doesn't support the compressed
+                        // form either.
                         let compression_flag = octets[0];
                         if compression_flag != 0x04 {
                             return Err(kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: unknown compression flag {compression_flag:?}")))?;
                         }
 
-                        // Expect octet string to be X | Y (| denotes concatenation) where
-                        // X and Y are each 32 bytes (because P-256 uses 256 bit values and
-                        // 256 bits are 32 bytes).
-                        // Skip the compression flag.
+                        // Expect octet string to be X | Y (| denotes
+                        // concatenation) where X and Y are each 32 bytes
+                        // (because P-256 uses 256 bit values and 256 bits are
+                        // 32 bytes). Skip the compression flag.
                         octets[1..].to_vec()
                     }
 
@@ -987,7 +992,10 @@ pub mod sign {
     /// Generate a new secret key for the given algorithm.
     pub fn generate(
         name: String,
-        params: GenerateParams, // TODO: Is this enough? Or do we need to take SecurityAlgorithm as input instead of GenerateParams to ensure we don't lose distinctions like 5 vs 7 which are both RSASHA1?
+        // TODO: Is this enough? Or do we need to take SecurityAlgorithm
+        // as input instead of GenerateParams to ensure we don't lose
+        // distinctions like 5 vs 7 which are both RSASHA1?
+        params: GenerateParams,
         flags: u16,
         conn_pool: SyncConnPool,
     ) -> Result<KeyPair, GenerateError> {
@@ -999,8 +1007,10 @@ pub mod sign {
 
         // TODO: Determine this on first use of the HSM?
         // PyKMIP doesn't support ActivationDate.
-        // Fortanix DSM does support it and creates the key in an activated state but still returns a (harmless?) error:
-        //   Server error: Operation CreateKeyPair failed: Input field `state` is not coherent with provided activation/deactivation dates
+        // Fortanix DSM does support it and creates the key in an activated
+        // state but still returns a (harmless?) error:
+        //   Server error: Operation CreateKeyPair failed: Input field `state`
+        //   is not coherent with provided activation/deactivation dates
         let activate_on_create = false;
 
         let use_cryptographic_params = false;
@@ -1008,7 +1018,8 @@ pub mod sign {
         let mut common_attrs = vec![];
         let priv_key_attrs = vec![
             // Krill supplies a name at creation time. Do we need to?
-            // Note: Fortanix DSM requires a name for at least the private key.
+            // Note: Fortanix DSM requires a name for at least the private
+            // key.
             request::Attribute::Name(format!("{name}_priv")),
             request::Attribute::CryptographicUsageMask(
                 CryptographicUsageMask::Sign,
@@ -1016,7 +1027,8 @@ pub mod sign {
         ];
         let pub_key_attrs = vec![
             // Krill supplies a name at creation time. Do we need to?
-            // Note: Fortanix DSM requires a name for at least the private key.
+            // Note: Fortanix DSM requires a name for at least the private
+            // key.
             request::Attribute::Name(format!("{name}_pub")),
             // Krill does verification, do we need to? ODS doesn't.
             // Note: PyKMIP requires a Cryptographic Usage Mask for the public
@@ -1027,12 +1039,13 @@ pub mod sign {
         ];
 
         // PyKMIP doesn't support CryptographicParameters so we cannot supply
-        // HashingAlgorithm. It also doesn't support the Hash operation. How
-        // do we specify SHA256 hashing? Do we have to do it ourselves
+        // HashingAlgorithm. It also doesn't support the Hash operation.
+        // How do we specify SHA256 hashing? Do we have to do it ourselves
         // post-signing? Can we just specify the hashing to do when invoking
         // the Sign operation?
         // Fortanix DSM also doesn't support Cryptographic Parameters:
-        //   Server error: Operation CreateKeyPair failed: Don't have handling for attribute Cryptographic Parameters
+        //   Server error: Operation CreateKeyPair failed: Don't have handling
+        //   for attribute Cryptographic Parameters
 
         // PyKMIP doesn't support Attribute::ActivationDate. For HSMs that
         // don't support it we have to do a separate Activate operation after
@@ -1043,7 +1056,8 @@ pub mod sign {
             GenerateParams::RsaSha256 { bits } => {
                 // RFC 8624 3.1 DNSSEC Signing: MUST
                 // https://docs.oasis-open.org/kmip/spec/v1.2/os/kmip-spec-v1.2-os.html#_Toc395776503
-                //   "For RSA, Cryptographic Length corresponds to the bit length of the Modulus"
+                //   "For RSA, Cryptographic Length corresponds to the bit
+                //    length of the Modulus"
 
                 // https://www.rfc-editor.org/rfc/rfc5702.html#section-2.1
                 // 2.1.  RSA/SHA-256 DNSKEY Resource Records
@@ -1116,8 +1130,8 @@ pub mod sign {
                     // Note: PyKMIP requires a length: use 256 from P-256?
                     // Note: Fortanix also requires a length and gives error
                     // "missing required field `elliptic_curve` in request
-                    // body" if cryptographic length is not specified, and a
-                    // value of 256 works fine while a value of 255 causes
+                    // body" if cryptographic length is not specified, and
+                    // a value of 256 works fine while a value of 255 causes
                     // error "Unsupported length for ECC key". When using 256
                     // the Fortanix UI shows the key as type EC with curve
                     // NistP256 so that seems good.
@@ -1174,8 +1188,8 @@ pub mod sign {
         tracing::trace!("Key generation operation complete");
 
         // Drop the KMIP client so that it will be returned to the pool and
-        // thus be available below when KeyPair::new() is invoked and tries
-        // to fetch the details needed to determine the DNSKEY RR.
+        // thus be available below when KeyPair::new() is invoked and tries to
+        // fetch the details needed to determine the DNSKEY RR.
         drop(client);
 
         // Process the successful response
@@ -1200,7 +1214,8 @@ pub mod sign {
         )
         .map_err(|err| GenerateError::Kmip(err.to_string()))?;
 
-        // Activate the key if not already, otherwise it cannot be used for signing.
+        // Activate the key if not already, otherwise it cannot be used for
+        // signing.
         if !activate_on_create {
             let client = conn_pool
                 .get()
