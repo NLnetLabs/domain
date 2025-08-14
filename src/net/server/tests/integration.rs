@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
-use ring::test::rand::FixedByteRandom;
 use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
@@ -71,6 +70,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // which responses will be expected, and how the server that answers them
     // should be configured.
 
+    use ring::{hkdf::KeyType, hmac};
+
     init_logging();
 
     // Load the test .rpl file that determines which queries will be sent
@@ -83,9 +84,9 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Create a TSIG key store containing a 'TESTKEY'
     let mut key_store = TestKeyStore::new();
     let key_name = KeyName::from_str("TESTKEY").unwrap();
-    let rng = FixedByteRandom { byte: 0u8 };
-    let (key, _) =
-        Key::generate(Algorithm::Sha256, &rng, key_name.clone(), None, None)
+    let key_bytes = vec![0u8; hmac::HMAC_SHA256.len()];
+    let key =
+        Key::new(Algorithm::Sha256, &key_bytes, key_name.clone(), None, None)
             .unwrap();
     key_store.insert((key_name, Algorithm::Sha256), key.into());
     let key_store = Arc::new(key_store);
