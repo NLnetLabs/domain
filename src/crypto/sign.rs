@@ -968,21 +968,6 @@ impl From<openssl::GenerateError> for GenerateError {
     }
 }
 
-#[cfg(feature = "kmip")]
-impl From<kmip::GenerateError> for GenerateError {
-    fn from(value: kmip::GenerateError) -> Self {
-        match value {
-            kmip::GenerateError::UnsupportedAlgorithm(_) => {
-                GenerateError::UnsupportedAlgorithm
-            }
-            kmip::GenerateError::UnsupportedKeySize { .. } => {
-                GenerateError::UnsupportedAlgorithm
-            }
-            kmip::GenerateError::Kmip(_) => GenerateError::Implementation,
-        }
-    }
-}
-
 //--- Formatting
 
 impl fmt::Display for GenerateError {
