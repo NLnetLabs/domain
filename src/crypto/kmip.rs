@@ -555,6 +555,7 @@ impl PublicKey {
 }
 
 #[cfg(feature = "unstable-crypto-sign")]
+/// Submodule for private keys and signing.
 pub mod sign {
     use std::boxed::Box;
     use std::string::{String, ToString};
@@ -596,25 +597,38 @@ pub mod sign {
         }
     }
 
+    /// A reference to a key pair stored in an [OASIS KMIP] compliant HSM
+    /// server.
+    ///
+    /// [OASIS KMIP]: https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=kmip
     #[derive(Clone, Debug)]
     pub struct KeyPair {
         /// The algorithm used by the key.
         algorithm: SecurityAlgorithm,
 
+        /// The KMIP ID of the private key.
         private_key_id: String,
 
+        /// The KMIP ID of the public key.
         public_key_id: String,
 
+        /// The connection pool for connecting to the KMIP server.
+        // TODO: Should this be T that impl's a Connection trait, why should
+        // it know that it's a pool rather than a single connection?
         conn_pool: SyncConnPool,
 
+        /// Cached DNSKEY RR for the public key.
         dnskey: Dnskey<Vec<u8>>,
 
+        /// Flags from [`Dnskey`].
         flags: u16,
     }
 
     //--- Constructors
 
     impl KeyPair {
+        /// Construct a reference to a KMIP HSM held key pair using key
+        /// metadata.
         pub fn from_metadata(
             algorithm: SecurityAlgorithm,
             flags: u16,
@@ -640,6 +654,7 @@ pub mod sign {
             })
         }
 
+        /// Construct a reference to a KMIP HSM held key pair using key URLs.
         pub fn from_urls(
             priv_key_url: KeyUrl,
             pub_key_url: KeyUrl,
@@ -668,22 +683,27 @@ pub mod sign {
     //--- Accessors
 
     impl KeyPair {
+        /// Get the KMIP HSM ID for the private half of this key pair.
         pub fn private_key_id(&self) -> &str {
             &self.private_key_id
         }
 
+        /// Get the KMIP HSM ID for the public half of this key pair.
         pub fn public_key_id(&self) -> &str {
             &self.public_key_id
         }
 
+        /// Get a KMIP URL for the private half of this key pair.
         pub fn private_key_url(&self) -> Result<Url, SignError> {
             self.mk_key_url(&self.private_key_id)
         }
 
+        /// Get a KMIP URL for the public half of this key pair.
         pub fn public_key_url(&self) -> Result<Url, SignError> {
             self.mk_key_url(&self.public_key_id)
         }
 
+        /// Get a reference to the KMIP HSM connection pool for this key pair.
         pub fn conn_pool(&self) -> &SyncConnPool {
             &self.conn_pool
         }
@@ -692,6 +712,11 @@ pub mod sign {
     //--- Operations
 
     impl KeyPair {
+        /// Enqueue a KMIP signing operation using this key pair on the given
+        /// data.
+        ///
+        /// Like [`SignRaw::sign_raw()`] but deferred until
+        /// [`KeyPair::sign_raw_submit_queue()`] is called.
         pub fn sign_raw_enqueue(
             &self,
             queue: &mut SignQueue,
@@ -707,6 +732,13 @@ pub mod sign {
             Ok(None)
         }
 
+        /// Submit the given signing queue as a batch to the KMIP HSM.
+        //
+        // TODO: Should the queue store the KMIP connection pool reference and
+        // should submit() be a method on the queue?
+        // TODO: What happens if the same queue is used with
+        // sign_raw_enqueue() but with keys that are held by different KMIP
+        // HSMs and thus have different KMIP connection pools?
         pub fn sign_raw_submit_queue(
             &self,
             queue: &mut SignQueue,
@@ -743,6 +775,7 @@ pub mod sign {
     //--- Internal details
 
     impl KeyPair {
+        /// Make a KMIP URL for this key using the given KMIP ID.
         fn mk_key_url(&self, key_id: &str) -> Result<Url, SignError> {
             // We have to store the algorithm in the URL because the DNSSEC
             // algorithm (e.g. 5 and 7) don't necessarily correspond to the
@@ -765,6 +798,8 @@ pub mod sign {
             Ok(url)
         }
 
+        /// Prepare a KMIP signing operation request to sign the given data
+        /// using this key pair.
         fn sign_pre(&self, data: &[u8]) -> Result<RequestPayload, SignError> {
             let (crypto_alg, hashing_alg, _digest_type) = match self.algorithm
             {
@@ -801,6 +836,7 @@ pub mod sign {
             Ok(request)
         }
 
+        /// Process a KMIP HSM signing operation response for this key pair.
         fn sign_post(
             &self,
             res: ResponsePayload,
@@ -880,6 +916,7 @@ pub mod sign {
         }
     }
 
+    /// A queue of KMIP signing operations pending batch submission.
     pub struct SignQueue(Vec<BatchItem>);
 
     impl SignQueue {
@@ -922,7 +959,7 @@ pub mod sign {
 
     //----------- generate() -------------------------------------------------
 
-    /// Generate a new secret key for the given algorithm.
+    /// Generate a new key pair for a given algorithm using a specified HSM.
     pub fn generate(
         name: String,
         // TODO: Is this enough? Or do we need to take SecurityAlgorithm
