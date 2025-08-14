@@ -40,10 +40,8 @@ parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
 openssl        = { version = "0.10.72", optional = true } # 0.10.70 upgrades to 'bitflags' 2.x
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
-r2d2           = { version = "0.8.9", optional = true }
 ring           = { version = "0.17.2", optional = true }
 bcder          = { version = "0.7", optional = true }
-rpki           = { version = "0.18", optional = true, features = ["crypto"] }
 rustversion    = { version = "1", optional = true }
 secrecy        = { version = "0.10", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
