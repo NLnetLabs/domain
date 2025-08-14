@@ -237,21 +237,22 @@ impl TryFrom<Url> for KeyUrl {
     }
 }
 
+pub struct PublicKey {
+    algorithm: SecurityAlgorithm,
+
     public_key: Vec<u8>,
 }
 
 impl PublicKey {
-        public_key_id: String,
     pub fn from_metadata(
+        public_key_id: &str,
         algorithm: SecurityAlgorithm,
         conn_pool: SyncConnPool,
     ) -> Result<Self, kmip::client::Error> {
-        let public_key = Self::fetch_public_key(&public_key_id, &conn_pool)?;
+        let public_key = Self::fetch_public_key(public_key_id, &conn_pool)?;
 
         Ok(Self {
-            public_key_id,
             algorithm,
-            conn_pool,
             public_key,
         })
     }
@@ -610,8 +611,8 @@ pub mod sign {
             public_key_id: &str,
             conn_pool: SyncConnPool,
         ) -> Result<Self, GenerateError> {
-            let dnskey = PublicKey::new(
-                public_key_id.to_string(),
+            let dnskey = PublicKey::from_metadata(
+                public_key_id,
                 algorithm,
                 conn_pool.clone(),
             )
