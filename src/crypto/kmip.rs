@@ -257,6 +257,17 @@ impl PublicKey {
         })
     }
 
+    pub fn from_url(
+        public_key_url: KeyUrl,
+        conn_pool: SyncConnPool,
+    ) -> Result<Self, kmip::client::Error> {
+        Self::from_metadata(
+            public_key_url.key_id(),
+            public_key_url.algorithm(),
+            conn_pool,
+        )
+    }
+
     pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
