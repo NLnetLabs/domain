@@ -668,10 +668,6 @@ pub mod sign {
     //--- Accessors
 
     impl KeyPair {
-        pub fn algorithm(&self) -> SecurityAlgorithm {
-            self.algorithm
-        }
-
         pub fn private_key_id(&self) -> &str {
             &self.private_key_id
         }
@@ -680,16 +676,12 @@ pub mod sign {
             &self.public_key_id
         }
 
-        pub fn flags(&self) -> u16 {
-            self.flags
+        pub fn private_key_url(&self) -> Result<Url, SignError> {
+            self.mk_key_url(&self.private_key_id)
         }
 
         pub fn public_key_url(&self) -> Result<Url, SignError> {
             self.mk_key_url(&self.public_key_id)
-        }
-
-        pub fn private_key_url(&self) -> Result<Url, SignError> {
-            self.mk_key_url(&self.private_key_id)
         }
 
         pub fn conn_pool(&self) -> &SyncConnPool {
