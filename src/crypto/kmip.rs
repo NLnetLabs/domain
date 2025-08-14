@@ -241,8 +241,8 @@ impl TryFrom<Url> for KeyUrl {
 }
 
 impl PublicKey {
-    pub fn new(
         public_key_id: String,
+    pub fn from_metadata(
         algorithm: SecurityAlgorithm,
         conn_pool: SyncConnPool,
     ) -> Result<Self, kmip::client::Error> {
@@ -603,7 +603,7 @@ pub mod sign {
     //--- Constructors
 
     impl KeyPair {
-        pub fn new(
+        pub fn from_metadata(
             algorithm: SecurityAlgorithm,
             flags: u16,
             private_key_id: &str,
@@ -628,7 +628,7 @@ pub mod sign {
             })
         }
 
-        pub fn new_from_urls(
+        pub fn from_urls(
             priv_key_url: KeyUrl,
             pub_key_url: KeyUrl,
             conn_pool: SyncConnPool,
