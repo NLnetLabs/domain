@@ -654,7 +654,7 @@ pub mod sign {
             } else if priv_key_url.server_id() != conn_pool.server_id() {
                 return Err(GenerateError::Kmip(format!("Key URLs have different server ID to the KMIP connection pool: {} vs {}", priv_key_url.server_id(), conn_pool.server_id()).into()));
             } else {
-                Self::new(
+                Self::from_metadata(
                     priv_key_url.algorithm(),
                     priv_key_url.flags(),
                     priv_key_url.key_id(),
