@@ -1138,7 +1138,7 @@ pub mod sign {
 
         tracing::trace!("Creating KeyPair with DNSKEY");
 
-        let key_pair = KeyPair::new(
+        let key_pair = KeyPair::from_metadata(
             algorithm,
             flags,
             private_key_unique_identifier.as_str(),
