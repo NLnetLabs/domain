@@ -333,6 +333,7 @@ where
 ///     https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2
 /// [RFC 6840 section 5.11]:
 ///     https://www.rfc-editor.org/rfc/rfc6840.html#section-5.11
+#[allow(clippy::too_many_arguments)]
 pub fn sign_sorted_rrset_in<'a, 'b, N, Octs, D, Inner>(
     key: &'a SigningKey<Octs, Inner>,
     rrset_rtype: Rtype,
@@ -400,12 +401,13 @@ where
     Ok(Record::new(rrset_owner, rrset_class, rrset_ttl, rrsig))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn sign_sorted_rrset_in_pre<N, Octs, D, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset_rtype: Rtype,
     rrset_owner_rrsig_label_count: u8,
     rrset_ttl: Ttl,
-    rrset_iter: slice::Iter<Record<N, D>>,
+    rrset_iter: slice::Iter<'_, Record<N, D>>,
     inception: Timestamp,
     expiration: Timestamp,
     scratch: &mut Vec<u8>,

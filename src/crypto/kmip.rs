@@ -1,3 +1,4 @@
+//! DNSSEC signing using OASIS KMIP (Key Management Interoperability Protocol).
 #![cfg(all(feature = "kmip", any(feature = "ring", feature = "openssl")))]
 #![cfg_attr(docsrs, doc(cfg(feature = "kmip")))]
 
@@ -105,10 +106,19 @@ pub const SECP256R1_OID: ConstOid = Oid(&[42, 134, 72, 206, 61, 3, 1, 7]);
 /// set of settings required to successfully connect to the HSM to make use of
 /// the key.
 pub struct KeyUrl {
+    /// The original URL from which this KeyUrl was parsed.
     url: Url,
+
+    /// The KMIP server ID. Produced by the application.
     server_id: String,
+
+    /// The KMIP key ID. Produced by the KMIP server.
     key_id: String,
+
+    /// The DNSSEC algorithm this key is to be used for.
     algorithm: SecurityAlgorithm,
+
+    /// The DNSSEC flags that apply to this key.
     flags: u16,
 }
 
@@ -138,6 +148,9 @@ impl KeyUrl {
 
 //--- impl Into<Url>
 
+// Disablow the Clippy lint as it is safe to go from a KeyURL to a URL but
+// not vice-versa, so we implement Into but not From.
+#[allow(clippy::from_over_into)]
 impl Into<Url> for KeyUrl {
     fn into(self) -> Url {
         self.url
@@ -283,6 +296,10 @@ impl PublicKey {
 }
 
 impl PublicKey {
+    /// Query the KMIP server for the bytes of the specified public key.
+    ///
+    /// Verifies that the cryptographic algorithm of the key is compatible
+    /// with the specified DNSSEC algorithm.
     fn fetch_public_key(
         public_key_id: &str,
         expected_algorithm: SecurityAlgorithm,
@@ -664,13 +681,13 @@ pub mod sign {
             conn_pool: SyncConnPool,
         ) -> Result<Self, GenerateError> {
             if priv_key_url.algorithm() != pub_key_url.algorithm() {
-                return Err(GenerateError::Kmip(format!("Private and public key URLs have different algorithms: {} vs {}", priv_key_url.algorithm(), pub_key_url.algorithm()).into()));
+                Err(GenerateError::Kmip(format!("Private and public key URLs have different algorithms: {} vs {}", priv_key_url.algorithm(), pub_key_url.algorithm())))
             } else if priv_key_url.flags() != pub_key_url.flags() {
-                return Err(GenerateError::Kmip(format!("Private and public key URLs have different flags: {} vs {}", priv_key_url.flags(), pub_key_url.flags()).into()));
+                Err(GenerateError::Kmip(format!("Private and public key URLs have different flags: {} vs {}", priv_key_url.flags(), pub_key_url.flags())))
             } else if priv_key_url.server_id() != pub_key_url.server_id() {
-                return Err(GenerateError::Kmip(format!("Private and public key URLs have different server IDs: {} vs {}", priv_key_url.server_id(), pub_key_url.server_id()).into()));
+                Err(GenerateError::Kmip(format!("Private and public key URLs have different server IDs: {} vs {}", priv_key_url.server_id(), pub_key_url.server_id())))
             } else if priv_key_url.server_id() != conn_pool.server_id() {
-                return Err(GenerateError::Kmip(format!("Key URLs have different server ID to the KMIP connection pool: {} vs {}", priv_key_url.server_id(), conn_pool.server_id()).into()));
+                Err(GenerateError::Kmip(format!("Key URLs have different server ID to the KMIP connection pool: {} vs {}", priv_key_url.server_id(), conn_pool.server_id())))
             } else {
                 Self::from_metadata(
                     priv_key_url.algorithm(),
@@ -904,6 +921,7 @@ pub mod sign {
     //----------- SignQueue --------------------------------------------------
 
     /// A queue of KMIP signing operations pending batch submission.
+    #[derive(Debug, Default)]
     pub struct SignQueue(Vec<BatchItem>);
 
     impl SignQueue {
@@ -1360,15 +1378,16 @@ mod tests {
         let mut reader = BufReader::new(file);
         reader.read_to_end(&mut key_bytes).unwrap();
 
-        let mut conn_settings = ConnectionSettings::default();
-        conn_settings.host = "localhost".to_string();
-        conn_settings.port = 5696;
-        conn_settings.insecure = true;
-        conn_settings.client_cert =
-            Some(kmip::client::ClientCertificate::SeparatePem {
+        let conn_settings = ConnectionSettings {
+            host: "localhost".to_string(),
+            port: 5696,
+            insecure: true,
+            client_cert: Some(kmip::client::ClientCertificate::SeparatePem {
                 cert_bytes,
                 key_bytes: Some(key_bytes),
-            });
+            }),
+            ..Default::default()
+        };
 
         eprintln!("Creating pool...");
         let pool = ConnectionManager::create_connection_pool(
@@ -1419,18 +1438,20 @@ mod tests {
 
         init_logging();
 
-        let mut conn_settings = ConnectionSettings::default();
         // conn_settings.host = "eu.smartkey.io".to_string();
         // conn_settings.port = 5696;
         // conn_settings.username = Some(env!("FORTANIX_USER").to_string());
         // conn_settings.password = Some(env!("FORTANIX_PASS").to_string());
 
-        conn_settings.host = "127.0.0.1".to_string(); //"eu.smartkey.io".to_string();
-        conn_settings.port = 5696;
-        conn_settings.insecure = true; // When connecting to kmip2pkcs11
-        conn_settings.connect_timeout = Some(Duration::from_secs(3));
-        conn_settings.read_timeout = Some(Duration::from_secs(30));
-        conn_settings.write_timeout = Some(Duration::from_secs(3));
+        let conn_settings = ConnectionSettings {
+            host: "127.0.0.1".to_string(),
+            port: 5696,
+            insecure: true,
+            connect_timeout: Some(Duration::from_secs(3)),
+            read_timeout: Some(Duration::from_secs(30)),
+            write_timeout: Some(Duration::from_secs(3)),
+            ..Default::default()
+        };
 
         eprintln!("Creating pool...");
         let pool = ConnectionManager::create_connection_pool(
