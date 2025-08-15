@@ -256,7 +256,7 @@ where
                     "Signed {} RRSET at {} with keytag {}",
                     rrset.rtype(),
                     rrset.owner(),
-                    key.dnskey()?.key_tag()
+                    key.dnskey().key_tag()
                 );
             }
         }
@@ -333,6 +333,7 @@ where
 ///     https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2
 /// [RFC 6840 section 5.11]:
 ///     https://www.rfc-editor.org/rfc/rfc6840.html#section-5.11
+#[allow(clippy::too_many_arguments)]
 pub fn sign_sorted_rrset_in<'a, 'b, N, Octs, D, Inner>(
     key: &'a SigningKey<Octs, Inner>,
     rrset_rtype: Rtype,
@@ -400,12 +401,13 @@ where
     Ok(Record::new(rrset_owner, rrset_class, rrset_ttl, rrsig))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn sign_sorted_rrset_in_pre<N, Octs, D, Inner>(
     key: &SigningKey<Octs, Inner>,
     rrset_rtype: Rtype,
     rrset_owner_rrsig_label_count: u8,
     rrset_ttl: Ttl,
-    rrset_iter: slice::Iter<Record<N, D>>,
+    rrset_iter: slice::Iter<'_, Record<N, D>>,
     inception: Timestamp,
     expiration: Timestamp,
     scratch: &mut Vec<u8>,
@@ -444,7 +446,7 @@ where
         rrset_ttl,
         expiration,
         inception,
-        key.dnskey()?.key_tag(),
+        key.dnskey().key_tag(),
         // The fns provided by `ToName` state in their RustDoc that they
         // "Converts the name into a single, uncompressed name" which matches
         // the RFC 4034 section 3.1.7 requirement that "A sender MUST NOT use
@@ -483,7 +485,7 @@ mod tests {
     use crate::dnssec::sign::test_util;
     use crate::dnssec::sign::test_util::*;
     use crate::rdata::dnssec::Timestamp;
-    use crate::rdata::Dnskey;
+    use crate::rdata::{Dnskey, ZoneRecordData};
     use crate::zonetree::StoredName;
 
     use super::*;
@@ -589,7 +591,7 @@ mod tests {
         let key = SigningKey::new(apex_owner.clone(), 0, TestKey::default());
         let (inception, expiration) =
             (Timestamp::from(0), Timestamp::from(0));
-        let dnskey = key.dnskey().unwrap().convert();
+        let dnskey = key.dnskey().convert();
 
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
@@ -740,7 +742,8 @@ mod tests {
     #[test]
     fn generate_rrsigs_without_keys_generates_no_rrsigs() {
         let apex = Name::from_str("example.").unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.insert(mk_a_rr("example.")).unwrap();
         let no_keys: [&SigningKey<Bytes, KeyPair>; 0] = [];
 
@@ -773,12 +776,13 @@ mod tests {
         // full zone, in this case just for an A record. This test
         // deliberately does not include a SOA record as the zone is partial.
         let apex = Name::from_str(zone_apex).unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.insert(mk_a_rr(record_owner)).unwrap();
 
         // Prepare a zone signing key and a key signing key.
         let keys = [&mk_dnssec_signing_key(true)];
-        let dnskey = keys[0].dnskey().unwrap().convert();
+        let dnskey = keys[0].dnskey().convert();
 
         // Generate RRSIGs. Use the default signing config and thus also the
         // DefaultSigningKeyUsageStrategy which will honour the purpose of the
@@ -814,7 +818,8 @@ mod tests {
     #[test]
     fn generate_rrsigs_ignores_records_outside_the_zone() {
         let apex = Name::from_str("example.").unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
             mk_a_rr("in_zone.example."),
@@ -823,7 +828,7 @@ mod tests {
 
         // Prepare a zone signing key and a key signing key.
         let keys = [&mk_dnssec_signing_key(true)];
-        let dnskey = keys[0].dnskey().unwrap().convert();
+        let dnskey = keys[0].dnskey().convert();
 
         let generated_records = sign_sorted_zone_records(
             &apex,
@@ -855,7 +860,8 @@ mod tests {
     #[test]
     fn generate_rrsigs_ignores_glue_records() {
         let apex = Name::from_str("example.").unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.extend([
             mk_soa_rr("example.", "mname.", "rname."),
             mk_ns_rr("example.", "early_sorting_glue."),
@@ -867,7 +873,7 @@ mod tests {
 
         // Prepare a zone signing key and a key signing key.
         let keys = [&mk_dnssec_signing_key(true)];
-        let dnskey = keys[0].dnskey().unwrap().convert();
+        let dnskey = keys[0].dnskey().convert();
 
         let generated_records = sign_sorted_zone_records(
             &apex,
@@ -942,7 +948,7 @@ mod tests {
 
         let dnskeys = keys
             .iter()
-            .map(|k| k.dnskey().unwrap().convert())
+            .map(|k| k.dnskey().convert())
             .collect::<Vec<_>>();
 
         let zsk = &dnskeys[zsk_idx];
@@ -1119,7 +1125,8 @@ mod tests {
         let apex = "example.";
 
         let apex_owner = Name::from_str(apex).unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.extend([
             mk_soa_rr(apex, "some.mname.", "some.rname."),
             mk_ns_rr(apex, "ns.example."),
@@ -1129,8 +1136,8 @@ mod tests {
         let keys =
             [&mk_dnssec_signing_key(false), &mk_dnssec_signing_key(false)];
 
-        let zsk1 = keys[0].dnskey().unwrap().convert();
-        let zsk2 = keys[1].dnskey().unwrap().convert();
+        let zsk1 = keys[0].dnskey().convert();
+        let zsk2 = keys[1].dnskey().convert();
 
         let generated_records = sign_sorted_zone_records(
             &apex_owner,
@@ -1180,10 +1187,11 @@ mod tests {
     fn generate_rrsigs_for_already_signed_zone() {
         let keys = [&mk_dnssec_signing_key(true)];
 
-        let dnskey = keys[0].dnskey().unwrap().convert();
+        let dnskey = keys[0].dnskey().convert();
 
         let apex = Name::from_str("example.").unwrap();
-        let mut records = SortedRecords::default();
+        let mut records =
+            SortedRecords::<_, ZoneRecordData<Bytes, StoredName>>::new();
         records.extend([
             // -- example.
             mk_soa_rr("example.", "some.mname.", "some.rname."),
@@ -1303,7 +1311,7 @@ mod tests {
         dnskey: &Dnskey<Bytes>,
     ) -> Record<StoredName, R>
     where
-        R: From<Rrsig<Bytes, StoredName>>,
+        R: From<Rrsig<Bytes, StoredName>> + Send,
     {
         test_util::mk_rrsig_rr(
             name,
@@ -1335,15 +1343,10 @@ mod tests {
             todo!()
         }
 
-        fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
+        fn dnskey(&self) -> Dnskey<Vec<u8>> {
             let flags = 0;
-            Ok(Dnskey::new(
-                flags,
-                3,
-                SecurityAlgorithm::ED25519,
-                self.0.to_vec(),
-            )
-            .unwrap())
+            Dnskey::new(flags, 3, SecurityAlgorithm::ED25519, self.0.to_vec())
+                .unwrap()
         }
 
         fn sign_raw(&self, _data: &[u8]) -> Result<Signature, SignError> {

@@ -689,7 +689,7 @@ pub mod sign {
             self.flags
         }
 
-        fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
+        fn dnskey(&self) -> Dnskey<Vec<u8>> {
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => {
                     let key = self.pkey.rsa().expect("should not fail");
@@ -703,7 +703,7 @@ pub mod sign {
                         key,
                         self.flags,
                     );
-                    Ok(public.dnskey())
+                    public.dnskey()
                 }
                 SecurityAlgorithm::ECDSAP256SHA256
                 | SecurityAlgorithm::ECDSAP384SHA384 => {
@@ -729,7 +729,7 @@ pub mod sign {
                         public_key,
                         self.flags,
                     );
-                    Ok(public.dnskey())
+                    public.dnskey()
                 }
                 SecurityAlgorithm::ED25519 | SecurityAlgorithm::ED448 => {
                     let id = match self.algorithm {
@@ -743,7 +743,7 @@ pub mod sign {
                     let key = PKey::public_key_from_raw_bytes(&key, id)
                         .expect("shoul not fail");
                     let public = PublicKey::NoDigest(key, self.flags);
-                    Ok(public.dnskey())
+                    public.dnskey()
                 }
                 _ => unreachable!(),
             }
@@ -889,7 +889,7 @@ pub mod sign {
 
                 let key = super::generate(params, 256).unwrap();
                 let gen_key = key.to_bytes();
-                let pub_key = key.dnskey().unwrap();
+                let pub_key = key.dnskey();
                 let equiv = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
                 assert!(key.pkey.public_eq(&equiv.pkey));
             }
@@ -936,7 +936,7 @@ pub mod sign {
                 let key =
                     KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
-                assert_eq!(key.dnskey().unwrap(), *pub_key.data());
+                assert_eq!(key.dnskey(), *pub_key.data());
             }
         }
 

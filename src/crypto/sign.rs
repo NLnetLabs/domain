@@ -36,7 +36,7 @@
 //!
 //! // Check that the owner, algorithm, and key tag matched expectations.
 //! assert_eq!(key_pair.algorithm(), SecurityAlgorithm::ED25519);
-//! assert_eq!(key_pair.dnskey().unwrap().key_tag(), 56037);
+//! assert_eq!(key_pair.dnskey().key_tag(), 56037);
 //! ```
 //!
 //! # Generating keys
@@ -176,6 +176,7 @@ pub trait SignRaw {
     /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
     fn algorithm(&self) -> SecurityAlgorithm;
 
+    /// TODO
     fn flags(&self) -> u16;
 
     /// The public key.
@@ -184,7 +185,7 @@ pub trait SignRaw {
     /// algorithm as returned by [`algorithm()`].
     ///
     /// [`algorithm()`]: Self::algorithm()
-    fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError>;
+    fn dnskey(&self) -> Dnskey<Vec<u8>>;
 
     /// Sign the given bytes.
     ///
@@ -319,7 +320,7 @@ pub enum KeyPair {
 
     /// A key backed by a KMIP capable HSM.
     #[cfg(feature = "kmip")]
-    Kmip(self::kmip::sign::KeyPair),
+    Kmip(kmip::sign::KeyPair),
 }
 
 //--- Conversion to and from bytes
@@ -392,7 +393,7 @@ impl SignRaw for KeyPair {
         }
     }
 
-    fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
+    fn dnskey(&self) -> Dnskey<Vec<u8>> {
         match self {
             #[cfg(feature = "ring")]
             Self::Ring(key) => key.dnskey(),
@@ -438,10 +439,7 @@ pub fn generate(
     #[cfg(feature = "openssl")]
     {
         let key = openssl::sign::generate(params, flags)?;
-        return Ok((
-            key.to_bytes(),
-            key.dnskey().map_err(|_| GenerateError::Implementation)?,
-        ));
+        return Ok((key.to_bytes(), key.dnskey()));
     }
 
     // Otherwise fail.
@@ -966,21 +964,6 @@ impl From<openssl::GenerateError> for GenerateError {
                 Self::UnsupportedAlgorithm
             }
             openssl::GenerateError::Implementation => Self::Implementation,
-        }
-    }
-}
-
-#[cfg(feature = "kmip")]
-impl From<kmip::GenerateError> for GenerateError {
-    fn from(value: kmip::GenerateError) -> Self {
-        match value {
-            kmip::GenerateError::UnsupportedAlgorithm(_) => {
-                GenerateError::UnsupportedAlgorithm
-            }
-            kmip::GenerateError::UnsupportedKeySize { .. } => {
-                GenerateError::UnsupportedAlgorithm
-            }
-            kmip::GenerateError::Kmip(_) => GenerateError::Implementation,
         }
     }
 }
