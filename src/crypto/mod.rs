@@ -5,15 +5,25 @@
 //! private key operations such as generation and signing. All features of
 //! this module are enabled with the `unstable-crypto-sign` feature flag.
 //!
-//! This crate supports OpenSSL and Ring for performing cryptography.  These
-//! cryptographic backends are gated on the `openssl` and `ring` features,
-//! respectively.  They offer mostly equivalent functionality, but OpenSSL
-//! supports a larger set of signing algorithms (and, for RSA keys, supports
-//! weaker key sizes).  A
+//! This crate supports OpenSSL and Ring backends for local in-memory
+//! cryptography, and also an [OASIS KMIP 1.2] backend for generating, and
+//! signing with, remote key pairs using compliant HSMs.
+//!
+//! These cryptographic backends are gated on the `openssl`, `ring` and
+//! `kmip` features, respectively. They offer mostly equivalent functionality
+//! but OpenSSL supports a larger set of signing algorithms than Ring (and,
+//! or RSA keys, supports weaker key sizes).
+//!
+//! An implementation agnostic
 #![cfg_attr(feature = "unstable-crypto-sign", doc = "[`sign`]")]
 #![cfg_attr(not(feature = "unstable-crypto-sign"), doc = "`sign`")]
-//! backend is provided for users that wish
-//! to use either or both backends at runtime.
+//! backend is provided for users that wish to use either or both of the
+//! OpenSSL or Ring backends at runtime. The KMIP backend must be used
+//! explicitly as it requires details of the KMIP HSM server to connect to
+//! and so has a slightly different interface to that of the OpenSSL and
+//! Ring backends.
+//!
+//! [OASIS KMIP 1.2]: https://docs.oasis-open.org/kmip/spec/v1.2/kmip-spec-v1.2.html
 //!
 //! Each backend module (
 #![cfg_attr(

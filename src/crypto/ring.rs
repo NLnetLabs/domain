@@ -375,7 +375,7 @@ pub mod sign {
     //--- Conversion from bytes
 
     impl KeyPair {
-        /// Import a key pair from bytes into OpenSSL.
+        /// Import a key pair from bytes into Ring.
         pub fn from_bytes<Octs>(
             secret: &SecretKeyBytes,
             public: &Dnskey<Octs>,
@@ -511,7 +511,7 @@ pub mod sign {
             }
         }
 
-        fn dnskey(&self) -> Result<Dnskey<Vec<u8>>, SignError> {
+        fn dnskey(&self) -> Dnskey<Vec<u8>> {
             match self {
                 Self::RsaSha256 { key, flags, rng: _ } => {
                     let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
@@ -521,7 +521,7 @@ pub mod sign {
                     let public_key =
                         signature::RsaPublicKeyComponents { n, e };
                     let public = PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, public_key);
-                    Ok(public.dnskey(*flags))
+                    public.dnskey(*flags)
                 }
 
                 Self::EcdsaP256Sha256 { key, flags, rng: _ }
@@ -553,7 +553,7 @@ pub mod sign {
                             key.to_vec(),
                         ),
                     );
-                    Ok(public.dnskey(*flags))
+                    public.dnskey(*flags)
                 }
                 Self::Ed25519(key, flags) => {
                     let (algorithm, sec_alg) = match self {
@@ -570,7 +570,7 @@ pub mod sign {
                             key.to_vec(),
                         ),
                     );
-                    Ok(public.dnskey(*flags))
+                    public.dnskey(*flags)
                 }
             }
         }
@@ -731,7 +731,7 @@ pub mod sign {
                     crate::crypto::sign::generate(params.clone(), 256)
                         .unwrap();
                 let key = KeyPair::from_bytes(&sk, &pk).unwrap();
-                assert_eq!(key.dnskey().unwrap(), pk);
+                assert_eq!(key.dnskey(), pk);
             }
         }
 
@@ -752,7 +752,7 @@ pub mod sign {
                 let key =
                     KeyPair::from_bytes(&gen_key, pub_key.data()).unwrap();
 
-                assert_eq!(key.dnskey().unwrap(), *pub_key.data());
+                assert_eq!(key.dnskey(), *pub_key.data());
             }
         }
 
