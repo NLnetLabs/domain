@@ -26,7 +26,7 @@ pub use kmip::client::{ClientCertificate, ConnectionSettings};
 
 //----------- GenerateError --------------------------------------------------
 
-/// An error in generating a key pair with OpenSSL.
+/// An error while generating a key pair using KMIP.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
     /// The requested algorithm is not supported.
@@ -70,6 +70,31 @@ impl fmt::Display for GenerateError {
 //--- Error
 
 impl std::error::Error for GenerateError {}
+
+//------------ DestroyError --------------------------------------------------
+
+/// An error while destroying a key using KMIP.
+#[derive(Clone, Debug)]
+pub enum DestroyError {
+    /// A problem occurred while communicating with the KMIP server.
+    Kmip(String),
+}
+
+//--- Formatting
+
+impl fmt::Display for DestroyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Kmip(err) => {
+                write!(f, "a problem occurred while communicating with the KMIP server: {err}")
+            }
+        }
+    }
+}
+
+//--- Error
+
+impl std::error::Error for DestroyError {}
 
 /// [RFC 4055](https://tools.ietf.org/html/rfc4055) `rsaEncryption`
 ///
@@ -425,7 +450,7 @@ pub mod sign {
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::DigestType;
-    use crate::crypto::kmip::{GenerateError, PublicKey};
+    use crate::crypto::kmip::{DestroyError, GenerateError, PublicKey};
     use crate::crypto::sign::{
         GenerateParams, SignError, SignRaw, Signature,
     };
@@ -986,7 +1011,7 @@ pub mod sign {
 
     /// Generate a new secret key for the given algorithm.
     pub fn generate(
-        name: String,
+        name: String, // TODO: Should we restrict names to a compatible set? What is that set?
         params: GenerateParams, // TODO: Is this enough? Or do we need to take SecurityAlgorithm as input instead of GenerateParams to ensure we don't lose distinctions like 5 vs 7 which are both RSASHA1?
         flags: u16,
         conn_pool: SyncConnPool,
@@ -1234,9 +1259,27 @@ pub mod sign {
         Ok(key_pair)
     }
 
-    //----------- TODO: destroy() --------------------------------------------
+    //----------- destroy() --------------------------------------------------
 
-    // TODO
+    /// Destroy a KMIP key by ID.
+    ///
+    /// Note: A KMIP key cannot be destroyed if it is active. To deactivate
+    /// the key we must first "revoke" it.
+    fn destroy(
+        key_id: &str,
+        conn_pool: SyncConnPool,
+    ) -> Result<(), DestroyError> {
+        let client = conn_pool
+            .get()
+            .map_err(|err| DestroyError::Kmip(format!("Key destruction failed: Cannot connect to KMIP server {}: {err}", conn_pool.server_id())))?;
+
+        client
+            .revoke_key(key_id)
+            .map_err(|err| DestroyError::Kmip(err.to_string()))?;
+        client
+            .destroy_key(key_id)
+            .map_err(|err| DestroyError::Kmip(err.to_string()))
+    }
 }
 
 #[cfg(test)]
