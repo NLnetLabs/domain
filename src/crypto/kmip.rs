@@ -223,6 +223,14 @@ impl TryFrom<Url> for KeyUrl {
     }
 }
 
+//--- impl Display
+
+impl std::fmt::Display for KeyUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.url.fmt(f)
+    }
+}
+
 //------------ PublicKey -----------------------------------------------------
 
 /// A public key for verifying a signature.
