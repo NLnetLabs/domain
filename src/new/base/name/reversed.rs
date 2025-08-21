@@ -20,6 +20,9 @@ use crate::{
     utils::dst::{UnsizedCopy, UnsizedCopyFrom},
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 use super::{Label, LabelBuf, LabelIter, NameParseError};
 
 //----------- RevName --------------------------------------------------------
@@ -178,6 +181,26 @@ impl BuildBytes for RevName {
 
     fn built_bytes_size(&self) -> usize {
         self.len()
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a RevName {
+    /// Scan a domain name token.
+    ///
+    /// This parses a domain name, following the [specification].
+    ///
+    /// [specification]: crate::new::zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let name = RevNameBuf::scan(scanner, alloc, buffer)?;
+        let bytes = alloc.alloc_slice_copy(name.as_bytes());
+        Ok(unsafe { RevName::from_bytes_unchecked(bytes) })
     }
 }
 
@@ -534,6 +557,95 @@ impl FromStr for RevNameBuf {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RevNameBuf {
+    /// Scan a domain name token.
+    ///
+    /// This parses a domain name, following the [specification].
+    ///
+    /// [specification]: crate::new::zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'_ bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Try parsing '@', indicating the origin name.
+        if let [b'@', b' ' | b'\t' | b'\r' | b'\n', ..] | [b'@'] =
+            scanner.remaining()
+        {
+            scanner.consume(1);
+            let origin = scanner
+                .origin()
+                .ok_or(ScanError::Custom("unknown origin name"))?;
+            return Ok(RevNameBuf::copy_from(origin));
+        }
+
+        // Build up a 'RevName'.
+        let mut this = Self::empty();
+
+        while let Some(&c) = scanner.remaining().first() {
+            if c.is_ascii_whitespace() {
+                break;
+            }
+
+            if !c.is_ascii_alphanumeric() && !b"\\-_".contains(&c) {
+                return Err(ScanError::Custom(
+                    "irregular character in domain name",
+                ));
+            }
+
+            // Parse a label and prepend it to the buffer.
+            let label = LabelBuf::scan(scanner, alloc, buffer)?;
+            if this.offset < 1 + label.as_bytes().len() as u8 {
+                return Err(ScanError::Custom(
+                    "domain name exceeds 255 bytes",
+                ));
+            }
+            this.prepend_label(&label);
+
+            // Check if this is the end of the domain name.
+            match scanner.remaining() {
+                &[b' ' | b'\t' | b'\r' | b'\n', ..] | &[] => {
+                    // This is a relative domain name.
+                    let origin = scanner
+                        .origin()
+                        .ok_or(ScanError::Custom("unknown origin name"))?;
+                    if this.offset < origin.len() as u8 {
+                        return Err(ScanError::Custom(
+                            "relative domain name exceeds 255 bytes",
+                        ));
+                    }
+
+                    // Prepend the origin to this name.
+                    this.prepend_bytes(&origin.as_bytes()[1..]);
+                    break;
+                }
+
+                &[b'.', ..] => {
+                    scanner.consume(1);
+                }
+
+                _ => {
+                    return Err(ScanError::Custom(
+                        "irregular character in domain name",
+                    ));
+                }
+            }
+        }
+
+        if this.offset == 255 {
+            return Err(ScanError::Incomplete);
+        }
+
+        // Add a root label and stop.
+        this.offset -= 1;
+        this.buffer[this.offset as usize] = 0;
+        Ok(this)
+    }
+}
+
 //--- Access to the underlying 'RevName'
 
 impl Deref for RevNameBuf {
@@ -609,5 +721,60 @@ impl Hash for RevNameBuf {
 impl fmt::Debug for RevNameBuf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+//============ Unit tests ====================================================
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use std::vec::Vec;
+
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::RevNameBuf;
+
+        let cases = [
+            (b"".as_slice(), Err(ScanError::Incomplete)),
+            (b" ".as_slice(), Err(ScanError::Incomplete)),
+            (b"a", Ok(&[b"" as &[u8], b"org", b"a"] as &[&[u8]])),
+            (b"xn--hello.", Ok(&[b"", b"xn--hello"])),
+            (
+                b"hello\\.world.sld",
+                Ok(&[b"", b"org", b"sld", b"hello.world"]),
+            ),
+            (b"a\\046b.c.", Ok(&[b"", b"c", b"a.b"])),
+            (b"a.b\\ c.d", Ok(&[b"", b"org", b"d", b"b c", b"a"])),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = Vec::new();
+        for (input, expected) in cases {
+            let origin = "org".parse::<RevNameBuf>().unwrap();
+            let mut scanner = Scanner::new(input, Some(&origin));
+            let mut name_buf = None;
+            let actual = RevNameBuf::scan(&mut scanner, &alloc, &mut buffer)
+                .map(|name| name_buf.insert(name).labels());
+            match expected {
+                Ok(labels) => {
+                    assert!(
+                        actual.clone().is_ok_and(|actual| actual
+                            .map(|l| &l.as_bytes()[1..])
+                            .eq(labels.iter().copied())),
+                        "{actual:?} == Ok({labels:?})"
+                    );
+                }
+
+                Err(err) => {
+                    assert!(
+                        actual.clone().is_err_and(|e| e == err),
+                        "{actual:?} == Err({err:?})"
+                    );
+                }
+            }
+        }
     }
 }

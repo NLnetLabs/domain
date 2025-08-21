@@ -4,6 +4,9 @@ use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use crate::utils::dst::UnsizedCopy;
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 use super::build::{BuildInMessage, NameCompressor};
 use super::parse::{ParseMessageBytes, SplitMessageBytes};
 use super::wire::{
@@ -389,6 +392,43 @@ impl fmt::Debug for RType {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RType {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        match scanner.scan_plain_token()? {
+            "A" => Ok(Self::A),
+            "NS" => Ok(Self::NS),
+            "CNAME" => Ok(Self::CNAME),
+            "SOA" => Ok(Self::SOA),
+            "PTR" => Ok(Self::PTR),
+            "HINFO" => Ok(Self::HINFO),
+            "MX" => Ok(Self::MX),
+            "TXT" => Ok(Self::TXT),
+            "AAAA" => Ok(Self::AAAA),
+            "OPT" => Ok(Self::OPT),
+            "DS" => Ok(Self::DS),
+            "RRSIG" => Ok(Self::RRSIG),
+            "NSEC" => Ok(Self::NSEC),
+            "DNSKEY" => Ok(Self::DNSKEY),
+            "NSEC3" => Ok(Self::NSEC3),
+            "NSEC3PARAM" => Ok(Self::NSEC3PARAM),
+
+            rtype if rtype.starts_with("TYPE") => rtype[4..]
+                .parse::<u16>()
+                .map_err(|_| ScanError::Custom("invalid record type value"))
+                .map(Self::from),
+
+            _ => Err(ScanError::Custom("unrecognized record type")),
+        }
+    }
+}
+
 //----------- RClass ---------------------------------------------------------
 
 /// The class of a record.
@@ -443,6 +483,29 @@ impl fmt::Debug for RClass {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RClass {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        match scanner.scan_plain_token()? {
+            "IN" => Ok(Self::IN),
+            "CH" => Ok(Self::CH),
+
+            class if class.starts_with("CLASS") => class[5..]
+                .parse::<u16>()
+                .map_err(|_| ScanError::Custom("invalid record class value"))
+                .map(Self::new),
+
+            _ => Err(ScanError::Custom("unrecognized record class")),
+        }
+    }
+}
+
 //----------- TTL ------------------------------------------------------------
 
 /// How long a record can be cached.
@@ -489,6 +552,37 @@ impl From<TTL> for u32 {
 impl fmt::Debug for TTL {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TTL({})", self.value)
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for TTL {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        use core::num::IntErrorKind;
+
+        scanner
+            .scan_plain_token()?
+            .parse::<u32>()
+            .map_err(|err| {
+                ScanError::Custom(match err.kind() {
+                    IntErrorKind::PosOverflow => {
+                        "specified TTL will overflow"
+                    }
+                    IntErrorKind::InvalidDigit => {
+                        "TTLs can only contain digits"
+                    }
+                    IntErrorKind::NegOverflow => "TTLs must be non-negative",
+                    // We have already checked for other kinds of errors.
+                    _ => unreachable!(),
+                })
+            })
+            .map(Self::from)
     }
 }
 
@@ -667,5 +761,81 @@ mod test {
         let mut buffer = [0u8; 15];
         assert_eq!(record.build_bytes(&mut buffer), Ok(&mut [] as &mut [u8]));
         assert_eq!(buffer, &bytes[..15]);
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_rtype() {
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"A" as &[u8], Ok(RType::A)),
+            (b"TYPE1", Ok(RType::A)),
+            (b"TXT", Ok(RType::TXT)),
+            (
+                b"TYPE65536",
+                Err(ScanError::Custom("invalid record type value")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                RType::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_rclass() {
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"IN" as &[u8], Ok(RClass::IN)),
+            (b"CLASS1", Ok(RClass::IN)),
+            (
+                b"CLASS65536",
+                Err(ScanError::Custom("invalid record class value")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                RClass::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_ttl() {
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"0" as &[u8], Ok(TTL::from(0))),
+            (b"65536", Ok(TTL::from(65536))),
+            (
+                b"42W",
+                Err(ScanError::Custom("TTLs can only contain digits")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                TTL::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
     }
 }
