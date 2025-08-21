@@ -63,18 +63,21 @@ use crate::base::name::Name;
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::base::{
-    Message, ParsedName, Question, Rtype, StreamTarget, ToName,
+    Message, ParsedName, Question, Rtype, Serial, StreamTarget, ToName,
 };
 use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
-use crate::rdata::AllRecordData;
+use crate::rdata::{AllRecordData, ZoneRecordData};
 
 /// A DNS NOTIFY middleware service.
 ///
 /// [NotifyMiddlewareSvc] implements an [RFC 1996] compliant recipient of DNS
-/// NOTIFY messages.
+/// NOTIFY messages with QTYPE SOA.
+///
+/// NOTIFY messages with other QTYPEs will pass through this middleware
+/// unchanged and unhandled.
 ///
 /// See the [module documentation][super] for more information.
 ///
@@ -136,6 +139,29 @@ where
         let source = req.client_addr().ip();
 
         // https://datatracker.ietf.org/doc/html/rfc1996#section-3
+        //   "3.7. A NOTIFY request has QDCOUNT>0, ANCOUNT>=0, AUCOUNT>=0,
+        //    ADCOUNT>=0.  If ANCOUNT>0, then the answer section represents an
+        //    unsecure hint at the new RRset for this <QNAME,QCLASS,QTYPE>."
+        //
+        //   "3.11. The only defined NOTIFY event at this time is that the SOA
+        //    RR has changed."
+        //
+        // Check if the ANSWER section contains a SOA RR. If so, extract the
+        // SOA serial to pass to notify_target.
+        let mut serial = None;
+        if msg.header_counts().ancount() > 0 {
+            if let Ok(mut answer) = msg.answer() {
+                if let Some(Ok(record)) = answer.next() {
+                    if let Ok(Some(record)) = record.to_record() {
+                        if let ZoneRecordData::Soa(soa) = record.data() {
+                            serial = Some(soa.serial());
+                        }
+                    }
+                }
+            }
+        }
+
+        // https://datatracker.ietf.org/doc/html/rfc1996#section-3
         //   "3.1. When a master has updated one or more RRs in which slave
         //    servers may be interested, the master may send the changed RR's
         //    name, class, type, and optionally, new RDATA(s), to each known
@@ -145,9 +171,10 @@ where
         // So, we have received a notification from a server that an RR
         // changed that we may be interested in.
         info!(
-            "NOTIFY received from {} for zone '{}'",
+            "NOTIFY received from {} for zone '{}' with serial {:?}",
             req.client_addr(),
-            q.qname()
+            q.qname(),
+            serial,
         );
 
         // https://datatracker.ietf.org/doc/html/rfc1996#section-3
@@ -179,7 +206,7 @@ where
         //
         // Announce this notification for processing.
         match notify_target
-            .notify_zone_changed(class, &apex_name, source)
+            .notify_zone_changed(class, &apex_name, serial, source)
             .await
         {
             Err(NotifyError::NotAuthForZone) => {
@@ -395,6 +422,7 @@ pub trait Notifiable {
         &self,
         class: Class,
         apex_name: &Name<Bytes>,
+        serial: Option<Serial>,
         source: IpAddr,
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
@@ -408,10 +436,11 @@ impl<T: Notifiable> Notifiable for Arc<T> {
         &self,
         class: Class,
         apex_name: &Name<Bytes>,
+        serial: Option<Serial>,
         source: IpAddr,
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
     > {
-        (**self).notify_zone_changed(class, apex_name, source)
+        (**self).notify_zone_changed(class, apex_name, serial, source)
     }
 }
