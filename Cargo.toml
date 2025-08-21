@@ -65,8 +65,8 @@ std         = ["alloc", "dep:hashbrown", "bumpalo?/std", "bytes?/std", "octseq/s
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
-ring    = ["dep:ring"]
-openssl = ["dep:openssl"]
+ring    = ["dep:ring", "unstable-crypto-backend"]
+openssl = ["dep:openssl", "unstable-crypto-backend"]
 
 # Crate features
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
@@ -79,11 +79,15 @@ zonefile    = ["bytes", "serde", "std"]
 unstable-new = []
 unstable-client-cache = ["unstable-client-transport", "moka"]
 unstable-client-transport = ["moka", "net", "tracing"]
-unstable-crypto = ["bytes"]
+unstable-crypto = ["bytes", "std"]
 unstable-crypto-sign = ["dep:secrecy", "unstable-crypto"]
+# Internal; also requires 'ring' or 'openssl' to be enabled.
+unstable-crypto-backend = ["unstable-crypto"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
-unstable-sign = ["std", "dep:smallvec", "dep:serde", "time/formatting", "tracing", "unstable-crypto-sign"]
+# Also requires 'ring' or 'openssl' to be enabled.
+unstable-sign = ["std", "smallvec", "serde", "time/formatting", "tracing", "unstable-crypto-sign"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
+# Also requires 'ring' or 'openssl' to be enabled.
 unstable-validator = ["zonefile", "unstable-client-transport", "unstable-crypto", "moka"]
 unstable-xfr = ["net"]
 unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]

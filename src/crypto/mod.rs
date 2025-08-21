@@ -12,8 +12,8 @@
 //! weaker key sizes).  A
 #![cfg_attr(feature = "unstable-crypto-sign", doc = "[`sign`]")]
 #![cfg_attr(not(feature = "unstable-crypto-sign"), doc = "`sign`")]
-//! backend is provided for users that wish
-//! to use either or both backends at runtime.
+//! backend is provided for users that wish to use either or both backends at
+//! runtime.
 //!
 //! Each backend module (
 #![cfg_attr(
@@ -36,10 +36,8 @@
 //! , and
 #![cfg_attr(feature = "unstable-crypto-sign", doc = "[`sign`]")]
 #![cfg_attr(not(feature = "unstable-crypto-sign"), doc = "`sign`")]
-//! )
-//! exposes a
-//! `KeyPair` type, representing a cryptographic key that can be used for
-//! signing, and a `generate()` function for creating new keys.
+//! ) exposes a `KeyPair` type, representing a cryptographic key that can be
+//! used for signing, and a `generate()` function for creating new keys.
 //!
 //! Users can choose to bring their own cryptography by providing their own
 //! `KeyPair` type that implements the
@@ -66,64 +64,38 @@
     not(feature = "unstable-crypto-sign"),
     doc = "`sign::GenerateParams`"
 )]
-//! ) support a limited
-//! number of algorithms.  Even with custom cryptographic backends,
-//! this module can only
-//! support these algorithms.
+//! ) support a limited number of algorithms.  Even with custom cryptographic
+//! backends, this module can only support these algorithms.
 //!
 //! In addition to private key operations, this module provides the
 #![cfg_attr(
-    any(feature = "ring", feature = "openssl"),
+    feature = "unstable-crypto-backend",
     doc = "[`common::PublicKey`]"
 )]
 #![cfg_attr(
-    not(any(feature = "ring", feature = "openssl")),
+    not(feature = "unstable-crypto-backend"),
     doc = "`common::PublicKey`"
 )]
 //! type for signature verification.
 //!
 //! The module also support computing message digests using the
 #![cfg_attr(
-    any(feature = "ring", feature = "openssl"),
+    feature = "unstable-crypto-backend",
     doc = "[`common::DigestBuilder`]"
 )]
 #![cfg_attr(
-    not(any(feature = "ring", feature = "openssl")),
+    not(feature = "unstable-crypto-backend"),
     doc = "`common::DigestBuilder`"
 )]
 //! type.
 //!
-//! # Message digests
-//!
-//! Given some data compute a message digest.
-//!
-//! ```
-//! use domain::crypto::common::{DigestBuilder, DigestType};
-//!
-//! let input = "Hello World!";
-//! let mut ctx = DigestBuilder::new(DigestType::Sha256);
-//! ctx.update(input.as_bytes());
-//! ctx.finish().as_ref();
-//! ```
-//!
-//! # Signature verification
-//!
-//! Given some data, a signature, and a DNSKEY, the signature can be verified.
-//!
-//! ```no_run
-//! use domain::rdata::Dnskey;
-//! use domain::crypto::common::PublicKey;
-//! use domain::base::iana::SecurityAlgorithm;
-//!
-//! let keyraw = [0u8; 16];
-//! let input = "Hello World!";
-//! let bad_sig = [0u8; 16];
-//! let dnskey = Dnskey::new(256, 3, SecurityAlgorithm::ED25519, keyraw).unwrap();
-//! let public_key = PublicKey::from_dnskey(&dnskey).unwrap();
-//! let res = public_key.verify(input.as_bytes(), &bad_sig);
-//! println!("verify result: {res:?}");
-//! ```
+//! For examples, see the
+#![cfg_attr(feature = "unstable-crypto-backend", doc = "[`common`]")]
+#![cfg_attr(not(feature = "unstable-crypto-backend"), doc = "`common`")]
+//! module.
 
+#![cfg(feature = "unstable-crypto")]
+#![cfg_attr(docsrs, doc(cfg(feature = "unstable-crypto")))]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
