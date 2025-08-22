@@ -975,7 +975,8 @@ pub mod sign {
 
     /// Generate a new key pair for a given algorithm using a specified HSM.
     pub fn generate(
-        name: String, // TODO: Should we restrict names to a compatible set? What is that set?
+        public_key_name: String,
+        private_key_name: String,
         params: GenerateParams, // TODO: Is this enough? Or do we need to take SecurityAlgorithm as input instead of GenerateParams to ensure we don't lose distinctions like 5 vs 7 which are both RSASHA1?
         flags: u16,
         conn_pool: SyncConnPool,
@@ -996,12 +997,25 @@ pub mod sign {
 
         let use_cryptographic_params = false;
 
+        // Note: Strictly speaking KMIP requires that each key, including
+        // public and private "halves" of the same key "pair", have a unique
+        // name within the HSM namespace. We don't enforce that here, e.g.
+        // maybe you know that your backend is actually a KMIP to PKCS#11
+        // gateway and PKCS#11 doesn't have the same restriction and you
+        // want keys to be named as you are used to with your PKCS#11 HSM. We
+        // also don't intefere with names by making them unique as that would
+        // change any max name length calculations performed by the caller
+        // to avoid known issues with backend name limitations for their
+        // particular HSM (the PKCS#11 and KMIP specifications are silent on
+        // name limits but implementations definitely have limits, and not all
+        // the same).
+
         let mut common_attrs = vec![];
         let priv_key_attrs = vec![
             // Krill supplies a name at creation time. Do we need to?
             // Note: Fortanix DSM requires a name for at least the private
             // key.
-            request::Attribute::Name(format!("{name}_priv")),
+            request::Attribute::Name(private_key_name),
             request::Attribute::CryptographicUsageMask(
                 CryptographicUsageMask::Sign,
             ),
@@ -1010,7 +1024,7 @@ pub mod sign {
             // Krill supplies a name at creation time. Do we need to?
             // Note: Fortanix DSM requires a name for at least the private
             // key.
-            request::Attribute::Name(format!("{name}_pub")),
+            request::Attribute::Name(public_key_name),
             // Krill does verification, do we need to? ODS doesn't.
             // Note: PyKMIP requires a Cryptographic Usage Mask for the public
             // key.
