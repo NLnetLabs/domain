@@ -1469,7 +1469,14 @@ mod tests {
         dbg!(&res);
         res.unwrap();
 
-        let generated_key_name = format!(
+        let pub_key_name = format!(
+            "{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        );
+        let pri_key_name = format!(
             "{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -1477,7 +1484,8 @@ mod tests {
                 .as_secs()
         );
         let res = generate(
-            generated_key_name,
+            pub_key_name,
+            pri_key_name,
             crate::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
             // crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
@@ -1533,7 +1541,14 @@ mod tests {
         // dbg!(&res);
         // res.unwrap();
 
-        let generated_key_name = format!(
+        let pub_key_name = format!(
+            "{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        );
+        let pri_key_name = format!(
             "{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -1541,7 +1556,8 @@ mod tests {
                 .as_secs()
         );
         let res = generate(
-            generated_key_name,
+            pub_key_name,
+            pri_key_name,
             crate::crypto::sign::GenerateParams::RsaSha256 { bits: 1024 },
             // crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
