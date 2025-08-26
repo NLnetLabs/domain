@@ -274,14 +274,18 @@ impl fmt::Display for Label {
     ///
     /// The label is printed in the conventional zone file format, with bytes
     /// outside printable ASCII formatted as `\\DDD` (a backslash followed by
-    /// three zero-padded decimal digits), and `.` and `\\` simply escaped by
-    /// a backslash.
+    /// three zero-padded decimal digits), and uncommon ASCII characters just
+    /// escaped by a backslash.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_wildcard() {
+            return f.write_str("*");
+        }
+
         self.contents().iter().try_for_each(|&byte| {
-            if b".\\".contains(&byte) {
-                write!(f, "\\{}", byte as char)
-            } else if byte.is_ascii_graphic() {
+            if byte.is_ascii_alphanumeric() || b"-_".contains(&byte) {
                 write!(f, "{}", byte as char)
+            } else if byte.is_ascii_graphic() {
+                write!(f, "\\{}", byte as char)
             } else {
                 write!(f, "\\{:03}", byte)
             }
@@ -292,9 +296,25 @@ impl fmt::Display for Label {
 impl fmt::Debug for Label {
     /// Print a label for debugging purposes.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Label")
-            .field(&format_args!("{}", self))
-            .finish()
+        write!(f, "Label({self})")
+    }
+}
+
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Label {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use std::string::ToString;
+
+        if serializer.is_human_readable() {
+            serializer.serialize_newtype_struct("Label", &self.to_string())
+        } else {
+            serializer.serialize_newtype_struct("Label", self.contents())
+        }
     }
 }
 
@@ -325,38 +345,6 @@ impl UnsizedCopyFrom for LabelBuf {
 
     fn unsized_copy_from(value: &Self::Source) -> Self {
         Self::copy_from(value)
-    }
-}
-
-//--- Parsing from strings
-
-impl FromStr for LabelBuf {
-    type Err = LabelParseError;
-
-    /// Parse a label from a string.
-    ///
-    /// This is intended for easily constructing hard-coded labels.  The input
-    /// is not expected to be in the zonefile format; it should simply contain
-    /// 1 to 63 characters, each being a plain ASCII alphanumeric or a hyphen.
-    /// To construct a label containing bytes outside this range, use
-    /// [`Label::from_bytes_unchecked()`].  To construct a root label, use
-    /// [`Label::ROOT`].
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == "*" {
-            Ok(Self::copy_from(Label::WILDCARD))
-        } else if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
-            Err(LabelParseError::InvalidChar)
-        } else if s.is_empty() {
-            Err(LabelParseError::Empty)
-        } else if s.len() > 63 {
-            Err(LabelParseError::Overlong)
-        } else {
-            let bytes = s.as_bytes();
-            let mut data = [0u8; 64];
-            data[0] = bytes.len() as u8;
-            data[1..1 + bytes.len()].copy_from_slice(bytes);
-            Ok(Self { data })
-        }
     }
 }
 
@@ -498,6 +486,207 @@ impl Hash for LabelBuf {
     }
 }
 
+//--- Parsing from strings
+
+impl LabelBuf {
+    /// Parse a label from the zonefile format.
+    pub fn parse_str(mut s: &[u8]) -> Result<(Self, &[u8]), LabelParseError> {
+        if let &[b'*', ref rest @ ..] = s {
+            return Ok((Self::copy_from(Label::WILDCARD), rest));
+        }
+
+        // The buffer we'll fill into.
+        let mut this = Self { data: [0u8; 64] };
+
+        // Parse character by character.
+        loop {
+            let full = s;
+            let &[b, ref rest @ ..] = s else { break };
+            s = rest;
+            let value = if b.is_ascii_alphanumeric() || b"-_".contains(&b) {
+                // A regular label character.
+                b
+            } else if b == b'\\' {
+                // An escape character.
+                let &[b, ref rest @ ..] = s else { break };
+                s = rest;
+                if b.is_ascii_digit() {
+                    let digits = rest
+                        .get(..3)
+                        .ok_or(LabelParseError::PartialEscape)?;
+                    let digits = str::from_utf8(digits)
+                        .map_err(|_| LabelParseError::InvalidEscape)?;
+                    digits
+                        .parse()
+                        .map_err(|_| LabelParseError::InvalidEscape)?
+                } else if b.is_ascii_graphic() {
+                    b
+                } else {
+                    return Err(LabelParseError::InvalidEscape);
+                }
+            } else if b". \n\r\t".contains(&b) {
+                // The label has ended.
+                s = full;
+                break;
+            } else {
+                return Err(LabelParseError::InvalidChar);
+            };
+
+            let off = this.data[0] as usize + 1;
+            this.data[0] += 1;
+            let ptr =
+                this.data.get_mut(off).ok_or(LabelParseError::Overlong)?;
+            *ptr = value;
+        }
+
+        if this.data[0] == 0 {
+            return Err(LabelParseError::Empty);
+        }
+
+        Ok((this, s))
+    }
+}
+
+impl FromStr for LabelBuf {
+    type Err = LabelParseError;
+
+    /// Parse a label from a string.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match Self::parse_str(s.as_bytes()) {
+            Ok((this, &[])) => Ok(this),
+            Ok(_) => Err(LabelParseError::InvalidChar),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+//--- Serialize, Deserialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for LabelBuf {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        (**self).serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> serde::Deserialize<'a> for LabelBuf {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        if deserializer.is_human_readable() {
+            struct V;
+
+            impl serde::de::Visitor<'_> for V {
+                type Value = LabelBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("a label, in the DNS zonefile format")
+                }
+
+                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    v.parse().map_err(|err| E::custom(err))
+                }
+            }
+
+            struct NV;
+
+            impl<'a> serde::de::Visitor<'a> for NV {
+                type Value = LabelBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("a DNS label")
+                }
+
+                fn visit_newtype_struct<D>(
+                    self,
+                    deserializer: D,
+                ) -> Result<Self::Value, D::Error>
+                where
+                    D: serde::Deserializer<'a>,
+                {
+                    deserializer.deserialize_str(V)
+                }
+            }
+
+            deserializer.deserialize_newtype_struct("Label", NV)
+        } else {
+            struct V;
+
+            impl serde::de::Visitor<'_> for V {
+                type Value = LabelBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("a label, in the DNS wire format")
+                }
+
+                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    LabelBuf::parse_bytes(v).map_err(|_| {
+                        E::custom(
+                            "misformatted label for the DNS wire format",
+                        )
+                    })
+                }
+            }
+
+            struct NV;
+
+            impl<'a> serde::de::Visitor<'a> for NV {
+                type Value = LabelBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("a DNS label")
+                }
+
+                fn visit_newtype_struct<D>(
+                    self,
+                    deserializer: D,
+                ) -> Result<Self::Value, D::Error>
+                where
+                    D: serde::Deserializer<'a>,
+                {
+                    deserializer.deserialize_bytes(V)
+                }
+            }
+
+            deserializer.deserialize_newtype_struct("Label", NV)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> serde::Deserialize<'a> for std::boxed::Box<Label> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        LabelBuf::deserialize(deserializer)
+            .map(|this| this.unsized_copy_into())
+    }
+}
+
 //----------- LabelIter ------------------------------------------------------
 
 /// An iterator over encoded [`Label`]s.
@@ -597,6 +786,20 @@ pub enum LabelParseError {
     /// prevents the encoding of perfectly valid labels containing non-ASCII
     /// bytes, but they're fairly rare anyway.
     InvalidChar,
+
+    /// A partial escape was used.
+    ///
+    /// An escape must be `\\DDD`, where `DDD` are 3 ASCII decimal digits
+    /// representing an unsigned 8-bit integer; or `\\X`, where `X` is a
+    /// graphical, non-digit ASCII character.
+    PartialEscape,
+
+    /// An invalid escape was used.
+    ///
+    /// An escape must be `\\DDD`, where `DDD` are 3 ASCII decimal digits
+    /// representing an unsigned 8-bit integer; or `\\X`, where `X` is a
+    /// graphical, non-digit ASCII character.
+    InvalidEscape,
 }
 
 // TODO(1.81.0): Use 'core::error::Error' instead.
@@ -609,6 +812,8 @@ impl fmt::Display for LabelParseError {
             Self::Overlong => "the label was too large",
             Self::Empty => "the label was empty",
             Self::InvalidChar => "the label contained an invalid character",
+            Self::PartialEscape => "the label contained an incomplete escape",
+            Self::InvalidEscape => "the label contained an invalid escape",
         })
     }
 }
