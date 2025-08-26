@@ -691,14 +691,15 @@ impl NameBuf {
         // Parse label by label.
         loop {
             let (label, rest) = LabelBuf::parse_str(s)?;
+            s = rest;
 
             if 255 - this.size < 1 + label.as_bytes().len() as u8 {
                 return Err(NameParseError::Overlong);
             }
             this.append_label(&label);
 
-            match *rest {
-                [b' ' | b'\n' | b'\r' | b'\t', ..] => break,
+            match *s {
+                [b' ' | b'\n' | b'\r' | b'\t', ..] | [] => break,
                 [b'.', ref rest @ ..] => s = rest,
                 _ => return Err(NameParseError::InvalidChar),
             }
@@ -755,17 +756,7 @@ impl Scan<'_> for NameBuf {
             return Ok(this);
         }
 
-        while let Some(&c) = scanner.remaining().first() {
-            if c.is_ascii_whitespace() {
-                break;
-            }
-
-            if !c.is_ascii_alphanumeric() && !b"\\-_".contains(&c) {
-                return Err(ScanError::Custom(
-                    "irregular character in domain name",
-                ));
-            }
-
+        loop {
             // Parse a label and prepend it to the buffer.
             let label = LabelBuf::scan(scanner, alloc, buffer)?;
             if 255 - this.size < 1 + label.as_bytes().len() as u8 {
@@ -776,8 +767,8 @@ impl Scan<'_> for NameBuf {
             this.append_label(&label);
 
             // Check if this is the end of the domain name.
-            match scanner.remaining() {
-                &[b' ' | b'\t' | b'\r' | b'\n', ..] | &[] => {
+            match *scanner.remaining() {
+                [b' ' | b'\t' | b'\r' | b'\n', ..] | [] => {
                     // This is a relative domain name.
                     let origin = scanner
                         .origin()
@@ -796,7 +787,13 @@ impl Scan<'_> for NameBuf {
                     break;
                 }
 
-                &[b'.', ..] => {
+                [b'.', b' ' | b'\t' | b'\r' | b'\n', ..] | [b'.'] => {
+                    // This is an absolute domain name.
+                    scanner.consume(1);
+                    break;
+                }
+
+                [b'.', ..] => {
                     scanner.consume(1);
                 }
 

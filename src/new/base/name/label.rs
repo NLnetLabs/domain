@@ -454,6 +454,22 @@ impl BuildBytes for LabelBuf {
     }
 }
 
+//--- Formatting
+
+impl fmt::Display for LabelBuf {
+    /// Print a label.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+impl fmt::Debug for LabelBuf {
+    /// Print a label for debugging purposes.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
 //--- Access to the underlying 'Label'
 
 impl Deref for LabelBuf {
@@ -660,7 +676,7 @@ impl Scan<'_> for LabelBuf {
 
         // Parse the result as a label.
         if this.data[0] == 0 {
-            return Err(ScanError::Custom("a domain label was empty"));
+            return Err(ScanError::Incomplete);
         }
         Ok(this)
     }
@@ -936,10 +952,7 @@ mod test {
         use super::LabelBuf;
 
         let cases = [
-            (
-                b"" as &[u8],
-                Err(ScanError::Custom("a domain label was empty")),
-            ),
+            (b"" as &[u8], Err(ScanError::Incomplete)),
             (b"a", Ok(b"a" as &[u8])),
             (b"xn--hello", Ok(b"xn--hello")),
             (b"a\\010b", Ok(b"a\nb")),

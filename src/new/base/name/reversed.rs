@@ -691,17 +691,7 @@ impl Scan<'_> for RevNameBuf {
         // Build up a 'RevName'.
         let mut this = Self::empty();
 
-        while let Some(&c) = scanner.remaining().first() {
-            if c.is_ascii_whitespace() {
-                break;
-            }
-
-            if !c.is_ascii_alphanumeric() && !b"\\-_".contains(&c) {
-                return Err(ScanError::Custom(
-                    "irregular character in domain name",
-                ));
-            }
-
+        loop {
             // Parse a label and prepend it to the buffer.
             let label = super::LabelBuf::scan(scanner, alloc, buffer)?;
             if this.offset < 1 + label.as_bytes().len() as u8 {
@@ -712,8 +702,8 @@ impl Scan<'_> for RevNameBuf {
             this.prepend_label(&label);
 
             // Check if this is the end of the domain name.
-            match scanner.remaining() {
-                &[b' ' | b'\t' | b'\r' | b'\n', ..] | &[] => {
+            match *scanner.remaining() {
+                [b' ' | b'\t' | b'\r' | b'\n', ..] | [] => {
                     // This is a relative domain name.
                     let origin = scanner
                         .origin()
@@ -729,7 +719,13 @@ impl Scan<'_> for RevNameBuf {
                     break;
                 }
 
-                &[b'.', ..] => {
+                [b'.', b' ' | b'\t' | b'\r' | b'\n', ..] | [b'.'] => {
+                    // This is an absolute domain name.
+                    scanner.consume(1);
+                    break;
+                }
+
+                [b'.', ..] => {
                     scanner.consume(1);
                 }
 
