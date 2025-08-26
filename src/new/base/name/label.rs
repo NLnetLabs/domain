@@ -514,7 +514,7 @@ impl LabelBuf {
                     let digits = rest
                         .get(..3)
                         .ok_or(LabelParseError::PartialEscape)?;
-                    let digits = str::from_utf8(digits)
+                    let digits = core::str::from_utf8(digits)
                         .map_err(|_| LabelParseError::InvalidEscape)?;
                     digits
                         .parse()

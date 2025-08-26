@@ -210,10 +210,10 @@ impl<N: ?Sized + CanonicalName> CanonicalName for alloc::boxed::Box<N> {
     }
 
     fn cmp_composed(&self, other: &Self) -> Ordering {
-        (**self).cmp_composed(&*other)
+        (**self).cmp_composed(other)
     }
 
     fn cmp_lowercase_composed(&self, other: &Self) -> Ordering {
-        (**self).cmp_lowercase_composed(&*other)
+        (**self).cmp_lowercase_composed(other)
     }
 }
