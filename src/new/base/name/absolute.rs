@@ -355,6 +355,24 @@ impl fmt::Debug for Name {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Name {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use std::string::ToString;
+
+        if serializer.is_human_readable() {
+            serializer.serialize_newtype_struct("Name", &self.to_string())
+        } else {
+            serializer.serialize_newtype_struct("Name", self.as_bytes())
+        }
+    }
+}
+
 //----------- NameBuf --------------------------------------------------------
 
 /// A 256-byte buffer containing a [`Name`].
@@ -578,32 +596,129 @@ impl NameBuf {
     }
 }
 
+//--- Access to the underlying 'Name'
+
+impl Deref for NameBuf {
+    type Target = Name;
+
+    fn deref(&self) -> &Self::Target {
+        let name = &self.buffer[..self.size as usize];
+        // SAFETY: A 'NameBuf' always contains a valid 'Name'.
+        unsafe { Name::from_bytes_unchecked(name) }
+    }
+}
+
+impl DerefMut for NameBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        let name = &mut self.buffer[..self.size as usize];
+        // SAFETY: A 'NameBuf' always contains a valid 'Name'.
+        unsafe { Name::from_bytes_unchecked_mut(name) }
+    }
+}
+
+impl Borrow<Name> for NameBuf {
+    fn borrow(&self) -> &Name {
+        self
+    }
+}
+
+impl BorrowMut<Name> for NameBuf {
+    fn borrow_mut(&mut self) -> &mut Name {
+        self
+    }
+}
+
+impl AsRef<Name> for NameBuf {
+    fn as_ref(&self) -> &Name {
+        self
+    }
+}
+
+impl AsMut<Name> for NameBuf {
+    fn as_mut(&mut self) -> &mut Name {
+        self
+    }
+}
+
+//--- Forwarding equality, comparison, hashing, and formatting
+
+impl PartialEq for NameBuf {
+    fn eq(&self, that: &Self) -> bool {
+        **self == **that
+    }
+}
+
+impl Eq for NameBuf {}
+
+impl PartialOrd for NameBuf {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NameBuf {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (**self).cmp(&**other)
+    }
+}
+
+impl Hash for NameBuf {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (**self).hash(state)
+    }
+}
+
+impl fmt::Display for NameBuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+impl fmt::Debug for NameBuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
 //--- Parsing from strings
+
+impl NameBuf {
+    /// Parse a domain name from the zonefile format.
+    pub fn parse_str(mut s: &[u8]) -> Result<(Self, &[u8]), NameParseError> {
+        // The buffer we'll fill into.
+        let mut this = Self::empty();
+
+        // Parse label by label.
+        loop {
+            let (label, rest) = LabelBuf::parse_str(s)?;
+
+            if 255 - this.size < 1 + label.as_bytes().len() as u8 {
+                return Err(NameParseError::Overlong);
+            }
+            this.append_label(&label);
+
+            match *rest {
+                [b' ' | b'\n' | b'\r' | b'\t', ..] => break,
+                [b'.', ref rest @ ..] => s = rest,
+                _ => return Err(NameParseError::InvalidChar),
+            }
+        }
+        this.append_label(Label::ROOT);
+
+        Ok((this, s))
+    }
+}
 
 impl FromStr for NameBuf {
     type Err = NameParseError;
 
     /// Parse a name from a string.
-    ///
-    /// This is intended for easily constructing hard-coded domain names.  The
-    /// labels in the name should be given in the conventional order (i.e. not
-    /// reversed), and should be separated by ASCII periods.  The labels will
-    /// be parsed using [`LabelBuf::from_str()`]; see its documentation.  This
-    /// function cannot parse all valid domain names; if an exceptional name
-    /// needs to be parsed, use [`Name::from_bytes_unchecked()`].  If the
-    /// input is empty, the root name is returned.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut this = Self::empty();
-        for label in s.split('.') {
-            let label =
-                label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
-            if 255 - this.size < 1 + label.as_bytes().len() as u8 {
-                return Err(NameParseError::Overlong);
-            }
-            this.append_label(&label);
+        match Self::parse_str(s.as_bytes()) {
+            Ok((this, &[])) => Ok(this),
+            Ok(_) => Err(NameParseError::InvalidChar),
+            Err(err) => Err(err),
         }
-        this.append_label(Label::ROOT);
-        Ok(this)
     }
 }
 
@@ -703,87 +818,126 @@ impl Scan<'_> for NameBuf {
     }
 }
 
-//--- Access to the underlying 'Name'
+//--- Serialize, Deserialize
 
-impl Deref for NameBuf {
-    type Target = Name;
-
-    fn deref(&self) -> &Self::Target {
-        let name = &self.buffer[..self.size as usize];
-        // SAFETY: A 'NameBuf' always contains a valid 'Name'.
-        unsafe { Name::from_bytes_unchecked(name) }
+#[cfg(feature = "serde")]
+impl serde::Serialize for NameBuf {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        (**self).serialize(serializer)
     }
 }
 
-impl DerefMut for NameBuf {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        let name = &mut self.buffer[..self.size as usize];
-        // SAFETY: A 'NameBuf' always contains a valid 'Name'.
-        unsafe { Name::from_bytes_unchecked_mut(name) }
+#[cfg(feature = "serde")]
+impl<'a> serde::Deserialize<'a> for NameBuf {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        if deserializer.is_human_readable() {
+            struct V;
+
+            impl serde::de::Visitor<'_> for V {
+                type Value = NameBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("a domain name, in the DNS zonefile format")
+                }
+
+                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    v.parse().map_err(|err| E::custom(err))
+                }
+            }
+
+            struct NV;
+
+            impl<'a> serde::de::Visitor<'a> for NV {
+                type Value = NameBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("an absolute domain name")
+                }
+
+                fn visit_newtype_struct<D>(
+                    self,
+                    deserializer: D,
+                ) -> Result<Self::Value, D::Error>
+                where
+                    D: serde::Deserializer<'a>,
+                {
+                    deserializer.deserialize_str(V)
+                }
+            }
+
+            deserializer.deserialize_newtype_struct("Name", NV)
+        } else {
+            struct V;
+
+            impl serde::de::Visitor<'_> for V {
+                type Value = NameBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("a domain name, in the DNS wire format")
+                }
+
+                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    NameBuf::parse_bytes(v).map_err(|_| E::custom("misformatted domain name for the DNS wire format"))
+                }
+            }
+
+            struct NV;
+
+            impl<'a> serde::de::Visitor<'a> for NV {
+                type Value = NameBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("an absolute domain name")
+                }
+
+                fn visit_newtype_struct<D>(
+                    self,
+                    deserializer: D,
+                ) -> Result<Self::Value, D::Error>
+                where
+                    D: serde::Deserializer<'a>,
+                {
+                    deserializer.deserialize_bytes(V)
+                }
+            }
+
+            deserializer.deserialize_newtype_struct("Name", NV)
+        }
     }
 }
 
-impl Borrow<Name> for NameBuf {
-    fn borrow(&self) -> &Name {
-        self
-    }
-}
-
-impl BorrowMut<Name> for NameBuf {
-    fn borrow_mut(&mut self) -> &mut Name {
-        self
-    }
-}
-
-impl AsRef<Name> for NameBuf {
-    fn as_ref(&self) -> &Name {
-        self
-    }
-}
-
-impl AsMut<Name> for NameBuf {
-    fn as_mut(&mut self) -> &mut Name {
-        self
-    }
-}
-
-//--- Forwarding equality, comparison, hashing, and formatting
-
-impl PartialEq for NameBuf {
-    fn eq(&self, that: &Self) -> bool {
-        **self == **that
-    }
-}
-
-impl Eq for NameBuf {}
-
-impl PartialOrd for NameBuf {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NameBuf {
-    fn cmp(&self, other: &Self) -> Ordering {
-        (**self).cmp(&**other)
-    }
-}
-
-impl Hash for NameBuf {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (**self).hash(state)
-    }
-}
-
-impl fmt::Display for NameBuf {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (**self).fmt(f)
-    }
-}
-
-impl fmt::Debug for NameBuf {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (**self).fmt(f)
+#[cfg(feature = "serde")]
+impl<'a> serde::Deserialize<'a> for std::boxed::Box<Name> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        NameBuf::deserialize(deserializer)
+            .map(|this| this.unsized_copy_into())
     }
 }
 
@@ -800,8 +954,23 @@ pub enum NameParseError {
     /// Valid names are between 1 and 255 bytes, inclusive.
     Overlong,
 
+    /// The name contained an invalid character.
+    ///
+    /// Valid names contain any of the following characters:
+    /// - ASCII alphanumeric characters
+    /// - `-`, `_`, `*` (within labels)
+    /// - `.` (between labels)
+    /// - Correctly escaped characters
+    InvalidChar,
+
     /// A label in the name could not be parsed.
     Label(LabelParseError),
+}
+
+impl From<LabelParseError> for NameParseError {
+    fn from(value: LabelParseError) -> Self {
+        Self::Label(value)
+    }
 }
 
 // TODO(1.81.0): Use 'core::error::Error' instead.
@@ -812,10 +981,16 @@ impl fmt::Display for NameParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Overlong => "the domain name was too long",
+            Self::InvalidChar | Self::Label(LabelParseError::InvalidChar) => {
+                "the domain name contained an invalid character"
+            }
             Self::Label(LabelParseError::Overlong) => "a label was too long",
             Self::Label(LabelParseError::Empty) => "a label was empty",
-            Self::Label(LabelParseError::InvalidChar) => {
-                "the domain name contained an invalid character"
+            Self::Label(LabelParseError::PartialEscape) => {
+                "a label contained an incomplete escape"
+            }
+            Self::Label(LabelParseError::InvalidEscape) => {
+                "a label contained an invalid escape"
             }
         })
     }

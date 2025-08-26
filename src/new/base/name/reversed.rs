@@ -23,7 +23,7 @@ use crate::{
 #[cfg(feature = "zonefile")]
 use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
 
-use super::{Label, LabelBuf, LabelIter, NameParseError};
+use super::{LabelIter, NameBuf, NameParseError};
 
 //----------- RevName --------------------------------------------------------
 
@@ -282,6 +282,18 @@ impl fmt::Debug for RevName {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for RevName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        NameBuf::from(RevNameBuf::copy_from(self)).serialize(serializer)
+    }
+}
+
 //----------- RevNameBuf -----------------------------------------------------
 
 /// A 256-byte buffer containing a [`RevName`].
@@ -523,126 +535,31 @@ impl RevNameBuf {
     /// Prepend a label to this buffer.
     ///
     /// This is an internal convenience function used while building buffers.
-    fn prepend_label(&mut self, label: &Label) {
+    #[cfg(feature = "zonefile")]
+    fn prepend_label(&mut self, label: &super::Label) {
         self.prepend_bytes(label.as_bytes());
     }
 }
 
-//--- Parsing from strings
+//--- Conversion
 
-impl FromStr for RevNameBuf {
-    type Err = NameParseError;
-
-    /// Parse a name from a string.
-    ///
-    /// This is intended for easily constructing hard-coded domain names.  The
-    /// labels in the name should be given in the conventional order (i.e. not
-    /// reversed), and should be separated by ASCII periods.  The labels will
-    /// be parsed using [`LabelBuf::from_str()`]; see its documentation.  This
-    /// function cannot parse all valid domain names; if an exceptional name
-    /// needs to be parsed, use [`RevName::from_bytes_unchecked()`].  If the
-    /// input is empty, the root name is returned.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut this = Self::empty();
-        for label in s.split('.') {
-            let label =
-                label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
-            if this.offset < 1 + label.as_bytes().len() as u8 {
-                return Err(NameParseError::Overlong);
-            }
-            this.prepend_label(&label);
-        }
-        this.prepend_label(Label::ROOT);
-        Ok(this)
+impl From<NameBuf> for RevNameBuf {
+    fn from(value: NameBuf) -> Self {
+        Self::parse_bytes(value.as_bytes())
+            .expect("a 'NameBuf' is a correctly encoded domain name")
     }
 }
 
-//--- Parsing from the zonefile format
-
-#[cfg(feature = "zonefile")]
-impl Scan<'_> for RevNameBuf {
-    /// Scan a domain name token.
-    ///
-    /// This parses a domain name, following the [specification].
-    ///
-    /// [specification]: crate::new::zonefile#specification
-    fn scan(
-        scanner: &mut Scanner<'_>,
-        alloc: &'_ bumpalo::Bump,
-        buffer: &mut std::vec::Vec<u8>,
-    ) -> Result<Self, ScanError> {
-        // Try parsing '@', indicating the origin name.
-        if let [b'@', b' ' | b'\t' | b'\r' | b'\n', ..] | [b'@'] =
-            scanner.remaining()
-        {
-            scanner.consume(1);
-            let origin = scanner
-                .origin()
-                .ok_or(ScanError::Custom("unknown origin name"))?;
-            return Ok(RevNameBuf::copy_from(origin));
-        }
-
-        // Build up a 'RevName'.
-        let mut this = Self::empty();
-
-        while let Some(&c) = scanner.remaining().first() {
-            if c.is_ascii_whitespace() {
-                break;
-            }
-
-            if !c.is_ascii_alphanumeric() && !b"\\-_".contains(&c) {
-                return Err(ScanError::Custom(
-                    "irregular character in domain name",
-                ));
-            }
-
-            // Parse a label and prepend it to the buffer.
-            let label = LabelBuf::scan(scanner, alloc, buffer)?;
-            if this.offset < 1 + label.as_bytes().len() as u8 {
-                return Err(ScanError::Custom(
-                    "domain name exceeds 255 bytes",
-                ));
-            }
-            this.prepend_label(&label);
-
-            // Check if this is the end of the domain name.
-            match scanner.remaining() {
-                &[b' ' | b'\t' | b'\r' | b'\n', ..] | &[] => {
-                    // This is a relative domain name.
-                    let origin = scanner
-                        .origin()
-                        .ok_or(ScanError::Custom("unknown origin name"))?;
-                    if this.offset < origin.len() as u8 {
-                        return Err(ScanError::Custom(
-                            "relative domain name exceeds 255 bytes",
-                        ));
-                    }
-
-                    // Prepend the origin to this name.
-                    this.prepend_bytes(&origin.as_bytes()[1..]);
-                    break;
-                }
-
-                &[b'.', ..] => {
-                    scanner.consume(1);
-                }
-
-                _ => {
-                    return Err(ScanError::Custom(
-                        "irregular character in domain name",
-                    ));
-                }
-            }
-        }
-
-        if this.offset == 255 {
-            return Err(ScanError::Incomplete);
-        }
-
-        // Add a root label and stop.
-        this.offset -= 1;
-        this.buffer[this.offset as usize] = 0;
-        Ok(this)
+impl From<RevNameBuf> for NameBuf {
+    fn from(value: RevNameBuf) -> Self {
+        let mut buffer = [0u8; 255];
+        let len = buffer.len()
+            - value
+                .build_bytes(&mut buffer)
+                .expect("any domain name fits in 255 bytes")
+                .len();
+        Self::parse_bytes(&buffer[..len])
+            .expect("a 'RevNameBuf' is a correctly encoded domain name")
     }
 }
 
@@ -721,6 +638,150 @@ impl Hash for RevNameBuf {
 impl fmt::Debug for RevNameBuf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+//--- Parsing from strings
+
+impl RevNameBuf {
+    /// Parse a domain name from the zonefile format.
+    pub fn parse_str(s: &[u8]) -> Result<(Self, &[u8]), NameParseError> {
+        NameBuf::parse_str(s).map(|(this, rest)| (this.into(), rest))
+    }
+}
+
+impl FromStr for RevNameBuf {
+    type Err = NameParseError;
+
+    /// Parse a name from a string.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match Self::parse_str(s.as_bytes()) {
+            Ok((this, &[])) => Ok(this),
+            Ok(_) => Err(NameParseError::InvalidChar),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RevNameBuf {
+    /// Scan a domain name token.
+    ///
+    /// This parses a domain name, following the [specification].
+    ///
+    /// [specification]: crate::new::zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'_ bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Try parsing '@', indicating the origin name.
+        if let [b'@', b' ' | b'\t' | b'\r' | b'\n', ..] | [b'@'] =
+            scanner.remaining()
+        {
+            scanner.consume(1);
+            let origin = scanner
+                .origin()
+                .ok_or(ScanError::Custom("unknown origin name"))?;
+            return Ok(RevNameBuf::copy_from(origin));
+        }
+
+        // Build up a 'RevName'.
+        let mut this = Self::empty();
+
+        while let Some(&c) = scanner.remaining().first() {
+            if c.is_ascii_whitespace() {
+                break;
+            }
+
+            if !c.is_ascii_alphanumeric() && !b"\\-_".contains(&c) {
+                return Err(ScanError::Custom(
+                    "irregular character in domain name",
+                ));
+            }
+
+            // Parse a label and prepend it to the buffer.
+            let label = super::LabelBuf::scan(scanner, alloc, buffer)?;
+            if this.offset < 1 + label.as_bytes().len() as u8 {
+                return Err(ScanError::Custom(
+                    "domain name exceeds 255 bytes",
+                ));
+            }
+            this.prepend_label(&label);
+
+            // Check if this is the end of the domain name.
+            match scanner.remaining() {
+                &[b' ' | b'\t' | b'\r' | b'\n', ..] | &[] => {
+                    // This is a relative domain name.
+                    let origin = scanner
+                        .origin()
+                        .ok_or(ScanError::Custom("unknown origin name"))?;
+                    if this.offset < origin.len() as u8 {
+                        return Err(ScanError::Custom(
+                            "relative domain name exceeds 255 bytes",
+                        ));
+                    }
+
+                    // Prepend the origin to this name.
+                    this.prepend_bytes(&origin.as_bytes()[1..]);
+                    break;
+                }
+
+                &[b'.', ..] => {
+                    scanner.consume(1);
+                }
+
+                _ => {
+                    return Err(ScanError::Custom(
+                        "irregular character in domain name",
+                    ));
+                }
+            }
+        }
+
+        if this.offset == 255 {
+            return Err(ScanError::Incomplete);
+        }
+
+        // Add a root label and stop.
+        this.offset -= 1;
+        this.buffer[this.offset as usize] = 0;
+        Ok(this)
+    }
+}
+
+//--- Serialize, Deserialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for RevNameBuf {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        (**self).serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> serde::Deserialize<'a> for RevNameBuf {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        NameBuf::deserialize(deserializer).map(|this| this.into())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> serde::Deserialize<'a> for std::boxed::Box<RevName> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        RevNameBuf::deserialize(deserializer)
+            .map(|this| this.unsized_copy_into())
     }
 }
 
