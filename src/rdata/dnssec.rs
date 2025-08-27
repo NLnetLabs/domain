@@ -422,7 +422,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Dnskey<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Dnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} {} ", self.flags, self.protocol, self.algorithm)?;
         base64::display(&self.public_key, f)
     }
@@ -431,7 +431,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Dnskey<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Dnskey")
             .field("flags", &self.flags)
             .field("protocol", &self.protocol)
@@ -710,11 +710,13 @@ impl Timestamp {
         self.0.into_int()
     }
 
-    /// Return a SystemTime that has to meet two requirements:
+    /// Return a SystemTime that meets two requirements:
     /// 1) The SystemTime value has a duration since UNIX_EPOCH that
-    ///    modulo 2**32 is equal to our value.
+    ///    modulo 2**32 is equal to our Timestamp value.
     /// 2) The time difference between the SystemTime value and the
-    ///    reference fits within an i32.
+    ///    reference time fits in an i32.
+    ///
+    /// This can be used to sort Timestamp values.
     #[must_use]
     pub fn to_system_time(&self, reference: SystemTime) -> SystemTime {
         // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
@@ -756,7 +758,7 @@ impl Timestamp {
     pub const COMPOSE_LEN: u16 = Serial::COMPOSE_LEN;
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         Serial::parse(parser).map(Self)
     }
@@ -826,7 +828,7 @@ impl str::FromStr for Timestamp {
 //--- Display
 
 impl fmt::Display for Timestamp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -1397,7 +1399,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} {} {} {} {} {}. ",
@@ -1421,7 +1423,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Rrsig")
             .field("type_covered", &self.type_covered)
             .field("algorithm", &self.algorithm)
@@ -1724,7 +1726,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}. {}", self.next_name, self.types)
     }
 }
@@ -1736,7 +1738,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Nsec")
             .field("next_name", &self.next_name)
             .field("types", &self.types)
@@ -2066,7 +2068,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Ds<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} ",
@@ -2082,7 +2084,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Ds")
             .field("key_tag", &self.key_tag)
             .field("algorithm", &self.algorithm)
@@ -2180,7 +2182,7 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
         self.0.as_ref()
     }
 
-    pub fn iter(&self) -> RtypeBitmapIter {
+    pub fn iter(&self) -> RtypeBitmapIter<'_> {
         RtypeBitmapIter::new(self.0.as_ref())
     }
 
@@ -2310,7 +2312,7 @@ impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut iter = self.iter();
         if let Some(rtype) = iter.next() {
             fmt::Display::fmt(&rtype, f)?;
@@ -2336,7 +2338,7 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for RtypeBitmap<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("RtypeBitmap(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -2410,7 +2412,7 @@ where
         {
             type Value = RtypeBitmap<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a record type bitmap")
             }
 
@@ -2463,7 +2465,7 @@ where
         {
             type Value = RtypeBitmap<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a record type bitmap")
             }
 
@@ -2728,7 +2730,7 @@ impl From<RtypeBitmapErrorEnum> for RtypeBitmapError {
 //--- Display and Error
 
 impl fmt::Display for RtypeBitmapError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             RtypeBitmapErrorEnum::ShortInput => ParseError::ShortInput.fmt(f),
             RtypeBitmapErrorEnum::BadRtypeBitmap => {
@@ -2774,7 +2776,7 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 pub struct IllegalSignatureTime(());
 
 impl fmt::Display for IllegalSignatureTime {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("illegal signature time")
     }
 }
@@ -3034,5 +3036,121 @@ mod test {
         assert!(dnskey.is_zone_key());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());
+    }
+
+    #[test]
+    fn timestamp_to_system_time() {
+        struct Params {
+            ts: u32,
+            ref_ts: u64,
+            res: u64,
+        }
+        let tests = vec![
+            // Simple cases, ts and ref_ts mod 2**32 are within 2*31-1.
+            // First ts less than ref_ts mod 2**32.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x1_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x1_8000_0000,
+            },
+            // Then ts larger than ref_ts mod 2**32.
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_0000_0000,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x1_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_ffff_ffff,
+            },
+            // Next, cases where the difference between ts and ref_ts mod 2**32
+            // are at least 2**31+1.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_8000_0001,
+                res: 0x2_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_fffe,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x2_7fff_fffe,
+            },
+            Params {
+                ts: 0x8000_0001,
+                ref_ts: 0x1_0000_0000,
+                res: 0x0_8000_0001,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_7fff_fffe,
+                res: 0x0_ffff_ffff,
+            },
+            // Test cases where the difference is exactly 2**31.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_0000_0000,
+                res: 0x0_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x0_ffff_ffff,
+            },
+            // Special case: ERA 0. We don't want values before UNIX_EPOCH.
+            Params {
+                ts: 0x8000_0001,
+                ref_ts: 0x0_0000_0000,
+                res: 0x0_8000_0001,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x0_7fff_fffe,
+                res: 0x0_ffff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x0_0000_0000,
+                res: 0x0_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x0_7fff_ffff,
+                res: 0x0_ffff_ffff,
+            },
+        ];
+
+        for t in tests {
+            let ts = Timestamp(Serial(t.ts));
+            let ref_ts = UNIX_EPOCH + Duration::from_secs(t.ref_ts);
+            let res = ts.to_system_time(ref_ts);
+            let res = res.duration_since(UNIX_EPOCH).unwrap().as_secs();
+            assert_eq!(res, t.res);
+        }
     }
 }

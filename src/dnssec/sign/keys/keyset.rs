@@ -85,7 +85,7 @@ use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 ///
 /// The state of this type can be serialized and deserialized. The state
 /// includes the state of any key rollovers going on.
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct KeySet {
     name: Name<Vec<u8>>,
     keys: HashMap<String, Key>,
@@ -211,27 +211,15 @@ impl KeySet {
                 KeyType::Ksk(keystate)
                 | KeyType::Zsk(keystate)
                 | KeyType::Include(keystate) => {
-                    if !keystate.old
-                        || keystate.signer
-                        || keystate.present
-                        || keystate.at_parent
-                    {
+                    if !keystate.stale() {
                         return Err(Error::KeyNotOld);
                     }
                 }
                 KeyType::Csk(ksk_keystate, zsk_keystate) => {
-                    if !ksk_keystate.old
-                        || ksk_keystate.signer
-                        || ksk_keystate.present
-                        || ksk_keystate.at_parent
-                    {
+                    if !ksk_keystate.stale() {
                         return Err(Error::KeyNotOld);
                     }
-                    if !zsk_keystate.old
-                        || zsk_keystate.signer
-                        || zsk_keystate.present
-                        || zsk_keystate.at_parent
-                    {
+                    if !zsk_keystate.stale() {
                         return Err(Error::KeyNotOld);
                     }
                 }
@@ -273,7 +261,7 @@ impl KeySet {
         let next_state = RollState::Propagation1;
         rolltype.rollfn()(RollOp::Start(old, new), self)?;
 
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
 
         Ok(rolltype.roll_actions_fn()(next_state))
     }
@@ -297,7 +285,7 @@ impl KeySet {
         let next_state = RollState::CacheExpire1(ttl);
         rolltype.rollfn()(RollOp::Propagation1, self)?;
 
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
 
         Ok(rolltype.roll_actions_fn()(next_state))
     }
@@ -320,7 +308,7 @@ impl KeySet {
         };
         let next_state = RollState::Propagation2;
         rolltype.rollfn()(RollOp::CacheExpire1(*ttl), self)?;
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
 
         Ok(rolltype.roll_actions_fn()(next_state))
     }
@@ -343,7 +331,7 @@ impl KeySet {
         };
         let next_state = RollState::CacheExpire2(ttl);
         rolltype.rollfn()(RollOp::Propagation2, self)?;
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
         Ok(rolltype.roll_actions_fn()(next_state))
     }
 
@@ -365,7 +353,7 @@ impl KeySet {
         };
         let next_state = RollState::Done;
         rolltype.rollfn()(RollOp::CacheExpire2(*ttl), self)?;
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
 
         Ok(rolltype.roll_actions_fn()(next_state))
     }
@@ -1067,6 +1055,11 @@ impl KeyState {
     pub fn at_parent(&self) -> bool {
         self.at_parent
     }
+
+    /// Return whether this key is no long in use.
+    pub fn stale(&self) -> bool {
+        self.old && !self.signer && !self.present && !self.at_parent
+    }
 }
 
 impl Display for KeyState {
@@ -1093,7 +1086,7 @@ impl Display for KeyState {
             (false, true, true) => write!(f, " (Active)")?,
             (true, true, true) => write!(f, " (Leaving)")?,
             (true, false, true) => write!(f, " (Retired)")?,
-            (true, false, false) => write!(f, " (Old)")?,
+            (true, false, false) => write!(f, " (Stale)")?,
             (_, _, _) => (),
         }
         Ok(())
@@ -1218,7 +1211,7 @@ impl Display for UnixTime {
         )
         .expect("bad time value");
         let format = format_description::parse(
-            "[year]-[month]-[day]T[hour]:[minute]:[second]",
+            "[year]-[month]-[day]T[hour]:[minute]:[second]Z",
         )
         .expect("");
         write!(f, "{}", dt.format(&format).expect(""))
@@ -1329,7 +1322,7 @@ pub enum Action {
 }
 
 /// The type of key roll to perform.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum RollType {
     /// A KSK roll. This implements the Double-Signature ZSK Roll as described
     /// in Section 4.1.2 of RFC 6781.
@@ -1381,6 +1374,7 @@ impl RollType {
     }
 }
 
+#[derive(Debug)]
 enum RollOp<'a> {
     Start(&'a [&'a str], &'a [&'a str]),
     Propagation1,
@@ -1498,11 +1492,11 @@ fn ksk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
-                if keystate.old || !keystate.present {
+                if keystate.stale() {
                     continue;
                 }
 
@@ -1537,7 +1531,7 @@ fn ksk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
-                if keystate.old || !keystate.present {
+                if keystate.old || !keystate.at_parent {
                     continue;
                 }
 
@@ -1545,11 +1539,11 @@ fn ksk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
-                if keystate.old || !keystate.present {
+                if keystate.stale() {
                     continue;
                 }
 
@@ -1623,11 +1617,11 @@ fn ksk_double_ds_roll(
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
-                if keystate.old || !keystate.present {
+                if keystate.old || !keystate.at_parent {
                     continue;
                 }
 
@@ -1644,7 +1638,8 @@ fn ksk_double_ds_roll(
             }
 
             // Old keys are no longer present and signing, new keys will
-            // be present and signing.
+            // be present and signing. Set published.
+            let now = UnixTime::now();
             for k in &mut ks.keys.values_mut() {
                 if let KeyType::Ksk(ref mut keystate) = k.keytype {
                     if keystate.old && keystate.present {
@@ -1655,6 +1650,7 @@ fn ksk_double_ds_roll(
                     if !keystate.old && keystate.at_parent {
                         keystate.present = true;
                         keystate.signer = true;
+                        k.timestamps.published = Some(now.clone());
                     }
                 }
             }
@@ -1674,7 +1670,7 @@ fn ksk_double_ds_roll(
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let KeyType::Ksk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1727,6 +1723,7 @@ fn ksk_roll_actions(rollstate: RollState) -> Vec<Action> {
         RollState::Done => {
             actions.push(Action::RemoveCdsRrset);
             actions.push(Action::UpdateDnskeyRrset);
+            actions.push(Action::WaitDnskeyPropagated);
         }
     }
     actions
@@ -1793,7 +1790,7 @@ fn zsk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1842,7 +1839,7 @@ fn zsk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1919,7 +1916,7 @@ fn zsk_double_signature_roll(
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -1964,7 +1961,7 @@ fn zsk_double_signature_roll(
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
                     continue;
                 };
@@ -2004,6 +2001,7 @@ fn zsk_roll_actions(rollstate: RollState) -> Vec<Action> {
         RollState::CacheExpire2(_) => (),
         RollState::Done => {
             actions.push(Action::UpdateDnskeyRrset);
+            actions.push(Action::WaitDnskeyPropagated);
         }
     }
     actions
@@ -2071,7 +2069,7 @@ fn csk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let keystate = match &k.keytype {
                     KeyType::Ksk(keystate)
                     | KeyType::Zsk(keystate)
@@ -2172,7 +2170,7 @@ fn csk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let keystate = match &k.keytype {
                     KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
                         keystate
@@ -2246,6 +2244,7 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
         RollState::Done => {
             actions.push(Action::RemoveCdsRrset);
             actions.push(Action::UpdateDnskeyRrset);
+            actions.push(Action::WaitDnskeyPropagated);
         }
     }
     actions
@@ -2301,7 +2300,7 @@ fn algorithm_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire1(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let keystate = match &k.keytype {
                     KeyType::Ksk(keystate)
                     | KeyType::Zsk(keystate)
@@ -2358,7 +2357,7 @@ fn algorithm_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             }
         }
         RollOp::CacheExpire2(ttl) => {
-            for k in ks.keys.values_mut() {
+            for k in ks.keys.values() {
                 let keystate = match &k.keytype {
                     KeyType::Ksk(keystate) | KeyType::Csk(keystate, _) => {
                         keystate
@@ -2761,7 +2760,11 @@ mod tests {
         let actions = ks.cache_expired2(RollType::KskRoll).unwrap();
         assert_eq!(
             actions,
-            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+            [
+                Action::RemoveCdsRrset,
+                Action::UpdateDnskeyRrset,
+                Action::WaitDnskeyPropagated
+            ]
         );
         let mut dk = dnskey(&ks);
         dk.sort();
@@ -2929,7 +2932,11 @@ mod tests {
         let actions = ks.cache_expired2(RollType::CskRoll).unwrap();
         assert_eq!(
             actions,
-            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+            [
+                Action::RemoveCdsRrset,
+                Action::UpdateDnskeyRrset,
+                Action::WaitDnskeyPropagated
+            ]
         );
         assert_eq!(dnskey(&ks), ["first CSK"]);
         assert_eq!(dnskey_sigs(&ks), ["first CSK"]);
@@ -3003,7 +3010,11 @@ mod tests {
         let actions = ks.cache_expired2(RollType::CskRoll).unwrap();
         assert_eq!(
             actions,
-            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+            [
+                Action::RemoveCdsRrset,
+                Action::UpdateDnskeyRrset,
+                Action::WaitDnskeyPropagated
+            ]
         );
         assert_eq!(dnskey(&ks), ["second CSK"]);
         assert_eq!(dnskey_sigs(&ks), ["second CSK"]);

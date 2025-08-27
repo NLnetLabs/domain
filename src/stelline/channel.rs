@@ -421,7 +421,7 @@ impl AsyncDgramSend for ClientServerChannel {
 impl AsyncDgramSock for ClientServerChannel {
     fn poll_send_to(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         data: &[u8],
         dest: &SocketAddr,
     ) -> Poll<io::Result<usize>> {
@@ -529,7 +529,7 @@ impl AsyncAccept for ClientServerChannel {
 
     fn poll_accept(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
     ) -> Poll<io::Result<(Self::Future, SocketAddr)>> {
         let mut server_socket = self.server.lock().unwrap();
         let rx = &mut server_socket.rx;
