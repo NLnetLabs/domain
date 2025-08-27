@@ -2001,6 +2001,7 @@ fn zsk_roll_actions(rollstate: RollState) -> Vec<Action> {
         RollState::CacheExpire2(_) => (),
         RollState::Done => {
             actions.push(Action::UpdateDnskeyRrset);
+            actions.push(Action::WaitDnskeyPropagated);
         }
     }
     actions
