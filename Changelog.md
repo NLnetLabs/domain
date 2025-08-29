@@ -14,12 +14,20 @@ Bug fixes
 * Generalize ZoneUpdater to support any Record type, not just ParsedRecord. ([#535])
 * Trim leading modulus and public exponent zeroes per RFC 3110 section 2. ([#541])
 
+Unstable features
+
+* `unstable-server-transport`:
+  * Don't discard the NOTIFY SOA serial, if one is received. Existing users of
+    the `Notifiable` trait will need to update their code as this change adds an
+    argument to `Notifiable::notify_zone_changed()`. [#562])
+
 Other changes
 
 [#516]: https://github.com/NLnetLabs/domain/pull/516
 [#535]: https://github.com/NLnetLabs/domain/pull/535
 [#538]: https://github.com/NLnetLabs/domain/pull/538
 [#541]: https://github.com/NLnetLabs/domain/pull/541
+[#562]: https://github.com/NLnetLabs/domain/pull/562
 
 ## 0.11.0
 
