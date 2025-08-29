@@ -24,6 +24,7 @@ use crate::base::name::ToName;
 use crate::base::net::IpAddr;
 use crate::base::Name;
 use crate::base::Rtype;
+use crate::base::Serial;
 use crate::logging::init_logging;
 use crate::net::client::request::{RequestMessage, RequestMessageMulti};
 use crate::net::client::{dgram, stream, tsig};
@@ -562,11 +563,12 @@ impl Notifiable for TestNotifyTarget {
         &self,
         class: Class,
         apex_name: &StoredName,
+        serial: Option<Serial>,
         source: IpAddr,
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
     > {
-        trace!("Notify received from {source} of change to zone {apex_name} in class {class}");
+        trace!("Notify received from {source} of change to zone {apex_name} in class {class} with serial {serial:?}");
 
         let res = match apex_name.to_string().to_lowercase().as_str() {
             "example.com" => Ok(()),
