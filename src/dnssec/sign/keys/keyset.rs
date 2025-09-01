@@ -199,6 +199,173 @@ impl KeySet {
         }
     }
 
+    /// Add a public key.
+    pub fn add_public_key(
+        &mut self,
+        pubref: String,
+        algorithm: SecurityAlgorithm,
+        key_tag: u16,
+        creation_ts: UnixTime,
+        available: bool,
+    ) -> Result<(), Error> {
+        if !self.unique_key_tag(key_tag) {
+            return Err(Error::DuplicateKeyTag);
+        }
+        let keystate = KeyState {
+            available,
+            ..Default::default()
+        };
+        let key = Key::new(
+            None,
+            KeyType::Include(keystate),
+            algorithm,
+            key_tag,
+            creation_ts,
+        );
+        if let hash_map::Entry::Vacant(e) = self.keys.entry(pubref) {
+            e.insert(key);
+            Ok(())
+        } else {
+            Err(Error::KeyExists)
+        }
+    }
+
+    /// Set the present flag of a key.
+    ///
+    /// For CSK set the present in both key states.
+    pub fn set_present(
+        &mut self,
+        pubref: &str,
+        value: bool,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                match &mut key.keytype {
+                    KeyType::Ksk(keystate)
+                    | KeyType::Zsk(keystate)
+                    | KeyType::Include(keystate) => {
+                        keystate.present = value;
+                    }
+                    KeyType::Csk(ksk_keystate, zsk_keystate) => {
+                        ksk_keystate.present = value;
+                        zsk_keystate.present = value;
+                    }
+                };
+                if value && key.timestamps.published.is_none() {
+                    key.timestamps.published = Some(UnixTime::now());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the signer flag of a key.
+    ///
+    /// For CSK set the signer in both key states. Return an error if the
+    /// key is Include.
+    pub fn set_signer(
+        &mut self,
+        pubref: &str,
+        value: bool,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                match &mut key.keytype {
+                    KeyType::Ksk(keystate) | KeyType::Zsk(keystate) => {
+                        keystate.signer = value;
+                    }
+                    KeyType::Csk(ksk_keystate, zsk_keystate) => {
+                        ksk_keystate.signer = value;
+                        zsk_keystate.signer = value;
+                    }
+                    KeyType::Include(_) => return Err(Error::WrongKeyType),
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the at_parent flag of a key.
+    ///
+    /// For CSK set the signer the KSK state. Return an error if the key is
+    /// Include or a ZSK.
+    pub fn set_at_parent(
+        &mut self,
+        pubref: &str,
+        value: bool,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                match &mut key.keytype {
+                    KeyType::Ksk(keystate) => {
+                        keystate.at_parent = value;
+                    }
+                    KeyType::Csk(ksk_keystate, _) => {
+                        ksk_keystate.at_parent = value;
+                    }
+                    KeyType::Zsk(_) | KeyType::Include(_) => {
+                        return Err(Error::WrongKeyType)
+                    }
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the visible time of a key.
+    pub fn set_visible(
+        &mut self,
+        pubref: &str,
+        time: UnixTime,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                key.timestamps.visible = Some(time);
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the ds_visible time of a key.
+    ///
+    /// Note: there is no consistency check. The ds_visible time can be
+    /// set even if at_parent is false.
+    pub fn set_ds_visible(
+        &mut self,
+        pubref: &str,
+        time: UnixTime,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                key.timestamps.ds_visible = Some(time);
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the rrsig_visible time of a key.
+    ///
+    /// Note: there is no consistency check. The rrsig_visible time can be
+    /// set even if signer is false or the key is not signing the zone.
+    pub fn set_rrsig_visible(
+        &mut self,
+        pubref: &str,
+        time: UnixTime,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                key.timestamps.rrsig_visible = Some(time);
+            }
+        }
+        Ok(())
+    }
+
     fn unique_key_tag(&self, key_tag: u16) -> bool {
         !self.keys.iter().any(|(_, k)| k.key_tag == key_tag)
     }
