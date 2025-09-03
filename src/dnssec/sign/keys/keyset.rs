@@ -328,6 +328,38 @@ impl KeySet {
         Ok(())
     }
 
+    /// Make a key stale.
+    ///
+    /// Set old and clear present, signer and at_parent.
+    pub fn set_stale(&mut self, pubref: &str) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                match &mut key.keytype {
+                    KeyType::Ksk(keystate)
+                    | KeyType::Zsk(keystate)
+                    | KeyType::Include(keystate) => {
+                        keystate.old = true;
+                        keystate.present = false;
+                        keystate.signer = false;
+                        keystate.at_parent = false;
+                    }
+                    KeyType::Csk(ksk_keystate, zsk_keystate) => {
+                        ksk_keystate.old = true;
+                        ksk_keystate.present = false;
+                        ksk_keystate.signer = false;
+                        ksk_keystate.at_parent = false;
+                        zsk_keystate.old = true;
+                        zsk_keystate.present = false;
+                        zsk_keystate.signer = false;
+                        zsk_keystate.at_parent = false;
+                    }
+                };
+            }
+        }
+        Ok(())
+    }
+
     /// Set the visible time of a key.
     pub fn set_visible(
         &mut self,
