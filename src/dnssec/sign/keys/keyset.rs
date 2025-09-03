@@ -230,6 +230,19 @@ impl KeySet {
         }
     }
 
+    /// Set the decoupled flag of a key.
+    pub fn set_decoupled(
+        &mut self,
+        pubref: &str,
+        value: bool,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => key.decoupled = value,
+        }
+        Ok(())
+    }
+
     /// Set the present flag of a key.
     ///
     /// For CSK set the present in both key states.
@@ -1111,6 +1124,11 @@ impl KeySet {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Key {
     privref: Option<String>,
+
+    // XXX - remove the following directive before merging.
+    #[serde(default)]
+    decoupled: bool,
+
     keytype: KeyType,
     algorithm: SecurityAlgorithm,
     key_tag: u16,
@@ -1121,6 +1139,12 @@ impl Key {
     /// Return the 'reference' to the private key (if present).
     pub fn privref(&self) -> Option<&str> {
         self.privref.as_deref()
+    }
+
+    /// Return whether the key is decoupled from the underlying key storage
+    /// or not.
+    pub fn decoupled(&self) -> bool {
+        self.decoupled
     }
 
     /// Return the key type (which includes the state of the key).
@@ -1156,6 +1180,7 @@ impl Key {
         };
         Self {
             privref,
+            decoupled: false,
             keytype,
             algorithm,
             key_tag,
