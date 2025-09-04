@@ -53,6 +53,7 @@ pub mod naptr;
 pub mod nsec3;
 pub mod rfc1035;
 pub mod srv;
+pub mod sshfp;
 pub mod svcb;
 pub mod tsig;
 pub mod zonemd;
@@ -131,6 +132,11 @@ rdata_types! {
     srv::{
         zone {
             Srv<N>,
+        }
+    }
+    sshfp::{
+        zone {
+            Sshfp<O>,
         }
     }
     svcb::{
