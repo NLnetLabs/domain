@@ -51,6 +51,7 @@ pub mod dname;
 pub mod dnssec;
 pub mod naptr;
 pub mod nsec3;
+pub mod openpgpkey;
 pub mod rfc1035;
 pub mod srv;
 pub mod sshfp;
@@ -127,6 +128,11 @@ rdata_types! {
         zone {
             Nsec3<O>,
             Nsec3param<O>,
+        }
+    }
+    openpgpkey::{
+        zone {
+            Openpgpkey<O>,
         }
     }
     srv::{
