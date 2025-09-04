@@ -36,6 +36,7 @@ pub use self::rtype::Rtype;
 pub use self::secalg::SecurityAlgorithm;
 pub use self::sshfp::{SshfpAlgorithm, SshfpType};
 pub use self::svcb::SvcParamKey;
+pub use self::tlsa::{TlsaCertificateUsage, TlsaMatchingType, TlsaSelector};
 pub use self::zonemd::{ZonemdAlgorithm, ZonemdScheme};
 
 #[macro_use]
@@ -52,4 +53,5 @@ pub mod rtype;
 pub mod secalg;
 pub mod sshfp;
 pub mod svcb;
+pub mod tlsa;
 pub mod zonemd;

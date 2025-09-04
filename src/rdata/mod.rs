@@ -56,6 +56,7 @@ pub mod rfc1035;
 pub mod srv;
 pub mod sshfp;
 pub mod svcb;
+pub mod tlsa;
 pub mod tsig;
 pub mod zonemd;
 
@@ -149,6 +150,11 @@ rdata_types! {
         pseudo {
             Svcb<O, N>,
             Https<O, N>,
+        }
+    }
+    tlsa::{
+        zone {
+            Tlsa<O>,
         }
     }
     tsig::{
