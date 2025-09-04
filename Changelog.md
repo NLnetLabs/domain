@@ -9,8 +9,8 @@ New
 
 Bug fixes
 
-* Fix handling of tabs when formatting RDATA using `DisplayKind::Tabbed`. ([516])
-* In-place zone parser yields incorrect TTLs. ([538])
+* Fix handling of tabs when formatting RDATA using `DisplayKind::Tabbed`. ([#516])
+* In-place zone parser yields incorrect TTLs. ([#538])
 * Generalize ZoneUpdater to support any Record type, not just ParsedRecord. ([#535])
 * Trim leading modulus and public exponent zeroes per RFC 3110 section 2. ([#541])
 
