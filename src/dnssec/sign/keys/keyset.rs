@@ -2842,7 +2842,10 @@ mod tests {
         MockClock::advance_system_time(Duration::from_secs(3600));
 
         let actions = ks.cache_expired2(RollType::ZskRoll).unwrap();
-        assert_eq!(actions, [Action::UpdateDnskeyRrset]);
+        assert_eq!(
+            actions,
+            [Action::UpdateDnskeyRrset, Action::WaitDnskeyPropagated]
+        );
         let mut dk = dnskey(&ks);
         dk.sort();
         assert_eq!(dk, ["first KSK", "second ZSK"]);
