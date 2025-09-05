@@ -282,6 +282,9 @@ mod test {
     use std::vec::Vec;
 
     #[test]
+    // allow redundant_closure because because of lifetime shenanigans
+    // in test_compose_parse(Sshfp::parse), "FnOnce is not general enough"
+    #[allow(clippy::redundant_closure)]
     fn sshfp_compose_parse_scan() {
         let algorithm = 1.into();
         let fingerprint_type = 1.into();

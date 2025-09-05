@@ -310,6 +310,9 @@ mod test {
     use std::vec::Vec;
 
     #[test]
+    // allow redundant_closure because because of lifetime shenanigans
+    // in test_compose_parse(Tlsa::parse), "FnOnce is not general enough"
+    #[allow(clippy::redundant_closure)]
     fn tlsa_compose_parse_scan() {
         let usage = 0.into();
         let selector = 0.into();

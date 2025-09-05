@@ -193,10 +193,12 @@ mod test {
         test_compose_parse, test_rdlen, test_scan,
     };
     use crate::utils::base64::decode;
-    use std::string::ToString;
     use std::vec::Vec;
 
     #[test]
+    // allow redundant_closure because because of lifetime shenanigans
+    // in test_compose_parse(Openpgpkey::parse), "FnOnce is not general enough"
+    #[allow(clippy::redundant_closure)]
     fn openpgpkey_compose_parse_scan() {
         let key_str = "mDMEaLmjchYJKwYBBAHaRw8BAQdAaO6PfPJsT8to5dksKP1JsCmR0DqOTmVYLOv7mFeQPC+0HVRlc3QgVXNlciA8dGVzdEBubG5ldGxhYnMubmw+iJYEExYKAD4WIQT/B5WhrMOftpJIwIkxXU3+oVEKegUCaLmjcgIbAwUJBaOagAULCQgHAgYVCgkICwIEFgIDAQIeAQIXgAAKCRAxXU3+oVEKemSgAP97Zvz+PWEJC9vhlSN4gVRPR9VZYhzGwfpixgRI4sqKfwD9FxJhsj43vGEbOLdsWwf/lQvkajRov5FpofS1IFy/dgi4OARouaNyEgorBgEEAZdVAQUBAQdAUQr9riJNCFWRzQ6q70B/H/o+uwvL6nGJRhWSg1v7mRkDAQgHiH4EGBYKACYWIQT/B5WhrMOftpJIwIkxXU3+oVEKegUCaLmjcgIbDAUJBaOagAAKCRAxXU3+oVEKeuX3APkB5piWOSbOPLvtiElIVTHT6gWlu1wSpVVzZEmgtnOpiQD+Kk/IFjHpT0RbgsIvI3qhnXWwHvIw4JxHS1a/piLwkwM=";
         let key: Vec<u8> = decode(key_str).unwrap();
