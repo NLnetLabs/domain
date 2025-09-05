@@ -211,6 +211,14 @@ pub fn rsa_exponent_modulus(
 /// Encode the RSA exponent and modulus components in DNSKEY record data
 /// format. Leading zeroes will be ignored per RFC 3110 section 2.
 pub fn rsa_encode(mut e: &[u8], mut n: &[u8]) -> Vec<u8> {
+    fn trim_leading_zeroes(bytes: &[u8]) -> &[u8] {
+        bytes
+            .iter()
+            .position(|&v| v != 0)
+            .map(|idx| &bytes[idx..])
+            .unwrap_or_default()
+    }
+
     let mut key = Vec::new();
 
     // Trim leading zeroes.

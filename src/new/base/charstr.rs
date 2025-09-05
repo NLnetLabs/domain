@@ -153,6 +153,15 @@ impl BuildBytes for CharStr {
     }
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<CharStr> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //--- Equality
 
 impl PartialEq for CharStr {

@@ -25,6 +25,18 @@ The library is currently under
 [heavy development](https://blog.nlnetlabs.nl/domain-foundations-the-first-of-our-five-year-vision/)
 and additional building blocks and features are being added.
 
+## Applications
+
+We are maintaining several applications that are built on top of domain, 
+including:
+
+* [nameshed](https://github.com/NLnetLabs/nameshed) – a primary nameserver /
+  DNSSEC signing pipeline
+* [dnsi](https://github.com/NLnetLabs/dnsi) – a command-line tool to inspect
+  various aspects of the DNS
+* [dnst](https://nlnetlabs.nl/projects/domain/dnst/) – a set of binaries
+  that reimplement some of the widely used ldns utilities in Rust
+* [mimir](https://github.com/NLnetLabs/mimir) – a DNS proxy and load balancer
 
 ## Minimal Supported Rust Versions
 

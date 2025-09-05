@@ -549,6 +549,15 @@ pub struct UnknownOptionData {
     pub octets: [u8],
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<UnknownOptionData> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //----------- UnparsedEdnsOption ---------------------------------------------
 
 /// An unparsed EDNS option.
@@ -569,4 +578,13 @@ pub struct UnparsedEdnsOption {
 
     /// The option data.
     pub data: SizePrefixed<U16, [u8]>,
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<UnparsedEdnsOption> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
 }

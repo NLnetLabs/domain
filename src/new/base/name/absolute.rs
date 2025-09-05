@@ -190,6 +190,15 @@ impl BuildInMessage for Name {
     }
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<Name> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //--- Equality
 
 impl PartialEq for Name {

@@ -2,13 +2,17 @@
 
 use core::{cmp::Ordering, fmt};
 
-use domain_macros::*;
-
-use crate::new::base::{
-    build::BuildInMessage,
-    name::NameCompressor,
-    wire::{AsBytes, TruncationError, U16},
-    CanonicalRecordData,
+use crate::{
+    new::base::{
+        build::BuildInMessage,
+        name::NameCompressor,
+        wire::{
+            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes,
+            SplitBytesZC, TruncationError, U16,
+        },
+        CanonicalRecordData,
+    },
+    utils::dst::UnsizedCopy,
 };
 
 use super::SecAlg;
@@ -58,6 +62,15 @@ impl BuildInMessage for DNSKey {
             .ok_or(TruncationError)?
             .copy_from_slice(bytes);
         Ok(end)
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<DNSKey> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }
 
