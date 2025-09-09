@@ -4,10 +4,12 @@
 //! [RFC 6594]: https://tools.ietf.org/html/rfc6594
 //! [RFC 7479]: https://tools.ietf.org/html/rfc7479
 //! [RFC 8709]: https://tools.ietf.org/html/rfc8709
+//!
+//! The values of these types don't officially have an IANA assigned mnemonic.
+//! For ease of use, we define them here anyway.
 
 //------------ SshfpType -----------------------------------------------------
 
-// FIXME: These types don't actually have a mnemonic, only a description.
 int_enum! {
     /// SSHFP fingerprint type.
     ///
