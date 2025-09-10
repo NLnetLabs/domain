@@ -716,10 +716,10 @@ where
                             while let Some(Ok(call_result)) =
                                 stream.next().await
                             {
-                                trace!("Processing service call result for request id {request_id}");
                                 let (response, feedback) =
                                     call_result.into_inner();
 
+                                trace!("Processing service call result for request id {request_id}: response? {} feedback? {feedback:?}", response.is_some());
                                 if let Some(feedback) = feedback {
                                     match feedback {
                                         ServiceFeedback::Reconfigure {
@@ -753,6 +753,7 @@ where
 
                                 if let Some(mut response) = response {
                                     loop {
+                                        trace!("Sending response");
                                         match result_q_tx.try_send(response) {
                                             Ok(()) => {
                                                 let pending_writes =
@@ -790,6 +791,7 @@ where
                                         }
                                     }
                                 }
+                                trace!("Finished processing service call result for request id {request_id}");
                             }
                             trace!("Finished processing service call results for request id {request_id}");
                         });
