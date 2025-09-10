@@ -313,7 +313,10 @@ impl<Octs: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Ipseckey<Octs, N> {
             .field("gateway_type", &self.gateway_type)
             .field("algorithm", &self.algorithm)
             .field("gateway", &self.gateway)
-            .field("key", &base64::encode_string(&self.key))
+            .field(
+                "key",
+                &format_args!("{}", base64::encode_display(&self.key)),
+            )
             .finish()
     }
 }
