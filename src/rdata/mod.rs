@@ -49,6 +49,7 @@ pub mod aaaa;
 pub mod cds;
 pub mod dname;
 pub mod dnssec;
+pub mod ipseckey;
 pub mod naptr;
 pub mod nsec3;
 pub mod openpgpkey;
@@ -118,6 +119,11 @@ rdata_types! {
             Rrsig<O, N>,
             Nsec<O, N>,
             Ds<O>,
+        }
+    }
+    ipseckey::{
+        zone {
+            Ipseckey<O, N>,
         }
     }
     naptr::{

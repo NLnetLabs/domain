@@ -28,6 +28,7 @@
 pub use self::class::Class;
 pub use self::digestalg::DigestAlgorithm;
 pub use self::exterr::ExtendedErrorCode;
+pub use self::ipseckey::{IpseckeyAlgorithm, IpseckeyGatewayType};
 pub use self::nsec3::Nsec3HashAlgorithm;
 pub use self::opcode::Opcode;
 pub use self::opt::OptionCode;
@@ -45,6 +46,7 @@ mod macros;
 pub mod class;
 pub mod digestalg;
 pub mod exterr;
+pub mod ipseckey;
 pub mod nsec3;
 pub mod opcode;
 pub mod opt;
