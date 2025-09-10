@@ -451,7 +451,6 @@ where
         let mut command_rx = self.command_rx.clone();
 
         loop {
-            trace!("Dgram server loop");
             tokio::select! {
                 // Poll futures in match arm order, not randomly.
                 biased;
