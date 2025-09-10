@@ -645,12 +645,12 @@ where
             Ok(buf) => {
                 let received_at = Instant::now();
 
+                self.metrics.inc_num_received_requests();
+
                 if log_enabled!(Level::Trace) {
                     let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
                     trace!(addr = %self.addr, pcap_text, "Received message");
                 }
-
-                self.metrics.inc_num_received_requests();
 
                 // Message received, reset the DNS idle timer
                 self.idle_timer.full_msg_received();
@@ -696,6 +696,7 @@ where
                             request.message().header().id()
                         );
                         tokio::spawn(async move {
+                            trace!("Task spawned to handle message");
                             let request_id = request.message().header().id();
                             trace!(
                                 "Calling service for request id {request_id}"
