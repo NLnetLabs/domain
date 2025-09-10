@@ -54,8 +54,8 @@ pub struct Ipseckey<Octs: ?Sized, N> {
     /// - IPv4 address: This is a 32-bit number in network byte order.
     /// - IPv6 address: This is a 128-bit number in network byte order.
     /// - A normal wire-encoded domain name, always uncompressed.
-    ///
-    /// May be empty if the gateway type is IpseckeyGatewayType::NONE.
+    ///   - The domain MUST equal '.' if the gateway type is
+    ///     IpseckeyGatewayType::NONE
     gateway: IpseckeyGateway<N>,
 
     // May be zero bytes long
@@ -447,13 +447,13 @@ impl<N> IpseckeyGateway<N> {
     }
 
     pub fn is_correct_gateway_type(&self, gwt: IpseckeyGatewayType) -> bool {
-        match (self, gwt) {
-            (IpseckeyGateway::None, IpseckeyGatewayType::NONE) => true,
-            (IpseckeyGateway::Ipv4(_), IpseckeyGatewayType::IPV4) => true,
-            (IpseckeyGateway::Ipv6(_), IpseckeyGatewayType::IPV6) => true,
-            (IpseckeyGateway::Name(_), IpseckeyGatewayType::NAME) => true,
-            _ => false,
-        }
+        matches!(
+            (self, gwt),
+            (IpseckeyGateway::None, IpseckeyGatewayType::NONE)
+                | (IpseckeyGateway::Ipv4(_), IpseckeyGatewayType::IPV4)
+                | (IpseckeyGateway::Ipv6(_), IpseckeyGatewayType::IPV6)
+                | (IpseckeyGateway::Name(_), IpseckeyGatewayType::NAME)
+        )
     }
 
     pub fn scan<S: Scanner<Name = N>>(
@@ -464,9 +464,9 @@ impl<N> IpseckeyGateway<N> {
             IpseckeyGatewayType::NONE => {
                 scanner.scan_ascii_str(|s| {
                     if s == "." {
-                        return Ok(Self::None)
+                        Ok(Self::None)
                     } else {
-                        return Err(ScannerError::custom("Invalid IPSECKEY gateway. As the gateway type is specified as 0 (None), the gateway MUST be set to '.'"))
+                        Err(ScannerError::custom("Invalid IPSECKEY gateway. As the gateway type is specified as 0 (None), the gateway MUST be set to '.'"))
                     }
                 })?
             },
@@ -749,7 +749,7 @@ mod test {
             ),
         ] {
             let rdata = Ipseckey::new(
-                precedence.into(),
+                precedence,
                 gateway_type,
                 algorithm,
                 gateway,
