@@ -451,6 +451,7 @@ where
         let mut command_rx = self.command_rx.clone();
 
         loop {
+            trace!("Dgram server loop");
             tokio::select! {
                 // Poll futures in match arm order, not randomly.
                 biased;
@@ -482,7 +483,17 @@ where
                     let cloned_sock = self.sock.clone();
                     let write_timeout = self.config.load().write_timeout;
 
+                    trace!("Spawning task to handle new message");
                     tokio::spawn(async move {
+                        // If we don't see the next log message it may be
+                        // because the stream listener was originally an std
+                        // listener, not a Tokio listener, and it was not
+                        // properly put in non-blocking mode before being
+                        // passed to us. This then causes .recv() above to
+                        // block, preventing this task from running if it is
+                        // scheduled on the same thread.
+                        trace!("Task spawned to handle message");
+
                         match Message::from_octets(buf) {
                             Err(err) => {
                                 // TO DO: Count this event?
@@ -500,11 +511,21 @@ where
                             }
 
                             Ok(msg) => {
+                                trace!("Message decoded");
                                 let ctx = UdpTransportContext::new(cfg.load().max_response_size);
                                 let ctx = TransportSpecificContext::Udp(ctx);
                                 let request = Request::new(addr, received_at, msg, ctx, ());
+
+                                let request_id = request.message().header().id();
+                                trace!(
+                                    "Calling service for request id {request_id}"
+                                );
+
                                 let mut stream = svc.call(request).await;
+
+                                trace!("Awaiting service call results for request id {request_id}");
                                 while let Some(Ok(call_result)) = stream.next().await {
+                                    trace!("Processing service call result for request id {request_id}");
                                     let (response, feedback) = call_result.into_inner();
 
                                     if let Some(feedback) = feedback {
@@ -552,6 +573,7 @@ where
                                         metrics.inc_num_sent_responses();
                                     }
                                 }
+                                trace!("Finished processing service call results for request id {request_id}");
                             }
                         }
                     });

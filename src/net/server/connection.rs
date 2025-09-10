@@ -696,7 +696,15 @@ where
                             request.message().header().id()
                         );
                         tokio::spawn(async move {
+                            // If we don't see the next log message it may be
+                            // because the stream listener was originally an
+                            // std listener, not a Tokio listener, and it was
+                            // not properly put in non-blocking mode before
+                            // being passed to us. This then causes .recv()
+                            // above to block, preventing this task from
+                            // running if it is scheduled on the same thread.
                             trace!("Task spawned to handle message");
+
                             let request_id = request.message().header().id();
                             trace!(
                                 "Calling service for request id {request_id}"
