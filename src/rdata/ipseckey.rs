@@ -804,7 +804,7 @@ mod test {
         let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
         let key: Vec<u8> = decode(key_str).unwrap();
         let correct_rdata = Ipseckey::new(
-            precedence.into(),
+            precedence,
             gateway_type,
             algorithm,
             correct_gateway,
@@ -862,7 +862,7 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
         zone.set_origin(Name::root());
         let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
         let key: Vec<u8> = decode(key_str).unwrap();
-        let expected_ipseckeys = vec![
+        let expected_ipseckeys = [
             Ipseckey::new(
                 10,
                 1.into(),
