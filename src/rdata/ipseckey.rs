@@ -29,6 +29,19 @@ use super::{Aaaa, A};
 /// associated with a domain name for use with the IPsec protocol suite.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(bound(
+        serialize = "
+                N: serde::Serialize,
+                Octs: octseq::serde::SerializeOctets
+            ",
+        deserialize = "
+                N: serde::Deserialize<'de>,
+                Octs: octseq::serde::DeserializeOctets<'de>
+            ",
+    ))
+)]
 pub struct Ipseckey<Octs: ?Sized, N> {
     precedence: u8,
     gateway_type: IpseckeyGatewayType,
@@ -43,17 +56,6 @@ pub struct Ipseckey<Octs: ?Sized, N> {
     /// - A normal wire-encoded domain name, always uncompressed.
     ///
     /// May be empty if the gateway type is IpseckeyGatewayType::NONE.
-    #[cfg_attr(
-        feature = "serde",
-        serde(
-            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
-            deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
-            bound(
-                serialize = "Octs: octseq::serde::SerializeOctets",
-                deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
-            )
-        )
-    )]
     gateway: IpseckeyGateway<N>,
 
     // May be zero bytes long
@@ -62,10 +64,6 @@ pub struct Ipseckey<Octs: ?Sized, N> {
         serde(
             serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
             deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
-            bound(
-                serialize = "Octs: octseq::serde::SerializeOctets",
-                deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
-            )
         )
     )]
     key: Octs,
@@ -87,6 +85,7 @@ impl<Octs, N> Ipseckey<Octs, N> {
         gateway: IpseckeyGateway<N>,
         key: Octs,
     ) -> Self {
+        // TODO: Check if gateway_type and gateway variant are compatible?
         Self {
             precedence,
             gateway_type,
@@ -438,12 +437,30 @@ impl<N> IpseckeyGateway<N> {
         }
     }
 
+    pub fn is_correct_gateway_type(&self, gwt: IpseckeyGatewayType) -> bool {
+        match (self, gwt) {
+            (IpseckeyGateway::None, IpseckeyGatewayType::NONE) => true,
+            (IpseckeyGateway::Ipv4(_), IpseckeyGatewayType::IPV4) => true,
+            (IpseckeyGateway::Ipv6(_), IpseckeyGatewayType::IPV6) => true,
+            (IpseckeyGateway::Name(_), IpseckeyGatewayType::NAME) => true,
+            _ => false,
+        }
+    }
+
     pub fn scan<S: Scanner<Name = N>>(
         scanner: &mut S,
         gateway_type: IpseckeyGatewayType,
     ) -> Result<Self, S::Error> {
         Ok(match gateway_type {
-            IpseckeyGatewayType::NONE => Self::None,
+            IpseckeyGatewayType::NONE => {
+                scanner.scan_ascii_str(|s| {
+                    if s == "." {
+                        return Ok(Self::None)
+                    } else {
+                        return Err(ScannerError::custom("Invalid IPSECKEY gateway. As the gateway type is specified as 0 (None), the gateway MUST be set to '.'"))
+                    }
+                })?
+            },
             IpseckeyGatewayType::IPV4 => Self::Ipv4(A::scan(scanner)?),
             IpseckeyGatewayType::IPV6 => Self::Ipv6(Aaaa::scan(scanner)?),
             IpseckeyGatewayType::NAME => Self::Name(scanner.scan_name()?),
@@ -621,7 +638,7 @@ impl<N: ToName> ZonefileFmt for IpseckeyGateway<N> {
 impl<N: fmt::Display> fmt::Display for IpseckeyGateway<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IpseckeyGateway::None => Ok(()),
+            IpseckeyGateway::None => write!(f, "."),
             IpseckeyGateway::Ipv4(a) => write!(f, "{a}"),
             IpseckeyGateway::Ipv6(aaaa) => write!(f, "{aaaa}"),
             IpseckeyGateway::Name(n) => write!(f, "{n}"),
@@ -653,60 +670,222 @@ mod test {
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
-    use crate::utils::base16::decode;
+    use crate::base::Name;
+    use crate::utils::base64::decode;
+    use core::str::FromStr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
     use std::string::ToString;
     use std::vec::Vec;
 
     #[test]
-    #[allow(clippy::redundant_closure)] // lifetimes ...
+    // allow redundant_closure because of lifetime shenanigans
+    // in test_compose_parse(...::parse), "FnOnce is not general enough"
+    #[allow(clippy::redundant_closure)]
     fn ipseckey_compose_parse_scan() {
-        let serial = 2023092203;
-        let scheme = 1.into();
-        let algo = 241.into();
-        let digest_str = "CDBE0DED9484490493580583BF868A3E95F89FC3515BF26ADBD230A6C23987F36BC6E504EFC83606F9445476D4E57FFB";
-        let digest: Vec<u8> = decode(digest_str).unwrap();
-        let rdata = Ipseckey::new(serial.into(), scheme, algo, digest);
-        test_rdlen(&rdata);
-        test_compose_parse(&rdata, |parser| Ipseckey::parse(parser));
+        // From https://www.rfc-editor.org/rfc/rfc4025.html#section-3.2
+        // IPSECKEY ( 10 1 2 192.0.2.38 AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+        // IPSECKEY ( 10 0 2 . AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+        // IPSECKEY ( 10 1 2 192.0.2.3 AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+        // IPSECKEY ( 10 3 2 mygateway.example.com. AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+        // IPSECKEY ( 10 2 2 2001:0DB8:0:8002::2000:1 AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+
+        let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
+        let key: Vec<u8> = decode(key_str).unwrap();
+        for (precedence, gateway_type, algorithm, gateway_str, gateway) in [
+            (
+                10,
+                1.into(),
+                2.into(),
+                "192.0.2.38",
+                IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
+                    Ipv4Addr::new(192, 0, 2, 38).into(),
+                ),
+            ),
+            (
+                10,
+                0.into(),
+                2.into(),
+                ".",
+                IpseckeyGateway::<Name<Vec<u8>>>::None,
+            ),
+            (
+                10,
+                1.into(),
+                2.into(),
+                "192.0.2.3",
+                IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
+                    Ipv4Addr::new(192, 0, 2, 3).into(),
+                ),
+            ),
+            (
+                10,
+                3.into(),
+                2.into(),
+                "mygateway.example.com.",
+                IpseckeyGateway::<Name<Vec<u8>>>::Name(
+                    Name::from_str("mygateway.example.com.").unwrap(),
+                ),
+            ),
+            (
+                10,
+                2.into(),
+                2.into(),
+                "2001:0DB8:0:8002::2000:1",
+                IpseckeyGateway::<Name<Vec<u8>>>::Ipv6(
+                    Ipv6Addr::new(
+                        0x2001, 0x0DB8, 0x0, 0x8002, 0x0, 0x0, 0x2000, 0x1,
+                    )
+                    .into(),
+                ),
+            ),
+        ] {
+            let rdata = Ipseckey::new(
+                precedence.into(),
+                gateway_type,
+                algorithm,
+                gateway,
+                &key,
+            );
+            test_rdlen(&rdata);
+            test_compose_parse(&rdata, |parser| Ipseckey::parse(parser));
+            test_scan(
+                &[
+                    &precedence.to_string(),
+                    &u8::from(gateway_type).to_string(),
+                    &u8::from(algorithm).to_string(),
+                    gateway_str,
+                    key_str,
+                ],
+                Ipseckey::scan,
+                &rdata,
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    // allow redundant_closure because of lifetime shenanigans
+    // in test_compose_parse(...::parse), "FnOnce is not general enough"
+    #[allow(clippy::redundant_closure)]
+    fn ipseckey_scan_wrong_gateway() {
+        // IPSECKEY ( 10 0 2 this.should.be.just.dot. AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+        let precedence = 10;
+        let gateway_type = 0.into();
+        let algorithm = 2.into();
+        let wrong_gateway_str = "this.should.be.just.dot.";
+        // let wrong_gateway: IpseckeyGateway<Name<Vec<u8>>> =
+        //     IpseckeyGateway::Name(Name::from_str(wrong_gateway_str).unwrap());
+        let correct_gateway = IpseckeyGateway::<Name<Vec<u8>>>::None;
+        let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
+        let key: Vec<u8> = decode(key_str).unwrap();
+        let correct_rdata = Ipseckey::new(
+            precedence.into(),
+            gateway_type,
+            algorithm,
+            correct_gateway,
+            key,
+        );
+        // This should panic in the unwrap within test_scan
         test_scan(
             &[
-                &serial.to_string(),
-                &u8::from(scheme).to_string(),
-                &u8::from(algo).to_string(),
-                digest_str,
+                &precedence.to_string(),
+                &u8::from(gateway_type).to_string(),
+                &u8::from(algorithm).to_string(),
+                wrong_gateway_str,
+                key_str,
             ],
             Ipseckey::scan,
-            &rdata,
+            &correct_rdata,
         );
     }
 
     #[cfg(feature = "zonefile")]
     #[test]
     fn ipseckey_parse_zonefile() {
-        use crate::base::iana::IpseckeyAlgorithm;
-        use crate::base::Name;
         use crate::rdata::ZoneRecordData;
         use crate::zonefile::inplace::{Entry, Zonefile};
 
-        // section A.1
+        // From https://www.rfc-editor.org/rfc/rfc4025.html#section-3.2
         let content = r#"
-example.      86400  IN  SOA     ns1 admin 2018031900 (
-                                 1800 900 604800 86400 )
-              86400  IN  NS      ns1
-              86400  IN  NS      ns2
-              86400  IN  IPSECKEY  2018031900 1 1 (
-                                 c68090d90a7aed71
-                                 6bc459f9340e3d7c
-                                 1370d4d24b7e2fc3
-                                 a1ddc0b9a87153b9
-                                 a9713b3c9ae5cc27
-                                 777f98b8e730044c )
+arpa.      86400  IN  SOA     ns1 admin 2018031900 (
+                             1800 900 604800 86400 )
+          86400  IN  NS      ns1
+          86400  IN  NS      ns2
 ns1           3600   IN  A       203.0.113.63
 ns2           3600   IN  AAAA    2001:db8::63
+
+38.2.0.192.in-addr.arpa. 7200 IN     IPSECKEY ( 10 1 2 192.0.2.38
+                AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+38.2.0.192.in-addr.arpa. 7200 IN     IPSECKEY ( 10 0 2 .
+                AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+
+38.2.0.192.in-addr.arpa. 7200 IN     IPSECKEY ( 10 1 2
+                192.0.2.3
+                AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+
+38.1.0.192.in-addr.arpa. 7200 IN     IPSECKEY ( 10 3 2
+                mygateway.example.com.
+                AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
+
+$ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
+0.d.4.0.3.0.e.f.f.f.3.f.0.1.2.0 7200 IN     IPSECKEY ( 10 2 2
+                2001:0DB8:0:8002::2000:1
+                AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
 "#;
 
         let mut zone = Zonefile::load(&mut content.as_bytes()).unwrap();
         zone.set_origin(Name::root());
+        let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
+        let key: Vec<u8> = decode(key_str).unwrap();
+        let expected_ipseckeys = vec![
+            Ipseckey::new(
+                10,
+                1.into(),
+                2.into(),
+                IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
+                    Ipv4Addr::new(192, 0, 2, 38).into(),
+                ),
+                &key,
+            ),
+            Ipseckey::new(
+                10,
+                0.into(),
+                2.into(),
+                IpseckeyGateway::<Name<Vec<u8>>>::None,
+                &key,
+            ),
+            Ipseckey::new(
+                10,
+                1.into(),
+                2.into(),
+                IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
+                    Ipv4Addr::new(192, 0, 2, 3).into(),
+                ),
+                &key,
+            ),
+            Ipseckey::new(
+                10,
+                3.into(),
+                2.into(),
+                IpseckeyGateway::<Name<Vec<u8>>>::Name(
+                    Name::from_str("mygateway.example.com.").unwrap(),
+                ),
+                &key,
+            ),
+            Ipseckey::new(
+                10,
+                2.into(),
+                2.into(),
+                IpseckeyGateway::<Name<Vec<u8>>>::Ipv6(
+                    Ipv6Addr::new(
+                        0x2001, 0x0DB8, 0x0, 0x8002, 0x0, 0x0, 0x2000, 0x1,
+                    )
+                    .into(),
+                ),
+                &key,
+            ),
+        ];
+        let mut expected_idx = 0;
         while let Some(entry) = zone.next_entry().unwrap() {
             match entry {
                 Entry::Record(record) => {
@@ -715,12 +894,8 @@ ns2           3600   IN  AAAA    2001:db8::63
                     }
                     match record.into_data() {
                         ZoneRecordData::Ipseckey(rd) => {
-                            assert_eq!(2018031900, rd.serial().into_int());
-                            assert_eq!(IpseckeyScheme::SIMPLE, rd.scheme());
-                            assert_eq!(
-                                IpseckeyAlgorithm::SHA384,
-                                rd.algorithm()
-                            );
+                            assert_eq!(expected_ipseckeys[expected_idx], rd);
+                            expected_idx += 1;
                         }
                         _ => panic!(),
                     }
