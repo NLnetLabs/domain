@@ -168,7 +168,7 @@ impl<Octs, N> Ipseckey<Octs, N> {
 
     pub(super) fn convert_octets<TargetOcts, TargetName>(
         self,
-    ) -> Result<Ipseckey<TargetOcts, TargetName>, TargetOcts::Error> 
+    ) -> Result<Ipseckey<TargetOcts, TargetName>, TargetOcts::Error>
     where
         TargetOcts: OctetsFrom<Octs>,
         TargetName: OctetsFrom<N, Error = TargetOcts::Error>,
@@ -189,7 +189,6 @@ impl<Octs, N> Ipseckey<Octs, N> {
             key: key.try_octets_into()?,
         })
     }
-
 }
 
 impl<Octs> Ipseckey<Octs, ParsedName<Octs>> {
@@ -226,7 +225,7 @@ impl<Octs: AsRef<[u8]>, N: ToName> ComposeRecordData for Ipseckey<Octs, N> {
             u16::try_from(
                 1 + 1
                     + 1
-                    + self.gateway.len() as usize
+                    + self.gateway.rdlen() as usize
                     + self.key.as_ref().len(),
             )
             .expect("long IPSECKEY rdata"),
@@ -237,7 +236,7 @@ impl<Octs: AsRef<[u8]>, N: ToName> ComposeRecordData for Ipseckey<Octs, N> {
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        target.append_slice(&[self.precedence.into()])?;
+        target.append_slice(&[self.precedence])?;
         target.append_slice(&[self.gateway_type.into()])?;
         target.append_slice(&[self.algorithm.into()])?;
         self.gateway.compose_rdata(target)?;
@@ -427,7 +426,7 @@ pub enum IpseckeyGateway<N> {
 }
 
 impl<N> IpseckeyGateway<N> {
-    pub fn len(&self) -> u16
+    pub fn rdlen(&self) -> u16
     where
         N: ToName,
     {
@@ -492,12 +491,13 @@ impl<N> IpseckeyGateway<N> {
     where
         N: ToName,
     {
-        Ok(match self {
+        match self {
             IpseckeyGateway::None => (),
             IpseckeyGateway::Ipv4(a) => a.compose_rdata(target)?,
             IpseckeyGateway::Ipv6(aaaa) => aaaa.compose_rdata(target)?,
             IpseckeyGateway::Name(n) => n.compose(target)?,
-        })
+        };
+        Ok(())
     }
 }
 
@@ -608,12 +608,13 @@ impl<Octs> IpseckeyGateway<ParsedName<Octs>> {
 
 impl<N: ToName> ZonefileFmt for IpseckeyGateway<N> {
     fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
-        Ok(match self {
+        match self {
             IpseckeyGateway::None => (),
             IpseckeyGateway::Ipv4(a) => p.write_show(a)?,
             IpseckeyGateway::Ipv6(aaaa) => p.write_show(aaaa)?,
             IpseckeyGateway::Name(n) => p.write_token(n.fmt_with_dot())?,
-        })
+        };
+        Ok(())
     }
 }
 
@@ -632,9 +633,15 @@ impl<N: fmt::Debug> fmt::Debug for IpseckeyGateway<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             IpseckeyGateway::None => write!(f, "IpseckeyGateway::None"),
-            IpseckeyGateway::Ipv4(a) => write!(f, "IpseckeyGateway::Ipv4({a:?})"),
-            IpseckeyGateway::Ipv6(aaaa) => write!(f, "IpseckeyGateway::Ipv6({aaaa:?})"),
-            IpseckeyGateway::Name(n) => write!(f, "IpseckeyGateway::Name({n:?})"),
+            IpseckeyGateway::Ipv4(a) => {
+                write!(f, "IpseckeyGateway::Ipv4({a:?})")
+            }
+            IpseckeyGateway::Ipv6(aaaa) => {
+                write!(f, "IpseckeyGateway::Ipv6({aaaa:?})")
+            }
+            IpseckeyGateway::Name(n) => {
+                write!(f, "IpseckeyGateway::Name({n:?})")
+            }
         }
     }
 }
