@@ -123,7 +123,10 @@ impl<Octs, N> Ipseckey<Octs, N> {
     /// Parse the record data from zonefile format.
     pub fn scan<S: Scanner<Octets = Octs, Name = N>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let precedence = u8::scan(scanner)?;
         // Using u8::scan instead of Ipseckey{GatewayType,Algorithm}::scan to
         // restrict the allowed input to integers and disallow mnemonics.
@@ -131,6 +134,9 @@ impl<Octs, N> Ipseckey<Octs, N> {
         let algorithm = u8::scan(scanner)?.into();
         let gateway = IpseckeyGateway::scan(scanner, gateway_type)?;
         let key = scanner.convert_entry(base64::SymbolConverter::new())?;
+        if key.as_ref().is_empty() && algorithm != IpseckeyAlgorithm::NONE {
+            return Err(ScannerError::custom("Missing IPSECKEY public key field. The public key field may only be omitted when the algorithm is specified as 0"));
+        }
 
         Ok(Self {
             precedence,
@@ -200,6 +206,9 @@ impl<Octs> Ipseckey<Octs, ParsedName<Octs>> {
         let algorithm = IpseckeyAlgorithm::parse(parser)?;
         let gateway = IpseckeyGateway::parse(parser, gateway_type)?;
         let len_key = parser.remaining();
+        if len_key == 0 && algorithm != IpseckeyAlgorithm::NONE {
+            return Err(ParseError::ShortInput);
+        }
         let key = parser.parse_octets(len_key)?;
         Ok(Self {
             precedence,
@@ -760,6 +769,22 @@ mod test {
                 &rdata,
             );
         }
+
+        // IPSECKEY ( 10 0 0 . )
+        let rdata = Ipseckey::new(
+            10,
+            0.into(),
+            0.into(),
+            IpseckeyGateway::<Name<Vec<u8>>>::None,
+            &[],
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Ipseckey::parse(parser));
+        test_scan(
+            &[&10.to_string(), &0.to_string(), &0.to_string(), "."],
+            Ipseckey::scan,
+            &rdata,
+        );
     }
 
     #[test]
