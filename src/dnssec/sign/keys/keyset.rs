@@ -199,6 +199,218 @@ impl KeySet {
         }
     }
 
+    /// Add a public key.
+    pub fn add_public_key(
+        &mut self,
+        pubref: String,
+        algorithm: SecurityAlgorithm,
+        key_tag: u16,
+        creation_ts: UnixTime,
+        available: bool,
+    ) -> Result<(), Error> {
+        if !self.unique_key_tag(key_tag) {
+            return Err(Error::DuplicateKeyTag);
+        }
+        let keystate = KeyState {
+            available,
+            ..Default::default()
+        };
+        let key = Key::new(
+            None,
+            KeyType::Include(keystate),
+            algorithm,
+            key_tag,
+            creation_ts,
+        );
+        if let hash_map::Entry::Vacant(e) = self.keys.entry(pubref) {
+            e.insert(key);
+            Ok(())
+        } else {
+            Err(Error::KeyExists)
+        }
+    }
+
+    /// Set the decoupled flag of a key.
+    pub fn set_decoupled(
+        &mut self,
+        pubref: &str,
+        value: bool,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => key.decoupled = value,
+        }
+        Ok(())
+    }
+
+    /// Set the present flag of a key.
+    ///
+    /// For CSK set the present in both key states.
+    pub fn set_present(
+        &mut self,
+        pubref: &str,
+        value: bool,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                match &mut key.keytype {
+                    KeyType::Ksk(keystate)
+                    | KeyType::Zsk(keystate)
+                    | KeyType::Include(keystate) => {
+                        keystate.present = value;
+                    }
+                    KeyType::Csk(ksk_keystate, zsk_keystate) => {
+                        ksk_keystate.present = value;
+                        zsk_keystate.present = value;
+                    }
+                };
+                if value && key.timestamps.published.is_none() {
+                    key.timestamps.published = Some(UnixTime::now());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the signer flag of a key.
+    ///
+    /// For CSK set the signer in both key states. Return an error if the
+    /// key is Include.
+    pub fn set_signer(
+        &mut self,
+        pubref: &str,
+        value: bool,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                match &mut key.keytype {
+                    KeyType::Ksk(keystate) | KeyType::Zsk(keystate) => {
+                        keystate.signer = value;
+                    }
+                    KeyType::Csk(ksk_keystate, zsk_keystate) => {
+                        ksk_keystate.signer = value;
+                        zsk_keystate.signer = value;
+                    }
+                    KeyType::Include(_) => return Err(Error::WrongKeyType),
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the at_parent flag of a key.
+    ///
+    /// For CSK set the signer the KSK state. Return an error if the key is
+    /// Include or a ZSK.
+    pub fn set_at_parent(
+        &mut self,
+        pubref: &str,
+        value: bool,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                match &mut key.keytype {
+                    KeyType::Ksk(keystate) => {
+                        keystate.at_parent = value;
+                    }
+                    KeyType::Csk(ksk_keystate, _) => {
+                        ksk_keystate.at_parent = value;
+                    }
+                    KeyType::Zsk(_) | KeyType::Include(_) => {
+                        return Err(Error::WrongKeyType)
+                    }
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// Make a key stale.
+    ///
+    /// Set old and clear present, signer and at_parent.
+    pub fn set_stale(&mut self, pubref: &str) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                match &mut key.keytype {
+                    KeyType::Ksk(keystate)
+                    | KeyType::Zsk(keystate)
+                    | KeyType::Include(keystate) => {
+                        keystate.old = true;
+                        keystate.present = false;
+                        keystate.signer = false;
+                        keystate.at_parent = false;
+                    }
+                    KeyType::Csk(ksk_keystate, zsk_keystate) => {
+                        ksk_keystate.old = true;
+                        ksk_keystate.present = false;
+                        ksk_keystate.signer = false;
+                        ksk_keystate.at_parent = false;
+                        zsk_keystate.old = true;
+                        zsk_keystate.present = false;
+                        zsk_keystate.signer = false;
+                        zsk_keystate.at_parent = false;
+                    }
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the visible time of a key.
+    pub fn set_visible(
+        &mut self,
+        pubref: &str,
+        time: UnixTime,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                key.timestamps.visible = Some(time);
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the ds_visible time of a key.
+    ///
+    /// Note: there is no consistency check. The ds_visible time can be
+    /// set even if at_parent is false.
+    pub fn set_ds_visible(
+        &mut self,
+        pubref: &str,
+        time: UnixTime,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                key.timestamps.ds_visible = Some(time);
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the rrsig_visible time of a key.
+    ///
+    /// Note: there is no consistency check. The rrsig_visible time can be
+    /// set even if signer is false or the key is not signing the zone.
+    pub fn set_rrsig_visible(
+        &mut self,
+        pubref: &str,
+        time: UnixTime,
+    ) -> Result<(), Error> {
+        match self.keys.get_mut(pubref) {
+            None => return Err(Error::KeyNotFound),
+            Some(key) => {
+                key.timestamps.rrsig_visible = Some(time);
+            }
+        }
+        Ok(())
+    }
+
     fn unique_key_tag(&self, key_tag: u16) -> bool {
         !self.keys.iter().any(|(_, k)| k.key_tag == key_tag)
     }
@@ -944,6 +1156,11 @@ impl KeySet {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Key {
     privref: Option<String>,
+
+    // XXX - remove the following directive before merging.
+    #[serde(default)]
+    decoupled: bool,
+
     keytype: KeyType,
     algorithm: SecurityAlgorithm,
     key_tag: u16,
@@ -954,6 +1171,12 @@ impl Key {
     /// Return the 'reference' to the private key (if present).
     pub fn privref(&self) -> Option<&str> {
         self.privref.as_deref()
+    }
+
+    /// Return whether the key is decoupled from the underlying key storage
+    /// or not.
+    pub fn decoupled(&self) -> bool {
+        self.decoupled
     }
 
     /// Return the key type (which includes the state of the key).
@@ -989,6 +1212,7 @@ impl Key {
         };
         Self {
             privref,
+            decoupled: false,
             keytype,
             algorithm,
             key_tag,
@@ -2618,7 +2842,10 @@ mod tests {
         MockClock::advance_system_time(Duration::from_secs(3600));
 
         let actions = ks.cache_expired2(RollType::ZskRoll).unwrap();
-        assert_eq!(actions, [Action::UpdateDnskeyRrset]);
+        assert_eq!(
+            actions,
+            [Action::UpdateDnskeyRrset, Action::WaitDnskeyPropagated]
+        );
         let mut dk = dnskey(&ks);
         dk.sort();
         assert_eq!(dk, ["first KSK", "second ZSK"]);
