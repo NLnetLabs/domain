@@ -16,7 +16,7 @@
 //! # use core::net::Ipv4Addr;
 //! #
 //! # use domain::new::base::*;
-//! # use domain::new::base::name::RevNameBuf;
+//! # use domain::new::base::name::{RevNameBuf, NameBuf};
 //! # use domain::new::base::parse::*;
 //! # use domain::new::base::wire::SizePrefixed;
 //! # use domain::new::rdata::{RecordData, A};
@@ -51,7 +51,7 @@
 //!         rtype: RType::A,
 //!         rclass: RClass::IN,
 //!         ttl: 3600.into(),
-//!         rdata: RecordData::<'_, RevNameBuf>::A(Ipv4Addr::new(127, 0, 0, 1).into()),
+//!         rdata: RecordData::<'_, NameBuf>::A(Ipv4Addr::new(127, 0, 0, 1).into()),
 //!     }),
 //!     MessageItem::Edns(EdnsRecord {
 //!         max_udp_payload: 1232.into(),
@@ -78,7 +78,7 @@
 //!
 //! ```
 //! # use domain::new::base::*;
-//! # use domain::new::base::name::RevNameBuf;
+//! # use domain::new::base::name::{RevNameBuf, NameBuf};
 //! # use domain::new::base::parse::*;
 //! # use domain::new::rdata::{RecordData, A, Opt};
 //! # use domain::new::edns::*;
@@ -125,7 +125,7 @@
 //!
 //! // Parse the answer.
 //! let answer;
-//! (answer, offset) = <Record<RevNameBuf, RecordData<'_, RevNameBuf>>>
+//! (answer, offset) = <Record<RevNameBuf, RecordData<'_, NameBuf>>>
 //!     ::split_message_bytes(&message.contents, offset).unwrap();
 //!
 //! assert_eq!(answer.rname, "www.example.org".parse().unwrap());
@@ -136,7 +136,7 @@
 //!
 //! // Parse the OPT record.
 //! let opt;
-//! (opt, offset) = <Record<RevNameBuf, RecordData<'_, RevNameBuf>>>
+//! (opt, offset) = <Record<RevNameBuf, RecordData<'_, NameBuf>>>
 //!     ::split_message_bytes(&message.contents, offset).unwrap();
 //!
 //! assert_eq!(opt.rtype, RType::OPT);

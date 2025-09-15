@@ -53,10 +53,10 @@ pub trait ZoneStore: Debug + Sync + Send + Any {
         self: Arc<Self>,
     ) -> Pin<
         Box<
-            (dyn Future<Output = Box<(dyn WritableZone + 'static)>>
-                 + Send
-                 + Sync
-                 + 'static),
+            dyn Future<Output = Box<dyn WritableZone + 'static>>
+                + Send
+                + Sync
+                + 'static,
         >,
     >;
 
