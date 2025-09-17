@@ -1930,7 +1930,7 @@ impl TlsSupportedGroups<[u8]> {
     /// Checks that a slice contains a properly encoded tls-supported-groups value.
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         LongSvcParam::check_len(slice.len())?;
-        if slice.len() == 0
+        if slice.is_empty()
             || slice.len() % usize::from(u16::COMPOSE_LEN) != 0
         {
             return Err(ParseError::form_error(
