@@ -153,7 +153,7 @@ rdata_types! {
         }
     }
     svcb::{
-        pseudo {
+        zone {
             Svcb<O, N>,
             Https<O, N>,
         }
