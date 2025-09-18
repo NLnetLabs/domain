@@ -1,9 +1,18 @@
+#[cfg(feature = "std")]
+use std::collections::BTreeSet;
+#[cfg(feature = "std")]
+use std::collections::HashSet;
+
 use super::{
     ComposeSvcParamValue, LongSvcParam, ParseSvcParamValue, PushError,
-    SvcParamValue, SvcParams, SvcParamsBuilder, UnknownSvcParam,
+    ScanSvcParamValue, SvcParamValue, SvcParams, SvcParamsBuilder,
+    UnknownSvcParam,
 };
 use crate::base::iana::SvcParamKey;
 use crate::base::net::{Ipv4Addr, Ipv6Addr};
+use crate::base::scan::{
+    ConvertSymbols, EntrySymbol, Scanner, ScannerError, Symbol,
+};
 use crate::base::wire::{Compose, Parse, ParseError};
 use crate::utils::base64;
 use core::fmt::Write as _;
@@ -131,6 +140,37 @@ macro_rules! values_enum {
             }
         }
 
+        #[cfg(feature = "std")]
+        impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs>
+        for AllValues<Octs>
+        where
+            Octs: AsRef<[u8]>,
+            SrcOcts: AsRef<[u8]> + ?Sized,
+        {
+            fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+                scanner: &mut S,
+                key: SvcParamKey,
+                octs: &SrcOcts,
+            ) -> Result<Option<Self>, S::Error> {
+                match key {
+                    $(
+                        $type::KEY => {
+                            $type::value_from_scan_octets(
+                                scanner,
+                                key,
+                                octs
+                            ).map(|res| Some(Self::$type(res.unwrap())))
+                        }
+                    )+
+                    _ => {
+                        UnknownSvcParam::value_from_scan_octets(
+                            scanner, key, octs
+                        ).map(|res| res.map(Self::Unknown))
+                    }
+                }
+            }
+        }
+
         impl<Octs: AsRef<[u8]>> ComposeSvcParamValue for AllValues<Octs> {
             fn compose_len(&self) -> u16 {
                 match self {
@@ -215,6 +255,8 @@ values_enum! {
     Ipv4Hint<Octs>,
     Ipv6Hint<Octs>,
     DohPath<Octs>,
+    Ohttp,
+    TlsSupportedGroups<Octs>,
 }
 
 //============ Individual Value Types ========================================
@@ -474,9 +516,56 @@ impl<Octs: AsRef<[u8]>> Mandatory<Octs> {
     }
 }
 
+#[cfg(feature = "std")]
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for Mandatory<Octs>
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == Mandatory::KEY {
+            let mut tmp = scanner.octets_builder()?;
+            let mut iter = SvcParamValueScanIter::from_slice(octs.as_ref());
+            // keys must be in order, therefore BTreeSet instead of HashSet
+            let mut keys = BTreeSet::<SvcParamKey>::new();
+            while let Some(item) = iter.next_no_escapes().map_err(|_| {
+                S::Error::custom("no escape sequences allowed in mandatory")
+            })? {
+                let k =
+                    SvcParamKey::from_bytes(item).ok_or(S::Error::custom(
+                        "invalid key listed in SvcParamKey mandatory",
+                    ))?;
+                if k == SvcParamKey::MANDATORY {
+                    return Err(S::Error::custom(
+                        // https://www.rfc-editor.org/rfc/rfc9460.html#section-8-8
+                        "the key 'mandatory' MUST NOT appear in the mandatory keys list",
+                    ));
+                }
+                if !keys.insert(k) {
+                    return Err(S::Error::custom(
+                        "mandatory contains duplicate keys",
+                    ));
+                }
+            }
+            for k in keys {
+                k.compose(&mut tmp).map_err(|_| S::Error::short_buf())?;
+            }
+            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+                S::Error::custom("invalid svc param value for mandatory")
+            })?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 //--- Iterator
 
-impl<Octs: Octets + ?Sized> Iterator for MandatoryIter<'_, Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Iterator for MandatoryIter<'_, Octs> {
     type Item = SvcParamKey;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -605,6 +694,45 @@ impl<Octs: AsRef<[u8]>> Alpn<Octs> {
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Self::from_octets(parser.parse_octets(parser.remaining())?)
+    }
+}
+
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for Alpn<Octs>
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == Alpn::KEY {
+            let mut tmp = scanner.octets_builder()?;
+            let mut iter = SvcParamValueScanIter::from_slice(octs.as_ref());
+            let mut at_least_one = false;
+            while let Some(item) = iter.next() {
+                at_least_one = true;
+                let len: u8 = item.len().try_into().map_err(|_| {
+                    S::Error::custom("SvcParamValue is too long")
+                })?;
+                tmp.append_slice(&[len])
+                    .map_err(|_| S::Error::short_buf())?;
+                tmp.append_slice(item).map_err(|_| S::Error::short_buf())?;
+            }
+
+            if !at_least_one {
+                return Err(S::Error::custom(
+                    "expected at least one alpn-id value",
+                ));
+            }
+            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+                S::Error::custom("invalid svc param value for alpn")
+            })?))
+        } else {
+            // TODO: why is it ok none if the key is wrong? (stolen from parse_value)
+            Ok(None)
+        }
     }
 }
 
@@ -798,6 +926,29 @@ impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs>
     }
 }
 
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for NoDefaultAlpn
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        _scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == Self::KEY {
+            if !octs.as_ref().is_empty() {
+                return Err(S::Error::custom(
+                    "no-default-alpn takes no values",
+                ));
+            }
+            Ok(Some(Self))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 impl ComposeSvcParamValue for NoDefaultAlpn {
     fn compose_len(&self) -> u16 {
         0
@@ -884,6 +1035,35 @@ impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs> for Port {
     ) -> Result<Option<Self>, ParseError> {
         if key == Self::KEY {
             Self::parse(parser).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for Port
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        _scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == Self::KEY {
+            if octs.as_ref().is_empty() {
+                return Err(S::Error::custom("port requires a value"));
+            }
+            let s = str::from_utf8(octs.as_ref()).map_err(|_| {
+                S::Error::custom("port value must be valid utf-8")
+            })?;
+            let port = s.parse::<u16>().map_err(|_| {
+                S::Error::custom(
+                    "port value must be a 16-bit unsigned decimal number",
+                )
+            })?;
+            Ok(Some(Self::new(port)))
         } else {
             Ok(None)
         }
@@ -978,6 +1158,53 @@ impl<Octs: AsRef<[u8]>> Ech<Octs> {
     ) -> Result<Self, ParseError> {
         Self::from_octets(parser.parse_octets(parser.remaining())?)
             .map_err(Into::into)
+    }
+}
+
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for Ech<Octs>
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == Ech::KEY {
+            if octs.as_ref().is_empty() {
+                return Err(S::Error::custom("ech requires as value"));
+            }
+            let mut builder = scanner.octets_builder()?;
+            let mut convert = base64::SymbolConverter::new();
+            for ch in octs.as_ref() {
+                if let Some(data) = convert.process_symbol(
+                    EntrySymbol::from(Symbol::from_octet(*ch)),
+                )? {
+                    builder
+                        .append_slice(data)
+                        .map_err(|_| S::Error::short_buf())?;
+                }
+            }
+
+            // if let Some(data) = convert.process_tail()? {
+            if let Some(data) = <base64::SymbolConverter as ConvertSymbols<
+                EntrySymbol,
+                <S as Scanner>::Error,
+            >>::process_tail(&mut convert)?
+            {
+                builder
+                    .append_slice(data)
+                    .map_err(|_| S::Error::short_buf())?;
+            }
+            let dec = builder.freeze();
+
+            Ok(Some(Self::from_octets(dec).map_err(|_| {
+                S::Error::custom("invalid ech param value")
+            })?))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -1096,6 +1323,41 @@ impl<Octs: AsRef<[u8]>> Ipv4Hint<Octs> {
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Self::from_octets(parser.parse_octets(parser.remaining())?)
+    }
+}
+
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for Ipv4Hint<Octs>
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == Ipv4Hint::KEY {
+            let mut tmp = scanner.octets_builder()?;
+            let mut iter = SvcParamValueScanIter::from_slice(octs.as_ref());
+            while let Some(item) = iter.next_no_escapes().map_err(|_| {
+                S::Error::custom("no escape sequences allowed in ipv4hint")
+            })? {
+                let ip = Ipv4Addr::from_str(str::from_utf8(item).map_err(
+                    |_| S::Error::custom("invalid utf-8 in ipv4hint param"),
+                )?)
+                .map_err(|_| {
+                    S::Error::custom("invalid ipv4 in ipv4hint param")
+                })?;
+                tmp.append_slice(&ip.octets())
+                    .map_err(|_| S::Error::short_buf())?;
+            }
+            // tmp.append_slice();
+            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+                S::Error::custom("invalid svc param value for ipv4hint")
+            })?))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -1247,6 +1509,41 @@ impl<Octs: AsRef<[u8]>> Ipv6Hint<Octs> {
     }
 }
 
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for Ipv6Hint<Octs>
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == Ipv6Hint::KEY {
+            let mut tmp = scanner.octets_builder()?;
+            let mut iter = SvcParamValueScanIter::from_slice(octs.as_ref());
+            while let Some(item) = iter.next_no_escapes().map_err(|_| {
+                S::Error::custom("no escape sequences allowed in ipv6hint")
+            })? {
+                let ip = Ipv6Addr::from_str(str::from_utf8(item).map_err(
+                    |_| S::Error::custom("invalid utf-8 in ipv6hint param"),
+                )?)
+                .map_err(|_| {
+                    S::Error::custom("invalid ipv6 in ipv6hint param")
+                })?;
+                tmp.append_slice(&ip.octets())
+                    .map_err(|_| S::Error::short_buf())?;
+            }
+            // tmp.append_slice();
+            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+                S::Error::custom("invalid svc param value for ipv6hint")
+            })?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 //--- Iterator
 
 impl<Octs: Octets + ?Sized> Iterator for Ipv6HintIter<'_, Octs> {
@@ -1368,6 +1665,32 @@ impl<Octs: AsRef<[u8]>> DohPath<Octs> {
     }
 }
 
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for DohPath<Octs>
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == DohPath::KEY {
+            let _ = str::from_utf8(octs.as_ref()).map_err(|_| {
+                S::Error::custom("dohpath must be valid UTF-8")
+            })?;
+            let mut tmp = scanner.octets_builder()?;
+            tmp.append_slice(octs.as_ref())
+                .map_err(|_| S::Error::short_buf())?;
+            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+                S::Error::custom("invalid svc param value for dohpath")
+            })?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 //--- TryFrom and FromStr
 
 impl<Octs: AsRef<[u8]>> TryFrom<Str<Octs>> for DohPath<Octs> {
@@ -1453,6 +1776,414 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
             |octs| octs.append_slice(template.as_bytes()),
         )
         .map_err(Into::into)
+    }
+}
+
+//------------ Ohttp -------------------------------------------------
+
+/// A signal that Oblivious HTTP is supported.
+///
+/// The "ohttp" SvcParamKey is used to indicate that a service described in
+/// a SVCB RR can be accessed as a target using an associated gateway.
+///
+/// This value is always empty.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct Ohttp;
+
+impl Ohttp {
+    /// The key for this type.
+    const KEY: SvcParamKey = SvcParamKey::OHTTP;
+}
+
+impl Ohttp {
+    /// Parses a ohttp value from its wire-format.
+    pub fn parse<Src: Octets + ?Sized>(
+        _parser: &mut Parser<'_, Src>,
+    ) -> Result<Self, ParseError> {
+        Ok(Self)
+    }
+}
+
+//--- SvcParamValue et al.
+
+impl SvcParamValue for Ohttp {
+    fn key(&self) -> SvcParamKey {
+        Self::KEY
+    }
+}
+
+impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs> for Ohttp {
+    fn parse_value(
+        key: SvcParamKey,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if key == Self::KEY {
+            Self::parse(parser).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for Ohttp
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        _scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == Self::KEY {
+            if !octs.as_ref().is_empty() {
+                return Err(S::Error::custom("ohttp takes no values"));
+            }
+            Ok(Some(Self))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl ComposeSvcParamValue for Ohttp {
+    fn compose_len(&self) -> u16 {
+        0
+    }
+
+    fn compose_value<Target: OctetsBuilder + ?Sized>(
+        &self,
+        _target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        Ok(())
+    }
+}
+
+//--- Display
+
+impl fmt::Display for Ohttp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ohttp")
+    }
+}
+
+//--- Extend SvcParams and SvcParamsBuilder
+
+impl<Octs: Octets + ?Sized> SvcParams<Octs> {
+    /// Returns whether the [`Ohttp`] value is present.
+    pub fn ohttp(&self) -> bool {
+        self.first::<Ohttp>().is_some()
+    }
+}
+
+impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
+    /// Adds the [`Ohttp`] value.
+    pub fn ohttp(&mut self) -> Result<(), PushError> {
+        self.push(&Ohttp)
+    }
+}
+
+//------------ TlsSupportedGroups -------------------------------------------------
+
+octets_wrapper!(
+    /// The ‘tls-supported-groups’ service parameter value.
+    ///
+    /// This value is used to specify the endpoint's TLS supported group preferences.
+    ///
+    /// This value type is described as part of the specification for
+    /// TLS Key Share Prediction, currently
+    /// [draft-ietf-tls-key-share-prediction](https://datatracker.ietf.org/doc/draft-ietf-tls-key-share-prediction).
+    ///
+    /// A value of this type wraps an octets sequence that contains the
+    /// integer values of the TLS supported groups preferences in network byte
+    /// order. You can create a value of this type by providing an iterator
+    /// over the keys to be included to the [`from_keys`][Self::from_keys]
+    /// function. You can get an iterator over the keys in an existing value
+    /// through the [`iter`][Self::iter] method.
+    TlsSupportedGroups => TLS_SUPPORTED_GROUPS,
+    TlsSupportedGroupsIter
+);
+
+impl<Octs: AsRef<[u8]>> TlsSupportedGroups<Octs> {
+    /// Creates a new tls-supported-groups value from an octets sequence.
+    ///
+    /// The function checks that the octets sequence contains a properly
+    /// encoded value of at most 65,535 octets. It does not check whether
+    /// there are any duplicates in the data.
+    pub fn from_octets(octets: Octs) -> Result<Self, ParseError> {
+        TlsSupportedGroups::check_slice(octets.as_ref())?;
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
+    }
+}
+
+impl TlsSupportedGroups<[u8]> {
+    /// Creates a new tls-supported-groups value from an octets slice.
+    ///
+    /// The function checks that the octets slice contains a properly
+    /// encoded value of at most 65,535 octets. It does not check whether
+    /// there are any duplicates in the data.
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, ParseError> {
+        Self::check_slice(slice)?;
+        Ok(unsafe { Self::from_slice_unchecked(slice) })
+    }
+
+    /// Checks that a slice contains a properly encoded tls-supported-groups value.
+    fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
+        LongSvcParam::check_len(slice.len())?;
+        if slice.is_empty()
+            || slice.len() % usize::from(u16::COMPOSE_LEN) != 0
+        {
+            return Err(ParseError::form_error(
+                "invalid tls-supported-groups parameter",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl<Octs: AsRef<[u8]>> TlsSupportedGroups<Octs> {
+    /// Creates a new value from a list of keys.
+    ///
+    /// The created value will contain all the keys returned by the iterator
+    /// in the order provided. The function does not check for duplicates.
+    ///
+    /// Returns an error if the octets builder runs out of space or the
+    /// resulting value would be longer than 65,535 octets.
+    pub fn from_keys(
+        keys: impl Iterator<Item = u16>,
+    ) -> Result<Self, BuildValueError>
+    where
+        Octs: FromBuilder,
+        <Octs as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let mut octets = EmptyBuilder::empty();
+        for item in keys {
+            item.compose(&mut octets)?;
+        }
+        let octets = Octs::from_builder(octets);
+        if LongSvcParam::check_len(octets.as_ref().len()).is_err() {
+            return Err(BuildValueError::LongSvcParam);
+        }
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
+    }
+}
+
+impl<Octs: AsRef<[u8]>> TlsSupportedGroups<Octs> {
+    /// Parses a tls-supported-groups value from its wire format.
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
+        Self::from_octets(parser.parse_octets(parser.remaining())?)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs>
+    for TlsSupportedGroups<Octs>
+where
+    Octs: AsRef<[u8]>,
+    SrcOcts: AsRef<[u8]> + ?Sized,
+{
+    fn value_from_scan_octets<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+        key: SvcParamKey,
+        octs: &SrcOcts,
+    ) -> Result<Option<Self>, S::Error> {
+        if key == TlsSupportedGroups::KEY {
+            let mut tmp = scanner.octets_builder()?;
+            let mut iter = SvcParamValueScanIter::from_slice(octs.as_ref());
+            // keys must not be duplicated
+            let mut keys = HashSet::<u16>::new();
+            while let Some(item) = iter.next_no_escapes().map_err(|_| {
+                S::Error::custom(
+                    "no escape sequences allowed in tls-supported-groups",
+                )
+            })? {
+                let k = str::from_utf8(item)
+                    .map_err(|_| {
+                        S::Error::custom(
+                    "invalid key listed in SvcParamKey tls-supported-groups, must contain UTF-8 encoded numbers",
+                )
+                    })?
+                    .parse::<u16>()
+                    .map_err(|_| {
+                        S::Error::custom(
+                    "invalid key listed in SvcParamKey tls-supported-groups, must contain positive 16-bit integers",
+                )
+                    })?;
+                if !keys.insert(k) {
+                    return Err(S::Error::custom(
+                        "tls-supported-groups contains duplicate values",
+                    ));
+                }
+                k.compose(&mut tmp).map_err(|_| S::Error::short_buf())?;
+            }
+            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+                S::Error::custom(
+                    "invalid svc param value for tls-supported-groups",
+                )
+            })?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+//--- Iterator
+
+impl<Octs: AsRef<[u8]> + ?Sized> Iterator
+    for TlsSupportedGroupsIter<'_, Octs>
+{
+    type Item = u16;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.parser.remaining() == 0 {
+            return None;
+        }
+        Some(
+            u16::parse(&mut self.parser)
+                .expect("invalid tls-supported-groups parameter"),
+        )
+    }
+}
+
+//--- Display
+
+impl<Octs: Octets + ?Sized> fmt::Display for TlsSupportedGroups<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, v) in self.iter().enumerate() {
+            if i == 0 {
+                write!(f, "tls-supported-groups={}", v)?;
+            } else {
+                write!(f, ",{}", v)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+//--- Extend SvcParams and SvcParamsBuilder
+
+impl<Octs: Octets + ?Sized> SvcParams<Octs> {
+    /// Returns the content of the ‘tls-supported-groups’ value if present.
+    pub fn tls_supported_groups(
+        &self,
+    ) -> Option<TlsSupportedGroups<Octs::Range<'_>>> {
+        self.first()
+    }
+}
+
+impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
+    /// Adds a ‘tls-supported-groups’ value with the given keys.
+    ///
+    /// Returns an error if there already is a ‘tls-supported-groups’ value, `keys`
+    /// contains more values than fit into a service binding parameter value,
+    /// or the underlying octets builder runs out of space.
+    pub fn tls_supported_groups(
+        &mut self,
+        keys: impl AsRef<[SvcParamKey]>,
+    ) -> Result<(), PushValueError> {
+        self.push_raw(
+            TlsSupportedGroups::KEY,
+            u16::try_from(
+                keys.as_ref().len() * usize::from(SvcParamKey::COMPOSE_LEN),
+            )
+            .map_err(|_| PushValueError::LongSvcParam)?,
+            |octs| {
+                keys.as_ref().iter().try_for_each(|item| item.compose(octs))
+            },
+        )
+        .map_err(Into::into)
+    }
+}
+
+//------------ SvcParamValueScanIter -----------------------------------------
+
+/// An iterator over the items of a comma separated list of octets, as used
+/// in SvcParamValue [RFC9460 A.1.] with escape sequences allowed
+///
+/// [RFC9460 A.1.]: https://www.rfc-editor.org/rfc/rfc9460.html#name-decoding-a-comma-separated-
+struct SvcParamValueScanIter<'a> {
+    data: &'a [u8],
+    start_next: usize,
+    end: usize,
+}
+
+impl<'a> SvcParamValueScanIter<'a> {
+    pub fn from_slice(octs: &'a [u8]) -> Self {
+        Self {
+            data: octs,
+            start_next: 0,
+            end: 0,
+        }
+    }
+
+    pub fn next(&mut self) -> Option<&[u8]> {
+        if self.start_next >= self.data.len() {
+            None
+        } else {
+            let mut is_escaped = false;
+            let start = self.start_next;
+            self.end = self.start_next;
+
+            loop {
+                if self.end < self.data.len() {
+                    // Still data to read
+                    if !is_escaped && self.data[self.end] == b',' {
+                        // End of value. Return item
+                        break;
+                    } else {
+                        // Value not yet ended. Read more
+                        if is_escaped {
+                            is_escaped = false;
+                        } else if self.data[self.end] == b'\\' {
+                            is_escaped = true;
+                        }
+
+                        self.end += 1;
+                    }
+                } else {
+                    // End of data. Return item
+                    break;
+                }
+            }
+
+            self.start_next = self.end + 1;
+            Some(&self.data[start..self.end])
+        }
+    }
+
+    /// An iterator but error on escape sequences
+    pub fn next_no_escapes(&mut self) -> Result<Option<&[u8]>, ()> {
+        if self.start_next >= self.data.len() {
+            Ok(None)
+        } else {
+            let start = self.start_next;
+            self.end = self.start_next;
+
+            loop {
+                if self.end < self.data.len() {
+                    // Still data to read
+                    if self.data[self.end] == b',' {
+                        // End of value. Return item
+                        break;
+                    } else {
+                        // Value not yet ended. Read more
+                        if self.data[self.end] == b'\\' {
+                            // Escaping not allowed
+                            return Err(());
+                        }
+                        self.end += 1;
+                    }
+                } else {
+                    // End of data. Return item
+                    break;
+                }
+            }
+
+            self.start_next = self.end + 1;
+            Ok(Some(&self.data[start..self.end]))
+        }
     }
 }
 
