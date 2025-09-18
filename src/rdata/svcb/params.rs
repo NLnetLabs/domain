@@ -247,11 +247,13 @@ impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
                 }
             }
 
-            let key_end =
-                key_end.expect("unexpectedly not read any SVCB keys");
-            let param_key = SvcParamKey::from_str(&String::from_utf8_lossy(
-                &octs.as_ref()[0..key_end],
-            ))
+            let param_key = if let Some(key_end) = key_end {
+                SvcParamKey::from_str(&String::from_utf8_lossy(
+                    &octs.as_ref()[0..key_end],
+                ))
+            } else {
+                SvcParamKey::from_str(&String::from_utf8_lossy(octs.as_ref()))
+            }
             .map_err(|_| ScannerError::custom("unknown SvcParamKey"))?;
 
             let param_value = if let Some(value_start) = value_start {
