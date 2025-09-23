@@ -421,7 +421,18 @@ impl<'a> EntryScanner<'a> {
             },
         };
 
-        let data = ZoneRecordData::scan(rtype, self)?;
+        let data = match ZoneRecordData::scan(rtype, self) {
+            Ok(d) => d,
+            Err(e) => {
+                // Consume the whole entry so that the next call to
+                // inplace::SourceBuf::next_item doesn't panic.
+                let _ = self.scan_entry_symbols(|_| Ok(()));
+                // Ignoring any errors potentially happening above while
+                // consuming the rest of the broken record, and returning the
+                // original error.
+                return Err(e);
+            }
+        };
 
         self.zonefile.buf.require_line_feed()?;
 
