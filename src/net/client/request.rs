@@ -781,13 +781,17 @@ impl fmt::Display for Error {
             Error::NoTransportAvailable => {
                 write!(f, "no transport available")
             }
-            Error::Dgram(err) => fmt::Display::fmt(err, f),
+            Error::Dgram(err) => {
+                write!(f, "dgram error: {err}")
+            }
 
             #[cfg(feature = "unstable-server-transport")]
             Error::ZoneWrite => write!(f, "error writing to zone"),
 
             #[cfg(feature = "tsig")]
-            Error::Authentication(err) => fmt::Display::fmt(err, f),
+            Error::Authentication(err) => {
+                write!(f, "authentication error: {err}")
+            }
 
             #[cfg(all(
                 feature = "unstable-validator",
