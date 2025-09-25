@@ -104,10 +104,9 @@
 //! [`SortedRecords`]: crate::sign::SortedRecords
 //! [`Zone`]: crate::zonetree::Zone
 
-#![cfg(all(
-    feature = "unstable-sign",
-    any(feature = "ring", feature = "openssl")
-))]
+#![cfg(feature = "unstable-sign")]
+// NOTE: Users should not interact with the `unstable-crypto-backend` feature
+// directly, we deliberately show them the features they should use instead.
 #![cfg_attr(
     docsrs,
     doc(cfg(all(
@@ -115,6 +114,14 @@
         any(feature = "ring", feature = "openssl")
     )))
 )]
+
+// Fail if 'ring' or 'openssl' is not enabled.
+const _: () = {
+    assert!(
+        cfg!(feature = "unstable-crypto-backend"),
+        "'unstable-sign' cannot be used without enabling 'ring' or 'openssl'",
+    );
+};
 
 pub mod config;
 pub mod denial;
