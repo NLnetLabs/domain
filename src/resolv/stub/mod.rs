@@ -49,6 +49,8 @@ use tokio::time::timeout;
 //------------ Sub-modules ---------------------------------------------------
 
 pub mod conf;
+#[cfg(target_os = "windows")]
+mod windows;
 
 //------------ Module Configuration ------------------------------------------
 
