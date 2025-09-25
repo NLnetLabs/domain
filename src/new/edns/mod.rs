@@ -20,7 +20,7 @@ use crate::utils::dst::UnsizedCopy;
 //----------- EDNS option modules --------------------------------------------
 
 mod cookie;
-pub use cookie::{ClientCookie, Cookie};
+pub use cookie::{ClientCookie, Cookie, CookieError};
 
 mod ext_err;
 pub use ext_err::{ExtError, ExtErrorCode};
