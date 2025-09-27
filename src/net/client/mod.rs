@@ -255,5 +255,14 @@ pub mod redundant;
 pub mod request;
 pub mod stream;
 pub mod tsig;
+#[cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
 pub mod validator;
+#[cfg(all(
+    feature = "unstable-stelline",
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
 pub mod validator_test;
