@@ -133,7 +133,7 @@ impl RelativeName<[u8]> {
     /// The same rules as for [`from_octets_unchecked`] apply.
     ///
     /// [`from_octets_unchecked`]: RelativeName::from_octets_unchecked
-    pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+    pub(super) const unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: RelativeName has repr(transparent)
         mem::transmute(slice)
     }
@@ -148,9 +148,13 @@ impl RelativeName<[u8]> {
     /// use domain::base::name::RelativeName;
     /// RelativeName::from_slice(b"\x0c_submissions\x04_tcp");
     /// ```
-    pub fn from_slice(slice: &[u8]) -> Result<&Self, RelativeNameError> {
-        Self::check_slice(slice)?;
-        Ok(unsafe { Self::from_slice_unchecked(slice) })
+    pub const fn from_slice(
+        slice: &[u8],
+    ) -> Result<&Self, RelativeNameError> {
+        match Self::check_slice(slice) {
+            Ok(()) => Ok(unsafe { Self::from_slice_unchecked(slice) }),
+            Err(err) => Err(err),
+        }
     }
 
     /// Returns an empty relative name atop a unsized slice.
@@ -165,16 +169,33 @@ impl RelativeName<[u8]> {
     }
 
     /// Checks whether an octet slice contains a correctly encoded name.
-    pub(super) fn check_slice(
+    pub(super) const fn check_slice(
         mut slice: &[u8],
     ) -> Result<(), RelativeNameError> {
         if slice.len() > 254 {
-            return Err(RelativeNameErrorEnum::LongName.into());
+            return Err(RelativeNameError(RelativeNameErrorEnum::LongName));
         }
         while !slice.is_empty() {
-            let (label, tail) = Label::split_from(slice)?;
+            let (label, tail) = match Label::split_from(slice) {
+                Ok((label, tail)) => (label, tail),
+                Err(err) => {
+                    return Err(RelativeNameError(match err {
+                        SplitLabelError::Pointer(_) => {
+                            RelativeNameErrorEnum::CompressedName
+                        }
+                        SplitLabelError::BadType(t) => {
+                            RelativeNameErrorEnum::BadLabel(t)
+                        }
+                        SplitLabelError::ShortInput => {
+                            RelativeNameErrorEnum::ShortInput
+                        }
+                    }));
+                }
+            };
             if label.is_root() {
-                return Err(RelativeNameErrorEnum::AbsoluteName.into());
+                return Err(RelativeNameError(
+                    RelativeNameErrorEnum::AbsoluteName,
+                ));
             }
             slice = tail;
         }
@@ -1771,6 +1792,31 @@ mod test {
         cmp(b"", "");
         cmp(b"\x03com", "com");
         cmp(b"\x07example\x03com", "example.com");
+    }
+
+    const VALID_NAME: &RelativeName<[u8]> =
+        match RelativeName::from_slice(b"\x03www\x07example") {
+            Ok(name) => name,
+            Err(_) => panic!("VALID_NAME failed at compile time"),
+        };
+    const EMPTY_NAME: &RelativeName<[u8]> =
+        match RelativeName::from_slice(b"") {
+            Ok(name) => name,
+            Err(_) => {
+                panic!("EMPTY_NAME failed at compile time")
+            }
+        };
+    const INVALID_NAME: RelativeNameError =
+        match RelativeName::from_slice(b"\x03www\x07example\x03com\0") {
+            Ok(_) => panic!("INVALID_NAME succeeded at compile time"),
+            Err(err) => err,
+        };
+
+    #[test]
+    fn const_from_slice() {
+        assert_eq!(VALID_NAME.as_slice(), b"\x03www\x07example");
+        assert_eq!(EMPTY_NAME.as_slice(), b"");
+        assert_eq!(INVALID_NAME, RelativeNameErrorEnum::AbsoluteName.into());
     }
 
     #[cfg(all(feature = "serde", feature = "std"))]
