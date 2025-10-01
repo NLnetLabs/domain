@@ -10,6 +10,9 @@ use crate::new::base::{
 };
 use crate::utils::dst::UnsizedCopy;
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Txt ------------------------------------------------------------
 
 /// Free-form text strings about this domain.
@@ -242,6 +245,107 @@ impl<'a> ParseRecordDataBytes<'a> for &'a Txt {
         match rtype {
             RType::TXT => Self::parse_bytes(bytes),
             _ => Err(ParseError),
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a Txt {
+    /// Scan the data for a TXT record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-txt = char-str (ws+ char-str)* ws*
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let start = buffer.len();
+
+        loop {
+            if start < buffer.len() && !scanner.skip_ws() {
+                break;
+            }
+
+            let cur = buffer.len();
+            buffer.push(0u8);
+            match scanner.scan_token(buffer)? {
+                Some(token) if token.len() > 255 => {
+                    buffer.truncate(start);
+                    return Err(ScanError::Custom(
+                        "overlong character string",
+                    ));
+                }
+
+                Some(token) => {
+                    buffer[cur] = token.len() as u8;
+                    if buffer.len() - start >= 65536 {
+                        return Err(ScanError::Custom(
+                            "TXT record has overflowed 64K bytes",
+                        ));
+                    }
+                }
+
+                None => {
+                    buffer.truncate(cur);
+                    break;
+                }
+            }
+        }
+
+        if start < buffer.len() && scanner.is_empty() {
+            let bytes = alloc.alloc_slice_copy(&buffer[start..]);
+            buffer.truncate(start);
+            // SAFETY: 'buffer' contains a sequence of character strings.
+            Ok(unsafe { core::mem::transmute::<&[u8], Self>(bytes) })
+        } else if start == buffer.len() {
+            Err(ScanError::Incomplete)
+        } else {
+            Err(ScanError::Custom("unexpected data at end of TXT record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::Txt;
+
+        let cases = [
+            (b"a b" as &[u8], Ok(&[b"a" as &[u8], b"b"] as &[_])),
+            (b"a \"b c\" d", Ok(&[b"a" as &[u8], b"b c", b"d"])),
+            (b"" as &[u8], Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let result = <&Txt>::scan(&mut scanner, &alloc, &mut buffer);
+            assert!(
+                result.as_ref().err() == expected.as_ref().err(),
+                "{result:?} == {expected:?}"
+            );
+            if let (Ok(result), Ok(expected)) = (result, expected) {
+                assert!(
+                    result
+                        .iter()
+                        .map(|s| &s.octets)
+                        .eq(expected.iter().copied()),
+                    "{result:?} == {expected:?}"
+                );
+            }
         }
     }
 }
