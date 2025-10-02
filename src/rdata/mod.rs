@@ -49,11 +49,15 @@ pub mod aaaa;
 pub mod cds;
 pub mod dname;
 pub mod dnssec;
+pub mod ipseckey;
 pub mod naptr;
 pub mod nsec3;
+pub mod openpgpkey;
 pub mod rfc1035;
 pub mod srv;
+pub mod sshfp;
 pub mod svcb;
+pub mod tlsa;
 pub mod tsig;
 pub mod zonemd;
 
@@ -117,6 +121,11 @@ rdata_types! {
             Ds<O>,
         }
     }
+    ipseckey::{
+        zone {
+            Ipseckey<O, N>,
+        }
+    }
     naptr::{
         zone {
             Naptr<O, N>,
@@ -128,15 +137,30 @@ rdata_types! {
             Nsec3param<O>,
         }
     }
+    openpgpkey::{
+        zone {
+            Openpgpkey<O>,
+        }
+    }
     srv::{
         zone {
             Srv<N>,
         }
     }
+    sshfp::{
+        zone {
+            Sshfp<O>,
+        }
+    }
     svcb::{
-        pseudo {
+        zone {
             Svcb<O, N>,
             Https<O, N>,
+        }
+    }
+    tlsa::{
+        zone {
+            Tlsa<O>,
         }
     }
     tsig::{

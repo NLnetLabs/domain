@@ -28,13 +28,16 @@
 pub use self::class::Class;
 pub use self::digestalg::DigestAlgorithm;
 pub use self::exterr::ExtendedErrorCode;
+pub use self::ipseckey::{IpseckeyAlgorithm, IpseckeyGatewayType};
 pub use self::nsec3::Nsec3HashAlgorithm;
 pub use self::opcode::Opcode;
 pub use self::opt::OptionCode;
 pub use self::rcode::{OptRcode, Rcode, TsigRcode};
 pub use self::rtype::Rtype;
 pub use self::secalg::SecurityAlgorithm;
+pub use self::sshfp::{SshfpAlgorithm, SshfpType};
 pub use self::svcb::SvcParamKey;
+pub use self::tlsa::{TlsaCertificateUsage, TlsaMatchingType, TlsaSelector};
 pub use self::zonemd::{ZonemdAlgorithm, ZonemdScheme};
 
 #[macro_use]
@@ -43,11 +46,14 @@ mod macros;
 pub mod class;
 pub mod digestalg;
 pub mod exterr;
+pub mod ipseckey;
 pub mod nsec3;
 pub mod opcode;
 pub mod opt;
 pub mod rcode;
 pub mod rtype;
 pub mod secalg;
+pub mod sshfp;
 pub mod svcb;
+pub mod tlsa;
 pub mod zonemd;
