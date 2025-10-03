@@ -98,6 +98,11 @@ rdata_types! {
             Aaaa,
         }
     }
+    caa::{
+        zone {
+            Caa<O>,
+        }
+    }
     cds::{
         zone {
             Cdnskey<O>,
