@@ -102,8 +102,13 @@ where
             for rr in rrset.data() {
                 last_rr_rtype = Some(rr.rtype());
 
+                let ttl = match rr {
+                    crate::rdata::ZoneRecordData::Rrsig(rrsig) => rrsig.original_ttl(),
+                    _ => rrset.ttl(),
+                };
+
                 if let Err(err) =
-                    batcher.push((owner.clone(), qclass, rrset.ttl(), rr))
+                    batcher.push((owner.clone(), qclass, ttl, rr))
                 {
                     match err {
                         BatchReadyError::MustFitInSingleMessage => {
