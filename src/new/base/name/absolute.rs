@@ -675,7 +675,10 @@ impl NameBuf {
             this.append_label(&label);
 
             match *rest {
-                [b' ' | b'\n' | b'\r' | b'\t', ..] => break,
+                [b' ' | b'\n' | b'\r' | b'\t', ..] | [] => {
+                    s = rest;
+                    break;
+                }
                 [b'.', ref rest @ ..] => s = rest,
                 _ => return Err(NameParseError::InvalidChar),
             }
