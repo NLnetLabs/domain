@@ -279,6 +279,9 @@ impl RType {
     /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
     pub const AAAA: Self = Self::new(28);
 
+    /// The type of an `Srv` record.
+    pub const SRV: Self = Self::new(33);
+
     /// The type of a [`DName`](crate::new::rdata::DName) record.
     pub const DNAME: Self = Self::new(39);
 
@@ -332,7 +335,7 @@ impl RType {
     /// - `NXT` (obsolete)
     /// - `NAPTR`
     /// - `KX`
-    /// - `SRV`
+    /// - [`SRV`](RType::SRV)
     /// - [`DNAME`](RType::DNAME)
     /// - `A6` (obsolete)
     /// - [`RRSIG`](RType::RRSIG)
@@ -348,6 +351,7 @@ impl RType {
                 | Self::SOA
                 | Self::PTR
                 | Self::MX
+                | Self::SRV
                 | Self::DNAME
                 | Self::RRSIG
         )
@@ -384,6 +388,7 @@ impl fmt::Debug for RType {
             Self::MX => "RType::MX",
             Self::TXT => "RType::TXT",
             Self::AAAA => "RType::AAAA",
+            Self::SRV => "RType::SRV",
             Self::DNAME => "RType::DNAME",
             Self::OPT => "RType::OPT",
             Self::DS => "RType::DS",
@@ -416,6 +421,8 @@ impl Scan<'_> for RType {
             "MX" => Ok(Self::MX),
             "TXT" => Ok(Self::TXT),
             "AAAA" => Ok(Self::AAAA),
+            "SRV" => Ok(Self::SRV),
+            "DNAME" => Ok(Self::DNAME),
             "OPT" => Ok(Self::OPT),
             "DS" => Ok(Self::DS),
             "RRSIG" => Ok(Self::RRSIG),
