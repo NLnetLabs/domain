@@ -21,6 +21,9 @@ use crate::{
     utils::dst::{UnsizedCopy, UnsizedCopyFrom},
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 use super::{
     CanonicalName, Label, LabelBuf, LabelIter, LabelParseError,
     NameCompressor,
@@ -190,6 +193,26 @@ impl BuildInMessage for Name {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for &'a Name {
+    /// Scan a domain name token.
+    ///
+    /// This parses a domain name, following the [specification].
+    ///
+    /// [specification]: crate::new::zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let name = NameBuf::scan(scanner, alloc, buffer)?;
+        let bytes = alloc.alloc_slice_copy(name.as_bytes());
+        Ok(unsafe { Name::from_bytes_unchecked(bytes) })
+    }
+}
+
 //--- Cloning
 
 #[cfg(feature = "alloc")]
@@ -329,6 +352,24 @@ impl fmt::Display for Name {
 impl fmt::Debug for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Name({})", self)
+    }
+}
+
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Name {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use std::string::ToString;
+
+        if serializer.is_human_readable() {
+            serializer.serialize_newtype_struct("Name", &self.to_string())
+        } else {
+            serializer.serialize_newtype_struct("Name", self.as_bytes())
+        }
     }
 }
 
@@ -555,35 +596,6 @@ impl NameBuf {
     }
 }
 
-//--- Parsing from strings
-
-impl FromStr for NameBuf {
-    type Err = NameParseError;
-
-    /// Parse a name from a string.
-    ///
-    /// This is intended for easily constructing hard-coded domain names.  The
-    /// labels in the name should be given in the conventional order (i.e. not
-    /// reversed), and should be separated by ASCII periods.  The labels will
-    /// be parsed using [`LabelBuf::from_str()`]; see its documentation.  This
-    /// function cannot parse all valid domain names; if an exceptional name
-    /// needs to be parsed, use [`Name::from_bytes_unchecked()`].  If the
-    /// input is empty, the root name is returned.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut this = Self::empty();
-        for label in s.split('.') {
-            let label =
-                label.parse::<LabelBuf>().map_err(NameParseError::Label)?;
-            if 255 - this.size < 1 + label.as_bytes().len() as u8 {
-                return Err(NameParseError::Overlong);
-            }
-            this.append_label(&label);
-        }
-        this.append_label(Label::ROOT);
-        Ok(this)
-    }
-}
-
 //--- Access to the underlying 'Name'
 
 impl Deref for NameBuf {
@@ -668,6 +680,264 @@ impl fmt::Debug for NameBuf {
     }
 }
 
+//--- Parsing from strings
+
+impl NameBuf {
+    /// Parse a domain name from the zonefile format.
+    pub fn parse_str(mut s: &[u8]) -> Result<(Self, &[u8]), NameParseError> {
+        // The buffer we'll fill into.
+        let mut this = Self::empty();
+
+        // Parse label by label.
+        loop {
+            let (label, rest) = LabelBuf::parse_str(s)?;
+            s = rest;
+
+            if 255 - this.size < 1 + label.as_bytes().len() as u8 {
+                return Err(NameParseError::Overlong);
+            }
+            this.append_label(&label);
+
+            match *s {
+                [b' ' | b'\n' | b'\r' | b'\t', ..] | [] => break,
+                [b'.', ref rest @ ..] => s = rest,
+                _ => return Err(NameParseError::InvalidChar),
+            }
+        }
+        this.append_label(Label::ROOT);
+
+        Ok((this, s))
+    }
+}
+
+impl FromStr for NameBuf {
+    type Err = NameParseError;
+
+    /// Parse a name from a string.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match Self::parse_str(s.as_bytes()) {
+            Ok((this, &[])) => Ok(this),
+            Ok(_) => Err(NameParseError::InvalidChar),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for NameBuf {
+    /// Scan a domain name token.
+    ///
+    /// This parses a domain name, following the [specification].
+    ///
+    /// [specification]: crate::new::zonefile#specification
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'_ bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        // Build up a 'Name'.
+        let mut this = Self::empty();
+
+        // Try parsing '@', indicating the origin name.
+        if let [b'@', b' ' | b'\t' | b'\r' | b'\n', ..] | [b'@'] =
+            scanner.remaining()
+        {
+            scanner.consume(1);
+            let origin = scanner
+                .origin()
+                .ok_or(ScanError::Custom("unknown origin name"))?;
+
+            origin
+                .build_bytes(&mut this.buffer)
+                .expect("Valid 'RevName's are at most 255 bytes");
+            this.size = origin.len() as u8;
+            return Ok(this);
+        }
+
+        loop {
+            // Parse a label and prepend it to the buffer.
+            let label = LabelBuf::scan(scanner, alloc, buffer)?;
+            if 255 - this.size < 1 + label.as_bytes().len() as u8 {
+                return Err(ScanError::Custom(
+                    "domain name exceeds 255 bytes",
+                ));
+            }
+            this.append_label(&label);
+
+            // Check if this is the end of the domain name.
+            match *scanner.remaining() {
+                [b' ' | b'\t' | b'\r' | b'\n', ..] | [] => {
+                    // This is a relative domain name.
+                    let origin = scanner
+                        .origin()
+                        .ok_or(ScanError::Custom("unknown origin name"))?;
+
+                    // Append the origin to this name.
+                    origin
+                        .build_bytes(&mut this.buffer[this.size as usize..])
+                        .map_err(|_| {
+                            ScanError::Custom(
+                                "relative domain name exceeds 255 bytes",
+                            )
+                        })?;
+                    // We exclude the root label, which gets added manually.
+                    this.size += origin.len() as u8 - 1;
+                    break;
+                }
+
+                [b'.', b' ' | b'\t' | b'\r' | b'\n', ..] | [b'.'] => {
+                    // This is an absolute domain name.
+                    scanner.consume(1);
+                    break;
+                }
+
+                [b'.', ..] => {
+                    scanner.consume(1);
+                }
+
+                _ => {
+                    return Err(ScanError::Custom(
+                        "irregular character in domain name",
+                    ));
+                }
+            }
+        }
+
+        if this.size == 0 {
+            return Err(ScanError::Incomplete);
+        }
+
+        // Add a root label and stop.
+        this.append_label(Label::ROOT);
+        Ok(this)
+    }
+}
+
+//--- Serialize, Deserialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for NameBuf {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        (**self).serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> serde::Deserialize<'a> for NameBuf {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        if deserializer.is_human_readable() {
+            struct V;
+
+            impl serde::de::Visitor<'_> for V {
+                type Value = NameBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("a domain name, in the DNS zonefile format")
+                }
+
+                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    v.parse().map_err(|err| E::custom(err))
+                }
+            }
+
+            struct NV;
+
+            impl<'a> serde::de::Visitor<'a> for NV {
+                type Value = NameBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("an absolute domain name")
+                }
+
+                fn visit_newtype_struct<D>(
+                    self,
+                    deserializer: D,
+                ) -> Result<Self::Value, D::Error>
+                where
+                    D: serde::Deserializer<'a>,
+                {
+                    deserializer.deserialize_str(V)
+                }
+            }
+
+            deserializer.deserialize_newtype_struct("Name", NV)
+        } else {
+            struct V;
+
+            impl serde::de::Visitor<'_> for V {
+                type Value = NameBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("a domain name, in the DNS wire format")
+                }
+
+                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    NameBuf::parse_bytes(v).map_err(|_| E::custom("misformatted domain name for the DNS wire format"))
+                }
+            }
+
+            struct NV;
+
+            impl<'a> serde::de::Visitor<'a> for NV {
+                type Value = NameBuf;
+
+                fn expecting(
+                    &self,
+                    f: &mut fmt::Formatter<'_>,
+                ) -> fmt::Result {
+                    f.write_str("an absolute domain name")
+                }
+
+                fn visit_newtype_struct<D>(
+                    self,
+                    deserializer: D,
+                ) -> Result<Self::Value, D::Error>
+                where
+                    D: serde::Deserializer<'a>,
+                {
+                    deserializer.deserialize_bytes(V)
+                }
+            }
+
+            deserializer.deserialize_newtype_struct("Name", NV)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> serde::Deserialize<'a> for std::boxed::Box<Name> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        NameBuf::deserialize(deserializer)
+            .map(|this| this.unsized_copy_into())
+    }
+}
+
 //------------ NameParseError ------------------------------------------------
 
 /// An error in parsing a [`Name`] from a string.
@@ -681,8 +951,23 @@ pub enum NameParseError {
     /// Valid names are between 1 and 255 bytes, inclusive.
     Overlong,
 
+    /// The name contained an invalid character.
+    ///
+    /// Valid names contain any of the following characters:
+    /// - ASCII alphanumeric characters
+    /// - `-`, `_`, `*` (within labels)
+    /// - `.` (between labels)
+    /// - Correctly escaped characters
+    InvalidChar,
+
     /// A label in the name could not be parsed.
     Label(LabelParseError),
+}
+
+impl From<LabelParseError> for NameParseError {
+    fn from(value: LabelParseError) -> Self {
+        Self::Label(value)
+    }
 }
 
 // TODO(1.81.0): Use 'core::error::Error' instead.
@@ -693,11 +978,75 @@ impl fmt::Display for NameParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Overlong => "the domain name was too long",
-            Self::Label(LabelParseError::Overlong) => "a label was too long",
-            Self::Label(LabelParseError::Empty) => "a label was empty",
-            Self::Label(LabelParseError::InvalidChar) => {
+            Self::InvalidChar | Self::Label(LabelParseError::InvalidChar) => {
                 "the domain name contained an invalid character"
             }
+            Self::Label(LabelParseError::Overlong) => "a label was too long",
+            Self::Label(LabelParseError::Empty) => "a label was empty",
+            Self::Label(LabelParseError::PartialEscape) => {
+                "a label contained an incomplete escape"
+            }
+            Self::Label(LabelParseError::InvalidEscape) => {
+                "a label contained an invalid escape"
+            }
         })
+    }
+}
+
+//============ Unit tests ====================================================
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use std::vec::Vec;
+
+        use crate::{
+            new::base::name::RevNameBuf,
+            new::zonefile::scanner::{Scan, ScanError, Scanner},
+        };
+
+        use super::NameBuf;
+
+        let cases = [
+            (b"".as_slice(), Err(ScanError::Incomplete)),
+            (b" ".as_slice(), Err(ScanError::Incomplete)),
+            (b"a", Ok(&[b"a" as &[u8], b"org", b""] as &[&[u8]])),
+            (b"xn--hello.", Ok(&[b"xn--hello", b""])),
+            (
+                b"hello\\.world.sld",
+                Ok(&[b"hello.world", b"sld", b"org", b""]),
+            ),
+            (b"a\\046b.c.", Ok(&[b"a.b", b"c", b""])),
+            (b"a.b\\ c.d", Ok(&[b"a", b"b c", b"d", b"org", b""])),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = Vec::new();
+        for (input, expected) in cases {
+            let origin = "org".parse::<RevNameBuf>().unwrap();
+            let mut scanner = Scanner::new(input, Some(&origin));
+            let mut name_buf = None;
+            let actual = NameBuf::scan(&mut scanner, &alloc, &mut buffer)
+                .map(|name| name_buf.insert(name).labels());
+            match expected {
+                Ok(labels) => {
+                    assert!(
+                        actual.clone().is_ok_and(|actual| actual
+                            .map(|l| &l.as_bytes()[1..])
+                            .eq(labels.iter().copied())),
+                        "{actual:?} == Ok({labels:?})"
+                    );
+                }
+
+                Err(err) => {
+                    assert!(
+                        actual.clone().is_err_and(|e| e == err),
+                        "{actual:?} == Err({err:?})"
+                    );
+                }
+            }
+        }
     }
 }

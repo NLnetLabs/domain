@@ -2,7 +2,13 @@
 
 use core::fmt;
 
+#[cfg(feature = "zonefile")]
+use core::num::IntErrorKind;
+
 use domain_macros::*;
+
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
 
 //----------- Submodules -----------------------------------------------------
 
@@ -56,6 +62,20 @@ impl SecAlg {
     pub const RSA_SHA1: Self = Self { code: 5 };
 }
 
+//--- Conversion to and from 'u8'
+
+impl From<u8> for SecAlg {
+    fn from(value: u8) -> Self {
+        Self { code: value }
+    }
+}
+
+impl From<SecAlg> for u8 {
+    fn from(value: SecAlg) -> Self {
+        value.code
+    }
+}
+
 //--- Formatting
 
 impl fmt::Debug for SecAlg {
@@ -65,5 +85,35 @@ impl fmt::Debug for SecAlg {
             Self::RSA_SHA1 => "SecAlg::RSA_SHA1",
             _ => return write!(f, "SecAlg({})", self.code),
         })
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a> Scan<'a> for SecAlg {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'a bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        match scanner.scan_plain_token()? {
+            "DSA" => Ok(Self::DSA_SHA1),
+            "RSASHA1" => Ok(Self::RSA_SHA1),
+
+            code if code.chars().all(|c| c.is_ascii_digit()) => {
+                match code.parse::<u8>() {
+                    Ok(code) => Ok(Self { code }),
+                    Err(err) if err.kind() == &IntErrorKind::PosOverflow => {
+                        Err(ScanError::Custom(
+                            "invalid DNSSEC algorithm number (too large)",
+                        ))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            _ => Err(ScanError::Custom("unrecognized DNSSEC algorithm")),
+        }
     }
 }
