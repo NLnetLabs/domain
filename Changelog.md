@@ -3,9 +3,10 @@
 
 ## Unreleased next version
 
-Breaking changes
 
-New
+## 0.11.1
+
+Released 2025-10-21.
 
 Bug fixes
 
