@@ -13,6 +13,8 @@ Bug fixes
 * In-place zone parser yields incorrect TTLs. ([#538])
 * Generalize ZoneUpdater to support any Record type, not just ParsedRecord. ([#535])
 * Trim leading modulus and public exponent zeroes per RFC 3110 section 2. ([#541])
+* Fix panic in zonetree from inplace zonefile after encountering a malformed
+  record. ([#573])
 
 Unstable features
 
@@ -26,12 +28,16 @@ Unstable features
 
 Other changes
 
+* Fix docs on `XfrResponseInterpreter`. ([#510])
+
+[#510]: https://github.com/NLnetLabs/domain/pull/510
 [#516]: https://github.com/NLnetLabs/domain/pull/516
 [#535]: https://github.com/NLnetLabs/domain/pull/535
 [#538]: https://github.com/NLnetLabs/domain/pull/538
 [#541]: https://github.com/NLnetLabs/domain/pull/541
 [#562]: https://github.com/NLnetLabs/domain/pull/562
 [#568]: https://github.com/NLnetLabs/domain/pull/568
+[#573]: https://github.com/NLnetLabs/domain/pull/573
 
 [@TheJokr]: https://github.com/TheJokr
 
