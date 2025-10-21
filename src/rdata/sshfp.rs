@@ -212,7 +212,7 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for Sshfp<Octs> {
     fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.algorithm)?;
-            p.write_show(self.fingerprint_type)?;
+            p.write_token(self.fingerprint_type)?;
             p.write_token(base16::encode_display(&self.fingerprint))
         })
     }
