@@ -710,7 +710,7 @@ mod test {
         for (precedence, gateway_type, algorithm, gateway_str, gateway) in [
             (
                 10,
-                1.into(),
+                IpseckeyGatewayType::from_int(1),
                 2.into(),
                 "192.0.2.38",
                 IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
@@ -757,7 +757,6 @@ mod test {
         ] {
             let rdata = Ipseckey::new(
                 precedence,
-                gateway_type,
                 algorithm,
                 gateway,
                 &key,
@@ -781,7 +780,6 @@ mod test {
         let rdata = Ipseckey::new(
             10,
             0.into(),
-            0.into(),
             IpseckeyGateway::<Name<Vec<u8>>>::None,
             &[],
         );
@@ -802,7 +800,7 @@ mod test {
     fn ipseckey_scan_wrong_gateway() {
         // IPSECKEY ( 10 0 2 this.should.be.just.dot. AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
         let precedence = 10;
-        let gateway_type = 0.into();
+        let gateway_type = IpseckeyGatewayType::from_int(0);
         let algorithm = 2.into();
         let wrong_gateway_str = "this.should.be.just.dot.";
         // let wrong_gateway: IpseckeyGateway<Name<Vec<u8>>> =
@@ -812,7 +810,6 @@ mod test {
         let key: Vec<u8> = decode(key_str).unwrap();
         let correct_rdata = Ipseckey::new(
             precedence,
-            gateway_type,
             algorithm,
             correct_gateway,
             key,
@@ -872,7 +869,6 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
         let expected_ipseckeys = [
             Ipseckey::new(
                 10,
-                1.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
                     Ipv4Addr::new(192, 0, 2, 38).into(),
@@ -881,14 +877,12 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
             ),
             Ipseckey::new(
                 10,
-                0.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::None,
                 &key,
             ),
             Ipseckey::new(
                 10,
-                1.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
                     Ipv4Addr::new(192, 0, 2, 3).into(),
@@ -897,7 +891,6 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
             ),
             Ipseckey::new(
                 10,
-                3.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::Name(
                     Name::from_str("mygateway.example.com.").unwrap(),
@@ -906,7 +899,6 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
             ),
             Ipseckey::new(
                 10,
-                2.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::Ipv6(
                     Ipv6Addr::new(
