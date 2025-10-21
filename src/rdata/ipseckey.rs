@@ -80,12 +80,16 @@ impl<Octs, N> Ipseckey<Octs, N> {
     /// Create a Ipseckey record data from provided parameters.
     pub fn new(
         precedence: u8,
-        gateway_type: IpseckeyGatewayType,
         algorithm: IpseckeyAlgorithm,
         gateway: IpseckeyGateway<N>,
         key: Octs,
     ) -> Self {
-        // TODO: Check if gateway_type and gateway variant are compatible?
+        let gateway_type = match gateway {
+            IpseckeyGateway::None => IpseckeyGatewayType::NONE,
+            IpseckeyGateway::Ipv4(_) => IpseckeyGatewayType::IPV4,
+            IpseckeyGateway::Ipv6(_) => IpseckeyGatewayType::IPV6,
+            IpseckeyGateway::Name(_) => IpseckeyGatewayType::NAME,
+        };
         Self {
             precedence,
             gateway_type,
