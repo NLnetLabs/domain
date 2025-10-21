@@ -755,12 +755,7 @@ mod test {
                 ),
             ),
         ] {
-            let rdata = Ipseckey::new(
-                precedence,
-                algorithm,
-                gateway,
-                &key,
-            );
+            let rdata = Ipseckey::new(precedence, algorithm, gateway, &key);
             test_rdlen(&rdata);
             test_compose_parse(&rdata, |parser| Ipseckey::parse(parser));
             test_scan(
@@ -808,12 +803,8 @@ mod test {
         let correct_gateway = IpseckeyGateway::<Name<Vec<u8>>>::None;
         let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
         let key: Vec<u8> = decode(key_str).unwrap();
-        let correct_rdata = Ipseckey::new(
-            precedence,
-            algorithm,
-            correct_gateway,
-            key,
-        );
+        let correct_rdata =
+            Ipseckey::new(precedence, algorithm, correct_gateway, key);
         // This should panic in the unwrap within test_scan
         test_scan(
             &[
