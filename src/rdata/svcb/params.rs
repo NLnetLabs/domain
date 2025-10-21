@@ -303,7 +303,8 @@ impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
 
             // TODO: [...] Other automatically mandatory keys SHOULD NOT
             // appear in the list either. (Including them wastes space and
-            // otherwise has no effect.)
+            // otherwise has no effect.) This is only relevant when parsing
+            // as an HTTPS RR.
             if let AllValues::Mandatory(m) = &param_value {
                 for req in m.iter() {
                     if !key_map.contains_key(&req) {
