@@ -211,6 +211,9 @@ impl Zonefile {
     /// This method is identical to the `next` method of the iterator
     /// implementation but has the return type transposed for easier use
     /// with the question mark operator.
+    ///
+    /// If this function returns an error, do not attempt to read any further
+    /// entries, as the scanner is in an invalid state at that point.
     pub fn next_entry(&mut self) -> Result<Option<Entry>, Error> {
         loop {
             match EntryScanner::new(self)?.scan_entry()? {
@@ -307,6 +310,9 @@ impl<'a> EntryScanner<'a> {
     }
 
     /// Scans a single entry from the zone file.
+    ///
+    /// If this function returns an error, do not attempt to read any further
+    /// entries, as the scanner is in an invalid state at that point.
     fn scan_entry(&mut self) -> Result<ScannedEntry, Error> {
         self._scan_entry()
             .map_err(|err| self.zonefile.buf.error(err))

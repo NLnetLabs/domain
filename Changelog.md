@@ -20,6 +20,9 @@ Unstable features
   * Don't discard the NOTIFY SOA serial, if one is received. Existing users of
     the `Notifiable` trait will need to update their code as this change adds an
     argument to `Notifiable::notify_zone_changed()`. [#562])
+* `unstable-client-transport`:
+  * Fix an issue in Stream::Transport when a reply arrives early.
+    ([#568] by [@TheJokr])
 
 Other changes
 
@@ -28,6 +31,10 @@ Other changes
 [#538]: https://github.com/NLnetLabs/domain/pull/538
 [#541]: https://github.com/NLnetLabs/domain/pull/541
 [#562]: https://github.com/NLnetLabs/domain/pull/562
+[#568]: https://github.com/NLnetLabs/domain/pull/568
+
+[@TheJokr]: https://github.com/TheJokr
+
 
 ## 0.11.0
 
