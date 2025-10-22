@@ -59,7 +59,7 @@ selected.
 You can run `cargo +nightly update -Z minimal-versions` to ask Cargo to
 select these minimal versions for all dependencies.
 
-### Current version: 1.79.0
+### Current version: 1.82.0
 
 This is the minimum Rust version required to build with latest version of
 all dependencies at time of release. `Cargo.lock` contains these versions
