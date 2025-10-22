@@ -4,7 +4,7 @@ members = [".", "./macros"]
 
 [package]
 name = "domain"
-version = "0.11.1-dev"
+version = "0.11.1"
 
 # The MSRV is at least 4 versions behind stable (about half a year).
 rust-version = "1.79.0"
@@ -20,7 +20,7 @@ keywords = ["DNS", "domain"]
 license = "BSD-3-Clause"
 
 [dependencies]
-domain-macros  = { path = "./macros", version = "=0.11.1-dev" }
+domain-macros  = { path = "./macros", version = "=0.11.1" }
 
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 bumpalo        = { version = "3.12", optional = true }
