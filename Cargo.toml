@@ -7,7 +7,7 @@ name = "domain"
 version = "0.11.1"
 
 # The MSRV is at least 4 versions behind stable (about half a year).
-rust-version = "1.79.0"
+rust-version = "1.85.0"
 
 edition = "2021"
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
@@ -24,6 +24,7 @@ domain-macros  = { path = "./macros", version = "=0.11.1" }
 
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 bumpalo        = { version = "3.12", optional = true }
+constant_time_eq = { version = "0.4.2", optional = true }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
@@ -72,7 +73,7 @@ openssl = ["dep:openssl"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
-tsig        = ["bytes", "ring", "smallvec"]
+tsig        = ["bytes", "constant_time_eq", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
