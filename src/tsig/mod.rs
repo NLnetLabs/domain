@@ -362,7 +362,7 @@ impl Key {
             expected.as_ref()
         };
         if !constant_time_eq(expected, provided) {
-            return Err(ValidationError::BadSig)
+            return Err(ValidationError::BadSig);
         }
         Ok(())
     }
