@@ -28,6 +28,8 @@ use octseq::parse::Parser;
 use octseq::serde::{DeserializeOctets, SerializeOctets};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "std")]
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(feature = "std")]
 use std::vec::Vec;
 use time::{Date, Month, PrimitiveDateTime, Time};
 
@@ -706,15 +708,19 @@ impl Timestamp {
         self.0.into_int()
     }
 
-    /// Return a SystemTime that meets two requirements:
-    /// 1) The SystemTime value has a duration since UNIX_EPOCH that
-    ///    modulo 2**32 is equal to our Timestamp value.
-    /// 2) The time difference between the SystemTime value and the
-    ///    reference time fits in an i32.
+    /// Returns a [`SytemTime`] close to a reference time.
     ///
-    /// This can be used to sort Timestamp values.
+    /// The returned [`SystemTime`] meets the following requirements:
+    ///
+    /// 1) The [`SystemTime`] value has a duration since `UNIX_EPOCH` that
+    ///    modulo `2**32` is equal to our [`Timestamp`] value.
+    /// 2) The time difference between the [`SystemTime`] value and the
+    ///    reference time fits in an [`i32`].
+    ///
+    /// This can be used to sort [`Timestamp`] values.
     #[must_use]
-    pub fn to_system_time(&self, reference: SystemTime) -> SystemTime {
+    #[cfg(feature = "std")]
+    pub fn to_system_time(self, reference: SystemTime) -> SystemTime {
         // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
         // the timestamp may be too far in the future. We may have to add
         // n * 2**32 for some unknown value of n.
@@ -3035,6 +3041,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn timestamp_to_system_time() {
         struct Params {
             ts: u32,
