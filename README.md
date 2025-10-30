@@ -30,8 +30,7 @@ and additional building blocks and features are being added.
 We are maintaining several applications that are built on top of domain, 
 including:
 
-* [nameshed](https://github.com/NLnetLabs/nameshed) – a primary nameserver /
-  DNSSEC signing pipeline
+* [cascade](https://github.com/NLnetLabs/cascade) – a DNSSEC signing pipeline
 * [dnsi](https://github.com/NLnetLabs/dnsi) – a command-line tool to inspect
   various aspects of the DNS
 * [dnst](https://nlnetlabs.nl/projects/domain/dnst/) – a set of binaries
