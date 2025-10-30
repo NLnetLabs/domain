@@ -119,7 +119,7 @@ where
     ///   - false: if no matching record was found
     pub fn remove_all_by_name_class_rtype(
         &mut self,
-        name: N,
+        name: &N,
         class: Option<Class>,
         rtype: Option<Rtype>,
     ) -> bool
@@ -129,11 +129,7 @@ where
     {
         let mut found_one = false;
         loop {
-            if self.remove_first_by_name_class_rtype(
-                name.clone(),
-                class,
-                rtype,
-            ) {
+            if self.remove_first_by_name_class_rtype(name, class, rtype) {
                 found_one = true
             } else {
                 break;
@@ -151,7 +147,7 @@ where
     ///   - false: if no matching record was found
     pub fn remove_first_by_name_class_rtype(
         &mut self,
-        name: N,
+        name: &N,
         class: Option<Class>,
         rtype: Option<Rtype>,
     ) -> bool
@@ -169,7 +165,7 @@ where
                 }
             }
 
-            match stored.owner().name_cmp(&name) {
+            match stored.owner().name_cmp(name) {
                 Ordering::Equal => {}
                 res => return res,
             }
@@ -189,15 +185,15 @@ where
         }
     }
 
-    pub fn owner_rrs(&self) -> RecordsIter<N, D> {
+    pub fn owner_rrs(&self) -> RecordsIter<'_, N, D> {
         RecordsIter::new(&self.records)
     }
 
-    pub fn rrsets(&self) -> RrsetIter<N, D> {
+    pub fn rrsets(&self) -> RrsetIter<'_, N, D> {
         RrsetIter::new(&self.records)
     }
 
-    pub fn find_soa(&self) -> Option<Rrset<N, D>>
+    pub fn find_soa(&self) -> Option<Rrset<'_, N, D>>
     where
         N: ToName,
         D: RecordData,
@@ -205,13 +201,17 @@ where
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
 
-    pub fn find_apex_dnskey(&self, name: &N) -> Option<Rrset<N, D>>
+    pub fn find_apex_rtype(
+        &self,
+        name: &N,
+        rtype: Rtype,
+    ) -> Option<Rrset<'_, N, D>>
     where
         N: CanonicalOrd + ToName,
         D: RecordData,
     {
         self.rrsets().find(|rrset| {
-            rrset.rtype() == Rtype::DNSKEY
+            rrset.rtype() == rtype
                 && rrset.owner().canonical_cmp(name) == Ordering::Equal
         })
     }

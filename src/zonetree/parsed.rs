@@ -82,6 +82,7 @@ impl Zonefile {
     }
 
     /// Inserts the given record into the zone file.
+    #[allow(clippy::result_large_err)]
     pub fn insert(
         &mut self,
         record: StoredRecord,
@@ -321,10 +322,16 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
                     // Not supported at this time.
                 }
 
-                Err(err) => match err.owner() {
-                    Some(name) => errors.add_error(name.clone(), err),
-                    None => errors.add_error(Name::root_bytes(), err),
-                },
+                Err(err) => {
+                    match err.owner() {
+                        Some(name) => errors.add_error(name.clone(), err),
+                        None => errors.add_error(Name::root_bytes(), err),
+                    }
+                    // The inplace::Zonefile parser is not capable of
+                    // continuing after an error, so we immediately return for
+                    // now.
+                    return Err(errors);
+                }
             }
         }
 

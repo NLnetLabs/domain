@@ -5,7 +5,7 @@
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{DigestAlg, Rtype, SecAlg};
+use crate::base::iana::{DigestAlgorithm, Rtype, SecurityAlgorithm};
 use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
@@ -50,7 +50,7 @@ use time::{Date, Month, PrimitiveDateTime, Time};
 pub struct Dnskey<Octs> {
     flags: u16,
     protocol: u8,
-    algorithm: SecAlg,
+    algorithm: SecurityAlgorithm,
     #[cfg_attr(
         feature = "serde",
         serde(with = "crate::utils::base64::serde")
@@ -67,7 +67,7 @@ impl<Octs> Dnskey<Octs> {
     pub fn new(
         flags: u16,
         protocol: u8,
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
         public_key: Octs,
     ) -> Result<Self, LongRecordData>
     where
@@ -75,7 +75,9 @@ impl<Octs> Dnskey<Octs> {
     {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+                u16::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + SecurityAlgorithm::COMPOSE_LEN,
             )
             .checked_add(public_key.as_ref().len())
             .expect("long key"),
@@ -97,7 +99,7 @@ impl<Octs> Dnskey<Octs> {
     pub unsafe fn new_unchecked(
         flags: u16,
         protocol: u8,
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
         public_key: Octs,
     ) -> Self {
         Dnskey {
@@ -116,7 +118,7 @@ impl<Octs> Dnskey<Octs> {
         self.protocol
     }
 
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
@@ -175,7 +177,7 @@ impl<Octs> Dnskey<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        if self.algorithm == SecAlg::RSAMD5 {
+        if self.algorithm == SecurityAlgorithm::RSAMD5 {
             // The key tag is third-to-last and second-to-last octets of the
             // key as a big-endian u16. If we don’t have enough octets in the
             // key, we return 0.
@@ -246,7 +248,7 @@ impl<Octs> Dnskey<Octs> {
             Self::new_unchecked(
                 u16::parse(parser)?,
                 u8::parse(parser)?,
-                SecAlg::parse(parser)?,
+                SecurityAlgorithm::parse(parser)?,
                 parser.parse_octets(len)?,
             )
         })
@@ -261,7 +263,7 @@ impl<Octs> Dnskey<Octs> {
         Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
-            SecAlg::scan(scanner)?,
+            SecurityAlgorithm::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
@@ -386,7 +388,9 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Dnskey<Octs> {
             u16::try_from(self.public_key.as_ref().len())
                 .expect("long key")
                 .checked_add(
-                    u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+                    u16::COMPOSE_LEN
+                        + u8::COMPOSE_LEN
+                        + SecurityAlgorithm::COMPOSE_LEN,
                 )
                 .expect("long key"),
         )
@@ -413,7 +417,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Dnskey<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Dnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} {} ", self.flags, self.protocol, self.algorithm)?;
         base64::display(&self.public_key, f)
     }
@@ -422,7 +426,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Dnskey<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Dnskey")
             .field("flags", &self.flags)
             .field("protocol", &self.protocol)
@@ -464,7 +468,7 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for Dnskey<Octs> {
 #[derive(Clone)]
 pub struct ProtoRrsig<Name> {
     type_covered: Rtype,
-    algorithm: SecAlg,
+    algorithm: SecurityAlgorithm,
     labels: u8,
     original_ttl: Ttl,
     expiration: Timestamp,
@@ -477,7 +481,7 @@ impl<Name> ProtoRrsig<Name> {
     #[allow(clippy::too_many_arguments)] // XXX Consider changing.
     pub fn new(
         type_covered: Rtype,
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
         labels: u8,
         original_ttl: Ttl,
         expiration: Timestamp,
@@ -708,7 +712,7 @@ impl Timestamp {
     pub const COMPOSE_LEN: u16 = Serial::COMPOSE_LEN;
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         Serial::parse(parser).map(Self)
     }
@@ -778,7 +782,7 @@ impl str::FromStr for Timestamp {
 //--- Display
 
 impl fmt::Display for Timestamp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -844,7 +848,7 @@ fn u32_from_buf(buf: &[u8]) -> u32 {
 )]
 pub struct Rrsig<Octs, Name> {
     type_covered: Rtype,
-    algorithm: SecAlg,
+    algorithm: SecurityAlgorithm,
     labels: u8,
     original_ttl: Ttl,
     expiration: Timestamp,
@@ -867,7 +871,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
     #[allow(clippy::too_many_arguments)] // XXX Consider changing.
     pub fn new(
         type_covered: Rtype,
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
         labels: u8,
         original_ttl: Ttl,
         expiration: Timestamp,
@@ -883,7 +887,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         LongRecordData::check_len(
             usize::from(
                 Rtype::COMPOSE_LEN
-                    + SecAlg::COMPOSE_LEN
+                    + SecurityAlgorithm::COMPOSE_LEN
                     + u8::COMPOSE_LEN
                     + u32::COMPOSE_LEN
                     + Timestamp::COMPOSE_LEN
@@ -918,7 +922,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
     #[allow(clippy::too_many_arguments)] // XXX Consider changing.
     pub unsafe fn new_unchecked(
         type_covered: Rtype,
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
         labels: u8,
         original_ttl: Ttl,
         expiration: Timestamp,
@@ -944,7 +948,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         self.type_covered
     }
 
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
@@ -1033,7 +1037,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
     {
         Self::new(
             Rtype::scan(scanner)?,
-            SecAlg::scan(scanner)?,
+            SecurityAlgorithm::scan(scanner)?,
             u8::scan(scanner)?,
             Ttl::scan(scanner)?,
             Timestamp::scan(scanner)?,
@@ -1051,7 +1055,7 @@ impl<Octs> Rrsig<Octs, ParsedName<Octs>> {
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let type_covered = Rtype::parse(parser)?;
-        let algorithm = SecAlg::parse(parser)?;
+        let algorithm = SecurityAlgorithm::parse(parser)?;
         let labels = u8::parse(parser)?;
         let original_ttl = Ttl::parse(parser)?;
         let expiration = Timestamp::parse(parser)?;
@@ -1293,7 +1297,7 @@ where
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             (Rtype::COMPOSE_LEN
-                + SecAlg::COMPOSE_LEN
+                + SecurityAlgorithm::COMPOSE_LEN
                 + u8::COMPOSE_LEN
                 + u32::COMPOSE_LEN
                 + Timestamp::COMPOSE_LEN
@@ -1349,7 +1353,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} {} {} {} {} {}. ",
@@ -1373,7 +1377,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Rrsig")
             .field("type_covered", &self.type_covered)
             .field("algorithm", &self.algorithm)
@@ -1676,7 +1680,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}. {}", self.next_name, self.types)
     }
 }
@@ -1688,7 +1692,7 @@ where
     Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Nsec")
             .field("next_name", &self.next_name)
             .field("types", &self.types)
@@ -1730,8 +1734,8 @@ where
 )]
 pub struct Ds<Octs> {
     key_tag: u16,
-    algorithm: SecAlg,
-    digest_type: DigestAlg,
+    algorithm: SecurityAlgorithm,
+    digest_type: DigestAlgorithm,
     #[cfg_attr(
         feature = "serde",
         serde(with = "crate::utils::base16::serde")
@@ -1747,8 +1751,8 @@ impl Ds<()> {
 impl<Octs> Ds<Octs> {
     pub fn new(
         key_tag: u16,
-        algorithm: SecAlg,
-        digest_type: DigestAlg,
+        algorithm: SecurityAlgorithm,
+        digest_type: DigestAlgorithm,
         digest: Octs,
     ) -> Result<Self, LongRecordData>
     where
@@ -1757,8 +1761,8 @@ impl<Octs> Ds<Octs> {
         LongRecordData::check_len(
             usize::from(
                 u16::COMPOSE_LEN
-                    + SecAlg::COMPOSE_LEN
-                    + DigestAlg::COMPOSE_LEN,
+                    + SecurityAlgorithm::COMPOSE_LEN
+                    + DigestAlgorithm::COMPOSE_LEN,
             )
             .checked_add(digest.as_ref().len())
             .expect("long digest"),
@@ -1776,8 +1780,8 @@ impl<Octs> Ds<Octs> {
     /// record data is at most 65,535 octets long.
     pub unsafe fn new_unchecked(
         key_tag: u16,
-        algorithm: SecAlg,
-        digest_type: DigestAlg,
+        algorithm: SecurityAlgorithm,
+        digest_type: DigestAlgorithm,
         digest: Octs,
     ) -> Self {
         Ds {
@@ -1792,11 +1796,11 @@ impl<Octs> Ds<Octs> {
         self.key_tag
     }
 
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
-    pub fn digest_type(&self) -> DigestAlg {
+    pub fn digest_type(&self) -> DigestAlgorithm {
         self.digest_type
     }
 
@@ -1837,8 +1841,8 @@ impl<Octs> Ds<Octs> {
         Ok(unsafe {
             Self::new_unchecked(
                 u16::parse(parser)?,
-                SecAlg::parse(parser)?,
-                DigestAlg::parse(parser)?,
+                SecurityAlgorithm::parse(parser)?,
+                DigestAlgorithm::parse(parser)?,
                 parser.parse_octets(len)?,
             )
         })
@@ -1852,8 +1856,8 @@ impl<Octs> Ds<Octs> {
     {
         Self::new(
             u16::scan(scanner)?,
-            SecAlg::scan(scanner)?,
-            DigestAlg::scan(scanner)?,
+            SecurityAlgorithm::scan(scanner)?,
+            DigestAlgorithm::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
@@ -1989,8 +1993,8 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Ds<Octs> {
         Some(
             u16::checked_add(
                 u16::COMPOSE_LEN
-                    + SecAlg::COMPOSE_LEN
-                    + DigestAlg::COMPOSE_LEN,
+                    + SecurityAlgorithm::COMPOSE_LEN
+                    + DigestAlgorithm::COMPOSE_LEN,
                 self.digest.as_ref().len().try_into().expect("long digest"),
             )
             .expect("long digest"),
@@ -2018,7 +2022,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Ds<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} ",
@@ -2034,7 +2038,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Ds")
             .field("key_tag", &self.key_tag)
             .field("algorithm", &self.algorithm)
@@ -2132,7 +2136,7 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
         self.0.as_ref()
     }
 
-    pub fn iter(&self) -> RtypeBitmapIter {
+    pub fn iter(&self) -> RtypeBitmapIter<'_> {
         RtypeBitmapIter::new(self.0.as_ref())
     }
 
@@ -2262,7 +2266,7 @@ impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut iter = self.iter();
         if let Some(rtype) = iter.next() {
             fmt::Display::fmt(&rtype, f)?;
@@ -2288,7 +2292,7 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for RtypeBitmap<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("RtypeBitmap(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -2362,7 +2366,7 @@ where
         {
             type Value = RtypeBitmap<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a record type bitmap")
             }
 
@@ -2415,7 +2419,7 @@ where
         {
             type Value = RtypeBitmap<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a record type bitmap")
             }
 
@@ -2637,8 +2641,9 @@ impl Iterator for RtypeBitmapIter<'_> {
         if self.data.is_empty() {
             return None;
         }
-        let res =
-            Rtype::from_int(self.block | ((self.octet as u16) << 3) | self.bit);
+        let res = Rtype::from_int(
+            self.block | ((self.octet as u16) << 3) | self.bit,
+        );
         self.advance();
         Some(res)
     }
@@ -2679,7 +2684,7 @@ impl From<RtypeBitmapErrorEnum> for RtypeBitmapError {
 //--- Display and Error
 
 impl fmt::Display for RtypeBitmapError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             RtypeBitmapErrorEnum::ShortInput => ParseError::ShortInput.fmt(f),
             RtypeBitmapErrorEnum::BadRtypeBitmap => {
@@ -2725,7 +2730,7 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 pub struct IllegalSignatureTime(());
 
 impl fmt::Display for IllegalSignatureTime {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("illegal signature time")
     }
 }
@@ -2752,7 +2757,8 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn dnskey_compose_parse_scan() {
-        let rdata = Dnskey::new(10, 11, SecAlg::RSASHA1, b"key0").unwrap();
+        let rdata =
+            Dnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
         test_scan(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
@@ -2765,7 +2771,7 @@ mod test {
     fn rrsig_compose_parse_scan() {
         let rdata = Rrsig::new(
             Rtype::A,
-            SecAlg::RSASHA1,
+            SecurityAlgorithm::RSASHA1,
             3,
             Ttl::from_secs(12),
             Timestamp::from(13),
@@ -2823,8 +2829,13 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn ds_compose_parse_scan() {
-        let rdata =
-            Ds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
+        let rdata = Ds::new(
+            10,
+            SecurityAlgorithm::RSASHA1,
+            DigestAlgorithm::SHA256,
+            b"key",
+        )
+        .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
         test_scan(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
@@ -2912,7 +2923,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::RSASHA256,
+                SecurityAlgorithm::RSASHA256,
                 base64::decode::<Vec<u8>>(
                     "AwEAAcTQyaIe6nt3xSPOG2L/YfwBkOVTJN6mlnZ249O5Rtt3ZSRQHxQS\
                      W61AODYw6bvgxrrGq8eeOuenFjcSYgNAMcBYoEYYmKDW6e9EryW4ZaT/\
@@ -2931,7 +2942,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::RSASHA256,
+                SecurityAlgorithm::RSASHA256,
                 base64::decode::<Vec<u8>>(
                     "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO\
                     iW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN\
@@ -2952,7 +2963,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::RSAMD5,
+                SecurityAlgorithm::RSAMD5,
                 base64::decode::<Vec<u8>>(
                     "AwEAAcVaA4jSBIGRrSzpecoJELvKE9+OMuFnL8mmUBsY\
                     lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
@@ -2969,9 +2980,13 @@ mod test {
 
     #[test]
     fn dnskey_flags() {
-        let dnskey =
-            Dnskey::new(257, 3, SecAlg::RSASHA256, bytes::Bytes::new())
-                .unwrap();
+        let dnskey = Dnskey::new(
+            257,
+            3,
+            SecurityAlgorithm::RSASHA256,
+            bytes::Bytes::new(),
+        )
+        .unwrap();
         assert!(dnskey.is_zone_key());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());

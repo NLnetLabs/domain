@@ -4,8 +4,70 @@
 
 Breaking changes
 
+New
+
+Improvements
+
+Bug fixes
+
+Unstable features
+
+Other changes
+
+
+## 0.11.1
+
+Released 2025-10-22.
+
+Bug fixes
+
+* Fix handling of tabs when formatting RDATA using `DisplayKind::Tabbed`.
+  ([#516])
+* Fix for in-place zone parser yielding incorrect TTLs. ([#538])
+* Generalize `ZoneUpdater` to support any `Record` type, not just
+  `ParsedRecord`. ([#535])
+* Trim leading modulus and public exponent zeroes per RFC 3110 section 2.
+  ([#541])
+* Fix panic in zonetree from in-place zonefile after encountering a malformed
+  record. ([#573])
+
+Unstable features
+
+* `unstable-server-transport`:
+  * Don't discard the NOTIFY SOA serial, if one is received. Existing users
+    of the `Notifiable` trait will need to update their code as this change
+    adds an argument to `Notifiable::notify_zone_changed()`. [#562])
+* `unstable-client-transport`:
+  * Fix an issue in Stream::Transport when a reply arrives early.
+    ([#568] by [@TheJokr])
+
+Other changes
+
+* Fix docs on `XfrResponseInterpreter`. ([#510])
+
+
+[#510]: https://github.com/NLnetLabs/domain/pull/510
+[#516]: https://github.com/NLnetLabs/domain/pull/516
+[#535]: https://github.com/NLnetLabs/domain/pull/535
+[#538]: https://github.com/NLnetLabs/domain/pull/538
+[#541]: https://github.com/NLnetLabs/domain/pull/541
+[#562]: https://github.com/NLnetLabs/domain/pull/562
+[#568]: https://github.com/NLnetLabs/domain/pull/568
+[#573]: https://github.com/NLnetLabs/domain/pull/573
+[@TheJokr]: https://github.com/TheJokr
+
+
+## 0.11.0
+
+Released 2025-05-21.
+
+Breaking changes
+
 * FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
+* FIX: NSEC3 salt strings should only be accepted if within the salt size limit. (#431)
 * Stricter RFC 1035 compliance by default in the `Zonefile` parser. ([#477])
+* Rename {DigestAlg, Nsec3HashAlg, SecAlg, ZonemdAlg} to
+  {DigestAlgorithm, Nsec3HashAlgorithm, SecurityAlgorithm, ZonemdAlgorithm}
 
 New
 
@@ -20,7 +82,7 @@ New
   running resolver. In combination with `ResolvConf::new()` this can also be
   used to control the connections made when testing code that uses the stub
   resolver. ([#440])
-* Add `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
+* Added `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
   [#463])
 
 Bug fixes
@@ -38,6 +100,12 @@ Unstable features
 * New unstable feature `unstable-crypto-sign` that enable cryptography support
   including features that rely on secret keys. This feature needs either
   or both of the features `ring` and `openssl` ([#416])
+* New unstable feature `unstable-client-cache` that enable the client transport
+  cache. The reason is that the client cache uses the `moka` crate.
+
+* New unstable feature `unstable-new` that introduces a new API for all of
+  domain (currently only with `base`, `rdata`, and `edns` modules).  Also see
+  the [associated blog post][new-base-post].
 
 * `unstable-server-transport`
   * The trait `SingleService` which is a simplified service trait for
@@ -57,6 +125,7 @@ Unstable features
   * restructure configuration for multi_stream and redundant ([#424]).
   * introduce a load balancer client transport. This transport tries to
     distribute requests equally over upstream transports ([#425]).
+  * the client cache now has it's own feature `unstable-client-cache`.
 
 * `unstable-sign`
   * add key lifecycle management ([#459]).
@@ -79,6 +148,7 @@ Other changes
 [#424]: https://github.com/NLnetLabs/domain/pull/424
 [#425]: https://github.com/NLnetLabs/domain/pull/425
 [#427]: https://github.com/NLnetLabs/domain/pull/427
+[#431]: https://github.com/NLnetLabs/domain/pull/431
 [#440]: https://github.com/NLnetLabs/domain/pull/440
 [#441]: https://github.com/NLnetLabs/domain/pull/441
 [#446]: https://github.com/NLnetLabs/domain/pull/446
@@ -86,9 +156,11 @@ Other changes
 [#463]: https://github.com/NLnetLabs/domain/pull/463
 [#470]: https://github.com/NLnetLabs/domain/pull/470
 [#472]: https://github.com/NLnetLabs/domain/pull/472
+[#474]: https://github.com/NLnetLabs/domain/pull/474
 [#475]: https://github.com/NLnetLabs/domain/pull/475
-[#4775]: https://github.com/NLnetLabs/domain/pull/477
+[#477]: https://github.com/NLnetLabs/domain/pull/477
 [@weilence]: https://github.com/weilence
+[new-base-post]: https://blog.nlnetlabs.nl/overhauling-domain/
 
 
 ## 0.10.4

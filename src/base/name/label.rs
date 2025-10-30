@@ -190,7 +190,7 @@ impl Label {
     }
 
     /// Iterator over the octets of the label.
-    pub fn iter(&self) -> iter::Copied<slice::Iter<u8>> {
+    pub fn iter(&self) -> iter::Copied<slice::Iter<'_, u8>> {
         self.as_slice().iter().copied()
     }
 
@@ -205,7 +205,7 @@ impl Label {
     ///
     /// Panics if `start` is beyond the end of `slice`.
     #[must_use]
-    pub fn iter_slice(slice: &[u8], start: usize) -> SliceLabelsIter {
+    pub fn iter_slice(slice: &[u8], start: usize) -> SliceLabelsIter<'_> {
         SliceLabelsIter { slice, start }
     }
 
@@ -434,7 +434,7 @@ impl<'a> IntoIterator for &'a Label {
 //--- Display and Debug
 
 impl fmt::Display for Label {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for ch in self.iter() {
             if ch == b' ' || ch == b'.' || ch == b'\\' {
                 write!(f, "\\{}", ch as char)?;
@@ -449,7 +449,7 @@ impl fmt::Display for Label {
 }
 
 impl fmt::Debug for Label {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Label(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -633,13 +633,13 @@ impl hash::Hash for OwnedLabel {
 //--- Display and Debug
 
 impl fmt::Display for OwnedLabel {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_label().fmt(f)
     }
 }
 
 impl fmt::Debug for OwnedLabel {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("OwnedLabel").field(&self.as_label()).finish()
     }
 }
@@ -680,7 +680,7 @@ impl<'de> serde::Deserialize<'de> for OwnedLabel {
         impl<'de> serde::de::Visitor<'de> for InnerVisitor {
             type Value = OwnedLabel;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an domain name label")
             }
 
@@ -703,7 +703,7 @@ impl<'de> serde::Deserialize<'de> for OwnedLabel {
         impl<'de> serde::de::Visitor<'de> for NewtypeVisitor {
             type Value = OwnedLabel;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an domain name label")
             }
 
@@ -798,7 +798,7 @@ pub enum LabelTypeError {
 //--- Display and Error
 
 impl fmt::Display for LabelTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             LabelTypeError::Undefined => f.write_str("undefined label type"),
             LabelTypeError::Extended(value) => {
@@ -820,7 +820,7 @@ pub struct LongLabelError(());
 //--- Display and Error
 
 impl fmt::Display for LongLabelError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("long label")
     }
 }
@@ -868,7 +868,7 @@ impl From<SplitLabelError> for ParseError {
 //--- Display and Error
 
 impl fmt::Display for SplitLabelError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             SplitLabelError::Pointer(_) => {
                 f.write_str("compressed domain name")

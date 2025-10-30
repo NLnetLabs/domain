@@ -105,7 +105,7 @@ pub fn encode_display<Octets: AsRef<[u8]>>(
     struct Display<'a>(&'a [u8]);
 
     impl fmt::Display for Display<'_> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             display(self.0, f)
         }
     }
@@ -156,7 +156,7 @@ pub mod serde {
         {
             type Value = Octets;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an Base64-encoded string")
             }
 
@@ -456,7 +456,7 @@ impl From<ShortBuf> for DecodeError {
 //--- Display and Error
 
 impl fmt::Display for DecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             DecodeError::TrailingInput => f.write_str("trailing input"),
             DecodeError::IllegalChar(ch) => {

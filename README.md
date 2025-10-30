@@ -2,7 +2,7 @@
 
 [![Current](https://img.shields.io/crates/v/domain.svg)](https://crates.io/crates/domain)
 [![Documentation](https://docs.rs/domain/badge.svg)](https://docs.rs/domain)
-[![Mastodon Follow](https://img.shields.io/mastodon/follow/109262826617293067?domain=https%3A%2F%2Ffosstodon.org&style=social)](https://fosstodon.org/@nlnetlabs)
+[![Mastodon Follow](https://img.shields.io/mastodon/follow/114692612288811644?domain=social.nlnetlabs.nl&style=social)](https://social.nlnetlabs.nl/@nlnetlabs)
 
 A library for interacting with the Domain Name System. The crate contains
 an ever-growing set of building blocks for including DNS functionality in
@@ -25,6 +25,18 @@ The library is currently under
 [heavy development](https://blog.nlnetlabs.nl/domain-foundations-the-first-of-our-five-year-vision/)
 and additional building blocks and features are being added.
 
+## Applications
+
+We are maintaining several applications that are built on top of domain, 
+including:
+
+* [nameshed](https://github.com/NLnetLabs/nameshed) – a primary nameserver /
+  DNSSEC signing pipeline
+* [dnsi](https://github.com/NLnetLabs/dnsi) – a command-line tool to inspect
+  various aspects of the DNS
+* [dnst](https://nlnetlabs.nl/projects/domain/dnst/) – a set of binaries
+  that reimplement some of the widely used ldns utilities in Rust
+* [mimir](https://github.com/NLnetLabs/mimir) – a DNS proxy and load balancer
 
 ## Minimal Supported Rust Versions
 
@@ -47,7 +59,7 @@ selected.
 You can run `cargo +nightly update -Z minimal-versions` to ask Cargo to
 select these minimal versions for all dependencies.
 
-### Current version: 1.79.0
+### Current version: 1.82.0
 
 This is the minimum Rust version required to build with latest version of
 all dependencies at time of release. `Cargo.lock` contains these versions

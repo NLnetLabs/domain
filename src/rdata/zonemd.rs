@@ -9,12 +9,12 @@
 #![allow(clippy::needless_maybe_sized)]
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Rtype, ZonemdAlg, ZonemdScheme};
+use crate::base::iana::{Rtype, ZonemdAlgorithm, ZonemdScheme};
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
-use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -30,7 +30,7 @@ const DIGEST_MIN_LEN: usize = 12;
 pub struct Zonemd<Octs: ?Sized> {
     serial: Serial,
     scheme: ZonemdScheme,
-    algo: ZonemdAlg,
+    algo: ZonemdAlgorithm,
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -55,7 +55,7 @@ impl<Octs> Zonemd<Octs> {
     pub fn new(
         serial: Serial,
         scheme: ZonemdScheme,
-        algo: ZonemdAlg,
+        algo: ZonemdAlgorithm,
         digest: Octs,
     ) -> Self {
         Self {
@@ -77,7 +77,7 @@ impl<Octs> Zonemd<Octs> {
     }
 
     /// Get the hash algorithm field.
-    pub fn algorithm(&self) -> ZonemdAlg {
+    pub fn algorithm(&self) -> ZonemdAlgorithm {
         self.algo
     }
 
@@ -207,7 +207,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Eq for Zonemd<Octs> {}
 
 // section 2.4
 impl<Octs: AsRef<[u8]>> fmt::Display for Zonemd<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} ( ",
@@ -221,7 +221,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Zonemd<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Zonemd<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Zonemd(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -338,7 +338,7 @@ mod test {
     #[cfg(feature = "zonefile")]
     #[test]
     fn zonemd_parse_zonefile() {
-        use crate::base::iana::ZonemdAlg;
+        use crate::base::iana::ZonemdAlgorithm;
         use crate::base::Name;
         use crate::rdata::ZoneRecordData;
         use crate::zonefile::inplace::{Entry, Zonefile};
@@ -372,7 +372,10 @@ ns2           3600   IN  AAAA    2001:db8::63
                         ZoneRecordData::Zonemd(rd) => {
                             assert_eq!(2018031900, rd.serial().into_int());
                             assert_eq!(ZonemdScheme::SIMPLE, rd.scheme());
-                            assert_eq!(ZonemdAlg::SHA384, rd.algorithm());
+                            assert_eq!(
+                                ZonemdAlgorithm::SHA384,
+                                rd.algorithm()
+                            );
                         }
                         _ => panic!(),
                     }

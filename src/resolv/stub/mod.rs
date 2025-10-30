@@ -410,20 +410,19 @@ impl<'a> Query<'a> {
         let msg = Message::from_octets(message.as_target().to_vec())
             .expect("Message::from_octets should not fail");
 
-        let request_msg = RequestMessage::new(msg).map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, e.to_string())
-        })?;
+        let request_msg = RequestMessage::new(msg)
+            .map_err(|e| io::Error::other(e.to_string()))?;
 
-        let transport = self.resolver.get_transport().await.map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, e.to_string())
-        })?;
+        let transport = self
+            .resolver
+            .get_transport()
+            .await
+            .map_err(|e| io::Error::other(e.to_string()))?;
         let mut gr_fut = transport.send_request(request_msg);
         let reply =
             timeout(self.resolver.options.timeout, gr_fut.get_response())
                 .await?
-                .map_err(|e| {
-                    io::Error::new(io::ErrorKind::Other, e.to_string())
-                })?;
+                .map_err(|e| io::Error::other(e.to_string()))?;
         Ok(Answer { message: reply })
     }
 

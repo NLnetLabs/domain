@@ -1,9 +1,13 @@
+[workspace]
+resolver = "2"
+members = [".", "./macros"]
+
 [package]
 name = "domain"
-version = "0.10.3"
+version = "0.11.1"
 
 # The MSRV is at least 4 versions behind stable (about half a year).
-rust-version = "1.79.0"
+rust-version = "1.85.0"
 
 edition = "2021"
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
@@ -15,12 +19,12 @@ readme = "README.md"
 keywords = ["DNS", "domain"]
 license = "BSD-3-Clause"
 
-[lib]
-name = "domain"
-path = "src/lib.rs"
-
 [dependencies]
+domain-macros  = { path = "./macros", version = "=0.11.1" }
+
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
+bumpalo        = { version = "3.12", optional = true }
+constant_time_eq = { version = "0.4.2", optional = true }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
@@ -34,7 +38,7 @@ libc           = { version = "0.2.153", default-features = false, optional = tru
 log            = { version = "0.4.22", optional = true }
 parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
-openssl        = { version = "0.10.57", optional = true } # 0.10.70 upgrades to 'bitflags' 2.x
+openssl        = { version = "0.10.72", optional = true } # 0.10.70 upgrades to 'bitflags' 2.x
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17.2", optional = true }
 rustversion    = { version = "1", optional = true }
@@ -52,11 +56,13 @@ tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-fil
 default     = ["std", "rand"]
 
 # Support for libraries
+alloc       = []
+bumpalo     = ["dep:bumpalo", "std"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
-std         = ["dep:hashbrown", "bytes?/std", "octseq/std", "time/std"]
+std         = ["alloc", "dep:hashbrown", "bumpalo?/std", "bytes?/std", "octseq/std", "time/std"]
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
@@ -67,17 +73,19 @@ openssl = ["dep:openssl"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
-tsig        = ["bytes", "ring", "smallvec"]
+tsig        = ["bytes", "constant_time_eq", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
+unstable-new = []
+unstable-client-cache = ["unstable-client-transport", "moka"]
 unstable-client-transport = ["moka", "net", "tracing"]
 unstable-crypto = ["bytes"]
-unstable-crypto-sign = ["dep:secrecy", "unstable-crypto"]
+unstable-crypto-sign = ["dep:secrecy", "std", "unstable-crypto"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
 unstable-sign = ["std", "dep:smallvec", "dep:serde", "time/formatting", "tracing", "unstable-crypto-sign"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
-unstable-validator = ["zonefile", "unstable-client-transport", "unstable-crypto"]
+unstable-validator = ["zonefile", "unstable-client-transport", "unstable-crypto", "moka"]
 unstable-xfr = ["net"]
 unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]
 
@@ -129,6 +137,10 @@ required-features = ["std", "rand"]
 [[example]]
 name = "client-transports"
 required-features = ["net", "tokio-rustls", "unstable-client-transport"]
+
+[[example]]
+name = "client-cache-transport"
+required-features = ["net", "unstable-client-cache"]
 
 [[example]]
 name = "server-transports"

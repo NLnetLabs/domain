@@ -20,7 +20,7 @@
 //! format.
 //!
 //! ```
-//! # use domain::base::iana::SecAlg;
+//! # use domain::base::iana::SecurityAlgorithm;
 //! # use domain::crypto::sign::{KeyPair, self, SecretKeyBytes, SignRaw};
 //! # use domain::dnssec::common::parse_from_bind;
 //! // Load an Ed25519 key named 'Ktest.+015+56037'.
@@ -35,7 +35,7 @@
 //!     .unwrap();
 //!
 //! // Check that the owner, algorithm, and key tag matched expectations.
-//! assert_eq!(key_pair.algorithm(), SecAlg::ED25519);
+//! assert_eq!(key_pair.algorithm(), SecurityAlgorithm::ED25519);
 //! assert_eq!(key_pair.dnskey().key_tag(), 56037);
 //! ```
 //!
@@ -85,7 +85,7 @@ use std::vec::Vec;
 
 use secrecy::{ExposeSecret, SecretBox};
 
-use crate::base::iana::SecAlg;
+use crate::base::iana::SecurityAlgorithm;
 use crate::rdata::Dnskey;
 use crate::utils::base64;
 
@@ -132,13 +132,13 @@ pub enum GenerateParams {
 
 impl GenerateParams {
     /// The algorithm of the generated key.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
-            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519 => SecAlg::ED25519,
-            Self::Ed448 => SecAlg::ED448,
+            Self::RsaSha256 { .. } => SecurityAlgorithm::RSASHA256,
+            Self::EcdsaP256Sha256 => SecurityAlgorithm::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384 => SecurityAlgorithm::ECDSAP384SHA384,
+            Self::Ed25519 => SecurityAlgorithm::ED25519,
+            Self::Ed448 => SecurityAlgorithm::ED448,
         }
     }
 }
@@ -163,7 +163,7 @@ pub trait SignRaw {
     /// See [RFC 8624, section 3.1] for IETF implementation recommendations.
     ///
     /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
-    fn algorithm(&self) -> SecAlg;
+    fn algorithm(&self) -> SecurityAlgorithm;
 
     /// The public key.
     ///
@@ -238,16 +238,18 @@ pub enum Signature {
 
 impl Signature {
     /// The algorithm used to make the signature.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
-            Self::RsaSha1(_) => SecAlg::RSASHA1,
-            Self::RsaSha1Nsec3Sha1(_) => SecAlg::RSASHA1_NSEC3_SHA1,
-            Self::RsaSha256(_) => SecAlg::RSASHA256,
-            Self::RsaSha512(_) => SecAlg::RSASHA512,
-            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519(_) => SecAlg::ED25519,
-            Self::Ed448(_) => SecAlg::ED448,
+            Self::RsaSha1(_) => SecurityAlgorithm::RSASHA1,
+            Self::RsaSha1Nsec3Sha1(_) => {
+                SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+            }
+            Self::RsaSha256(_) => SecurityAlgorithm::RSASHA256,
+            Self::RsaSha512(_) => SecurityAlgorithm::RSASHA512,
+            Self::EcdsaP256Sha256(_) => SecurityAlgorithm::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecurityAlgorithm::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecurityAlgorithm::ED25519,
+            Self::Ed448(_) => SecurityAlgorithm::ED448,
         }
     }
 }
@@ -292,6 +294,7 @@ impl From<Signature> for Box<[u8]> {
 /// insecure algorithms, that Ring does not support, OpenSSL must be used.
 #[derive(Debug)]
 // Note: ring does not implement Clone for KeyPair.
+#[allow(clippy::large_enum_variant)] // TODO
 pub enum KeyPair {
     /// A key backed by Ring.
     #[cfg(feature = "ring")]
@@ -317,10 +320,10 @@ impl KeyPair {
         #[cfg(feature = "ring")]
         {
             let fallback_to_openssl = match public.algorithm() {
-                SecAlg::RSASHA1
-                | SecAlg::RSASHA1_NSEC3_SHA1
-                | SecAlg::RSASHA256
-                | SecAlg::RSASHA512 => {
+                SecurityAlgorithm::RSASHA1
+                | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+                | SecurityAlgorithm::RSASHA256
+                | SecurityAlgorithm::RSASHA512 => {
                     ring::PublicKey::from_dnskey(public)
                         .map_err(|_| FromBytesError::InvalidKey)?
                         .key_size()
@@ -350,7 +353,7 @@ impl KeyPair {
 //--- SignRaw
 
 impl SignRaw for KeyPair {
-    fn algorithm(&self) -> SecAlg {
+    fn algorithm(&self) -> SecurityAlgorithm {
         match self {
             #[cfg(feature = "ring")]
             Self::Ring(key) => key.algorithm(),
@@ -449,7 +452,7 @@ pub fn generate(
 /// - `Algorithm` specifies the signing algorithm used by the private key.
 ///   This can affect the format of later fields.  The value consists of two
 ///   whitespace-separated words: the first is the ASCII decimal number of the
-///   algorithm (see [`SecAlg`]); the second is the name of the algorithm in
+///   algorithm (see [`SecurityAlgorithm`]); the second is the name of the algorithm in
 ///   ASCII parentheses (with no whitespace inside).  Valid combinations are:
 ///
 ///   - `8 (RSASHA256)`: RSA with the SHA-256 digest.
@@ -512,13 +515,13 @@ pub enum SecretKeyBytes {
 
 impl SecretKeyBytes {
     /// The algorithm used by this key.
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
-            Self::RsaSha256(_) => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519(_) => SecAlg::ED25519,
-            Self::Ed448(_) => SecAlg::ED448,
+            Self::RsaSha256(_) => SecurityAlgorithm::RSASHA256,
+            Self::EcdsaP256Sha256(_) => SecurityAlgorithm::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecurityAlgorithm::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecurityAlgorithm::ED25519,
+            Self::Ed448(_) => SecurityAlgorithm::ED448,
         }
     }
 }
@@ -1055,15 +1058,15 @@ mod tests {
     use std::string::ToString;
     use std::vec::Vec;
 
-    use crate::base::iana::SecAlg;
+    use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::sign::SecretKeyBytes;
 
-    const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA256, 60616),
-        (SecAlg::ECDSAP256SHA256, 42253),
-        (SecAlg::ECDSAP384SHA384, 33566),
-        (SecAlg::ED25519, 56037),
-        (SecAlg::ED448, 7379),
+    const KEYS: &[(SecurityAlgorithm, u16)] = &[
+        (SecurityAlgorithm::RSASHA256, 60616),
+        (SecurityAlgorithm::ECDSAP256SHA256, 42253),
+        (SecurityAlgorithm::ECDSAP384SHA384, 33566),
+        (SecurityAlgorithm::ED25519, 56037),
+        (SecurityAlgorithm::ED448, 7379),
     ];
 
     #[test]

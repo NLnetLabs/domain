@@ -6,7 +6,7 @@
 
 use super::dnssec::RtypeBitmap;
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Nsec3HashAlg, Rtype};
+use crate::base::iana::{Nsec3HashAlgorithm, Rtype};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
@@ -46,7 +46,7 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
     ))
 )]
 pub struct Nsec3<Octs> {
-    hash_algorithm: Nsec3HashAlg,
+    hash_algorithm: Nsec3HashAlgorithm,
     flags: u8,
     iterations: u16,
     salt: Nsec3Salt<Octs>,
@@ -61,7 +61,7 @@ impl Nsec3<()> {
 
 impl<Octs> Nsec3<Octs> {
     pub fn new(
-        hash_algorithm: Nsec3HashAlg,
+        hash_algorithm: Nsec3HashAlgorithm,
         flags: u8,
         iterations: u16,
         salt: Nsec3Salt<Octs>,
@@ -78,7 +78,7 @@ impl<Octs> Nsec3<Octs> {
         }
     }
 
-    pub fn hash_algorithm(&self) -> Nsec3HashAlg {
+    pub fn hash_algorithm(&self) -> Nsec3HashAlgorithm {
         self.hash_algorithm
     }
 
@@ -140,7 +140,7 @@ impl<Octs> Nsec3<Octs> {
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
+            Nsec3HashAlgorithm::scan(scanner)?,
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
@@ -154,7 +154,7 @@ impl<Octs: AsRef<[u8]>> Nsec3<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        let hash_algorithm = Nsec3HashAlg::parse(parser)?;
+        let hash_algorithm = Nsec3HashAlgorithm::parse(parser)?;
         let flags = u8::parse(parser)?;
         let iterations = u16::parse(parser)?;
         let salt = Nsec3Salt::parse(parser)?;
@@ -319,7 +319,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
-                Nsec3HashAlg::COMPOSE_LEN
+                Nsec3HashAlgorithm::COMPOSE_LEN
                     + u8::COMPOSE_LEN
                     + u16::COMPOSE_LEN,
                 self.salt.compose_len(),
@@ -355,7 +355,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
 //--- Display, and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} {} ",
@@ -370,7 +370,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Nsec3")
             .field("hash_algorithm", &self.hash_algorithm)
             .field("flags", &self.flags)
@@ -432,7 +432,7 @@ pub struct Nsec3param<Octs> {
     /// 3.1.1.  Hash Algorithm
     ///   "The Hash Algorithm field identifies the cryptographic hash
     ///    algorithm used to construct the hash-value."
-    hash_algorithm: Nsec3HashAlg,
+    hash_algorithm: Nsec3HashAlgorithm,
 
     /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.2
     /// 3.1.2.  Flags
@@ -460,9 +460,9 @@ pub struct Nsec3param<Octs> {
     ///    but at a higher computational cost for both the server and
     ///    resolver.  See Section 5 for details of the use of this field, and
     ///    Section 10.3 for limitations on the value."
-    /// 
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
-    /// 3.1. Best Practice for Zone Publishers 
+    /// 3.1. Best Practice for Zone Publishers
     ///   "If NSEC3 must be used, then an iterations count of 0 MUST be used
     ///    to alleviate computational burdens."
     iterations: u16,
@@ -472,9 +472,9 @@ pub struct Nsec3param<Octs> {
     ///   "The Salt field is appended to the original owner name before
     ///    hashing in order to defend against pre-calculated dictionary
     ///    attacks."
-    /// 
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
-    /// 3.1. Best Practice for Zone Publishers 
+    /// 3.1. Best Practice for Zone Publishers
     ///   "Operators SHOULD NOT use a salt by indicating a zero-length salt
     ///   value instead (represented as a "-" in the presentation format)."
     salt: Nsec3Salt<Octs>,
@@ -487,7 +487,7 @@ impl Nsec3param<()> {
 
 impl<Octs> Nsec3param<Octs> {
     pub fn new(
-        hash_algorithm: Nsec3HashAlg,
+        hash_algorithm: Nsec3HashAlgorithm,
         flags: u8,
         iterations: u16,
         salt: Nsec3Salt<Octs>,
@@ -500,7 +500,7 @@ impl<Octs> Nsec3param<Octs> {
         }
     }
 
-    pub fn hash_algorithm(&self) -> Nsec3HashAlg {
+    pub fn hash_algorithm(&self) -> Nsec3HashAlgorithm {
         self.hash_algorithm
     }
 
@@ -514,7 +514,7 @@ impl<Octs> Nsec3param<Octs> {
 
     pub fn opt_out_flag(&self) -> bool {
         self.flags & NSEC3_OPT_OUT_FLAG_MASK == NSEC3_OPT_OUT_FLAG_MASK
-    }    
+    }
 
     pub fn iterations(&self) -> u16 {
         self.iterations
@@ -552,7 +552,7 @@ impl<Octs> Nsec3param<Octs> {
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Self::new(
-            Nsec3HashAlg::parse(parser)?,
+            Nsec3HashAlgorithm::parse(parser)?,
             u8::parse(parser)?,
             u16::parse(parser)?,
             Nsec3Salt::parse(parser)?,
@@ -563,7 +563,7 @@ impl<Octs> Nsec3param<Octs> {
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
+            Nsec3HashAlgorithm::scan(scanner)?,
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
@@ -592,7 +592,7 @@ where
     /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
     fn default() -> Self {
         Self {
-            hash_algorithm: Nsec3HashAlg::SHA1,
+            hash_algorithm: Nsec3HashAlgorithm::SHA1,
             flags: 0,
             iterations: 0,
             salt: Nsec3Salt::empty(),
@@ -740,7 +740,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
-                Nsec3HashAlg::COMPOSE_LEN
+                Nsec3HashAlgorithm::COMPOSE_LEN
                     + u8::COMPOSE_LEN
                     + u16::COMPOSE_LEN,
                 self.salt.compose_len(),
@@ -770,7 +770,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3param<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} {}",
@@ -780,7 +780,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3param<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Nsec3param")
             .field("hash_algorithm", &self.hash_algorithm)
             .field("flags", &self.flags)
@@ -1023,7 +1023,7 @@ where
     Octs: FromBuilder,
     <Octs as FromBuilder>::Builder: EmptyBuilder,
 {
-    type Err = base16::DecodeError;
+    type Err = Nsec3SaltFromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "-" {
@@ -1032,7 +1032,11 @@ where
             })
         } else {
             base16::decode(s)
-                .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+                .map_err(Nsec3SaltFromStrError::DecodeError)
+                .and_then(|octets| {
+                    Self::from_octets(octets)
+                        .map_err(Nsec3SaltFromStrError::Nsec3SaltError)
+                })
         }
     }
 }
@@ -1102,7 +1106,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for Nsec3Salt<T> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = self.as_slice();
         if s.is_empty() {
             // https://www.rfc-editor.org/rfc/rfc5155.html#section-3.3
@@ -1116,7 +1120,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octs> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Nsec3Salt")
             .field(&format_args!("{}", self))
             .finish()
@@ -1184,7 +1188,7 @@ where
         {
             type Value = Nsec3Salt<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an NSEC3 salt value")
             }
 
@@ -1224,7 +1228,7 @@ where
         {
             type Value = Nsec3Salt<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an NSEC3 salt value")
             }
 
@@ -1250,6 +1254,27 @@ where
         )
     }
 }
+
+//------------ Nsec3SaltFromStrError -----------------------------------------
+
+/// An error happened while parsing an NSEC3 salt from a string.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Nsec3SaltFromStrError {
+    DecodeError(base16::DecodeError),
+    Nsec3SaltError(Nsec3SaltError),
+}
+
+impl fmt::Display for Nsec3SaltFromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Nsec3SaltFromStrError::DecodeError(err) => err.fmt(f),
+            Nsec3SaltFromStrError::Nsec3SaltError(err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for Nsec3SaltFromStrError {}
 
 //------------ OwnerHash -----------------------------------------------------
 
@@ -1483,13 +1508,13 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for OwnerHash<T> {
 //--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for OwnerHash<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         base32::display_hex(self.as_slice(), f)
     }
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for OwnerHash<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("OwnerHash")
             .field(&format_args!("{}", self))
             .finish()
@@ -1539,7 +1564,7 @@ where
         {
             type Value = OwnerHash<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an owner name hash value")
             }
 
@@ -1579,7 +1604,7 @@ where
         {
             type Value = OwnerHash<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an owner name hash value")
             }
 
@@ -1617,7 +1642,7 @@ where
 pub struct Nsec3SaltError(());
 
 impl fmt::Display for Nsec3SaltError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("illegal NSEC3 salt")
     }
 }
@@ -1634,7 +1659,7 @@ impl std::error::Error for Nsec3SaltError {}
 pub struct OwnerHashError(());
 
 impl fmt::Display for OwnerHashError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("illegal owner name hash")
     }
 }
@@ -1662,7 +1687,7 @@ mod test {
         rtype.add(Rtype::A).unwrap();
         rtype.add(Rtype::SRV).unwrap();
         let rdata = Nsec3::new(
-            Nsec3HashAlg::SHA1,
+            Nsec3HashAlgorithm::SHA1,
             10,
             11,
             Nsec3Salt::from_octets(Vec::from("bar")).unwrap(),
@@ -1689,7 +1714,7 @@ mod test {
         rtype.add(Rtype::A).unwrap();
         rtype.add(Rtype::SRV).unwrap();
         let rdata = Nsec3::new(
-            Nsec3HashAlg::SHA1,
+            Nsec3HashAlgorithm::SHA1,
             10,
             11,
             Nsec3Salt::empty(),
@@ -1713,7 +1738,7 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsec3param_compose_parse_scan() {
         let rdata = Nsec3param::new(
-            Nsec3HashAlg::SHA1,
+            Nsec3HashAlgorithm::SHA1,
             10,
             11,
             Nsec3Salt::from_octets(Vec::from("bar")).unwrap(),

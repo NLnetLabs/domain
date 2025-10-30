@@ -404,7 +404,7 @@ where
     Name: fmt::Display,
     Data: RecordData + fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}. {} {} {} {}",
@@ -422,7 +422,7 @@ where
     Name: fmt::Debug,
     Data: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Record")
             .field("owner", &self.owner)
             .field("class", &self.class)
@@ -677,7 +677,7 @@ impl<Name> RecordHeader<Name> {
 impl RecordHeader<()> {
     /// Parses only the record length and skips over all the other fields.
     fn parse_rdlen<Octs: Octets + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<u16, ParseError> {
         ParsedName::skip(parser)?;
         parser.advance(
@@ -852,7 +852,7 @@ impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
 //--- Debug
 
 impl<Name: fmt::Debug> fmt::Debug for RecordHeader<Name> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RecordHeader")
             .field("owner", &self.owner)
             .field("rtype", &self.rtype)
@@ -1057,7 +1057,7 @@ where
     N: fmt::Display,
     D: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             RecordParseError::Name(ref name) => name.fmt(f),
             RecordParseError::Data(ref data) => data.fmt(f),
@@ -1655,7 +1655,7 @@ mod test {
     #[cfg(feature = "bytes")]
     fn ds_octets_into() {
         use super::*;
-        use crate::base::iana::{Class, DigestAlg, SecAlg};
+        use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
         use crate::base::name::Name;
         use crate::rdata::Ds;
         use bytes::Bytes;
@@ -1667,8 +1667,8 @@ mod test {
             Ttl::from_secs(86400),
             Ds::new(
                 12,
-                SecAlg::RSASHA256,
-                DigestAlg::SHA256,
+                SecurityAlgorithm::RSASHA256,
+                DigestAlgorithm::SHA256,
                 b"something".as_ref(),
             )
             .unwrap(),
