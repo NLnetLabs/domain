@@ -105,7 +105,7 @@ impl<Octs: FromBuilder> Txt<Octs> {
     {
         let mut builder = TxtBuilder::<Octs::Builder>::new();
         builder.append_slice(text)?;
-        builder.finish().map_err(Into::into)
+        builder.finish()
     }
 }
 
@@ -205,14 +205,14 @@ impl<Octs: AsRef<[u8]> + ?Sized> Txt<Octs> {
     /// Returns an iterator over the character strings as slices.
     ///
     /// The returned iterator will always return at least one octets slice.
-    pub fn iter(&self) -> TxtIter {
+    pub fn iter(&self) -> TxtIter<'_> {
         TxtIter(self.iter_charstrs())
     }
 
     /// Returns an iterator over the character strings.
     ///
     /// The returned iterator will always return at least one octets slice.
-    pub fn iter_charstrs(&self) -> TxtCharStrIter {
+    pub fn iter_charstrs(&self) -> TxtCharStrIter<'_> {
         TxtCharStrIter(Parser::from_ref(self.0.as_ref()))
     }
 
@@ -421,13 +421,12 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Txt<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Txt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut first = true;
         for slice in self.iter_charstrs() {
             if !first {
                 f.write_str(" ")?;
-            }
-            else {
+            } else {
                 first = false;
             }
             write!(f, "{}", slice.display_quoted())?;
@@ -439,7 +438,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Txt<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Txt(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -495,8 +494,7 @@ where
 
         if serializer.is_human_readable() {
             serializer.serialize_newtype_struct("Txt", &TxtSeq(self))
-        }
-        else {
+        } else {
             serializer.serialize_newtype_struct(
                 "Txt",
                 &self.0.as_serialized_octets(),
@@ -526,7 +524,7 @@ where
         {
             type Value = Txt<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("TXT record data")
             }
 
@@ -555,7 +553,7 @@ where
         {
             type Value = Txt<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("TXT record data")
             }
 
@@ -583,17 +581,19 @@ where
                 mut seq: A,
             ) -> Result<Self::Value, A::Error> {
                 let mut builder = <Octs as FromBuilder>::Builder::empty();
-                while seq.next_element_seed(
-                    DeserializeCharStrSeed::new(&mut builder)
-                )?.is_some() {
-                    LongRecordData::check_len(
-                        builder.as_ref().len()
-                    ).map_err(serde::de::Error::custom)?;
+                while seq
+                    .next_element_seed(DeserializeCharStrSeed::new(
+                        &mut builder,
+                    ))?
+                    .is_some()
+                {
+                    LongRecordData::check_len(builder.as_ref().len())
+                        .map_err(serde::de::Error::custom)?;
                 }
                 if builder.as_ref().is_empty() {
-                    builder.append_slice(b"\0").map_err(|_| {
-                        serde::de::Error::custom(ShortBuf)
-                    })?;
+                    builder
+                        .append_slice(b"\0")
+                        .map_err(|_| serde::de::Error::custom(ShortBuf))?;
                 }
                 Ok(Txt(builder.freeze()))
             }
@@ -609,7 +609,7 @@ where
         {
             type Value = Txt<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("TXT record data")
             }
 
@@ -633,9 +633,8 @@ where
             }
         }
 
-        deserializer.deserialize_newtype_struct(
-            "Txt", NewtypeVisitor(PhantomData)
-        )
+        deserializer
+            .deserialize_newtype_struct("Txt", NewtypeVisitor(PhantomData))
     }
 }
 
@@ -713,10 +712,12 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
     /// Errors out if either appending the slice would result in exceeding the
     /// record data length limit or the underlying builder runs out of space.
     fn builder_append_slice(
-        &mut self, slice: &[u8]
+        &mut self,
+        slice: &[u8],
     ) -> Result<(), TxtAppendError> {
         LongRecordData::check_append_len(
-            self.builder.as_ref().len(), slice.len()
+            self.builder.as_ref().len(),
+            slice.len(),
         )?;
         self.builder.append_slice(slice)?;
         Ok(())
@@ -739,7 +740,8 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
     /// data already. I.e., you should consider the builder corrupt if the
     /// method returns an error.
     pub fn append_slice(
-        &mut self, mut slice: &[u8]
+        &mut self,
+        mut slice: &[u8],
     ) -> Result<(), TxtAppendError> {
         if let Some(start) = self.start {
             let left = 255 - (self.builder.as_ref().len() - (start + 1));
@@ -785,12 +787,13 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
     /// data already. I.e., you should consider the builder corrupt if the
     /// method returns an error.
     pub fn append_charstr<Octs: AsRef<[u8]> + ?Sized>(
-        &mut self, s: &CharStr<Octs>
+        &mut self,
+        s: &CharStr<Octs>,
     ) -> Result<(), TxtAppendError> {
         self.close_charstr();
         LongRecordData::check_append_len(
             self.builder.as_ref().len(),
-            usize::from(s.compose_len())
+            usize::from(s.compose_len()),
         )?;
         s.compose(&mut self.builder)?;
         Ok(())
@@ -870,7 +873,7 @@ impl From<TxtError> for FormError {
 }
 
 impl fmt::Display for TxtError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -884,7 +887,7 @@ pub enum TxtAppendError {
     LongRecordData,
 
     /// The octets builder did not have enough space.
-    ShortBuf
+    ShortBuf,
 }
 
 impl TxtAppendError {
@@ -893,7 +896,7 @@ impl TxtAppendError {
     pub fn as_str(self) -> &'static str {
         match self {
             TxtAppendError::LongRecordData => "record data too long",
-            TxtAppendError::ShortBuf => "buffer size exceeded"
+            TxtAppendError::ShortBuf => "buffer size exceeded",
         }
     }
 }
@@ -911,7 +914,7 @@ impl<T: Into<ShortBuf>> From<T> for TxtAppendError {
 }
 
 impl fmt::Display for TxtAppendError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -926,8 +929,6 @@ mod test {
         test_compose_parse, test_rdlen, test_scan,
     };
     use std::vec::Vec;
-
-
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
@@ -1080,9 +1081,8 @@ mod test {
             ],
         );
 
-        let txt = Txt::from_octets(
-            Vec::from(b"\x03foo\x04\\bar".as_ref())
-        ).unwrap();
+        let txt = Txt::from_octets(Vec::from(b"\x03foo\x04\\bar".as_ref()))
+            .unwrap();
         assert_tokens(
             &txt.clone().compact(),
             &[
@@ -1136,4 +1136,3 @@ mod test {
         // to CharStr::display_quoted which is tested ...
     }
 }
-

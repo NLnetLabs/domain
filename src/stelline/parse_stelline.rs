@@ -1,3 +1,4 @@
+use core::str::SplitWhitespace;
 use std::default::Default;
 use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
@@ -45,6 +46,8 @@ const STEP_TYPE_ASSIGN: &str = "ASSIGN";
 const HEX_EDNSDATA_BEGIN: &str = "HEX_EDNSDATA_BEGIN";
 const HEX_EDNSDATA_END: &str = "HEX_EDNSDATA_END";
 
+/// A section in a DNS message
+#[derive(PartialEq, Eq)]
 enum Section {
     Question,
     Answer,
@@ -52,6 +55,7 @@ enum Section {
     Additional,
 }
 
+/// A type of step in a Stelline scenario
 #[derive(Clone, Debug)]
 pub enum StepType {
     Query,
@@ -86,17 +90,23 @@ impl Config {
     }
 }
 
+/// The main Stelline type containing the full configuration
 #[derive(Clone, Debug)]
 pub struct Stelline {
+    /// The name of the scenario
     pub name: String,
+    /// General configuration of the scenario
     pub config: Config,
+    /// The scenario to run
     pub scenario: Scenario,
 }
+
+/// Parse a `.rpl` file into a [`Stelline`] configuration
 pub fn parse_file<F: Debug + Read, T: ToString>(
     file: F,
     name: T,
 ) -> Stelline {
-    let mut lines = io::BufReader::new(file).lines();
+    let mut lines = io::BufReader::new(file).lines().map(|l| l.unwrap());
     Stelline {
         name: name.to_string(),
         config: parse_config(&mut lines),
@@ -104,17 +114,18 @@ pub fn parse_file<F: Debug + Read, T: ToString>(
     }
 }
 
-fn parse_config<Lines: Iterator<Item = Result<String, std::io::Error>>>(
-    l: &mut Lines,
-) -> Config {
+/// Parse the configuration part of a `.rpl` file
+///
+/// This consumes the iterator of lines until the `CONFIG END` token is
+/// found.
+fn parse_config<Lines: Iterator<Item = String>>(l: &mut Lines) -> Config {
     let mut config: Config = Default::default();
     loop {
-        let line = l.next().unwrap().unwrap();
-        let clean_line = get_clean_line(line.as_ref());
-        if clean_line.is_none() {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref()).trim();
+        if clean_line.is_empty() {
             continue;
         }
-        let clean_line = clean_line.unwrap();
         if clean_line == CONFIG_END {
             break;
         }
@@ -129,22 +140,18 @@ pub struct Scenario {
     pub steps: Vec<Step>,
 }
 
-pub fn parse_scenario<
-    Lines: Iterator<Item = Result<String, std::io::Error>>,
->(
+pub fn parse_scenario<Lines: Iterator<Item = String>>(
     l: &mut Lines,
 ) -> Scenario {
     let mut scenario: Scenario = Default::default();
     // Find SCENARIO_BEGIN
     loop {
-        let line = l.next().unwrap().unwrap();
-        let clean_line = get_clean_line(line.as_ref());
-        if clean_line.is_none() {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
-        }
-        let clean_line = clean_line.unwrap();
-        let mut tokens = LineTokens::new(clean_line);
-        let token = tokens.next().unwrap();
+        };
         if token == SCENARIO_BEGIN {
             break;
         }
@@ -154,14 +161,12 @@ pub fn parse_scenario<
 
     // Find RANGE_BEGIN, STEP, or SCENARIO_END
     loop {
-        let line = l.next().unwrap().unwrap();
-        let clean_line = get_clean_line(line.as_ref());
-        if clean_line.is_none() {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
-        }
-        let clean_line = clean_line.unwrap();
-        let mut tokens = LineTokens::new(clean_line);
-        let token = tokens.next().unwrap();
+        };
         if token == RANGE_BEGIN {
             scenario.ranges.push(parse_range(tokens, l));
             continue;
@@ -186,8 +191,8 @@ pub struct Range {
     pub entry: Vec<Entry>,
 }
 
-fn parse_range<Lines: Iterator<Item = Result<String, std::io::Error>>>(
-    mut tokens: LineTokens<'_>,
+fn parse_range<Lines: Iterator<Item = String>>(
+    mut tokens: SplitWhitespace<'_>,
     l: &mut Lines,
 ) -> Range {
     let mut range: Range = Range {
@@ -196,14 +201,12 @@ fn parse_range<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         ..Default::default()
     };
     loop {
-        let line = l.next().unwrap().unwrap();
-        let clean_line = get_clean_line(line.as_ref());
-        if clean_line.is_none() {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
-        }
-        let clean_line = clean_line.unwrap();
-        let mut tokens = LineTokens::new(clean_line);
-        let token = tokens.next().unwrap();
+        };
         if token == ADDRESS {
             let addr_str = tokens.next().unwrap();
             range.addr = Some(addr_str.parse().unwrap());
@@ -218,7 +221,6 @@ fn parse_range<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         }
         todo!();
     }
-    //println!("parse_range: {:?}", range);
     range
 }
 
@@ -230,28 +232,24 @@ pub struct Step {
     pub time_passes: Option<u64>,
 }
 
-fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
-    mut tokens: LineTokens<'_>,
+fn parse_step<Lines: Iterator<Item = String>>(
+    mut tokens: SplitWhitespace<'_>,
     l: &mut Lines,
 ) -> Step {
     let mut step_client_address = None;
     let mut step_key_name = None;
     let step_value = tokens.next().unwrap().parse::<u64>().unwrap();
     let step_type_str = tokens.next().unwrap();
-    let step_type = if step_type_str == STEP_TYPE_QUERY {
-        StepType::Query
-    } else if step_type_str == STEP_TYPE_CHECK_ANSWER {
-        StepType::CheckAnswer
-    } else if step_type_str == STEP_TYPE_TIME_PASSES {
-        StepType::TimePasses
-    } else if step_type_str == STEP_TYPE_TRAFFIC {
-        StepType::Traffic
-    } else if step_type_str == STEP_TYPE_CHECK_TEMPFILE {
-        StepType::CheckTempfile
-    } else if step_type_str == STEP_TYPE_ASSIGN {
-        StepType::Assign
-    } else {
-        todo!();
+    let step_type = match step_type_str {
+        STEP_TYPE_QUERY => StepType::Query,
+        STEP_TYPE_CHECK_ANSWER => StepType::CheckAnswer,
+        STEP_TYPE_TIME_PASSES => StepType::TimePasses,
+        STEP_TYPE_TRAFFIC => StepType::Traffic,
+        STEP_TYPE_CHECK_TEMPFILE => StepType::CheckTempfile,
+        STEP_TYPE_ASSIGN => StepType::Assign,
+        _ => {
+            todo!();
+        }
     };
     let mut step = Step {
         step_value,
@@ -319,20 +317,17 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     }
 
     loop {
-        let line = l.next().unwrap().unwrap();
-        let clean_line = get_clean_line(line.as_ref());
-        if clean_line.is_none() {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
-        }
-        let clean_line = clean_line.unwrap();
-        let mut tokens = LineTokens::new(clean_line);
-        let token = tokens.next().unwrap();
+        };
         if token == ENTRY_BEGIN {
             step.entry = Some(parse_entry(l));
             let entry = step.entry.as_mut().unwrap();
             entry.client_addr = step_client_address;
             entry.key_name = step_key_name;
-            //println!("parse_step: {:?}", step);
             return step;
         }
         todo!();
@@ -343,62 +338,64 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 pub struct Entry {
     pub client_addr: Option<IpAddr>,
     pub key_name: Option<KeyName>,
-    pub matches: Option<Matches>,
-    pub adjust: Option<Adjust>,
+    pub matches: Matches,
+    pub adjust: Adjust,
     pub opcode: Option<Opcode>,
-    pub reply: Option<Reply>,
-    pub sections: Option<Sections>,
+    pub reply: Reply,
+    pub sections: Sections,
 }
 
-fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
-    l: &mut Lines,
-) -> Entry {
-    let mut entry = Entry::default();
+fn parse_entry<Lines: Iterator<Item = String>>(l: &mut Lines) -> Entry {
+    let mut opcode = None;
+    let mut matches = None;
+    let mut adjust = None;
+    let mut reply = None;
+    let mut sections = None;
+
     loop {
-        let line = l.next().unwrap().unwrap();
-        let clean_line = get_clean_line(line.as_ref());
-        if clean_line.is_none() {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
-        }
-        let clean_line = clean_line.unwrap();
-        let mut tokens = LineTokens::new(clean_line);
-        let token = tokens.next().unwrap();
+        };
         if token == OPCODE {
-            entry.opcode =
-                Some(Opcode::from_str(tokens.next().unwrap()).unwrap());
+            opcode = Some(Opcode::from_str(tokens.next().unwrap()).unwrap());
             continue;
         }
         if token == MATCH {
-            entry.matches = Some(parse_match(tokens));
+            matches = Some(parse_match(tokens));
             continue;
         }
         if token == ADJUST {
-            entry.adjust = Some(parse_adjust(tokens));
+            adjust = Some(parse_adjust(tokens));
             continue;
         }
         if token == REPLY {
-            entry.reply = Some(parse_reply(tokens));
+            reply = Some(parse_reply(tokens));
             continue;
         }
         if token == SECTION {
-            let (sections, line) = parse_section(tokens, l);
-            //println!("parse_entry: sections {:?}", sections);
-            entry.sections = Some(sections);
-            let clean_line = get_clean_line(line.as_ref());
-            let clean_line = clean_line.unwrap();
-            let mut tokens = LineTokens::new(clean_line);
-            let token = tokens.next().unwrap();
-            if token == ENTRY_END {
-                break;
-            }
-            todo!();
+            sections = Some(parse_section(tokens, l));
+            // the sections extend until the end  of the entry, so we can
+            // break safely here.
+            break;
         }
         if token == ENTRY_END {
             break;
         }
         todo!("Unsupported token '{token}'");
     }
-    entry
+
+    Entry {
+        client_addr: Default::default(),
+        key_name: Default::default(),
+        matches: matches.unwrap_or_default(),
+        adjust: adjust.unwrap_or_default(),
+        reply: reply.unwrap_or_default(),
+        opcode,
+        sections: sections.expect("at least one section must be given"),
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -429,10 +426,10 @@ impl Default for Sections {
 pub type Name = base::Name<Bytes>;
 pub type Question = base::Question<Name>;
 
-fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
-    mut tokens: LineTokens<'_>,
+fn parse_section<Lines: Iterator<Item = String>>(
+    mut tokens: SplitWhitespace<'_>,
     l: &mut Lines,
-) -> (Sections, String) {
+) -> Sections {
     let mut sections = Sections::default();
     let next = tokens.next().unwrap();
     let mut answer_idx = 0;
@@ -444,32 +441,26 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     };
     // Should extract which section
     loop {
-        let line = l.next().unwrap().unwrap();
-        let clean_line = get_clean_line(line.as_ref());
-        if clean_line.is_none() {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref()).trim();
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
-        }
-        let clean_line = clean_line.unwrap();
-        let mut tokens = LineTokens::new(clean_line);
-        let token = tokens.next().unwrap();
+        };
         if token == SECTION {
             let next = tokens.next().unwrap();
-            section = if next == QUESTION {
-                Section::Question
-            } else if next == ANSWER {
-                Section::Answer
-            } else if next == AUTHORITY {
-                Section::Authority
-            } else if next == ADDITIONAL {
-                Section::Additional
-            } else {
-                panic!("Bad section {next}");
+            section = match next {
+                QUESTION => Section::Question,
+                ANSWER => Section::Answer,
+                AUTHORITY => Section::Authority,
+                ADDITIONAL => Section::Additional,
+                _ => panic!("Bad section {next}"),
             };
             origin = ".".to_string();
             continue;
         }
         if token == ENTRY_END {
-            return (sections, line);
+            return sections;
         }
         if token == EXTRA_PACKET {
             answer_idx += 1;
@@ -483,16 +474,15 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                     .push(Question::from_str(clean_line).unwrap());
             }
             Section::Answer | Section::Authority | Section::Additional => {
-                if matches!(section, Section::Additional)
+                if section == Section::Additional
                     && clean_line == HEX_EDNSDATA_BEGIN
                 {
                     loop {
-                        let line = l.next().unwrap().unwrap();
-                        let clean_line = get_clean_line(line.as_ref());
-                        if clean_line.is_none() {
+                        let line = l.next().unwrap();
+                        let clean_line = remove_comment(line.as_ref()).trim();
+                        if clean_line.is_empty() {
                             continue;
                         }
-                        let clean_line = clean_line.unwrap();
                         if clean_line == HEX_EDNSDATA_END {
                             break;
                         }
@@ -512,7 +502,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                         origin = new_origin.to_string();
                     }
                 } else {
-                    let mut zonefile = Zonefile::new();
+                    let mut zonefile = Zonefile::new().allow_invalid();
                     zonefile.extend_from_slice(
                         format!("$ORIGIN {origin}\n").as_bytes(),
                     );
@@ -553,7 +543,6 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 #[derive(Clone, Debug, Default)]
 pub struct Matches {
     pub additional: bool,
-    pub all: bool,
     pub answer: bool,
     pub authority: bool,
     pub ad: bool,
@@ -564,7 +553,6 @@ pub struct Matches {
     pub opcode: bool,
     pub qname: bool,
     pub qtype: bool,
-    pub question: bool,
     pub rcode: bool,
     pub subdomain: bool,
     pub tcp: bool,
@@ -578,68 +566,43 @@ pub struct Matches {
     pub any_answer: bool,
 }
 
-fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
+fn parse_match(tokens: SplitWhitespace<'_>) -> Matches {
     let mut matches: Matches = Default::default();
 
-    loop {
-        let token = match tokens.next() {
-            None => return matches,
-            Some(token) => token,
-        };
-
-        if token == "all" {
-            matches.all = true;
-        } else if token == "AD" {
-            matches.ad = true;
-        } else if token == "additional" {
-            matches.additional = true;
-        } else if token == "answer" {
-            matches.answer = true;
-        } else if token == "authority" {
-            matches.authority = true;
-        } else if token == "CD" {
-            matches.cd = true;
-        } else if token == "DO" {
-            matches.fl_do = true;
-        } else if token == "RD" {
-            matches.rd = true;
-        } else if token == "opcode" {
-            matches.opcode = true;
-        } else if token == "flags" {
-            matches.flags = true;
-        } else if token == "qname" {
-            matches.qname = true;
-        } else if token == "question" {
-            matches.question = true;
-        } else if token == "qtype" {
-            matches.qtype = true;
-        } else if token == "rcode" {
-            matches.rcode = true;
-        } else if token == "subdomain" {
-            matches.subdomain = true;
-        } else if token == "TCP" {
-            matches.tcp = true;
-        } else if token == "ttl" {
-            matches.ttl = true;
-        } else if token == "UDP" {
-            matches.tcp = false;
-        } else if token == "server_cookie" {
-            matches.server_cookie = true;
-        } else if token == "ednsdata" {
-            matches.edns_data = true;
-        } else if token == "MOCK_CLIENT" {
-            matches.mock_client = true;
-        } else if token == "CONNECTION_CLOSED" {
-            matches.conn_closed = true;
-        } else if token == "EXTRA_PACKETS" {
-            matches.extra_packets = true;
-        } else if token == "ANY_ANSWER" {
-            matches.any_answer = true;
-        } else {
-            println!("should handle match {token:?}");
-            todo!();
+    for token in tokens {
+        match token {
+            "all" => matches.set_all(),
+            "AD" => matches.ad = true,
+            "additional" => matches.additional = true,
+            "answer" => matches.answer = true,
+            "authority" => matches.authority = true,
+            "CD" => matches.cd = true,
+            "DO" => matches.fl_do = true,
+            "RD" => matches.rd = true,
+            "opcode" => matches.opcode = true,
+            "flags" => matches.flags = true,
+            "qname" => matches.qname = true,
+            "question" => matches.set_question(),
+            "qtype" => matches.qtype = true,
+            "rcode" => matches.rcode = true,
+            "subdomain" => matches.subdomain = true,
+            "TCP" => matches.tcp = true,
+            "ttl" => matches.ttl = true,
+            "UDP" => matches.tcp = false,
+            "server_cookie" => matches.server_cookie = true,
+            "ednsdata" => matches.edns_data = true,
+            "MOCK_CLIENT" => matches.mock_client = true,
+            "CONNECTION_CLOSED" => matches.conn_closed = true,
+            "EXTRA_PACKETS" => matches.extra_packets = true,
+            "ANY_ANSWER" => matches.any_answer = true,
+            _ => {
+                println!("should handle match {token:?}");
+                todo!();
+            }
         }
     }
+
+    matches
 }
 
 #[derive(Clone, Debug, Default)]
@@ -648,24 +611,21 @@ pub struct Adjust {
     pub copy_query: bool,
 }
 
-fn parse_adjust(mut tokens: LineTokens<'_>) -> Adjust {
+fn parse_adjust(tokens: SplitWhitespace<'_>) -> Adjust {
     let mut adjust: Adjust = Default::default();
 
-    loop {
-        let token = match tokens.next() {
-            None => return adjust,
-            Some(token) => token,
-        };
-
-        if token == "copy_id" {
-            adjust.copy_id = true;
-        } else if token == "copy_query" {
-            adjust.copy_query = true;
-        } else {
-            println!("should handle adjust {token:?}");
-            todo!();
+    for token in tokens {
+        match token {
+            "copy_id" => adjust.copy_id = true,
+            "copy_query" => adjust.copy_query = true,
+            token => {
+                println!("should handle adjust {token:?}");
+                todo!();
+            }
         }
     }
+
+    adjust
 }
 
 #[derive(Clone, Debug, Default)]
@@ -688,103 +648,40 @@ pub struct Reply {
     pub notify: bool,
 }
 
-fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
+/// Parse the reply section
+fn parse_reply(tokens: SplitWhitespace<'_>) -> Reply {
     let mut reply: Reply = Default::default();
 
-    loop {
-        let token = match tokens.next() {
-            None => return reply,
-            Some(token) => token,
-        };
-
-        if token == "AA" {
-            reply.aa = true;
-        } else if token == "AD" {
-            reply.ad = true;
-        } else if token == "CD" {
-            reply.cd = true;
-        } else if token == "DO" {
-            reply.fl_do = true;
-        } else if token == "QR" {
-            reply.qr = true;
-        } else if token == "RA" {
-            reply.ra = true;
-        } else if token == "RD" {
-            reply.rd = true;
-        } else if token == "TC" {
-            reply.tc = true;
-        } else if let Ok(rcode) = token.parse() {
+    for token in tokens {
+        if let Ok(rcode) = token.parse() {
             reply.rcode = Some(rcode);
-        } else if token == "NOTIFY" {
-            reply.notify = true;
-        } else {
-            println!("should handle reply {token:?}");
-            todo!();
-        }
-    }
-}
-
-fn get_clean_line(line: &str) -> Option<&str> {
-    //println!("get clean line for {:?}", line);
-    let opt_comment = line.find(';');
-    let line = if let Some(index) = opt_comment {
-        &line[0..index]
-    } else {
-        line
-    };
-    let trimmed = line.trim();
-
-    //println!("line after trim() {:?}", trimmed);
-
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed)
-    }
-}
-
-struct LineTokens<'a> {
-    str: &'a str,
-    curr_index: usize,
-}
-
-impl<'a> LineTokens<'a> {
-    fn new(str: &'a str) -> Self {
-        Self { str, curr_index: 0 }
-    }
-}
-
-impl<'a> Iterator for LineTokens<'a> {
-    type Item = &'a str;
-    fn next(&mut self) -> Option<Self::Item> {
-        let cur_str = &self.str[self.curr_index..];
-
-        if cur_str.is_empty() {
-            return None;
+            continue;
         }
 
-        // Assume cur_str starts with a token
-        for (index, char) in cur_str.char_indices() {
-            if !char.is_whitespace() {
-                continue;
+        match token {
+            "AA" => reply.aa = true,
+            "AD" => reply.ad = true,
+            "CD" => reply.cd = true,
+            "DO" => reply.fl_do = true,
+            "QR" => reply.qr = true,
+            "RA" => reply.ra = true,
+            "RD" => reply.rd = true,
+            "TC" => reply.tc = true,
+            "NOTIFY" => reply.notify = true,
+            token => {
+                println!("should handle reply {token:?}");
+                todo!();
             }
-            let start_index = self.curr_index;
-            let end_index = start_index + index;
-
-            let space_str = &self.str[end_index..];
-
-            for (index, char) in space_str.char_indices() {
-                if char.is_whitespace() {
-                    continue;
-                }
-
-                self.curr_index = end_index + index;
-                return Some(&self.str[start_index..end_index]);
-            }
-
-            todo!();
         }
-        self.curr_index = self.str.len();
-        Some(cur_str)
+    }
+
+    reply
+}
+
+/// Remove a comment from the line if present
+fn remove_comment(line: &str) -> &str {
+    match line.split_once(';') {
+        Some((before_comment, _)) => before_comment,
+        None => line,
     }
 }

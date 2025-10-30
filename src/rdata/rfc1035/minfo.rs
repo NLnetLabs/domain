@@ -8,9 +8,7 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::Scanner;
 use crate::base::wire::{Composer, ParseError};
-use crate::base::zonefile_fmt::{
-    self, Formatter, ZonefileFmt,
-};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
 use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -240,7 +238,7 @@ impl<Name: ToName> ComposeRecordData for Minfo<Name> {
 //--- Display
 
 impl<N: fmt::Display> fmt::Display for Minfo<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}. {}.", self.rmailbx, self.emailbx)
     }
 }

@@ -74,14 +74,14 @@ where
             }
             2 => {
                 f.write_char(ch(chunk[0] >> 2))?;
-                f.write_char(ch((chunk[0] & 0x03) << 4 | chunk[1] >> 4))?;
+                f.write_char(ch(((chunk[0] & 0x03) << 4) | (chunk[1] >> 4)))?;
                 f.write_char(ch((chunk[1] & 0x0F) << 2))?;
                 f.write_char('=')?;
             }
             3 => {
                 f.write_char(ch(chunk[0] >> 2))?;
-                f.write_char(ch((chunk[0] & 0x03) << 4 | chunk[1] >> 4))?;
-                f.write_char(ch((chunk[1] & 0x0F) << 2 | chunk[2] >> 6))?;
+                f.write_char(ch(((chunk[0] & 0x03) << 4) | (chunk[1] >> 4)))?;
+                f.write_char(ch(((chunk[1] & 0x0F) << 2) | (chunk[2] >> 6)))?;
                 f.write_char(ch(chunk[2] & 0x3F))?;
             }
             _ => unreachable!(),
@@ -105,7 +105,7 @@ pub fn encode_display<Octets: AsRef<[u8]>>(
     struct Display<'a>(&'a [u8]);
 
     impl fmt::Display for Display<'_> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             display(self.0, f)
         }
     }
@@ -156,7 +156,7 @@ pub mod serde {
         {
             type Value = Octets;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an Base64-encoded string")
             }
 
@@ -280,11 +280,11 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
         if self.next == 4 {
             let target = self.target.as_mut().unwrap(); // Err covered above.
             target
-                .append_slice(&[self.buf[0] << 2 | self.buf[1] >> 4])
+                .append_slice(&[(self.buf[0] << 2) | (self.buf[1] >> 4)])
                 .map_err(Into::into)?;
             if self.buf[2] != 0x80 {
                 target
-                    .append_slice(&[self.buf[1] << 4 | self.buf[2] >> 2])
+                    .append_slice(&[(self.buf[1] << 4) | (self.buf[2] >> 2)])
                     .map_err(Into::into)?;
             }
             if self.buf[3] != 0x80 {
@@ -368,7 +368,7 @@ impl SymbolConverter {
         self.next += 1;
 
         if self.next == 4 {
-            self.output[0] = self.input[0] << 2 | self.input[1] >> 4;
+            self.output[0] = (self.input[0] << 2) | (self.input[1] >> 4);
 
             if self.input[2] == PAD_MARKER {
                 // The second to last character is padding. The last one
@@ -380,7 +380,7 @@ impl SymbolConverter {
                     Err(Error::custom("illegal Base 64 data"))
                 }
             } else {
-                self.output[1] = self.input[1] << 4 | self.input[2] >> 2;
+                self.output[1] = (self.input[1] << 4) | (self.input[2] >> 2);
 
                 if self.input[3] == PAD_MARKER {
                     // The last characters is padding.
@@ -456,7 +456,7 @@ impl From<ShortBuf> for DecodeError {
 //--- Display and Error
 
 impl fmt::Display for DecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             DecodeError::TrailingInput => f.write_str("trailing input"),
             DecodeError::IllegalChar(ch) => {

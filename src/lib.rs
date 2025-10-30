@@ -1,14 +1,12 @@
 //! A DNS library for Rust.
 //!
-//! This crates provides a number of building blocks for developing
-//! functionality related to the
-//! [Domain Name System (DNS)](https://www.rfc-editor.org/rfc/rfc9499.html).
-//! It provides fundamental types, traits, and code as well as a wide range
-//! of optional features. The intent is to eventually cover all aspects of
-//! modern DNS.
+//! This crate provides a number of building blocks for developing
+//! functionality related to the [Domain Name System (DNS)][dns].
+//!
+//! [dns]: https://www.rfc-editor.org/rfc/rfc9499.html
 //!
 //! The crate uses feature flags to allow you to select only those modules
-//! you need for you particular project. In most cases, the feature names
+//! you need for your particular project. In most cases, the feature names
 //! are equal to the module they enable.
 //!
 //! # Modules
@@ -21,13 +19,8 @@
 //! * [rdata] contains types and implementations for a growing number of
 //!   record types.
 //!
-//! In addition to those two basic modules, there are a number of modules for
-//! more specific features that are not required in all applications. In order
-//! to keep the amount of code to be compiled and the number of dependencies
-//! small, these are hidden behind feature flags through which they can be
-//! enabled if required. The flags have the same names as the modules.
-//!
-//! Currently, there are the following modules:
+//! The following additional modules exist, although they are gated behind
+//! feature flags (with the same names as the modules):
 //!
 #![cfg_attr(feature = "net", doc = "* [net]:")]
 #![cfg_attr(not(feature = "net"), doc = "* net:")]
@@ -36,28 +29,35 @@
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
 //!   [Tokio](https://tokio.rs/) async runtime.
-#![cfg_attr(feature = "unstable-sign", doc = "* [sign]:")]
-#![cfg_attr(not(feature = "unstable-sign"), doc = "* sign:")]
-//!   Experimental support for DNSSEC signing.
+#![cfg_attr(feature = "unstable-crypto", doc = "* [crypto]:")]
+#![cfg_attr(not(feature = "unstable-crypto"), doc = "* crypto:")]
+//!   Experimental support for cryptographic backends, key generation and
+//!   import.  Gated behind the `unstable-crypto` flag.
+//! * [dnssec]: DNSSEC signing and validation.
 #![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
 #![cfg_attr(not(feature = "tsig"), doc = "* tsig:")]
 //!   Support for securing DNS transactions with TSIG records.
-#![cfg_attr(feature = "unstable-validate", doc = "* [validate]:")]
-#![cfg_attr(not(feature = "unstable-validate"), doc = "* validate:")]
-//!   Experimental support for DNSSEC validation.
-#![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
-#![cfg_attr(not(feature = "unstable-validator"), doc = "* validator:")]
-//!   A DNSSEC validator.
 #![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
 #![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
 //!   Experimental reading and writing of zone files, i.e. the textual
 //!   representation of DNS data.
 #![cfg_attr(feature = "unstable-zonetree", doc = "* [zonetree]:")]
 #![cfg_attr(not(feature = "unstable-zonetree"), doc = "* zonetree:")]
-//!   Experimental storing and querying of zone trees.
+//!   Experimental storing and querying of zone trees.  Gated behind the
+//!   `unstable-zonetree` flag.
 //!
 //! Finally, the [dep] module contains re-exports of some important
 //! dependencies to help avoid issues with multiple versions of a crate.
+//!
+//! # The `new` Module
+//!
+//! The API of `domain` is undergoing several large-scale changes, that are
+//! collected under the `new` module.  It is gated behind the `unstable-new`
+//! flag.
+#![cfg_attr(
+    feature = "unstable-new",
+    doc = "See [its documentation][new] for more information."
+)]
 //!
 //! # Reference of feature flags
 //!
@@ -155,16 +155,18 @@
 //!   a client perspective; primarily the `net::client` module.
 //! * `unstable-server-transport`: receiving and sending DNS messages from
 //!   a server perspective; primarily the `net::server` module.
+//! * `unstable-crypto`: this feature flag needs to be combined with one or
+//!   more feature flags that enable cryptographic backends (currently `ring`
+//!   and `openssl`). This feature flags enables all parts of the crypto
+//!   module except for private key generation and signing.
+//! * `unstable-crypto-sign`: this feature flag needs to be combined with one
+//!   or more feature flags that enable cryptographic backends. This feature
+//!   flag enables all parts of the crypto module.
 //! * `unstable-sign`: basic DNSSEC signing support. This will enable the
-#![cfg_attr(feature = "unstable-sign", doc = "  [sign]")]
-#![cfg_attr(not(feature = "unstable-sign"), doc = "  sign")]
+//!   `dnssec::sign`
 //!   module and requires the `std` feature. In order to actually perform any
 //!   signing, also enable one or more cryptographic backend modules (`ring`
-//!   and `openssl`).
-//! * `unstable-validate`: basic DNSSEC validation support. This enables the
-#![cfg_attr(feature = "unstable-validate", doc = "  [validate]")]
-#![cfg_attr(not(feature = "unstable-validate"), doc = "  validate")]
-//!   module and currently also enables the `std` and `ring` features.
+//!   and `openssl`). Enabling this will also enable `unstable-crypto-sign`.
 //! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
 //!   and the `net::client::validator` modules.
 //! * `unstable-xfr`: zone transfer related functionality..
@@ -180,26 +182,43 @@
 #![allow(renamed_and_removed_lints)]
 #![allow(clippy::unknown_clippy_lints)]
 #![allow(clippy::uninlined_format_args)]
+#![warn(elided_lifetimes_in_paths)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
 
 #[cfg(feature = "std")]
 #[allow(unused_imports)] // Import macros even if unused.
 #[macro_use]
 extern crate std;
 
-#[macro_use]
-extern crate core;
+// The 'domain-macros' crate introduces 'derive' macros which can be used by
+// users of the 'domain' crate, but also by the 'domain' crate itself.  Within
+// those macros, references to declarations in the 'domain' crate are written
+// as '::domain::*' ... but this doesn't work when those proc macros are used
+// in the 'domain' crate itself.  The alias introduced here fixes this: now
+// '::domain' means the same thing within this crate as in dependents of it.
+extern crate self as domain;
+
+// Re-export 'core' for use in macros.
+#[doc(hidden)]
+pub use core as __core;
 
 pub mod base;
+pub mod crypto;
 pub mod dep;
+pub mod dnssec;
 pub mod net;
 pub mod rdata;
 pub mod resolv;
-pub mod sign;
 pub mod stelline;
 pub mod tsig;
 pub mod utils;
-pub mod validate;
-pub mod validator;
 pub mod zonefile;
 pub mod zonetree;
+
+#[cfg(feature = "unstable-new")]
+pub mod new;
+
+mod logging;

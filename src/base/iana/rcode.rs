@@ -254,7 +254,7 @@ impl From<Rcode> for u8 {
 //--- Display and Debug
 
 impl fmt::Display for Rcode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self
             .to_mnemonic()
             .and_then(|bytes| core::str::from_utf8(bytes).ok())
@@ -266,7 +266,7 @@ impl fmt::Display for Rcode {
 }
 
 impl fmt::Debug for Rcode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self
             .to_mnemonic()
             .and_then(|bytes| core::str::from_utf8(bytes).ok())
@@ -537,7 +537,7 @@ impl OptRcode {
     /// Creates an extended rcode value from its parts.
     #[must_use]
     pub fn from_parts(rcode: Rcode, ext: u8) -> OptRcode {
-        OptRcode(u16::from(ext) << 4 | u16::from(rcode.to_int()))
+        OptRcode((u16::from(ext) << 4) | u16::from(rcode.to_int()))
     }
 
     /// Returns the two parts of an extended rcode value.
@@ -644,7 +644,7 @@ impl From<Rcode> for OptRcode {
 //--- Display and Debug
 
 impl fmt::Display for OptRcode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self
             .to_mnemonic()
             .and_then(|bytes| core::str::from_utf8(bytes).ok())
@@ -656,7 +656,7 @@ impl fmt::Display for OptRcode {
 }
 
 impl fmt::Debug for OptRcode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self
             .to_mnemonic()
             .and_then(|bytes| core::str::from_utf8(bytes).ok())
@@ -906,7 +906,7 @@ int_enum_zonefile_fmt_with_decimal!(TsigRcode);
 pub struct InvalidRcode(());
 
 impl fmt::Display for InvalidRcode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("invalid rcode value")
     }
 }

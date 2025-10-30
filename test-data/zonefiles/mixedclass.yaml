@@ -1,0 +1,16 @@
+origin: example.com.
+zonefile: |
+  classless     3600  IN  TXT  \# 4 03 66 6f 6f
+  ch            3600  CH  A    192.168.0.1
+result:
+  - owner: classless.example.com.
+    class: IN
+    ttl: 3600
+    data: !Unknown
+      rtype: Txt
+      data: 03666f6f
+  - owner: ch.example.com.
+    class: CH
+    ttl: 3600
+    data: !A
+      addr: 192.168.0.1

@@ -62,8 +62,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
+use constant_time_eq::constant_time_eq;
 use octseq::octets::Octets;
-use ring::{constant_time, hkdf::KeyType, hmac, rand};
+use ring::{hkdf::KeyType, hmac, rand};
 
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
@@ -331,7 +332,7 @@ impl Key {
     /// Checks whether the key in the record is this key.
     fn check_tsig<Octs: Octets + ?Sized>(
         &self,
-        tsig: &MessageTsig<Octs>,
+        tsig: &MessageTsig<'_, Octs>,
     ) -> Result<(), ValidationError> {
         if *tsig.record.owner() != self.name
             || *tsig.record.data().algorithm() != self.algorithm().to_name()
@@ -360,8 +361,10 @@ impl Key {
         } else {
             expected.as_ref()
         };
-        constant_time::verify_slices_are_equal(expected, provided)
-            .map_err(|_| ValidationError::BadSig)
+        if !constant_time_eq(expected, provided) {
+            return Err(ValidationError::BadSig);
+        }
+        Ok(())
     }
 
     /// Completes a message by adding a TSIG record.
@@ -1653,10 +1656,7 @@ impl Algorithm {
     /// Returns `None` if the name doesn’t represent a known algorithm.
     pub fn from_name<N: ToName>(name: &N) -> Option<Self> {
         let mut labels = name.iter_labels();
-        let first = match labels.next() {
-            Some(label) => label,
-            None => return None,
-        };
+        let first = labels.next()?;
         match labels.next() {
             Some(label) if label.is_root() => {}
             _ => return None,
@@ -1742,7 +1742,7 @@ impl str::FromStr for Algorithm {
 //--- Display
 
 impl fmt::Display for Algorithm {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -1866,13 +1866,13 @@ impl<K: AsRef<Key>> ServerError<K> {
 //--- Debug, Display, and Error
 
 impl<K> fmt::Debug for ServerError<K> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("ServerError").field(&self.0).finish()
     }
 }
 
 impl<K> fmt::Debug for ServerErrorInner<K> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             ServerErrorInner::Unsigned { error } => {
                 f.debug_struct("Unsigned").field("error", &error).finish()
@@ -1886,7 +1886,7 @@ impl<K> fmt::Debug for ServerErrorInner<K> {
 }
 
 impl<K> fmt::Display for ServerError<K> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.error().fmt(f)
     }
 }
@@ -1906,7 +1906,7 @@ pub enum NewKeyError {
 //--- Display and Error
 
 impl fmt::Display for NewKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             NewKeyError::BadMinMacLen => {
                 f.write_str("minimum signature length out of bounds")
@@ -1951,7 +1951,7 @@ impl From<ring::error::Unspecified> for GenerateKeyError {
 //--- Display and Error
 
 impl fmt::Display for GenerateKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             GenerateKeyError::BadMinMacLen => {
                 f.write_str("minimum signature length out of bounds")
@@ -1978,7 +1978,7 @@ pub struct AlgorithmError;
 //--- Display and Error
 
 impl fmt::Display for AlgorithmError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("invalid algorithm")
     }
 }
@@ -2016,7 +2016,7 @@ impl From<ParseError> for ValidationError {
 //--- Display and Error
 
 impl fmt::Display for ValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             ValidationError::BadAlg => f.write_str("unknown algorithm"),
             ValidationError::BadOther => {

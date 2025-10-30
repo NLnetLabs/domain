@@ -517,10 +517,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     //  iterator would break off in this case and we break out with a None
     //  right away.
     pub fn canonical_name(&self) -> Option<ParsedName<Octs::Range<'_>>> {
-        let question = match self.first_question() {
-            None => return None,
-            Some(question) => question,
-        };
+        let question = self.first_question()?;
         let mut name = question.into_qname();
         let answer = match self.answer() {
             Ok(answer) => answer.limit_to::<Cname<_>>(),
@@ -735,7 +732,7 @@ impl<'a, Octs: Octets + ?Sized> IntoIterator for &'a Message<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Message<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Message")
             .field("id", &self.header().id())
             .field("qr", &self.header().qr())
@@ -1309,7 +1306,7 @@ where
 pub struct ShortMessage(());
 
 impl fmt::Display for ShortMessage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("short message")
     }
 }
@@ -1346,7 +1343,7 @@ impl From<PushError> for CopyRecordsError {
 //--- Display and Error
 
 impl fmt::Display for CopyRecordsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             CopyRecordsError::Parse(ref err) => err.fmt(f),
             CopyRecordsError::Push(ref err) => err.fmt(f),
