@@ -380,22 +380,6 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
             .compose(target)?;
         target.append_slice(self.0.as_ref())
     }
-
-    /// Appends the canonical wire format representation to an octets builder.
-    pub fn compose_canonical<Target: OctetsBuilder + ?Sized>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), Target::AppendError> {
-        u8::try_from(self.0.as_ref().len())
-            .expect("long charstr")
-            .compose(target)?;
-
-        for ch in self.0.as_ref() {
-            ch.compose(target)?;
-        }
-
-        Ok(())
-    }
 }
 
 impl<Octs> CharStr<Octs> {
