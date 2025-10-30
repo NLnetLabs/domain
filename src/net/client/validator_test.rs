@@ -1,7 +1,5 @@
 //! Module for testing the validator client transport.
 
-#![cfg(test)]
-
 use std::fs::File;
 use std::path::PathBuf;
 use std::string::ToString;

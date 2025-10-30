@@ -260,9 +260,6 @@ pub mod tsig;
     any(feature = "ring", feature = "openssl")
 ))]
 pub mod validator;
-#[cfg(all(
-    feature = "unstable-stelline",
-    feature = "unstable-validator",
-    any(feature = "ring", feature = "openssl")
-))]
+
+#[cfg(all(test, feature = "unstable-validator"))]
 pub mod validator_test;
