@@ -79,7 +79,7 @@ zonefile    = ["bytes", "serde", "std"]
 # Unstable features
 unstable-new = []
 unstable-client-cache = ["unstable-client-transport", "moka"]
-unstable-client-transport = ["moka", "net", "tracing"]
+unstable-client-transport = ["net", "tracing"]
 unstable-crypto = ["bytes"]
 unstable-crypto-sign = ["dep:secrecy", "std", "unstable-crypto"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
