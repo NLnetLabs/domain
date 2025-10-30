@@ -4,15 +4,42 @@
 
 Breaking changes
 
+* Add new `LimitExceeded` variant to `MessageBuilder`'s `PushError`. ([#349])
+* `StubResolver` now keeps its state in an `Arc` and can be cloned cheaply.
+  ([#393])
+
 New
 
+* Add `rdata::dnssec::Timestamp::to_system_time` to help sorting timestamps.
+ ([#548])
+
 Improvements
+
+* Exclude `moka` dependency from the `resolv` feature, reducing the number of
+  dependencies and compile time significantly. ([#575] by [@WhyNotHugo])
 
 Bug fixes
 
 Unstable features
 
+* `unstable-crypto-sign`
+  * Add support for RSA/SHA-512 to openssl signer. ([#550])
+* `unstable-server-transport`
+  * Implement `std::error::Error` for `ServiceError`. ([#570] by
+    [@rossmacarthur])
+* `unstable-xfr`
+  * Various fixes and improvements. ([#507])
+
 Other changes
+
+[#349]: https://github.com/NLnetLabs/domain/pull/349
+[#393]: https://github.com/NLnetLabs/domain/pull/393
+[#507]: https://github.com/NLnetLabs/domain/pull/507
+[#548]: https://github.com/NLnetLabs/domain/pull/548
+[#550]: https://github.com/NLnetLabs/domain/pull/550
+[#570]: https://github.com/NLnetLabs/domain/pull/570
+[@rossmacarthur]: https://github.com/rossmacarthur
+[@WhyNotHugo]: https://github.com/WhyNotHugo
 
 
 ## 0.11.1
