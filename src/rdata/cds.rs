@@ -2,7 +2,7 @@
 //!
 //! [RFC 7344]: https://tools.ietf.org/html/rfc7344
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{DigestAlg, Rtype, SecAlg};
+use crate::base::iana::{DigestAlgorithm, Rtype, SecurityAlgorithm};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
@@ -38,7 +38,7 @@ use octseq::parse::Parser;
 pub struct Cdnskey<Octs> {
     flags: u16,
     protocol: u8,
-    algorithm: SecAlg,
+    algorithm: SecurityAlgorithm,
     #[cfg_attr(
         feature = "serde",
         serde(with = "crate::utils::base64::serde")
@@ -55,7 +55,7 @@ impl<Octs> Cdnskey<Octs> {
     pub fn new(
         flags: u16,
         protocol: u8,
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
         public_key: Octs,
     ) -> Result<Self, LongRecordData>
     where
@@ -63,7 +63,9 @@ impl<Octs> Cdnskey<Octs> {
     {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+                u16::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + SecurityAlgorithm::COMPOSE_LEN,
             )
             .checked_add(public_key.as_ref().len())
             .expect("long key"),
@@ -82,7 +84,7 @@ impl<Octs> Cdnskey<Octs> {
     pub unsafe fn new_unchecked(
         flags: u16,
         protocol: u8,
-        algorithm: SecAlg,
+        algorithm: SecurityAlgorithm,
         public_key: Octs,
     ) -> Self {
         Cdnskey {
@@ -101,7 +103,7 @@ impl<Octs> Cdnskey<Octs> {
         self.protocol
     }
 
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
@@ -139,7 +141,7 @@ impl<Octs> Cdnskey<Octs> {
             Self::new_unchecked(
                 u16::parse(parser)?,
                 u8::parse(parser)?,
-                SecAlg::parse(parser)?,
+                SecurityAlgorithm::parse(parser)?,
                 parser.parse_octets(len)?,
             )
         })
@@ -154,7 +156,7 @@ impl<Octs> Cdnskey<Octs> {
         Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
-            SecAlg::scan(scanner)?,
+            SecurityAlgorithm::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
@@ -281,7 +283,9 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cdnskey<Octs> {
             u16::try_from(self.public_key.as_ref().len())
                 .expect("long key")
                 .checked_add(
-                    u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+                    u16::COMPOSE_LEN
+                        + u8::COMPOSE_LEN
+                        + SecurityAlgorithm::COMPOSE_LEN,
                 )
                 .expect("long key"),
         )
@@ -308,7 +312,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cdnskey<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Cdnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} {} ", self.flags, self.protocol, self.algorithm)?;
         base64::display(&self.public_key, f)
     }
@@ -317,7 +321,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Cdnskey<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cdnskey")
             .field("flags", &self.flags)
             .field("protocol", &self.protocol)
@@ -362,8 +366,8 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for Cdnskey<Octs> {
 )]
 pub struct Cds<Octs> {
     key_tag: u16,
-    algorithm: SecAlg,
-    digest_type: DigestAlg,
+    algorithm: SecurityAlgorithm,
+    digest_type: DigestAlgorithm,
     #[cfg_attr(
         feature = "serde",
         serde(with = "crate::utils::base64::serde")
@@ -379,8 +383,8 @@ impl Cds<()> {
 impl<Octs> Cds<Octs> {
     pub fn new(
         key_tag: u16,
-        algorithm: SecAlg,
-        digest_type: DigestAlg,
+        algorithm: SecurityAlgorithm,
+        digest_type: DigestAlgorithm,
         digest: Octs,
     ) -> Result<Self, LongRecordData>
     where
@@ -389,8 +393,8 @@ impl<Octs> Cds<Octs> {
         LongRecordData::check_len(
             usize::from(
                 u16::COMPOSE_LEN
-                    + SecAlg::COMPOSE_LEN
-                    + DigestAlg::COMPOSE_LEN,
+                    + SecurityAlgorithm::COMPOSE_LEN
+                    + DigestAlgorithm::COMPOSE_LEN,
             )
             .checked_add(digest.as_ref().len())
             .expect("long digest"),
@@ -408,8 +412,8 @@ impl<Octs> Cds<Octs> {
     /// record data is at most 65,535 octets long.
     pub unsafe fn new_unchecked(
         key_tag: u16,
-        algorithm: SecAlg,
-        digest_type: DigestAlg,
+        algorithm: SecurityAlgorithm,
+        digest_type: DigestAlgorithm,
         digest: Octs,
     ) -> Self {
         Cds {
@@ -424,11 +428,11 @@ impl<Octs> Cds<Octs> {
         self.key_tag
     }
 
-    pub fn algorithm(&self) -> SecAlg {
+    pub fn algorithm(&self) -> SecurityAlgorithm {
         self.algorithm
     }
 
-    pub fn digest_type(&self) -> DigestAlg {
+    pub fn digest_type(&self) -> DigestAlgorithm {
         self.digest_type
     }
 
@@ -469,8 +473,8 @@ impl<Octs> Cds<Octs> {
         Ok(unsafe {
             Self::new_unchecked(
                 u16::parse(parser)?,
-                SecAlg::parse(parser)?,
-                DigestAlg::parse(parser)?,
+                SecurityAlgorithm::parse(parser)?,
+                DigestAlgorithm::parse(parser)?,
                 parser.parse_octets(len)?,
             )
         })
@@ -484,8 +488,8 @@ impl<Octs> Cds<Octs> {
     {
         Self::new(
             u16::scan(scanner)?,
-            SecAlg::scan(scanner)?,
-            DigestAlg::scan(scanner)?,
+            SecurityAlgorithm::scan(scanner)?,
+            DigestAlgorithm::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
@@ -621,8 +625,8 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cds<Octs> {
         Some(
             u16::checked_add(
                 u16::COMPOSE_LEN
-                    + SecAlg::COMPOSE_LEN
-                    + DigestAlg::COMPOSE_LEN,
+                    + SecurityAlgorithm::COMPOSE_LEN
+                    + DigestAlgorithm::COMPOSE_LEN,
                 self.digest.as_ref().len().try_into().expect("long digest"),
             )
             .expect("long digest"),
@@ -650,7 +654,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cds<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Cds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} ",
@@ -666,7 +670,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Cds<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cds")
             .field("key_tag", &self.key_tag)
             .field("algorithm", &self.algorithm)
@@ -711,7 +715,8 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cdnskey_compose_parse_scan() {
-        let rdata = Cdnskey::new(10, 11, SecAlg::RSASHA1, b"key").unwrap();
+        let rdata =
+            Cdnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cdnskey::parse(parser));
         test_scan(&["10", "11", "5", "a2V5"], Cdnskey::scan, &rdata);
@@ -722,8 +727,13 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cds_compose_parse_scan() {
-        let rdata =
-            Cds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
+        let rdata = Cds::new(
+            10,
+            SecurityAlgorithm::RSASHA1,
+            DigestAlgorithm::SHA256,
+            b"key",
+        )
+        .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));
         test_scan(&["10", "5", "2", "6b6579"], Cds::scan, &rdata);

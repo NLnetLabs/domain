@@ -11,8 +11,8 @@ use super::super::message_builder::OptBuilder;
 use super::super::name::{Name, ToName};
 use super::super::wire::{Composer, ParseError};
 use super::{ComposeOptData, Opt, OptData, ParseOptData};
-use core::{fmt, hash, mem};
 use core::cmp::Ordering;
+use core::{fmt, hash, mem};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
@@ -174,13 +174,13 @@ impl<Name: ToName> ComposeOptData for Chain<Name> {
 //--- Display and Debug
 
 impl<Name: fmt::Display> fmt::Display for Chain<Name> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.start)
     }
 }
 
 impl<Name: fmt::Display> fmt::Debug for Chain<Name> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Chain")
             .field("start", &format_args!("{}", self.start))
             .finish()
@@ -199,7 +199,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends the CHAIN option.
     ///
     /// The CHAIN option allows a client to request that all records that

@@ -529,7 +529,7 @@ where
                     let rd = header.rd();
 
                     let dnssec_ok =
-                        msg.opt().map_or(false, |opt| opt.dnssec_ok());
+                        msg.opt().is_some_and(|opt| opt.dnssec_ok());
                     if dnssec_ok && !ad {
                         ad = true;
                     }

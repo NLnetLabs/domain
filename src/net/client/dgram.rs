@@ -25,6 +25,7 @@ use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::vec::Vec;
 use std::{error, io};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
@@ -229,15 +230,15 @@ where
         mut request: Req,
     ) -> Result<Message<Bytes>, Error> {
         // Acquire the semaphore or wait for it.
-        let _ = self
+        let _permit = self
             .state
             .semaphore
             .acquire()
             .await
             .expect("semaphore closed");
 
-        // A place to store the receive buffer for reuse.
-        let mut reuse_buf = None;
+        // The buffer we will reuse on subsequent requests
+        let mut buf = Vec::new();
 
         // Transmit loop.
         for _ in 0..1 + self.state.config.max_retries {
@@ -267,10 +268,10 @@ where
             // Receive loop. It may at most take read_timeout time.
             let deadline = Instant::now() + self.state.config.read_timeout;
             while deadline > Instant::now() {
-                let mut buf = reuse_buf.take().unwrap_or_else(|| {
-                    // XXX use uninit'ed mem here.
-                    vec![0; self.state.config.recv_size]
-                });
+                // The buffer might have been truncated in a previous
+                // iteration.
+                buf.resize(self.state.config.recv_size, 0);
+
                 let len =
                     match timeout_at(deadline, sock.recv(&mut buf)).await {
                         Ok(Ok(len)) => len,
@@ -292,10 +293,10 @@ where
                 // thing.
                 let answer = match Message::try_from_octets(buf) {
                     Ok(answer) => answer,
-                    Err(buf) => {
+                    Err(old_buf) => {
                         // Just go back to receiving.
                         trace!("Received bytes were garbage, reading more");
-                        reuse_buf = Some(buf);
+                        buf = old_buf;
                         continue;
                     }
                 };
@@ -303,7 +304,7 @@ where
                 if !request.is_answer(answer.for_slice()) {
                     // Wrong answer, go back to receiving
                     trace!("Received message is not the answer we were waiting for, reading more");
-                    reuse_buf = Some(answer.into_octets());
+                    buf = answer.into_octets();
                     continue;
                 }
 
@@ -406,7 +407,7 @@ impl QueryError {
     fn short_send() -> Self {
         Self::new(
             QueryErrorKind::Send,
-            io::Error::new(io::ErrorKind::Other, "short request sent"),
+            io::Error::other("short request sent"),
         )
     }
 
@@ -443,7 +444,7 @@ impl From<QueryError> for std::io::Error {
 }
 
 impl fmt::Display for QueryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.kind.error_str(), self.io)
     }
 }
@@ -480,7 +481,7 @@ impl QueryErrorKind {
 }
 
 impl fmt::Display for QueryErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Connect => "connecting failed",
             Self::Send => "sending request failed",

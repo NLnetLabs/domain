@@ -11,14 +11,13 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Composer, ParseError};
 use super::{
-    BuildDataError, LongOptData, Opt, OptData, ComposeOptData, ParseOptData
+    BuildDataError, ComposeOptData, LongOptData, Opt, OptData, ParseOptData,
 };
+use core::cmp::Ordering;
+use core::{borrow, fmt, hash, mem, str};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{borrow, fmt, hash, mem, str};
-use core::cmp::Ordering;
-
 
 //------------ Nsid ---------------------------------------------------------/
 
@@ -47,18 +46,21 @@ impl Nsid<()> {
 impl<Octs: octseq::serde::SerializeOctets> serde::Serialize for Nsid<Octs> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         self.octets.serialize_octets(serializer)
     }
 }
-    
+
 impl<Octs> Nsid<Octs> {
     /// Creates a value from the ocets of the name server identifier.
     ///
     /// The function returns an error if `octets` is longer than 65,535
     /// octets.
     pub fn from_octets(octets: Octs) -> Result<Self, LongOptData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongOptData::check_len(octets.as_ref().len())?;
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
@@ -75,13 +77,11 @@ impl<Octs> Nsid<Octs> {
 
     /// Parses a value from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
         LongOptData::check_len(len)?;
-        Ok(unsafe { Self::from_octets_unchecked(
-            parser.parse_octets(len)?
-        )})
+        Ok(unsafe { Self::from_octets_unchecked(parser.parse_octets(len)?) })
     }
 }
 
@@ -139,7 +139,7 @@ impl<Octs: ?Sized> Nsid<Octs> {
     /// Returns a value over an octets slice.
     pub fn for_slice(&self) -> &Nsid<[u8]>
     where
-        Octs: AsRef<[u8]>
+        Octs: AsRef<[u8]>,
     {
         unsafe { Nsid::from_slice_unchecked(self.octets.as_ref()) }
     }
@@ -148,13 +148,14 @@ impl<Octs: ?Sized> Nsid<Octs> {
 //--- OctetsFrom
 
 impl<Octs, SrcOcts> OctetsFrom<Nsid<SrcOcts>> for Nsid<Octs>
-where Octs: OctetsFrom<SrcOcts> {
+where
+    Octs: OctetsFrom<SrcOcts>,
+{
     type Error = Octs::Error;
 
     fn try_octets_from(src: Nsid<SrcOcts>) -> Result<Self, Self::Error> {
-        Octs::try_octets_from(src.octets).map(|octets| unsafe {
-            Self::from_octets_unchecked(octets)
-        })
+        Octs::try_octets_from(src.octets)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 
@@ -187,8 +188,7 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for Nsid<Octs::Range<'a>> {
     ) -> Result<Option<Self>, ParseError> {
         if code == OptionCode::NSID {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -196,11 +196,16 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for Nsid<Octs::Range<'a>> {
 
 impl<Octs: AsRef<[u8]> + ?Sized> ComposeOptData for Nsid<Octs> {
     fn compose_len(&self) -> u16 {
-        self.octets.as_ref().len().try_into().expect("long option data")
+        self.octets
+            .as_ref()
+            .len()
+            .try_into()
+            .expect("long option data")
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.octets.as_ref())
     }
@@ -209,7 +214,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> ComposeOptData for Nsid<Octs> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsid<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // RFC 5001 § 2.4:
         // | User interfaces MUST read and write the contents of the NSID
         // | option as a sequence of hexadecimal digits, two digits per
@@ -225,7 +230,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsid<Octs> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsid<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Nsid({})", self)
     }
 }
@@ -242,7 +247,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> Eq for Nsid<Octs> { }
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for Nsid<Octs> {}
 
 //--- PartialOrd and Ord
 
@@ -283,7 +288,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends an NSID option with the given server identifier.
     ///
     /// The NSID option contains an identifier for the name server that
@@ -294,7 +299,8 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     /// empty. You can use [`client_nsid`][Self::client_nsid] to easily
     /// append this version of the option.
     pub fn nsid(
-        &mut self, data: &(impl AsRef<[u8]> + ?Sized)
+        &mut self,
+        data: &(impl AsRef<[u8]> + ?Sized),
     ) -> Result<(), BuildDataError> {
         Ok(self.push(Nsid::from_slice(data.as_ref())?)?)
     }
@@ -315,15 +321,15 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
-    use super::*;
     use super::super::test::test_option_compose_parse;
-    
+    use super::*;
+
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsid_compose_parse() {
         test_option_compose_parse(
             &Nsid::from_octets("foo").unwrap(),
-            |parser| Nsid::parse(parser)
+            |parser| Nsid::parse(parser),
         );
     }
 }

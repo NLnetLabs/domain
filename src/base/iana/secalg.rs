@@ -1,6 +1,6 @@
 //! DNSSEC Algorithm Numbers
 
-//------------ SecAlg -------------------------------------------------------
+//------------ SecurityAlgorithm ---------------------------------------------
 
 int_enum! {
     /// Security Algorithm Numbers.
@@ -11,7 +11,7 @@ int_enum! {
     ///
     /// [IANA registration]: http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml#dns-sec-alg-numbers-1].
     =>
-    SecAlg, u8;
+    SecurityAlgorithm, u8;
 
     /// Delete DS
     ///
@@ -116,5 +116,5 @@ int_enum! {
     (PRIVATEOID => 254, "PRIVATEOID")
 }
 
-int_enum_str_decimal!(SecAlg, u8);
-int_enum_zonefile_fmt_decimal!(SecAlg, "algorithm");
+int_enum_str_decimal!(SecurityAlgorithm, u8);
+int_enum_zonefile_fmt_decimal!(SecurityAlgorithm, "algorithm");

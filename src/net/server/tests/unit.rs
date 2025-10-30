@@ -15,13 +15,13 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::sleep;
 use tokio::time::Instant;
 use tracing::trace;
-use tracing_subscriber::EnvFilter;
 
 use crate::base::MessageBuilder;
 use crate::base::Name;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::base::StreamTarget;
+use crate::logging::init_logging;
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::Request;
 use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
@@ -220,7 +220,7 @@ impl AsyncAccept for MockListener {
     /// Accept mock connections one at a time at a defined rate.
     fn poll_accept(
         &self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
     ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         match self.ready.load(Ordering::Relaxed) {
             true => {
@@ -378,14 +378,7 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
 // waiting to allow time to elapse.
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn tcp_service_test() {
-    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
-    // RUST_LOG=trace.
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
+    init_logging();
 
     let (srv_handle, server_status_printer_handle) = {
         let fast_client = MockClientConfig {
@@ -477,14 +470,7 @@ async fn tcp_service_test() {
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn tcp_client_disconnect_test() {
-    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
-    // RUST_LOG=trace.
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
+    init_logging();
 
     let (srv_handle, server_status_printer_handle) = {
         let fast_client = MockClientConfig {

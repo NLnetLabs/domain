@@ -334,7 +334,7 @@ impl GetResponse for Request {
 }
 
 impl Debug for Request {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -391,7 +391,7 @@ impl GetResponseMulti for RequestMulti {
 }
 
 impl Debug for RequestMulti {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -630,7 +630,8 @@ where
                             Self::error(
                                 Error::StreamReadTimeout,
                                 &mut query_vec,
-                            );
+                            )
+                            .await;
                             status.state = ConnState::ReadTimeout;
                             break;
                         }
@@ -684,6 +685,11 @@ where
             tokio::select! {
                 biased;
                 res = &mut reader_fut => {
+                    // The reader might have sent replies before dying
+                    while let Ok(answer) = reply_receiver.try_recv() {
+                        Self::demux_reply(answer, &mut status, &mut query_vec).await;
+                    }
+
                     match res {
                         Ok(_) =>
                             // The reader should not
@@ -691,7 +697,7 @@ where
                             // error.
                             panic!("reader terminated"),
                         Err(error) => {
-                            Self::error(error.clone(), &mut query_vec);
+                            Self::error(error.clone(), &mut query_vec).await;
                             status.state = ConnState::ReadError(error);
                             // Reader failed. Break
                             // out of loop and
@@ -702,13 +708,6 @@ where
                 }
                 opt_answer = reply_receiver.recv() => {
                     let answer = opt_answer.expect("reader died?");
-                    // Check for a edns-tcp-keepalive option
-                    let opt_record = answer.opt();
-                    if let Some(ref opts) = opt_record {
-                        Self::handle_opts(opts,
-                            &mut status);
-                    };
-                    drop(opt_record);
                     Self::demux_reply(answer, &mut status, &mut query_vec).await;
                 }
                 res = write_stream.write(&msg[reqmsg_offset..]),
@@ -717,7 +716,7 @@ where
             Err(error) => {
                 let error =
                 Error::StreamWriteError(Arc::new(error));
-                Self::error(error.clone(), &mut query_vec);
+                Self::error(error.clone(), &mut query_vec).await;
                 status.state =
                 ConnState::WriteError(error);
                 break;
@@ -847,14 +846,14 @@ where
     }
 
     /// Reports an error to all outstanding queries.
-    fn error(
+    async fn error(
         error: Error,
         query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRState>)>,
     ) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
         for (mut req, _) in query_vec.drain() {
-            _ = req.sender.send(Err(error.clone()));
+            _ = req.sender.send(Err(error.clone())).await;
         }
     }
 
@@ -884,6 +883,11 @@ where
         status: &mut Status,
         query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRState>)>,
     ) {
+        // Check for an edns-tcp-keepalive option
+        if let Some(opts) = answer.opt() {
+            Self::handle_opts(&opts, status);
+        };
+
         // We got an answer, reset the timer
         status.state = ConnState::Active(Some(Instant::now()));
 
@@ -1336,7 +1340,7 @@ impl<T> Queries<T> {
         // index needs to fit in an u16. For efficiency we want to
         // keep the vector half empty. So we return a failure if
         // 2*count > u16::MAX
-        if 2 * self.count > u16::MAX.into() {
+        if 2 * self.count > u16::MAX as usize {
             return Err(req);
         }
 

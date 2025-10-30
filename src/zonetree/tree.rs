@@ -62,7 +62,7 @@ impl ZoneTree {
     }
 
     /// Returns an iterator over all of the [`Zone`]s in the tree.
-    pub fn iter_zones(&self) -> ZoneSetIter {
+    pub fn iter_zones(&self) -> ZoneSetIter<'_> {
         ZoneSetIter::new(self)
     }
 

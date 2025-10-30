@@ -152,7 +152,7 @@ use octseq::octets::Octets;
 #[cfg(feature = "std")]
 use std::collections::{hash_map::RandomState, HashMap};
 #[cfg(feature = "std")]
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::BuildHasher;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -1417,10 +1417,12 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     /// [`OptBuilder`]: struct.OptBuilder.html
     pub fn opt<F>(&mut self, op: F) -> Result<(), PushError>
     where
-        F: FnOnce(&mut OptBuilder<Target>) -> Result<(), Target::AppendError>,
+        F: FnOnce(
+            &mut OptBuilder<'_, Target>,
+        ) -> Result<(), Target::AppendError>,
     {
         self.authority.answer.builder.push(
-            |target| OptBuilder::new(target)?.build(op).map_err(Into::into),
+            |target| OptBuilder::new(target)?.build(op),
             |counts| counts.inc_arcount(),
         )
     }
@@ -2471,9 +2473,7 @@ impl HashEntry {
 
     /// Compute the hash of this entry.
     fn hash(&self, message: &[u8], hasher: &RandomState) -> u64 {
-        let mut state = hasher.build_hasher();
-        (self.head(message), self.tail).hash(&mut state);
-        state.finish()
+        hasher.hash_one((self.head(message), self.tail))
     }
 
     /// Compare this entry to a label.
@@ -2559,7 +2559,7 @@ impl<Target: Composer> Composer for HashCompressor<Target> {
 
         // Remove the root label -- we know it's there.
         assert!(
-            name.next_back().map_or(false, |l| l.is_root()),
+            name.next_back().is_some_and(|l| l.is_root()),
             "absolute names must end with a root label"
         );
 
@@ -2573,11 +2573,7 @@ impl<Target: Composer> Composer for HashCompressor<Target> {
         while let Some(label) = name.next_back() {
             // Look up the labels seen thus far in the hash table.
             let query = (label, position);
-            let hash = {
-                let mut state = self.hasher.build_hasher();
-                query.hash(&mut state);
-                state.finish()
-            };
+            let hash = self.hasher.hash_one(query);
 
             let entry =
                 self.names.find(hash, |&name| name.eq(message, query));
@@ -2658,7 +2654,7 @@ impl<T: Into<ShortBuf>> From<T> for PushError {
 }
 
 impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             PushError::CountOverflow => f.write_str("counter overflow"),
             PushError::ShortBuf => ShortBuf.fmt(f),

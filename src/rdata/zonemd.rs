@@ -9,12 +9,12 @@
 #![allow(clippy::needless_maybe_sized)]
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::Rtype;
+use crate::base::iana::{Rtype, ZonemdAlgorithm, ZonemdScheme};
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
-use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -29,8 +29,8 @@ const DIGEST_MIN_LEN: usize = 12;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Zonemd<Octs: ?Sized> {
     serial: Serial,
-    scheme: Scheme,
-    algo: Algorithm,
+    scheme: ZonemdScheme,
+    algo: ZonemdAlgorithm,
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -54,8 +54,8 @@ impl<Octs> Zonemd<Octs> {
     /// Create a Zonemd record data from provided parameters.
     pub fn new(
         serial: Serial,
-        scheme: Scheme,
-        algo: Algorithm,
+        scheme: ZonemdScheme,
+        algo: ZonemdAlgorithm,
         digest: Octs,
     ) -> Self {
         Self {
@@ -72,12 +72,12 @@ impl<Octs> Zonemd<Octs> {
     }
 
     /// Get the scheme field.
-    pub fn scheme(&self) -> Scheme {
+    pub fn scheme(&self) -> ZonemdScheme {
         self.scheme
     }
 
     /// Get the hash algorithm field.
-    pub fn algorithm(&self) -> Algorithm {
+    pub fn algorithm(&self) -> ZonemdAlgorithm {
         self.algo
     }
 
@@ -207,7 +207,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Eq for Zonemd<Octs> {}
 
 // section 2.4
 impl<Octs: AsRef<[u8]>> fmt::Display for Zonemd<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {} ( ",
@@ -221,7 +221,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Zonemd<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Zonemd<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Zonemd(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
@@ -233,20 +233,7 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for Zonemd<Octs> {
         p.block(|p| {
             p.write_token(self.serial)?;
             p.write_show(self.scheme)?;
-            p.write_comment(format_args!("scheme ({})", match self.scheme {
-                Scheme::Reserved => "reserved",
-                Scheme::Simple => "simple",
-                Scheme::Unassigned(_) => "unassigned",
-                Scheme::Private(_) => "private",
-            }))?;
             p.write_show(self.algo)?;
-            p.write_comment(format_args!("algorithm ({})", match self.algo {
-                Algorithm::Reserved => "reserved",
-                Algorithm::Sha384 => "SHA384",
-                Algorithm::Sha512 => "SHA512",
-                Algorithm::Unassigned(_) => "unassigned",
-                Algorithm::Private(_) => "private",
-            }))?;
             p.write_token(base16::encode_display(&self.digest))
         })
     }
@@ -314,92 +301,6 @@ impl<Octs: AsRef<[u8]>> Ord for Zonemd<Octs> {
     }
 }
 
-/// The data collation scheme.
-///
-/// This enumeration wraps an 8-bit unsigned integer that identifies the
-/// methods by which data is collated and presented as input to the
-/// hashing function.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Scheme {
-    Reserved,
-    Simple,
-    Unassigned(u8),
-    Private(u8),
-}
-
-impl From<Scheme> for u8 {
-    fn from(s: Scheme) -> u8 {
-        match s {
-            Scheme::Reserved => 0,
-            Scheme::Simple => 1,
-            Scheme::Unassigned(n) => n,
-            Scheme::Private(n) => n,
-        }
-    }
-}
-
-impl From<u8> for Scheme {
-    fn from(n: u8) -> Self {
-        match n {
-            0 | 255 => Self::Reserved,
-            1 => Self::Simple,
-            2..=239 => Self::Unassigned(n),
-            240..=254 => Self::Private(n),
-        }
-    }
-}
-
-impl ZonefileFmt for Scheme {
-    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
-        p.write_token(u8::from(*self))
-    }
-}
-
-/// The Hash Algorithm used to construct the digest.
-///
-/// This enumeration wraps an 8-bit unsigned integer that identifies
-/// the cryptographic hash algorithm.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Algorithm {
-    Reserved,
-    Sha384,
-    Sha512,
-    Unassigned(u8),
-    Private(u8),
-}
-
-impl From<Algorithm> for u8 {
-    fn from(algo: Algorithm) -> u8 {
-        match algo {
-            Algorithm::Reserved => 0,
-            Algorithm::Sha384 => 1,
-            Algorithm::Sha512 => 2,
-            Algorithm::Unassigned(n) => n,
-            Algorithm::Private(n) => n,
-        }
-    }
-}
-
-impl From<u8> for Algorithm {
-    fn from(n: u8) -> Self {
-        match n {
-            0 | 255 => Self::Reserved,
-            1 => Self::Sha384,
-            2 => Self::Sha512,
-            3..=239 => Self::Unassigned(n),
-            240..=254 => Self::Private(n),
-        }
-    }
-}
-
-impl ZonefileFmt for Algorithm {
-    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
-        p.write_token(u8::from(*self))
-    }
-}
-
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
@@ -437,6 +338,7 @@ mod test {
     #[cfg(feature = "zonefile")]
     #[test]
     fn zonemd_parse_zonefile() {
+        use crate::base::iana::ZonemdAlgorithm;
         use crate::base::Name;
         use crate::rdata::ZoneRecordData;
         use crate::zonefile::inplace::{Entry, Zonefile};
@@ -469,8 +371,11 @@ ns2           3600   IN  AAAA    2001:db8::63
                     match record.into_data() {
                         ZoneRecordData::Zonemd(rd) => {
                             assert_eq!(2018031900, rd.serial().into_int());
-                            assert_eq!(Scheme::Simple, rd.scheme());
-                            assert_eq!(Algorithm::Sha384, rd.algorithm());
+                            assert_eq!(ZonemdScheme::SIMPLE, rd.scheme());
+                            assert_eq!(
+                                ZonemdAlgorithm::SHA384,
+                                rd.algorithm()
+                            );
                         }
                         _ => panic!(),
                     }

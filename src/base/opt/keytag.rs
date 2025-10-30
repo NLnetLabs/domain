@@ -11,14 +11,13 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Composer, ParseError};
-use super::{Opt, OptData, ComposeOptData, ParseOptData};
+use super::{ComposeOptData, Opt, OptData, ParseOptData};
+use core::cmp::Ordering;
+use core::convert::TryInto;
+use core::{borrow, fmt, hash, mem};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{borrow, fmt, hash, mem};
-use core::cmp::Ordering;
-use core::convert::TryInto;
-
 
 //------------ KeyTag -------------------------------------------------------
 
@@ -37,7 +36,7 @@ impl KeyTag<()> {
     /// The option code for this option.
     pub(super) const CODE: OptionCode = OptionCode::KEY_TAG;
 }
-    
+
 impl<Octs> KeyTag<Octs> {
     /// Creates a new value from its content in wire format.
     ///
@@ -45,9 +44,11 @@ impl<Octs> KeyTag<Octs> {
     /// edns-key-tag option: the length needs to be an even number of
     /// octets and no longer than 65,536 octets.
     pub fn from_octets(octets: Octs) -> Result<Self, ParseError>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         KeyTag::check_len(octets.as_ref().len())?;
-        Ok(unsafe { Self::from_octets_unchecked(octets ) })
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
     /// Creates a new value from its wire-format content without checking.
@@ -62,7 +63,7 @@ impl<Octs> KeyTag<Octs> {
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
         KeyTag::check_len(len)?;
@@ -97,11 +98,9 @@ impl KeyTag<[u8]> {
     fn check_len(len: usize) -> Result<(), ParseError> {
         if len > usize::from(u16::MAX) {
             Err(ParseError::form_error("long edns-key-tag option"))
-        }
-        else if len % 2 == 1 {
+        } else if len % 2 == 1 {
             Err(ParseError::form_error("invalid edns-key-tag option length"))
-        }
-        else {
+        } else {
             Ok(())
         }
     }
@@ -150,8 +149,10 @@ impl<Octs: ?Sized> KeyTag<Octs> {
     }
 
     /// Returns an iterator over the individual key tags.
-    pub fn iter(&self) -> KeyTagIter
-    where Octs: AsRef<[u8]> {
+    pub fn iter(&self) -> KeyTagIter<'_>
+    where
+        Octs: AsRef<[u8]>,
+    {
         KeyTagIter(self.octets.as_ref())
     }
 }
@@ -159,13 +160,14 @@ impl<Octs: ?Sized> KeyTag<Octs> {
 //--- OctetsFrom
 
 impl<Octs, SrcOcts> OctetsFrom<KeyTag<SrcOcts>> for KeyTag<Octs>
-where Octs: OctetsFrom<SrcOcts> {
+where
+    Octs: OctetsFrom<SrcOcts>,
+{
     type Error = Octs::Error;
 
     fn try_octets_from(src: KeyTag<SrcOcts>) -> Result<Self, Self::Error> {
-        Octs::try_octets_from(src.octets).map(|octets| unsafe {
-            Self::from_octets_unchecked(octets)
-        })
+        Octs::try_octets_from(src.octets)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 
@@ -191,7 +193,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> borrow::Borrow<[u8]> for KeyTag<Octs> {
 
 impl<Octs> borrow::BorrowMut<[u8]> for KeyTag<Octs>
 where
-    Octs: AsMut<[u8]> + AsRef<[u8]> + ?Sized
+    Octs: AsMut<[u8]> + AsRef<[u8]> + ?Sized,
 {
     fn borrow_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
@@ -213,8 +215,7 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for KeyTag<Octs::Range<'a>> {
     ) -> Result<Option<Self>, ParseError> {
         if code == OptionCode::KEY_TAG {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -222,16 +223,20 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for KeyTag<Octs::Range<'a>> {
 
 impl<Octs: AsRef<[u8]> + ?Sized> ComposeOptData for KeyTag<Octs> {
     fn compose_len(&self) -> u16 {
-        self.octets.as_ref().len().try_into().expect("long option data")
+        self.octets
+            .as_ref()
+            .len()
+            .try_into()
+            .expect("long option data")
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.octets.as_ref())
     }
 }
-
 
 //--- IntoIterator
 
@@ -244,13 +249,12 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> IntoIterator for &'a KeyTag<Octs> {
     }
 }
 
-
 //--- Display and Debug
 
-impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display  for KeyTag<Octets> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display for KeyTag<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut first = true;
-        
+
         for v in self.octets.as_ref() {
             if first {
                 write!(f, "{:X}", ((*v as u16) << 8) | *v as u16)?;
@@ -264,12 +268,11 @@ impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display  for KeyTag<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug  for KeyTag<Octets> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug for KeyTag<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "KeyTag([{}])", self)
     }
 }
-
 
 //--- PartialEq and Eq
 
@@ -283,7 +286,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> Eq for KeyTag<Octs> { }
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for KeyTag<Octs> {}
 
 //--- PartialOrd and Ord
 
@@ -323,13 +326,14 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends a edns-key-tag option.
     ///
     /// The option contains a list of the key tags of the trust anchor keys
     /// a validating resolver is using for DNSSEC validation.
     pub fn key_tag(
-        &mut self, key_tag: &KeyTag<impl AsRef<[u8]> + ?Sized>,
+        &mut self,
+        key_tag: &KeyTag<impl AsRef<[u8]> + ?Sized>,
     ) -> Result<(), Target::AppendError> {
         self.push(key_tag)
     }
@@ -341,7 +345,8 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 impl<Octs: AsRef<[u8]>> serde::Serialize for KeyTag<Octs> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         use serde::ser::SerializeSeq;
 
         let mut list = serializer.serialize_seq(None)?;
@@ -363,14 +368,13 @@ impl<Octs: AsRef<[u8]>> serde::Serialize for KeyTag<Octs> {
 #[derive(Clone, Copy, Debug)]
 pub struct KeyTagIter<'a>(&'a [u8]);
 
-impl<'a> Iterator for KeyTagIter<'a> {
+impl Iterator for KeyTagIter<'_> {
     type Item = u16;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.len() < 2 {
             None
-        }
-        else {
+        } else {
             let (item, tail) = self.0.split_at(2);
             self.0 = tail;
             Some(u16::from_be_bytes(item.try_into().unwrap()))
@@ -378,22 +382,20 @@ impl<'a> Iterator for KeyTagIter<'a> {
     }
 }
 
-
 //============ Testing ======================================================
 
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
-    use super::*;
     use super::super::test::test_option_compose_parse;
-    
+    use super::*;
+
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsid_compose_parse() {
         test_option_compose_parse(
             &KeyTag::from_octets("fooo").unwrap(),
-            |parser| KeyTag::parse(parser)
+            |parser| KeyTag::parse(parser),
         );
     }
 }
-

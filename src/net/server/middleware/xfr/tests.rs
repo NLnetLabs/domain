@@ -17,7 +17,9 @@ use octseq::Octets;
 use tokio::sync::Semaphore;
 use tokio::time::Instant;
 
-use crate::base::iana::{Class, OptRcode, Rcode};
+use crate::base::iana::{
+    Class, DigestAlgorithm, OptRcode, Rcode, SecurityAlgorithm,
+};
 use crate::base::{
     Message, MessageBuilder, Name, ParsedName, Rtype, Serial, ToName, Ttl,
 };
@@ -32,7 +34,7 @@ use crate::net::server::service::{
     CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
 };
 use crate::rdata::{
-    Aaaa, AllRecordData, Cname, Mx, Ns, Soa, Txt, ZoneRecordData, A,
+    Aaaa, AllRecordData, Cname, Ds, Mx, Ns, Soa, Txt, ZoneRecordData, A,
 };
 use crate::tsig::{Algorithm, Key, KeyName};
 use crate::zonefile::inplace::Zonefile;
@@ -74,6 +76,31 @@ async fn axfr_with_example_zone() {
         (n("example.com"), Aaaa::new(p("2001:db8::3")).into()),
         (n("www.example.com"), Cname::new(n("example.com")).into()),
         (n("mail.example.com"), Mx::new(10, n("example.com")).into()),
+        (n("a.b.c.mail.example.com"), A::new(p("127.0.0.1")).into()),
+        (n("x.y.mail.example.com"), A::new(p("127.0.0.1")).into()),
+        (n("some.ent.example.com"), A::new(p("127.0.0.1")).into()),
+        (
+            n("unsigned.example.com"),
+            Ns::new(n("some.other.ns.net.example.com")).into(),
+        ),
+        (
+            n("signed.example.com"),
+            Ns::new(n("some.other.ns.net.example.com")).into(),
+        ),
+        (
+            n("signed.example.com"),
+            Ds::new(
+                60485,
+                SecurityAlgorithm::RSASHA1,
+                DigestAlgorithm::SHA1,
+                crate::utils::base16::decode(
+                    "2BB183AF5F22588179A53B0A98631FAD1A292118",
+                )
+                .unwrap(),
+            )
+            .unwrap()
+            .into(),
+        ),
         (n("example.com"), zone_soa.into()),
     ];
 

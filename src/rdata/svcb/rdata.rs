@@ -61,18 +61,16 @@ use octseq::parse::Parser;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(
-        bound(
-            serialize = "
+    serde(bound(
+        serialize = "
                 Name: serde::Serialize,
                 Octs: octseq::serde::SerializeOctets
             ",
-            deserialize = "
+        deserialize = "
                 Name: serde::Deserialize<'de>,
                 Octs: octseq::serde::DeserializeOctets<'de>
             ",
-        )
-    )
+    ))
 )]
 pub struct SvcbRdata<Variant, Octs, Name> {
     /// The priority field of the service binding record.
@@ -133,15 +131,20 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     /// Returns an error if the wire format of the record data would exceed
     /// the length of 65,535 octets.
     pub fn new(
-        priority: u16, target: Name, params: SvcParams<Octs>
+        priority: u16,
+        target: Name,
+        params: SvcParams<Octs>,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]>, Name: ToName {
+    where
+        Octs: AsRef<[u8]>,
+        Name: ToName,
+    {
         LongRecordData::check_len(
-            usize::from(
-                u16::COMPOSE_LEN + target.compose_len()
-            ).checked_add(params.len()).expect("long params")
+            usize::from(u16::COMPOSE_LEN + target.compose_len())
+                .checked_add(params.len())
+                .expect("long params"),
         )?;
-        Ok( unsafe { Self::new_unchecked(priority, target, params) })
+        Ok(unsafe { Self::new_unchecked(priority, target, params) })
     }
 
     /// Creates a new value from its components without checking.
@@ -151,9 +154,16 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     /// The called must ensure that the wire format of the record data does
     /// not exceed a length of 65,535 octets.
     pub unsafe fn new_unchecked(
-        priority: u16, target: Name, params: SvcParams<Octs>
+        priority: u16,
+        target: Name,
+        params: SvcParams<Octs>,
     ) -> Self {
-        SvcbRdata { priority, target, params, marker: PhantomData }
+        SvcbRdata {
+            priority,
+            target,
+            params,
+            marker: PhantomData,
+        }
     }
 }
 
@@ -204,7 +214,7 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
 
     /// Returns an identical value using different octets sequence types.
     pub(crate) fn convert_octets<TOcts, TName>(
-        self
+        self,
     ) -> Result<SvcbRdata<Variant, TOcts, TName>, TOcts::Error>
     where
         TOcts: OctetsFrom<Octs>,
@@ -274,7 +284,7 @@ where
 
 impl<Variant, OtherVariant, Octs, OtherOcts, Name, OtherName>
     PartialEq<SvcbRdata<OtherVariant, OtherOcts, OtherName>>
-for SvcbRdata<Variant, Octs, Name>
+    for SvcbRdata<Variant, Octs, Name>
 where
     Octs: AsRef<[u8]>,
     OtherOcts: AsRef<[u8]>,
@@ -282,7 +292,8 @@ where
     OtherName: ToName,
 {
     fn eq(
-        &self, other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>
+        &self,
+        other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>,
     ) -> bool {
         self.priority == other.priority
             && self.target.name_eq(&other.target)
@@ -291,12 +302,15 @@ where
 }
 
 impl<Variant, Octs: AsRef<[u8]>, Name: ToName> Eq
-for SvcbRdata<Variant, Octs, Name> { }
+    for SvcbRdata<Variant, Octs, Name>
+{
+}
 
 //--- Hash
 
 impl<Variant, Octs: AsRef<[u8]>, Name: hash::Hash> hash::Hash
-for SvcbRdata<Variant, Octs, Name> {
+    for SvcbRdata<Variant, Octs, Name>
+{
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.priority.hash(state);
         self.target.hash(state);
@@ -308,7 +322,7 @@ for SvcbRdata<Variant, Octs, Name> {
 
 impl<Variant, OtherVariant, Octs, OtherOcts, Name, OtherName>
     PartialOrd<SvcbRdata<OtherVariant, OtherOcts, OtherName>>
-for SvcbRdata<Variant, Octs, Name>
+    for SvcbRdata<Variant, Octs, Name>
 where
     Octs: AsRef<[u8]>,
     OtherOcts: AsRef<[u8]>,
@@ -316,30 +330,32 @@ where
     OtherName: ToName,
 {
     fn partial_cmp(
-        &self, other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>
+        &self,
+        other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>,
     ) -> Option<cmp::Ordering> {
         match self.priority.partial_cmp(&other.priority) {
-            Some(cmp::Ordering::Equal) => { }
-            other => return other
+            Some(cmp::Ordering::Equal) => {}
+            other => return other,
         }
         match self.target.name_cmp(&other.target) {
-            cmp::Ordering::Equal => { }
-            other => return Some(other)
+            cmp::Ordering::Equal => {}
+            other => return Some(other),
         }
         self.params.partial_cmp(&other.params)
     }
 }
 
 impl<Variant, Octs: AsRef<[u8]>, Name: ToName> Ord
-for SvcbRdata<Variant, Octs, Name> {
+    for SvcbRdata<Variant, Octs, Name>
+{
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         match self.priority.cmp(&other.priority) {
-            cmp::Ordering::Equal => { }
-            other => return other
+            cmp::Ordering::Equal => {}
+            other => return other,
         }
         match self.target.name_cmp(&other.target) {
-            cmp::Ordering::Equal => { }
-            other => return other
+            cmp::Ordering::Equal => {}
+            other => return other,
         }
         self.params.cmp(&other.params)
     }
@@ -347,7 +363,7 @@ for SvcbRdata<Variant, Octs, Name> {
 
 impl<Variant, OtherVariant, Octs, OtherOcts, Name, OtherName>
     CanonicalOrd<SvcbRdata<OtherVariant, OtherOcts, OtherName>>
-for SvcbRdata<Variant, Octs, Name>
+    for SvcbRdata<Variant, Octs, Name>
 where
     Octs: AsRef<[u8]>,
     OtherOcts: AsRef<[u8]>,
@@ -355,15 +371,16 @@ where
     OtherName: ToName,
 {
     fn canonical_cmp(
-        &self, other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>
+        &self,
+        other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>,
     ) -> cmp::Ordering {
         match self.priority.cmp(&other.priority) {
-            cmp::Ordering::Equal => { }
-            other => return other
+            cmp::Ordering::Equal => {}
+            other => return other,
         }
         match self.target.name_cmp(&other.target) {
-            cmp::Ordering::Equal => { }
-            other => return other
+            cmp::Ordering::Equal => {}
+            other => return other,
         }
         self.params.canonical_cmp(&other.params)
     }
@@ -384,46 +401,54 @@ impl<Octs, Name> RecordData for SvcbRdata<HttpsVariant, Octs, Name> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-for SvcbRdata<SvcbVariant, Octs::Range<'a>, ParsedName<Octs::Range<'a>>> {
+    for SvcbRdata<SvcbVariant, Octs::Range<'a>, ParsedName<Octs::Range<'a>>>
+{
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::SVCB {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-for SvcbRdata<HttpsVariant, Octs::Range<'a>, ParsedName<Octs::Range<'a>>> {
+    for SvcbRdata<HttpsVariant, Octs::Range<'a>, ParsedName<Octs::Range<'a>>>
+{
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::HTTPS {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
 }
 
 impl<Variant, Octs, Name> ComposeRecordData for SvcbRdata<Variant, Octs, Name>
-where Self: RecordData, Octs: AsRef<[u8]>, Name: ToName {
+where
+    Self: RecordData,
+    Octs: AsRef<[u8]>,
+    Name: ToName,
+{
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
                 u16::COMPOSE_LEN + self.target.compose_len(),
                 self.params.len().try_into().expect("long params"),
-            ).expect("long record data")
+            )
+            .expect("long record data"),
         )
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.priority.compose(target)?;
         self.target.compose(target)?;
@@ -431,7 +456,8 @@ where Self: RecordData, Octs: AsRef<[u8]>, Name: ToName {
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }
@@ -444,7 +470,7 @@ where
     Octs: Octets,
     Name: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}. {}", self.priority, self.target, self.params)
     }
 }
@@ -454,7 +480,7 @@ where
     Octs: Octets,
     Name: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SvcbRdata")
             .field("priority", &self.priority)
             .field("target", &self.target)
@@ -485,12 +511,12 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use super::super::UnknownSvcParam;
     use super::super::value::AllValues;
+    use super::super::UnknownSvcParam;
+    use super::*;
     use crate::base::Name;
-    use octseq::array::Array;
     use core::str::FromStr;
+    use octseq::array::Array;
 
     type Octets512 = Array<512>;
     type Dname512 = Name<Array<512>>;
@@ -502,8 +528,7 @@ mod test {
 
     #[test]
     fn test_vectors_alias() {
-        let rdata =
-            b"\x00\x00\
+        let rdata = b"\x00\x00\
               \x03\x66\x6f\x6f\
                 \x07\x65\x78\x61\x6d\x70\x6c\x65\
                 \x03\x63\x6f\x6d\
@@ -521,9 +546,9 @@ mod test {
         assert_eq!(0, svcb.params.len());
 
         // compose test
-        let svcb_builder = Svcb::new(
-            svcb.priority, svcb.target, Params512::default()
-        ).unwrap();
+        let svcb_builder =
+            Svcb::new(svcb.priority, svcb.target, Params512::default())
+                .unwrap();
 
         let mut buf = Octets512::new();
         svcb_builder.compose_rdata(&mut buf).unwrap();
@@ -532,8 +557,7 @@ mod test {
 
     #[test]
     fn test_vectors_unknown_param() {
-        let rdata =
-            b"\x00\x01\
+        let rdata = b"\x00\x01\
               \x03\x66\x6f\x6f\
                 \x07\x65\x78\x61\x6d\x70\x6c\x65\
                 \x03\x63\x6f\x6d\
@@ -564,16 +588,18 @@ mod test {
 
         // compose test
         let svcb_builder = Svcb::new(
-            svcb.priority, svcb.target,
+            svcb.priority,
+            svcb.target,
             Params512::from_values(|builder| {
                 builder.push(
-                    &UnknownSvcParam::new(0x029b.into(), b"hello").unwrap()
+                    &UnknownSvcParam::new(0x029b.into(), b"hello").unwrap(),
                 )
-            }).unwrap()
-        ).unwrap();
+            })
+            .unwrap(),
+        )
+        .unwrap();
         let mut buf = Octets512::new();
         svcb_builder.compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 }
-

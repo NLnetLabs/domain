@@ -265,12 +265,7 @@ impl WritableZone for WriteZone {
 
         let res = new_apex
             .map(|node| Box::new(node) as Box<dyn WritableZoneNode>)
-            .map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Open error: {err}"),
-                )
-            });
+            .map_err(|err| io::Error::other(format!("Open error: {err}")));
 
         Box::pin(ready(res))
     }
@@ -318,8 +313,7 @@ impl WritableZone for WriteZone {
         // Extract (and finish) the created diff, if any.
         let diff = self.diff.lock().unwrap().take();
 
-        if diff.is_some() && new_soa_rr.is_some() {
-            let diff = diff.unwrap();
+        if let Some((diff, new_soa_rr)) = diff.zip(new_soa_rr) {
             let diff = arc_into_inner(diff).unwrap();
             let mut diff = Mutex::into_inner(diff).unwrap();
 
@@ -328,7 +322,7 @@ impl WritableZone for WriteZone {
                 self.add_soa_remove_diff_entry(old_soa_rr, &mut diff);
 
             let new_serial =
-                self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
+                self.add_soa_add_diff_entry(Some(new_soa_rr), &mut diff);
 
             if old_serial.is_some() && new_serial.is_some() {
                 out_diff = match diff.build() {
@@ -604,12 +598,7 @@ impl WriteNode {
                 Ok(())
             }
         }
-        .map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Write apex error: {err}"),
-            )
-        })
+        .map_err(|err| io::Error::other(format!("Write apex error: {err}")))
     }
 
     fn make_cname(&self, cname: SharedRr) -> Result<(), io::Error> {
@@ -623,12 +612,7 @@ impl WriteNode {
                 Ok(())
             }
         }
-        .map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Write apex error: {err}"),
-            )
-        })
+        .map_err(|err| io::Error::other(format!("Write apex error: {err}")))
     }
 
     fn remove_all(&self) -> Result<(), io::Error> {
@@ -791,17 +775,16 @@ impl From<io::Error> for WriteApexError {
 impl From<WriteApexError> for io::Error {
     fn from(src: WriteApexError) -> io::Error {
         match src {
-            WriteApexError::NotAllowed => io::Error::new(
-                io::ErrorKind::Other,
-                "operation not allowed at apex",
-            ),
+            WriteApexError::NotAllowed => {
+                io::Error::other("operation not allowed at apex")
+            }
             WriteApexError::Io(err) => err,
         }
     }
 }
 
 impl fmt::Display for WriteApexError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             WriteApexError::NotAllowed => {
                 f.write_str("operation not allowed")

@@ -88,8 +88,8 @@ pub fn encode_display<Octets: AsRef<[u8]> + ?Sized>(
 ) -> impl fmt::Display + '_ {
     struct Display<'a>(&'a [u8]);
 
-    impl<'a> fmt::Display for Display<'a> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    impl fmt::Display for Display<'_> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             display(self.0, f)
         }
     }
@@ -139,7 +139,7 @@ pub mod serde {
         {
             type Value = Octets;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an Base16-encoded string")
             }
 

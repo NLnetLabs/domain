@@ -289,10 +289,10 @@ impl From<ZoneTreeModificationError> for io::Error {
         match src {
             ZoneTreeModificationError::Io(err) => err,
             ZoneTreeModificationError::ZoneDoesNotExist => {
-                io::Error::new(io::ErrorKind::Other, "zone does not exist")
+                io::Error::other("zone does not exist")
             }
             ZoneTreeModificationError::ZoneExists => {
-                io::Error::new(io::ErrorKind::Other, "zone exists")
+                io::Error::other("zone exists")
             }
         }
     }

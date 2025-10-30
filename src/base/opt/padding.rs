@@ -8,15 +8,14 @@
 //! you should generally just use the [`OptBuilder::padding`] and
 //! [`OptBuilder::random_padding`] methods when constructing a message.
 
-use core::{borrow, fmt, str};
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, ParseError};
-use super::{LongOptData, OptData, ComposeOptData, ParseOptData};
+use super::{ComposeOptData, LongOptData, OptData, ParseOptData};
+use core::{borrow, fmt, str};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-
 
 //------------ Padding -------------------------------------------------------
 
@@ -46,7 +45,9 @@ impl<Octs> Padding<Octs> {
     ///
     /// Returns an error if `octets` are longer than 65,535 octets.
     pub fn from_octets(octets: Octs) -> Result<Self, LongOptData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongOptData::check_len(octets.as_ref().len())?;
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
@@ -63,13 +64,11 @@ impl<Octs> Padding<Octs> {
 
     /// Parses a value from its wire formal.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
         LongOptData::check_len(len)?;
-        Ok(unsafe { Self::from_octets_unchecked(
-            parser.parse_octets(len)?
-        )})
+        Ok(unsafe { Self::from_octets_unchecked(parser.parse_octets(len)?) })
     }
 }
 
@@ -99,13 +98,14 @@ impl<Octs: ?Sized> Padding<Octs> {
 //--- OctetsFrom
 
 impl<Octs, SrcOcts> OctetsFrom<Padding<SrcOcts>> for Padding<Octs>
-where Octs: OctetsFrom<SrcOcts> {
+where
+    Octs: OctetsFrom<SrcOcts>,
+{
     type Error = Octs::Error;
 
     fn try_octets_from(src: Padding<SrcOcts>) -> Result<Self, Self::Error> {
-        Octs::try_octets_from(src.octets).map(|octets| unsafe {
-            Self::from_octets_unchecked(octets)
-        })
+        Octs::try_octets_from(src.octets)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 
@@ -138,8 +138,7 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for Padding<Octs::Range<'a>> {
     ) -> Result<Option<Self>, ParseError> {
         if code == OptionCode::PADDING {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -147,11 +146,16 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for Padding<Octs::Range<'a>> {
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for Padding<Octs> {
     fn compose_len(&self) -> u16 {
-        self.octets.as_ref().len().try_into().expect("long option data")
+        self.octets
+            .as_ref()
+            .len()
+            .try_into()
+            .expect("long option data")
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.octets.as_ref())
     }
@@ -160,7 +164,7 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for Padding<Octs> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Padding<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for v in self.octets.as_ref() {
             write!(f, "{:X} ", *v)?;
         }
@@ -172,44 +176,36 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Padding<Octs> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Padding<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Padding({})", self)
     }
 }
 
 //--- Extended OptBuilder
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
-    pub fn padding( &mut self, len: u16) -> Result<(), Target::AppendError> {
-        self.push_raw_option(
-            OptionCode::PADDING,
-            len,
-            |target| {
-                for _ in 0..len {
-                    0u8.compose(target)?
-                }
-                Ok(())
+impl<Target: Composer> OptBuilder<'_, Target> {
+    pub fn padding(&mut self, len: u16) -> Result<(), Target::AppendError> {
+        self.push_raw_option(OptionCode::PADDING, len, |target| {
+            for _ in 0..len {
+                0u8.compose(target)?
             }
-        )
+            Ok(())
+        })
     }
 
     #[cfg(feature = "rand")]
     pub fn random_padding(
-        &mut self, len: u16
+        &mut self,
+        len: u16,
     ) -> Result<(), Target::AppendError> {
-        self.push_raw_option(
-            OptionCode::PADDING,
-            len,
-            |target| {
-                for _ in 0..len {
-                    rand::random::<u8>().compose(target)?
-                }
-                Ok(())
+        self.push_raw_option(OptionCode::PADDING, len, |target| {
+            for _ in 0..len {
+                rand::random::<u8>().compose(target)?
             }
-        )
+            Ok(())
+        })
     }
 }
-
 
 //--- Serialize
 
@@ -217,7 +213,8 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 impl<Octs: AsRef<[u8]>> serde::Serialize for Padding<Octs> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         use octseq::serde::SerializeOctets;
         self.octets.as_ref().serialize_octets(serializer)
     }

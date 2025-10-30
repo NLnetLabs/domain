@@ -139,11 +139,8 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            if digit_count == 0 {
-                None
-            } else if !allow_zero_prefix
-                && has_leading_zero
-                && digit_count > 1
+            if digit_count == 0
+                || (!allow_zero_prefix && has_leading_zero && digit_count > 1)
             {
                 None
             } else {
@@ -191,7 +188,7 @@ impl<'a> Parser<'a> {
 
                     if let Some(v4_addr) = ipv4 {
                         let [one, two, three, four] = v4_addr.octets();
-                        groups[i + 0] = u16::from_be_bytes([one, two]);
+                        groups[i] = u16::from_be_bytes([one, two]);
                         groups[i + 1] = u16::from_be_bytes([three, four]);
                         return (i + 2, true);
                     }

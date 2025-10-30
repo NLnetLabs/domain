@@ -5,8 +5,7 @@ use domain::net::client::request::{
     RequestMessage, RequestMessageMulti, SendRequest,
 };
 use domain::net::client::{
-    cache, dgram, dgram_stream, load_balancer, multi_stream, redundant,
-    stream,
+    dgram, dgram_stream, load_balancer, multi_stream, redundant, stream,
 };
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -91,28 +90,6 @@ async fn main() {
     // The query may have a reference to the connection. Drop the query
     // when it is no longer needed.
     drop(request);
-
-    // Create a cached transport.
-    let mut cache_config = cache::Config::new();
-    cache_config.set_max_cache_entries(100); // Just an example.
-    let cache =
-        cache::Connection::with_config(udptcp_conn.clone(), cache_config);
-
-    // Send a request message.
-    let mut request = cache.send_request(req.clone());
-
-    // Get the reply
-    println!("Wating for cache reply");
-    let reply = request.get_response().await;
-    println!("Cache reply: {reply:?}");
-
-    // Send the request message again.
-    let mut request = cache.send_request(req.clone());
-
-    // Get the reply
-    println!("Wating for cached reply");
-    let reply = request.get_response().await;
-    println!("Cached reply: {reply:?}");
 
     #[cfg(feature = "unstable-validator")]
     do_validator(udptcp_conn.clone(), req.clone()).await;
@@ -331,13 +308,15 @@ where
 {
     // Create a validating transport
     let anchor_file = std::fs::File::open("examples/root.key").unwrap();
-    let ta =
-        domain::validator::anchor::TrustAnchors::from_reader(anchor_file)
-            .unwrap();
-    let vc = Arc::new(domain::validator::context::ValidationContext::new(
-        ta,
-        conn.clone(),
-    ));
+    let ta = domain::dnssec::validator::anchor::TrustAnchors::from_reader(
+        anchor_file,
+    )
+    .unwrap();
+    let vc =
+        Arc::new(domain::dnssec::validator::context::ValidationContext::new(
+            ta,
+            conn.clone(),
+        ));
     let val_conn = domain::net::client::validator::Connection::new(conn, vc);
 
     // Send a query message.
@@ -346,7 +325,7 @@ where
     // Get the reply
     println!("Wating for Validator reply");
     let reply = request.get_response().await;
-    println!("Validator reply: {:?}", reply);
+    println!("Validator reply: {reply:?}");
 }
 
 #[cfg(feature = "tsig")]
@@ -390,7 +369,7 @@ where
                 .expect("Failed while getting a TSIG signed response. This is probably expected as the server will not know the TSIG key we are using unless you have ensured that is the case.");
         match reply {
             Some(reply) => {
-                println!("Signed reply: {:?}", reply);
+                println!("Signed reply: {reply:?}");
             }
             None => break,
         }

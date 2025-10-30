@@ -293,13 +293,13 @@ impl<N: hash::Hash> hash::Hash for Question<N> {
 //--- Display and Debug
 
 impl<N: fmt::Display> fmt::Display for Question<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.\t{}\t{}", self.qname, self.qtype, self.qclass)
     }
 }
 
 impl<N: fmt::Debug> fmt::Debug for Question<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Question")
             .field("qname", &self.qname)
             .field("qtype", &self.qtype)
@@ -331,7 +331,7 @@ pub trait ComposeQuestion {
     ) -> Result<(), Target::AppendError>;
 }
 
-impl<'a, Q: ComposeQuestion> ComposeQuestion for &'a Q {
+impl<Q: ComposeQuestion> ComposeQuestion for &Q {
     fn compose_question<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -400,7 +400,7 @@ impl From<PresentationErrorEnum> for FromStrError {
 //--- Display and Error
 
 impl fmt::Display for FromStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             FromStrError::Presentation(err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
@@ -445,7 +445,7 @@ impl From<name::PresentationError> for PresentationError {
 //--- Display and Error
 
 impl fmt::Display for PresentationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             PresentationErrorEnum::BadName(err) => err.fmt(f),
             PresentationErrorEnum::MissingQname => {

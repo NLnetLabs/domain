@@ -283,7 +283,7 @@ declare_error_trait!(ScannerError: Sized + fmt::Debug + fmt::Display);
 #[cfg(feature = "std")]
 impl ScannerError for std::io::Error {
     fn custom(msg: &'static str) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, msg)
+        std::io::Error::other(msg)
     }
 
     fn end_of_entry() -> Self {
@@ -294,11 +294,11 @@ impl ScannerError for std::io::Error {
     }
 
     fn short_buf() -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, ShortBuf)
+        std::io::Error::other(ShortBuf)
     }
 
     fn trailing_tokens() -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, "trailing data")
+        std::io::Error::other("trailing data")
     }
 }
 
@@ -727,7 +727,7 @@ impl From<char> for Symbol {
 //--- Display
 
 impl fmt::Display for Symbol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Symbol::Char(ch) => write!(f, "{}", ch),
             Symbol::SimpleEscape(ch) => write!(f, "\\{}", ch as char),
@@ -1066,7 +1066,7 @@ impl SymbolCharsError {
 //--- Display and Error
 
 impl fmt::Display for SymbolCharsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -1108,7 +1108,7 @@ impl SymbolOctetsError {
 //--- Display and Error
 
 impl fmt::Display for SymbolOctetsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -1157,7 +1157,7 @@ impl BadSymbol {
 //--- Display and Error
 
 impl fmt::Display for BadSymbol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -1168,7 +1168,7 @@ impl std::error::Error for BadSymbol {}
 #[cfg(feature = "std")]
 impl From<BadSymbol> for std::io::Error {
     fn from(err: BadSymbol) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, err)
+        std::io::Error::other(err)
     }
 }
 
@@ -1203,7 +1203,7 @@ impl From<ShortBuf> for StrError {
 }
 
 impl fmt::Display for StrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
     }
 }

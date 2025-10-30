@@ -85,7 +85,7 @@ pub trait Compose {
     ) -> Result<(), Target::AppendError>;
 }
 
-impl<'a, T: Compose + ?Sized> Compose for &'a T {
+impl<T: Compose + ?Sized> Compose for &T {
     const COMPOSE_LEN: u16 = T::COMPOSE_LEN;
 
     fn compose<Target: OctetsBuilder + ?Sized>(
@@ -270,7 +270,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized, const N: usize> Parse<'a, Octs>
 #[cfg(feature = "std")]
 pub fn parse_slice<F, T>(data: &[u8], op: F) -> Result<T, ParseError>
 where
-    F: FnOnce(&mut Parser<[u8]>) -> Result<T, ParseError>,
+    F: FnOnce(&mut Parser<'_, [u8]>) -> Result<T, ParseError>,
 {
     let mut parser = Parser::from_ref(data);
     let res = op(&mut parser)?;
@@ -336,7 +336,7 @@ impl From<FormError> for ParseError {
 //--- Display and Error
 
 impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             ParseError::ShortInput => f.write_str("unexpected end of input"),
             ParseError::Form(ref err) => err.fmt(f),
@@ -368,7 +368,7 @@ impl FormError {
 //--- Display and Error
 
 impl fmt::Display for FormError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
     }
 }

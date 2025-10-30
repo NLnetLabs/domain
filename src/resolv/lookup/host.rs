@@ -132,7 +132,7 @@ where
     }
 
     /// Returns an iterator over the IP addresses returned by the lookup.
-    pub fn iter(&self) -> FoundHostsIter {
+    pub fn iter(&self) -> FoundHostsIter<'_> {
         FoundHostsIter {
             aaaa_name: self
                 .aaaa
@@ -166,7 +166,7 @@ where
     /// The socket addresses are gained by combining the IP addresses with
     /// `port`. The returned iterator implements `ToSocketAddrs` and thus
     /// can be used where `std::net` wants addresses right away.
-    pub fn port_iter(&self, port: u16) -> FoundHostsSocketIter {
+    pub fn port_iter(&self, port: u16) -> FoundHostsSocketIter<'_> {
         FoundHostsSocketIter {
             iter: self.iter(),
             port,
@@ -185,7 +185,7 @@ pub struct FoundHostsIter<'a> {
     a: Option<RecordIter<'a, [u8], A>>,
 }
 
-impl<'a> Iterator for FoundHostsIter<'a> {
+impl Iterator for FoundHostsIter<'_> {
     type Item = IpAddr;
 
     fn next(&mut self) -> Option<IpAddr> {
@@ -216,7 +216,7 @@ pub struct FoundHostsSocketIter<'a> {
     port: u16,
 }
 
-impl<'a> Iterator for FoundHostsSocketIter<'a> {
+impl Iterator for FoundHostsSocketIter<'_> {
     type Item = SocketAddr;
 
     fn next(&mut self) -> Option<SocketAddr> {
@@ -226,7 +226,7 @@ impl<'a> Iterator for FoundHostsSocketIter<'a> {
     }
 }
 
-impl<'a> ToSocketAddrs for FoundHostsSocketIter<'a> {
+impl ToSocketAddrs for FoundHostsSocketIter<'_> {
     type Iter = Self;
 
     fn to_socket_addrs(&self) -> io::Result<Self> {

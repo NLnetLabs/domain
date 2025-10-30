@@ -1,0 +1,35 @@
+origin: example.com.
+zonefile: |
+  $TTL 5555
+  example.com.  1111  IN  SOA   ns.example.com. noc.dns.example.org. 2020080302 7200 3600 1209600 3600
+  example.com.        IN  NS    example.com.
+  $TTL 6666
+  example.com.  3333  IN  A     192.0.2.1
+  example.com.        IN  AAAA  2001:db8::3
+result:
+  - owner: example.com.
+    class: IN
+    ttl: 1111
+    data: !Soa
+      mname: ns.example.com.
+      rname: noc.dns.example.org.
+      serial: 2020080302
+      refresh: 7200
+      retry: 3600
+      expire: 1209600
+      minimum: 3600
+  - owner: example.com.
+    class: IN
+    ttl: 5555
+    data: !Ns
+      nsdname: example.com.
+  - owner: example.com.
+    class: IN
+    ttl: 3333
+    data: !A
+      addr: 192.0.2.1
+  - owner: example.com.
+    class: IN
+    ttl: 6666
+    data: !Aaaa
+      addr: 2001:db8::3

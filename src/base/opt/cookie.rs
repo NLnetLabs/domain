@@ -19,18 +19,17 @@
 //! [RFC 7873]: https://tools.ietf.org/html/rfc7873
 //! [RFC 9018]: https://tools.ietf.org/html/rfc9018
 
+use super::super::iana::OptionCode;
+use super::super::message_builder::OptBuilder;
+use super::super::wire::{Composer, ParseError};
+use super::{ComposeOptData, Opt, OptData, ParseOptData};
+use crate::base::Serial;
+use crate::utils::base16;
 use core::{fmt, hash};
 use octseq::array::Array;
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
-use crate::base::Serial;
-use crate::utils::base16;
-use super::super::iana::OptionCode;
-use super::super::message_builder::OptBuilder;
-use super::super::wire::{Composer, ParseError};
-use super::{Opt, OptData, ComposeOptData, ParseOptData};
-
 
 //------------ Cookie --------------------------------------------------------
 
@@ -51,11 +50,17 @@ use super::{Opt, OptData, ComposeOptData, ParseOptData};
 /// be a random client cookie, it needs the `rand` feature. The server can
 /// check whether a received cookie includes a server cookie created by it
 /// via the
-#[cfg_attr(feature = "siphasher", doc = "[`check_server_hash`](Self::check_server_hash)")]
+#[cfg_attr(
+    feature = "siphasher",
+    doc = "[`check_server_hash`](Self::check_server_hash)"
+)]
 #[cfg_attr(not(feature = "siphasher"), doc = "`check_server_hash`")]
 /// method. It needs the SipHash-2-4 algorithm and is thus available if the
 /// `siphasher` feature is enabled. The same feature also enables the
-#[cfg_attr(feature = "siphasher", doc = "[`create_response`](Self::create_response)")]
+#[cfg_attr(
+    feature = "siphasher",
+    doc = "[`create_response`](Self::create_response)"
+)]
 #[cfg_attr(not(feature = "siphasher"), doc = "`create_response`")]
 /// method which creates the server
 /// cookie to be included in a response.
@@ -64,7 +69,7 @@ use super::{Opt, OptData, ComposeOptData, ParseOptData};
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Cookie {
     /// The client cookie.
-    client: ClientCookie, 
+    client: ClientCookie,
 
     /// The optional server cookie.
     server: Option<ServerCookie>,
@@ -76,10 +81,7 @@ impl Cookie {
 
     /// Creates a new cookie from client and optional server cookie.
     #[must_use]
-    pub fn new(
-        client: ClientCookie,
-        server: Option<ServerCookie>
-    ) -> Self {
+    pub fn new(client: ClientCookie, server: Option<ServerCookie>) -> Self {
         Cookie { client, server }
     }
 
@@ -97,7 +99,7 @@ impl Cookie {
 
     /// Parses the cookie from its wire format.
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         Ok(Cookie::new(
             ClientCookie::parse(parser)?,
@@ -128,13 +130,14 @@ impl Cookie {
         secret: &[u8; 16],
         timestamp_ok: impl FnOnce(Serial) -> bool,
     ) -> bool {
-        self.server.as_ref().and_then(|server| {
-            server.try_to_standard()
-        }).and_then(|server| {
-            timestamp_ok(server.timestamp()).then_some(server)
-        }).map(|server| {
-            server.check_hash(self.client(), client_ip, secret)
-        }).unwrap_or(false)
+        self.server
+            .as_ref()
+            .and_then(|server| server.try_to_standard())
+            .and_then(|server| {
+                timestamp_ok(server.timestamp()).then_some(server)
+            })
+            .map(|server| server.check_hash(self.client(), client_ip, secret))
+            .unwrap_or(false)
     }
 
     /// Creates a random client cookie for including in an initial request.
@@ -150,18 +153,22 @@ impl Cookie {
     /// to produce a cookie option that should be included in a response.
     #[cfg(feature = "siphasher")]
     pub fn create_response(
-        &self, 
+        &self,
         timestamp: Serial,
         client_ip: crate::base::net::IpAddr,
-        secret: &[u8; 16]
+        secret: &[u8; 16],
     ) -> Self {
         Self::new(
             self.client,
             Some(
                 StandardServerCookie::calculate(
-                    self.client, timestamp, client_ip, secret
-                ).into()
-            )
+                    self.client,
+                    timestamp,
+                    client_ip,
+                    secret,
+                )
+                .into(),
+            ),
         )
     }
 
@@ -172,7 +179,6 @@ impl Cookie {
         Ok(src)
     }
 }
-
 
 //--- OptData
 
@@ -189,8 +195,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseOptData<'a, Octs> for Cookie {
     ) -> Result<Option<Self>, ParseError> {
         if code == OptionCode::COOKIE {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -199,17 +204,16 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseOptData<'a, Octs> for Cookie {
 impl ComposeOptData for Cookie {
     fn compose_len(&self) -> u16 {
         match self.server.as_ref() {
-            Some(server) => {
-                ClientCookie::COMPOSE_LEN.checked_add(
-                    server.compose_len()
-                ).expect("long server cookie")
-            }
-            None => ClientCookie::COMPOSE_LEN
+            Some(server) => ClientCookie::COMPOSE_LEN
+                .checked_add(server.compose_len())
+                .expect("long server cookie"),
+            None => ClientCookie::COMPOSE_LEN,
         }
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.client.compose(target)?;
         if let Some(server) = self.server.as_ref() {
@@ -220,7 +224,7 @@ impl ComposeOptData for Cookie {
 }
 
 impl fmt::Display for Cookie {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.client, f)?;
         if let Some(server) = self.server.as_ref() {
             fmt::Display::fmt(server, f)?;
@@ -228,7 +232,6 @@ impl fmt::Display for Cookie {
         Ok(())
     }
 }
-
 
 //--- Extending Opt and OptBuilder
 
@@ -239,10 +242,11 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends a new cookie option.
     pub fn cookie(
-        &mut self, cookie: Cookie,
+        &mut self,
+        cookie: Cookie,
     ) -> Result<(), Target::AppendError> {
         self.push(&cookie)
     }
@@ -256,7 +260,6 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         self.push(&Cookie::create_initial())
     }
 }
-
 
 //------------ ClientCookie --------------------------------------------------
 
@@ -272,7 +275,10 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 /// originating a request, this has been relaxed and it is now suggested that
 /// the cookies is just random data. If the `rand` feature is enabled, the
 /// `new`
-#[cfg_attr(feature = "rand", doc = "[`new_random`][ClientCookie::new_random]")]
+#[cfg_attr(
+    feature = "rand",
+    doc = "[`new_random`][ClientCookie::new_random]"
+)]
 #[cfg_attr(not(feature = "rand"), doc = "`new_random`")]
 /// constructor can be used to generate such a random cookie. Otherwise,
 /// it needs to be created from the octets via
@@ -286,9 +292,10 @@ pub struct ClientCookie([u8; 8]);
 impl serde::Serialize for ClientCookie {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
-            use octseq::serde::SerializeOctets;
-            self.0.serialize_octets(serializer)
+        S: serde::Serializer,
+    {
+        use octseq::serde::SerializeOctets;
+        self.0.serialize_octets(serializer)
     }
 }
 
@@ -314,7 +321,7 @@ impl ClientCookie {
 
     /// Parses a client cookie from its wire format.
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         let mut res = Self::from_octets([0; 8]);
         parser.parse_buf(res.as_mut())?;
@@ -326,7 +333,8 @@ impl ClientCookie {
 
     /// Appends the wire format of the client cookie to the target.
     pub fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(&self.0)
     }
@@ -380,11 +388,10 @@ impl hash::Hash for ClientCookie {
 //--- Display
 
 impl fmt::Display for ClientCookie {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         base16::display(self.0.as_ref(), f)
     }
 }
-
 
 //------------ ServerCookie --------------------------------------------------
 
@@ -414,7 +421,8 @@ pub struct ServerCookie(Array<32>);
 impl serde::Serialize for ServerCookie {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         use octseq::serde::SerializeOctets;
         self.0.serialize_octets(serializer)
     }
@@ -431,33 +439,32 @@ impl ServerCookie {
     pub fn from_octets(slice: &[u8]) -> Self {
         assert!(slice.len() >= 8, "server cookie shorter than 8 octets");
         let mut res = Array::new();
-        res.append_slice(slice).expect("server cookie longer tha 32 octets");
+        res.append_slice(slice)
+            .expect("server cookie longer tha 32 octets");
         Self(res)
     }
 
     /// Parses a server cookie from its wire format.
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         if parser.remaining() < 8 {
-            return Err(ParseError::form_error("short server cookie"))
+            return Err(ParseError::form_error("short server cookie"));
         }
         let mut res = Array::new();
-        res.resize_raw(parser.remaining()).map_err(|_| {
-            ParseError::form_error("long server cookie")
-        })?;
+        res.resize_raw(parser.remaining())
+            .map_err(|_| ParseError::form_error("long server cookie"))?;
         parser.parse_buf(res.as_slice_mut())?;
         Ok(Self(res))
     }
 
     /// Parses an optional server cookie from its wire format.
     pub fn parse_opt<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if parser.remaining() > 0 {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -467,7 +474,9 @@ impl ServerCookie {
     /// This is possible if the length of the cookie is 16 octets. Returns
     /// `None` otherwise.
     pub fn try_to_standard(&self) -> Option<StandardServerCookie> {
-        TryFrom::try_from(self.0.as_slice()).map(StandardServerCookie).ok()
+        TryFrom::try_from(self.0.as_slice())
+            .map(StandardServerCookie)
+            .ok()
     }
 
     /// Returns the length of the wire format of the cookie.
@@ -478,7 +487,8 @@ impl ServerCookie {
 
     /// Appends the wire format of the cookie to the target.
     pub fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.0.as_ref())
     }
@@ -503,11 +513,10 @@ impl AsRef<[u8]> for ServerCookie {
 //--- Display
 
 impl fmt::Display for ServerCookie {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         base16::display(self.0.as_ref(), f)
     }
 }
-
 
 //------------ StandardServerCookie ------------------------------------------
 
@@ -535,7 +544,7 @@ pub struct StandardServerCookie(
     // We let this type wrap a u8 array so we can provide AsRef<[u8]> it.
     // This makes reading the timestamp a tiny bit expensive on certain
     // systems, but so be it.
-    [u8; 16]
+    [u8; 16],
 );
 
 impl StandardServerCookie {
@@ -545,16 +554,27 @@ impl StandardServerCookie {
         version: u8,
         reserved: [u8; 3],
         timestamp: Serial,
-        hash: [u8; 8]
+        hash: [u8; 8],
     ) -> Self {
         let ts = timestamp.into_int().to_be_bytes();
-        Self(
-            [ version, reserved[0], reserved[1], reserved[2],
-              ts[0], ts[1], ts[2], ts[3],
-              hash[0], hash[1], hash[2], hash[3],
-              hash[4], hash[5], hash[6], hash[7],
-            ]
-        )
+        Self([
+            version,
+            reserved[0],
+            reserved[1],
+            reserved[2],
+            ts[0],
+            ts[1],
+            ts[2],
+            ts[3],
+            hash[0],
+            hash[1],
+            hash[2],
+            hash[3],
+            hash[4],
+            hash[5],
+            hash[6],
+            hash[7],
+        ])
     }
 
     /// Calculates the server cookie for the given components.
@@ -563,12 +583,10 @@ impl StandardServerCookie {
         client_cookie: ClientCookie,
         timestamp: Serial,
         client_ip: crate::base::net::IpAddr,
-        secret: &[u8; 16]
+        secret: &[u8; 16],
     ) -> Self {
         let mut res = Self::new(1, [0; 3], timestamp, [0; 8]);
-        res.set_hash(
-            res.calculate_hash(client_cookie, client_ip, secret)
-        );
+        res.set_hash(res.calculate_hash(client_cookie, client_ip, secret));
         res
     }
 
@@ -588,7 +606,7 @@ impl StandardServerCookie {
     #[must_use]
     pub fn timestamp(self) -> Serial {
         Serial::from_be_bytes(
-            TryFrom::try_from(&self.0[4..8]).expect("bad slicing")
+            TryFrom::try_from(&self.0[4..8]).expect("bad slicing"),
         )
     }
 
@@ -609,7 +627,7 @@ impl StandardServerCookie {
         self,
         client_cookie: ClientCookie,
         client_ip: crate::base::net::IpAddr,
-        secret: &[u8; 16]
+        secret: &[u8; 16],
     ) -> bool {
         self.calculate_hash(client_cookie, client_ip, secret) == self.hash()
     }
@@ -629,10 +647,10 @@ impl StandardServerCookie {
         self,
         client_cookie: ClientCookie,
         client_ip: crate::base::net::IpAddr,
-        secret: &[u8; 16]
+        secret: &[u8; 16],
     ) -> [u8; 8] {
-        use core::hash::{Hash, Hasher};
         use crate::base::net::IpAddr;
+        use core::hash::{Hash, Hasher};
 
         let mut hasher = siphasher::sip::SipHasher24::new_with_key(secret);
         client_cookie.hash(&mut hasher);
@@ -648,11 +666,10 @@ impl StandardServerCookie {
 //--- Display
 
 impl fmt::Display for StandardServerCookie {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         base16::display(self.0.as_ref(), f)
     }
 }
-
 
 //============ Tests =========================================================
 
@@ -664,29 +681,29 @@ mod test {
     /// Tests from Appendix A of RFC 9018.
     #[cfg(all(feature = "siphasher", feature = "std"))]
     mod standard_server {
+        use super::*;
         use crate::base::net::{IpAddr, Ipv4Addr, Ipv6Addr};
         use crate::base::wire::{compose_vec, parse_slice};
-        use super::*;
 
         const CLIENT_1: IpAddr = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 100));
         const CLIENT_2: IpAddr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 203));
         const CLIENT_6: IpAddr = IpAddr::V6(Ipv6Addr::new(
-            0x2001, 0xdb8, 0x220, 0x1, 0x59de, 0xd0f4, 0x8769, 0x82b8
+            0x2001, 0xdb8, 0x220, 0x1, 0x59de, 0xd0f4, 0x8769, 0x82b8,
         ));
 
         const SECRET: [u8; 16] = [
-            0xe5, 0xe9, 0x73, 0xe5, 0xa6, 0xb2, 0xa4, 0x3f,
-            0x48, 0xe7, 0xdc, 0x84, 0x9e, 0x37, 0xbf, 0xcf,
+            0xe5, 0xe9, 0x73, 0xe5, 0xa6, 0xb2, 0xa4, 0x3f, 0x48, 0xe7, 0xdc,
+            0x84, 0x9e, 0x37, 0xbf, 0xcf,
         ];
 
         /// A.1. Learning a New Server Cookie
         #[test]
         fn new_cookie() {
             let request = Cookie::new(
-                ClientCookie::from_octets(
-                    [ 0x24, 0x64, 0xc4, 0xab, 0xcf, 0x10, 0xc9, 0x57 ]
-                ),
-                None
+                ClientCookie::from_octets([
+                    0x24, 0x64, 0xc4, 0xab, 0xcf, 0x10, 0xc9, 0x57,
+                ]),
+                None,
             );
             assert_eq!(
                 compose_vec(|vec| request.compose_option(vec)),
@@ -695,13 +712,18 @@ mod test {
 
             assert_eq!(
                 compose_vec(|vec| {
-                    request.create_response(
-                        Serial(1559731985), CLIENT_1, &SECRET
-                    ).compose_option(vec)
+                    request
+                        .create_response(
+                            Serial(1559731985),
+                            CLIENT_1,
+                            &SECRET,
+                        )
+                        .compose_option(vec)
                 }),
                 base16::decode_vec(
                     "2464c4abcf10c957010000005cf79f111f8130c3eee29480"
-                ).unwrap()
+                )
+                .unwrap()
             );
         }
 
@@ -710,26 +732,30 @@ mod test {
         fn renew_cookie() {
             let request = parse_slice(
                 &base16::decode_vec(
-                "2464c4abcf10c957010000005cf79f111f8130c3eee29480"
-                ).unwrap(),
-                Cookie::parse
-            ).unwrap();
-            assert!(
-                request.check_server_hash(
-                    CLIENT_1, &SECRET,
-                    |serial| serial == Serial(1559731985)
+                    "2464c4abcf10c957010000005cf79f111f8130c3eee29480",
                 )
-            );
+                .unwrap(),
+                Cookie::parse,
+            )
+            .unwrap();
+            assert!(request
+                .check_server_hash(CLIENT_1, &SECRET, |serial| serial
+                    == Serial(1559731985)));
 
             assert_eq!(
                 compose_vec(|vec| {
-                    request.create_response(
-                        Serial(1559734385), CLIENT_1, &SECRET
-                    ).compose_option(vec)
+                    request
+                        .create_response(
+                            Serial(1559734385),
+                            CLIENT_1,
+                            &SECRET,
+                        )
+                        .compose_option(vec)
                 }),
                 base16::decode_vec(
                     "2464c4abcf10c957010000005cf7a871d4a564a1442aca77"
-                ).unwrap()
+                )
+                .unwrap()
             );
         }
 
@@ -738,72 +764,79 @@ mod test {
         fn non_zero_reserved() {
             let request = parse_slice(
                 &base16::decode_vec(
-                    "fc93fc62807ddb8601abcdef5cf78f71a314227b6679ebf5"
-                ).unwrap(),
-                Cookie::parse
-            ).unwrap();
-            assert!(
-                request.check_server_hash(
-                    CLIENT_2, &SECRET,
-                    |serial| serial == Serial(1559727985)
+                    "fc93fc62807ddb8601abcdef5cf78f71a314227b6679ebf5",
                 )
-            );
+                .unwrap(),
+                Cookie::parse,
+            )
+            .unwrap();
+            assert!(request
+                .check_server_hash(CLIENT_2, &SECRET, |serial| serial
+                    == Serial(1559727985)));
 
             assert_eq!(
                 compose_vec(|vec| {
-                    request.create_response(
-                        Serial(1559734700), CLIENT_2, &SECRET
-                    ).compose_option(vec)
+                    request
+                        .create_response(
+                            Serial(1559734700),
+                            CLIENT_2,
+                            &SECRET,
+                        )
+                        .compose_option(vec)
                 }),
                 base16::decode_vec(
                     "fc93fc62807ddb86010000005cf7a9acf73a7810aca2381e"
-                ).unwrap()
+                )
+                .unwrap()
             );
         }
 
         /// A.4.  IPv6 Query with Rolled Over Secret
         #[test]
         fn new_secret() {
-
             const OLD_SECRET: [u8; 16] = [
-                0xdd, 0x3b, 0xdf, 0x93, 0x44, 0xb6, 0x78, 0xb1,
-                0x85, 0xa6, 0xf5, 0xcb, 0x60, 0xfc, 0xa7, 0x15,
+                0xdd, 0x3b, 0xdf, 0x93, 0x44, 0xb6, 0x78, 0xb1, 0x85, 0xa6,
+                0xf5, 0xcb, 0x60, 0xfc, 0xa7, 0x15,
             ];
             const NEW_SECRET: [u8; 16] = [
-                0x44, 0x55, 0x36, 0xbc, 0xd2, 0x51, 0x32, 0x98,
-                0x07, 0x5a, 0x5d, 0x37, 0x96, 0x63, 0xc9, 0x62,
+                0x44, 0x55, 0x36, 0xbc, 0xd2, 0x51, 0x32, 0x98, 0x07, 0x5a,
+                0x5d, 0x37, 0x96, 0x63, 0xc9, 0x62,
             ];
 
             let request = parse_slice(
                 &base16::decode_vec(
-                    "22681ab97d52c298010000005cf7c57926556bd0934c72f8"
-                ).unwrap(),
-                Cookie::parse
-            ).unwrap();
-            assert!(
-                !request.check_server_hash(
-                    CLIENT_6, &NEW_SECRET,
-                    |serial| serial == Serial(1559741817)
+                    "22681ab97d52c298010000005cf7c57926556bd0934c72f8",
                 )
-            );
-            assert!(
-                request.check_server_hash(
-                    CLIENT_6, &OLD_SECRET,
-                    |serial| serial == Serial(1559741817)
-                )
-            );
+                .unwrap(),
+                Cookie::parse,
+            )
+            .unwrap();
+            assert!(!request.check_server_hash(
+                CLIENT_6,
+                &NEW_SECRET,
+                |serial| serial == Serial(1559741817)
+            ));
+            assert!(request.check_server_hash(
+                CLIENT_6,
+                &OLD_SECRET,
+                |serial| serial == Serial(1559741817)
+            ));
 
             assert_eq!(
                 compose_vec(|vec| {
-                    request.create_response(
-                        Serial(1559741961), CLIENT_6, &NEW_SECRET
-                    ).compose_option(vec)
+                    request
+                        .create_response(
+                            Serial(1559741961),
+                            CLIENT_6,
+                            &NEW_SECRET,
+                        )
+                        .compose_option(vec)
                 }),
                 base16::decode_vec(
                     "22681ab97d52c298010000005cf7c609a6bb79d16625507a"
-                ).unwrap()
+                )
+                .unwrap()
             );
         }
     }
 }
-

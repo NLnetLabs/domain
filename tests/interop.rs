@@ -1,5 +1,5 @@
 //! TSIG interop testing with other DNS implementations.
-#![cfg(all(feature = "bytes", feature = "std"))]
+#![cfg(all(feature = "tsig", feature = "bytes", feature = "std"))]
 
 mod common;
 
@@ -119,7 +119,7 @@ fn tsig_client_nsd() {
         };
         assert_eq!(answer.header().rcode(), Rcode::NOTIMP);
         if let Err(err) = tran.answer(&mut answer, Time48::now()) {
-            panic!("{:?}", err);
+            panic!("{err:?}");
         }
     })
     .join();
@@ -143,7 +143,7 @@ fn tsig_server_dig() {
     )
     .unwrap();
     let secret = base64::encode_string(&secret);
-    let secret = format!("hmac-sha1:test.key:{}", secret);
+    let secret = format!("hmac-sha1:test.key:{secret}");
 
     let join = thread::spawn(move || {
         let sock = UdpSocket::bind("127.0.0.1:54322").unwrap();
@@ -296,7 +296,7 @@ fn tsig_server_sequence_dig() {
     )
     .unwrap();
     let secret = base64::encode_string(&secret);
-    let secret = format!("hmac-sha1:test.key:{}", secret);
+    let secret = format!("hmac-sha1:test.key:{secret}");
     let listener = TcpListener::bind("127.0.0.1:54324").unwrap();
     let port = listener.local_addr().unwrap().port();
 
@@ -338,7 +338,7 @@ fn tsig_server_sequence_dig() {
     let output = Command::new("/usr/bin/dig")
         .args([
             "-p",
-            &format!("{}", port),
+            &format!("{port}"),
             "-y",
             &secret,
             "example.com",

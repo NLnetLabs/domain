@@ -216,7 +216,7 @@ impl GetResponse for Request {
 }
 
 impl Debug for Request {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -648,7 +648,7 @@ where
     receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
-impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
+impl<Req: Clone + Send + Sync + 'static> Transport<Req> {
     /// Implementation of the new method.
     fn new(receiver: mpsc::Receiver<ChanReq<Req>>) -> Self {
         Self { receiver }

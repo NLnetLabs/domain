@@ -11,9 +11,8 @@ use crate::dep::octseq::Octets;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 
 use super::client::CurrStepValue;
-use super::matches::match_msg;
 use super::parse_stelline;
-use super::parse_stelline::{Adjust, Reply, Stelline};
+use super::parse_stelline::Stelline;
 
 pub fn do_server<'a, Oct, Target>(
     msg: &'a Message<Oct>,
@@ -47,7 +46,7 @@ where
             continue;
         }
         for entry in &range.entry {
-            if match_msg(entry, msg, false) {
+            if entry.match_msg(msg).is_ok() {
                 trace!("Match found");
                 opt_entry = Some(entry);
             }
@@ -76,15 +75,11 @@ where
     Target: Composer + Default + OctetsBuilder + Truncate,
     <Target as OctetsBuilder>::AppendError: Debug,
 {
-    let sections = entry.sections.as_ref().unwrap();
-    let adjust: Adjust = match &entry.adjust {
-        Some(adjust) => adjust.clone(),
-        None => Default::default(),
-    };
+    let sections = &entry.sections;
     let mut msg = MessageBuilder::from_target(Target::default())
         .unwrap()
         .question();
-    if adjust.copy_query {
+    if entry.adjust.copy_query {
         for q in reqmsg.question() {
             msg.push(q.unwrap()).unwrap();
         }
@@ -120,10 +115,7 @@ where
         };
         msg.push(rec).unwrap();
     }
-    let reply: Reply = match &entry.reply {
-        Some(reply) => reply.clone(),
-        None => Default::default(),
-    };
+    let reply = &entry.reply;
     let header = msg.header_mut();
     header.set_aa(reply.aa);
     header.set_ad(reply.ad);
@@ -137,7 +129,7 @@ where
     if reply.notify {
         header.set_opcode(Opcode::NOTIFY);
     }
-    if adjust.copy_id {
+    if entry.adjust.copy_id {
         header.set_id(reqmsg.header().id());
     } else {
         todo!();

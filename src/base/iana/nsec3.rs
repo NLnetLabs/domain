@@ -1,6 +1,6 @@
 //! NSEC3 hash algorithms.
 
-//------------ Nsec3HashAlg --------------------------------------------------
+//------------ Nsec3HashAlgorithm --------------------------------------------
 
 int_enum! {
     /// NSEC3 hash algorithm numbers.
@@ -14,11 +14,11 @@ int_enum! {
     /// [NSEC3]: ../../../rdata/rfc5155/index.html
     /// [IANA registration]: https://www.iana.org/assignments/dnssec-nsec3-parameters/dnssec-nsec3-parameters.xhtml#dnssec-nsec3-parameters-3
     =>
-    Nsec3HashAlg, u8;
+    Nsec3HashAlgorithm, u8;
 
     /// Specifies that the SHA-1 hash function is used.
     (SHA1 => 1, "SHA-1")
 }
 
-int_enum_str_decimal!(Nsec3HashAlg, u8);
-int_enum_zonefile_fmt_decimal!(Nsec3HashAlg, "hash algorithm");
+int_enum_str_decimal!(Nsec3HashAlgorithm, u8);
+int_enum_zonefile_fmt_decimal!(Nsec3HashAlgorithm, "hash algorithm");

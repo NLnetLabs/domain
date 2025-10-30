@@ -379,7 +379,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for UncertainName<Octets> {
 //--- ToLabelIter
 
 impl<Octs: AsRef<[u8]>> ToLabelIter for UncertainName<Octs> {
-    type LabelIter<'a> = NameIter<'a> where Octs: 'a;
+    type LabelIter<'a>
+        = NameIter<'a>
+    where
+        Octs: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         match *self {
@@ -410,7 +413,7 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainName<Octets> {
 //--- Display and Debug
 
 impl<Octets: AsRef<[u8]>> fmt::Display for UncertainName<Octets> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             UncertainName::Absolute(ref name) => {
                 write!(f, "{}.", name)
@@ -421,7 +424,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for UncertainName<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> fmt::Debug for UncertainName<Octets> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             UncertainName::Absolute(ref name) => {
                 write!(f, "UncertainName::Absolute({})", name)
@@ -484,7 +487,7 @@ where
         {
             type Value = UncertainName<Octets>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a domain name")
             }
 
@@ -529,7 +532,7 @@ where
         {
             type Value = UncertainName<Octets>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a domain name")
             }
 
@@ -615,7 +618,7 @@ impl From<UncertainDnameErrorEnum> for UncertainDnameError {
 //--- Display and Error
 
 impl fmt::Display for UncertainDnameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             UncertainDnameErrorEnum::BadLabel(ref err) => err.fmt(f),
             UncertainDnameErrorEnum::CompressedName => {

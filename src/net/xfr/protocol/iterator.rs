@@ -60,7 +60,7 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Iterator for XfrZoneUpdateIterator<'a, 'b> {
+impl Iterator for XfrZoneUpdateIterator<'_, '_> {
     type Item = Result<ZoneUpdate<ParsedRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {

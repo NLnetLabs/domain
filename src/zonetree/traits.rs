@@ -53,10 +53,10 @@ pub trait ZoneStore: Debug + Sync + Send + Any {
         self: Arc<Self>,
     ) -> Pin<
         Box<
-            (dyn Future<Output = Box<(dyn WritableZone + 'static)>>
-                 + Send
-                 + Sync
-                 + 'static),
+            dyn Future<Output = Box<dyn WritableZone + 'static>>
+                + Send
+                + Sync
+                + 'static,
         >,
     >;
 
@@ -337,11 +337,13 @@ pub trait ZoneDiff {
 //--- impl ZoneDiff for Arc
 
 impl<T: ZoneDiff> ZoneDiff for Arc<T> {
-    type Item<'a> = T::Item<'a>
+    type Item<'a>
+        = T::Item<'a>
     where
         Self: 'a;
 
-    type Stream<'a> = T::Stream<'a>
+    type Stream<'a>
+        = T::Stream<'a>
     where
         Self: 'a;
 
