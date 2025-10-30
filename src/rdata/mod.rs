@@ -46,6 +46,7 @@
 mod macros;
 
 pub mod aaaa;
+pub mod caa;
 pub mod cds;
 pub mod dname;
 pub mod dnssec;
@@ -96,6 +97,11 @@ rdata_types! {
     aaaa::{
         zone {
             Aaaa,
+        }
+    }
+    caa::{
+        zone {
+            Caa<O>,
         }
     }
     cds::{
