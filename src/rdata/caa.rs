@@ -298,7 +298,7 @@ where
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.flags.compose(target)?;
-        self.tag.compose_canonical(target)?;
+        self.tag.compose(target)?;
         target.append_slice(self.value.as_ref())
     }
 }
@@ -306,7 +306,7 @@ where
 //--- Display
 
 impl<O: AsRef<[u8]>> fmt::Display for Caa<O> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {} {}",
@@ -321,7 +321,7 @@ impl<O: AsRef<[u8]>> fmt::Display for Caa<O> {
 //--- Debug
 
 impl<O: AsRef<[u8]>> fmt::Debug for Caa<O> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Caa")
             .field("flags", &self.flags)
             .field("tag", &self.tag)

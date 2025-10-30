@@ -506,7 +506,7 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN CAA 0 issue \"ca.example.net\"",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(DisplayKind::Simple).to_string()
         );
     }
 }
