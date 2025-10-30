@@ -15,6 +15,7 @@ use crate::base::{
     Message, MessageBuilder, ParsedName, Record, Rtype, Serial, Ttl,
 };
 use crate::base::{Name, ToName};
+use crate::logging::init_logging;
 use crate::rdata::{Aaaa, Soa, ZoneRecordData, A};
 use crate::zonetree::types::{ZoneUpdate, ZoneUpdate as ZU};
 
@@ -563,18 +564,6 @@ fn mk_second_ixfr_response(
 }
 
 //------------ Helper functions -------------------------------------------
-
-fn init_logging() {
-    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
-    // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
-    // numbers and types as they are being executed.
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
-}
 
 fn mk_request(qname: &str, qtype: Rtype) -> QuestionBuilder<BytesMut> {
     let req = MessageBuilder::new_bytes();

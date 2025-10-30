@@ -12,8 +12,6 @@ macro_rules! opt_types {
 
         $( $( pub use self::$module::$opt; )* )*
 
-        $( pub mod $module; )*
-
         //------------ AllOptData --------------------------------------------
 
         #[derive(Clone)]
@@ -146,7 +144,7 @@ macro_rules! opt_types {
 
         impl<Octs, Name> fmt::Debug for AllOptData<Octs, Name>
         where Octs: AsRef<[u8]>, Name: fmt::Display {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match *self {
                     $( $(
                         AllOptData::$opt(ref inner) => {
