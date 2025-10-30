@@ -2,7 +2,7 @@
 name = "domain-macros"
 
 # Copied from 'domain'.
-version = "0.11.1-dev"
+version = "0.11.1"
 rust-version = "1.79.0"
 edition = "2021"
 
