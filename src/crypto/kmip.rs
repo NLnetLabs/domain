@@ -634,8 +634,8 @@ pub mod sign {
     /// backend are offered via the [`SignRaw`] trait impl.
     ///
     /// Operations specifc to KMIP key pairs are offered via methods specific
-    /// to this type, e.g. batching support via [`sign_raw_enqueue()`] and
-    /// [`sign_raw_submit_queue()`].
+    /// to this type, e.g. batching support via [`Self::sign_raw_enqueue()`]
+    /// and [`Self::sign_raw_submit_queue()`].
     ///
     /// See [`Self::from_metadata()`] and [`Self::from_urls()`] to construct
     /// a [`KeyPair`] from individual public and private KMIP keys.
