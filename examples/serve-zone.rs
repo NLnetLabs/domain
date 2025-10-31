@@ -146,7 +146,7 @@ async fn main() {
     }
 
     let sock = TcpListener::bind(addr).await.unwrap();
-    let tcp_srv = StreamServer::<_, _, _>::new(sock, VecBufSource, svc);
+    let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
     let tcp_metrics = tcp_srv.metrics();
 
     tokio::spawn(async move { tcp_srv.run().await });
