@@ -223,6 +223,14 @@ impl TryFrom<Url> for KeyUrl {
     }
 }
 
+//--- impl Display
+
+impl std::fmt::Display for KeyUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.url.fmt(f)
+    }
+}
+
 //------------ PublicKey -----------------------------------------------------
 
 /// A public key for verifying a signature.
@@ -607,7 +615,7 @@ pub mod sign {
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::common::DigestType;
     use crate::crypto::kmip::{
-        GenerateError, KeyUrl, KeyUrlParseError, PublicKey,
+        DestroyError, GenerateError, KeyUrl, KeyUrlParseError, PublicKey,
     };
     use crate::crypto::sign::{
         GenerateParams, SignError, SignRaw, Signature,
@@ -967,11 +975,9 @@ pub mod sign {
 
     /// Generate a new key pair for a given algorithm using a specified HSM.
     pub fn generate(
-        name: String,
-        // TODO: Is this enough? Or do we need to take SecurityAlgorithm
-        // as input instead of GenerateParams to ensure we don't lose
-        // distinctions like 5 vs 7 which are both RSASHA1?
-        params: GenerateParams,
+        public_key_name: String,
+        private_key_name: String,
+        params: GenerateParams, // TODO: Is this enough? Or do we need to take SecurityAlgorithm as input instead of GenerateParams to ensure we don't lose distinctions like 5 vs 7 which are both RSASHA1?
         flags: u16,
         conn_pool: SyncConnPool,
     ) -> Result<KeyPair, GenerateError> {
@@ -991,12 +997,25 @@ pub mod sign {
 
         let use_cryptographic_params = false;
 
+        // Note: Strictly speaking KMIP requires that each key, including
+        // public and private "halves" of the same key "pair", have a unique
+        // name within the HSM namespace. We don't enforce that here, e.g.
+        // maybe you know that your backend is actually a KMIP to PKCS#11
+        // gateway and PKCS#11 doesn't have the same restriction and you
+        // want keys to be named as you are used to with your PKCS#11 HSM. We
+        // also don't intefere with names by making them unique as that would
+        // change any max name length calculations performed by the caller
+        // to avoid known issues with backend name limitations for their
+        // particular HSM (the PKCS#11 and KMIP specifications are silent on
+        // name limits but implementations definitely have limits, and not all
+        // the same).
+
         let mut common_attrs = vec![];
         let priv_key_attrs = vec![
             // Krill supplies a name at creation time. Do we need to?
             // Note: Fortanix DSM requires a name for at least the private
             // key.
-            request::Attribute::Name(format!("{name}_priv")),
+            request::Attribute::Name(private_key_name),
             request::Attribute::CryptographicUsageMask(
                 CryptographicUsageMask::Sign,
             ),
@@ -1005,7 +1024,7 @@ pub mod sign {
             // Krill supplies a name at creation time. Do we need to?
             // Note: Fortanix DSM requires a name for at least the private
             // key.
-            request::Attribute::Name(format!("{name}_pub")),
+            request::Attribute::Name(public_key_name),
             // Krill does verification, do we need to? ODS doesn't.
             // Note: PyKMIP requires a Cryptographic Usage Mask for the public
             // key.
@@ -1223,7 +1242,25 @@ pub mod sign {
 
     //----------- destroy() --------------------------------------------------
 
-    // TODO
+    /// Destroy a KMIP key by ID.
+    ///
+    /// Note: A KMIP key cannot be destroyed if it is active. To deactivate
+    /// the key we must first "revoke" it.
+    fn destroy(
+        key_id: &str,
+        conn_pool: SyncConnPool,
+    ) -> Result<(), DestroyError> {
+        let client = conn_pool
+            .get()
+            .map_err(|err| DestroyError::Kmip(format!("Key destruction failed: Cannot connect to KMIP server {}: {err}", conn_pool.server_id())))?;
+
+        client
+            .revoke_key(key_id)
+            .map_err(|err| DestroyError::Kmip(err.to_string()))?;
+        client
+            .destroy_key(key_id)
+            .map_err(|err| DestroyError::Kmip(err.to_string()))
+    }
 }
 
 //============ Error Types ===================================================
@@ -1266,6 +1303,31 @@ impl fmt::Display for GenerateError {
 //--- impl Error
 
 impl std::error::Error for GenerateError {}
+
+//------------ DestroyError --------------------------------------------------
+
+/// An error while destroying a key using KMIP.
+#[derive(Clone, Debug)]
+pub enum DestroyError {
+    /// A problem occurred while communicating with the KMIP server.
+    Kmip(String),
+}
+
+//--- Formatting
+
+impl fmt::Display for DestroyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Kmip(err) => {
+                write!(f, "a problem occurred while communicating with the KMIP server: {err}")
+            }
+        }
+    }
+}
+
+//--- Error
+
+impl std::error::Error for DestroyError {}
 
 //------------ KeyUrlError ---------------------------------------------------
 
@@ -1384,7 +1446,7 @@ mod tests {
             insecure: true,
             client_cert: Some(kmip::client::ClientCertificate::SeparatePem {
                 cert_bytes,
-                key_bytes: Some(key_bytes),
+                key_bytes,
             }),
             ..Default::default()
         };
@@ -1407,7 +1469,14 @@ mod tests {
         dbg!(&res);
         res.unwrap();
 
-        let generated_key_name = format!(
+        let pub_key_name = format!(
+            "{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        );
+        let pri_key_name = format!(
             "{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -1415,7 +1484,8 @@ mod tests {
                 .as_secs()
         );
         let res = generate(
-            generated_key_name,
+            pub_key_name,
+            pri_key_name,
             crate::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
             // crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
@@ -1471,7 +1541,14 @@ mod tests {
         // dbg!(&res);
         // res.unwrap();
 
-        let generated_key_name = format!(
+        let pub_key_name = format!(
+            "{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        );
+        let pri_key_name = format!(
             "{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -1479,7 +1556,8 @@ mod tests {
                 .as_secs()
         );
         let res = generate(
-            generated_key_name,
+            pub_key_name,
+            pri_key_name,
             crate::crypto::sign::GenerateParams::RsaSha256 { bits: 1024 },
             // crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
