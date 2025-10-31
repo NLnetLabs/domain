@@ -1246,7 +1246,7 @@ pub mod sign {
     ///
     /// Note: A KMIP key cannot be destroyed if it is active. To deactivate
     /// the key we must first "revoke" it.
-    fn destroy(
+    pub fn destroy(
         key_id: &str,
         conn_pool: SyncConnPool,
     ) -> Result<(), DestroyError> {
