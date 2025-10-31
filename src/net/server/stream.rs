@@ -13,17 +13,20 @@
 //! > the Internet._
 //!
 //! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse
-use arc_swap::ArcSwap;
 use core::future::poll_fn;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
-use octseq::Octets;
+
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
+
+use arc_swap::ArcSwap;
+use octseq::Octets;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::time::{interval, timeout, MissedTickBehavior};
@@ -39,7 +42,6 @@ use crate::utils::config::DefMinMax;
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
 use super::ServerCommand;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 // TODO: Should this crate also provide a TLS listener implementation?
 

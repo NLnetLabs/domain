@@ -113,6 +113,19 @@ impl std::fmt::Display for Error {
 /// [`XfrZoneUpdateIterator`]: super::iterator::XfrZoneUpdateIterator
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IterationError {
-    /// Transfer processing failed.
+    /// XFR record parsing failed.
     ParseError(ParseError),
+
+    /// The mandatory initial SOA record is missing.
+    MissingInitialSoa,
+
+    /// The last XFR record has already been processed.
+    AlreadyFinished,
+
+    /// The IXFR response consists only of a single SOA record.
+    ///
+    /// WWen the query transport was UDP, this type of response is used by the
+    /// server to signal that the client should retry via TCP to accommodate a
+    /// response too large to be served via UDP.
+    SingleSoaIxfrTcpRetrySignal,
 }

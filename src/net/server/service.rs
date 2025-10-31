@@ -98,6 +98,22 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///     }
 /// }
 ///
+/// //------------ An anonymous async block service example -------------------
+/// struct MyAsyncBlockService;
+///
+/// impl Service<Vec<u8>, ()> for MyAsyncBlockService {
+///     type Target = Vec<u8>;
+///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
+///     type Future = Pin<Box<dyn std::future::Future<Output = Self::Stream> + Send>>;
+///
+///     fn call(
+///         &self,
+///         msg: Request<Vec<u8>, ()>,
+///     ) -> Self::Future {
+///         Box::pin(async move { mk_response_stream(&msg) })
+///     }
+/// }
+///
 /// //------------ A named Future service example -----------------------------
 /// struct MyFut(Request<Vec<u8>, ()>);
 ///
@@ -225,7 +241,7 @@ impl ServiceError {
     }
 }
 
-//--- Display
+//--- Display and Error
 
 impl Display for ServiceError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -237,6 +253,9 @@ impl Display for ServiceError {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for ServiceError {}
 
 //--- From<PushError>
 

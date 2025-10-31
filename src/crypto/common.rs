@@ -136,7 +136,7 @@ impl PublicKey {
         #[cfg(feature = "ring")]
         return Ok(Self::Ring(ring::PublicKey::from_dnskey(dnskey)?));
 
-        #[cfg(feature = "openssl")]
+        #[cfg(all(feature = "openssl", not(feature = "ring")))]
         return Ok(Self::Openssl(openssl::PublicKey::from_dnskey(dnskey)?));
 
         #[cfg(not(any(feature = "ring", feature = "openssl")))]

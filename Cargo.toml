@@ -4,10 +4,10 @@ members = [".", "./macros"]
 
 [package]
 name = "domain"
-version = "0.11.1-dev"
+version = "0.11.1"
 
 # The MSRV is at least 4 versions behind stable (about half a year).
-rust-version = "1.79.0"
+rust-version = "1.85.0"
 
 edition = "2021"
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
@@ -20,10 +20,11 @@ keywords = ["DNS", "domain"]
 license = "BSD-3-Clause"
 
 [dependencies]
-domain-macros  = { path = "./macros", version = "=0.11.1-dev" }
+domain-macros  = { path = "./macros", version = "=0.11.1" }
 
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 bumpalo        = { version = "3.12", optional = true }
+constant_time_eq = { version = "0.4.2", optional = true }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
@@ -31,7 +32,7 @@ arc-swap       = { version = "1.7.0", optional = true }
 bytes          = { version = "1.2", optional = true, default-features = false }
 chrono         = { version = "0.4.35", optional = true, default-features = false } # 0.4.35 deprecates Duration::seconds()
 futures-util   = { version = "0.3", optional = true }
-hashbrown      = { version = "0.14.2", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
+hashbrown      = { version = "0.16.0", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
 heapless       = { version = "0.8", optional = true }
 kmip           = { git = "https://github.com/NLnetLabs/kmip-protocol", branch = "next", package = "kmip-protocol", version = "0.5.0", optional = true, features = ["tls-with-rustls"] }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
@@ -77,15 +78,15 @@ kmip        = ["dep:kmip", "dep:bcder", "dep:url", "dep:uuid", "dep:openssl"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
-tsig        = ["bytes", "ring", "smallvec"]
+tsig        = ["bytes", "constant_time_eq", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-new = []
 unstable-client-cache = ["unstable-client-transport", "moka"]
-unstable-client-transport = ["moka", "net", "tracing"]
+unstable-client-transport = ["net", "tracing"]
 unstable-crypto = ["bytes"]
-unstable-crypto-sign = ["dep:secrecy", "unstable-crypto"]
+unstable-crypto-sign = ["dep:secrecy", "std", "unstable-crypto"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
 unstable-sign = ["std", "dep:smallvec", "dep:serde", "time/formatting", "tracing", "unstable-crypto-sign"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
@@ -100,7 +101,7 @@ arbitrary = ["dep:arbitrary"]
 itertools         = "0.13.0"
 lazy_static       = { version = "1.4.0" }
 pretty_assertions = "1.4.1"
-rstest             = "0.23.0"
+rstest             = "0.26.1"
 rustls-pemfile    = { version = "2.1.2" }
 serde_test        = "1.0.130"
 serde_json        = "1.0.113"
