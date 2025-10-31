@@ -645,12 +645,12 @@ where
             Ok(buf) => {
                 let received_at = Instant::now();
 
+                self.metrics.inc_num_received_requests();
+
                 if log_enabled!(Level::Trace) {
                     let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
                     trace!(addr = %self.addr, pcap_text, "Received message");
                 }
-
-                self.metrics.inc_num_received_requests();
 
                 // Message received, reset the DNS idle timer
                 self.idle_timer.full_msg_received();
@@ -696,6 +696,15 @@ where
                             request.message().header().id()
                         );
                         tokio::spawn(async move {
+                            // If we don't see the next log message it may be
+                            // because the stream listener was originally an
+                            // std listener, not a Tokio listener, and it was
+                            // not properly put in non-blocking mode before
+                            // being passed to us. This then causes .recv()
+                            // above to block, preventing this task from
+                            // running if it is scheduled on the same thread.
+                            trace!("Task spawned to handle message");
+
                             let request_id = request.message().header().id();
                             trace!(
                                 "Calling service for request id {request_id}"
@@ -707,10 +716,10 @@ where
                             while let Some(Ok(call_result)) =
                                 stream.next().await
                             {
-                                trace!("Processing service call result for request id {request_id}");
                                 let (response, feedback) =
                                     call_result.into_inner();
 
+                                trace!("Processing service call result for request id {request_id}: response? {} feedback? {feedback:?}", response.is_some());
                                 if let Some(feedback) = feedback {
                                     match feedback {
                                         ServiceFeedback::Reconfigure {
@@ -744,6 +753,7 @@ where
 
                                 if let Some(mut response) = response {
                                     loop {
+                                        trace!("Sending response");
                                         match result_q_tx.try_send(response) {
                                             Ok(()) => {
                                                 let pending_writes =
@@ -781,6 +791,7 @@ where
                                         }
                                     }
                                 }
+                                trace!("Finished processing service call result for request id {request_id}");
                             }
                             trace!("Finished processing service call results for request id {request_id}");
                         });

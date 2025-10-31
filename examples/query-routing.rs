@@ -57,7 +57,7 @@ async fn main() {
     let conn_service = ClientTransportToSingleService::new(redun);
     qr.add(Name::<Vec<u8>>::from_str("nl").unwrap(), conn_service);
 
-    let srv = SingleServiceToService::<_, _, _, _>::new(qr);
+    let srv = SingleServiceToService::new(qr);
     let srv = MandatoryMiddlewareSvc::new(srv);
     let my_svc = Arc::new(srv);
 
