@@ -1446,7 +1446,7 @@ mod tests {
             insecure: true,
             client_cert: Some(kmip::client::ClientCertificate::SeparatePem {
                 cert_bytes,
-                key_bytes: Some(key_bytes),
+                key_bytes,
             }),
             ..Default::default()
         };
