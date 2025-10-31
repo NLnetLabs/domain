@@ -176,7 +176,11 @@ pub trait SignRaw {
     /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
     fn algorithm(&self) -> SecurityAlgorithm;
 
-    /// TODO
+    /// The key flags.
+    ///
+    /// See [RFC 4034, section 2.1.1] for more information.
+    ///
+    /// [RFC 4034, section 2.1.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.1
     fn flags(&self) -> u16;
 
     /// The public key.
