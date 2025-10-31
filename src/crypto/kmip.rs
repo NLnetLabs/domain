@@ -54,7 +54,7 @@ pub const SECP256R1_OID: ConstOid = Oid(&[42, 134, 72, 206, 61, 3, 1, 7]);
 ///
 /// The URL structure is:
 ///
-/// > kmip://<server_id>/keys/<key_id>?algorithm=<algorithm>&flags=<flags>
+///     kmip://<server_id>/keys/<key_id>?algorithm=<algorithm>&flags=<flags>
 ///
 /// The algorithm and flags must be stored in the URL because they are DNSSEC
 /// specific and not properties of the key itself and thus not known to or
