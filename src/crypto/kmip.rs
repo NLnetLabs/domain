@@ -1242,7 +1242,7 @@ pub mod sign {
 
     //----------- destroy() --------------------------------------------------
 
-    /// Destroy a KMIP key by ID.
+    /// Destroy a KMIP key by ID using a given KMIP server connection pool.
     ///
     /// As a KMIP key cannot be destroyed if it is active, this function first
     /// attempts to revoke the key and then destroy it.
