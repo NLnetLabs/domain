@@ -35,7 +35,8 @@ on:
       - 'releases/**'
     paths:
       - '**.rs'
-      - 'Cargo.{toml,lock}'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/ci.yml'
 
   # Rebuild 'main' every week.  This will account for changes to dependencies
@@ -290,7 +291,7 @@ jobs:
           target/
         # Cache by OS and Rust version.
         key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
-    
+
     # Build and run the test suite.
     - name: Test
       run: cargo test --all-targets $DOMAIN_FEATURES
