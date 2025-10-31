@@ -640,7 +640,7 @@ pub mod sign {
     /// See [`Self::from_metadata()`] and [`Self::from_urls()`] to construct
     /// a [`KeyPair`] from individual public and private KMIP keys.
     ///
-    /// To generate individual KMIP keys see [`generate()`].
+    /// To generate a KMIP key pair see [`generate()`].
     ///
     /// To destroy individual KMIP keys see [`destroy()`].
     ///
