@@ -241,7 +241,7 @@ impl ServiceError {
     }
 }
 
-//--- Display
+//--- Display and Error
 
 impl Display for ServiceError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -253,6 +253,9 @@ impl Display for ServiceError {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for ServiceError {}
 
 //--- From<PushError>
 

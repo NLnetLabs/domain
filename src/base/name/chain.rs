@@ -220,7 +220,7 @@ impl<L, R> fmt::Display for Chain<L, R>
 where
     Self: ToLabelIter,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut empty = true;
         for label in self.iter_labels() {
             if label.is_root() {
@@ -339,7 +339,7 @@ impl<L, R> fmt::Display for DisplayWithDot<'_, L, R>
 where
     Chain<L, R>: ToLabelIter,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut empty = true;
         for label in self.0.iter_labels() {
             if label.is_root() {
@@ -368,7 +368,7 @@ pub struct LongChainError(());
 //--- Display and Error
 
 impl fmt::Display for LongChainError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("long domain name")
     }
 }

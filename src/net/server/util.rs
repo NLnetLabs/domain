@@ -235,7 +235,7 @@ pub fn add_edns_options<F, Target>(
 ) -> Result<(), PushError>
 where
     F: FnOnce(
-        &mut OptBuilder<StreamTarget<Target>>,
+        &mut OptBuilder<'_, StreamTarget<Target>>,
     ) -> Result<
         (),
         <StreamTarget<Target> as OctetsBuilder>::AppendError,

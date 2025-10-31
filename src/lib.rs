@@ -182,6 +182,7 @@
 #![allow(renamed_and_removed_lints)]
 #![allow(clippy::unknown_clippy_lints)]
 #![allow(clippy::uninlined_format_args)]
+#![warn(elided_lifetimes_in_paths)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]

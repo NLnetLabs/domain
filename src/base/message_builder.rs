@@ -479,7 +479,7 @@ impl<Target: Composer> MessageBuilder<Target> {
         let new_pos = self.target.as_ref().len();
         if new_pos >= self.limit {
             self.target.truncate(pos);
-            return Err(PushError::ShortBuf);
+            return Err(PushError::LimitExceeded);
         }
 
         if inc(self.counts_mut()).is_err() {
@@ -1417,7 +1417,9 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     /// [`OptBuilder`]: struct.OptBuilder.html
     pub fn opt<F>(&mut self, op: F) -> Result<(), PushError>
     where
-        F: FnOnce(&mut OptBuilder<Target>) -> Result<(), Target::AppendError>,
+        F: FnOnce(
+            &mut OptBuilder<'_, Target>,
+        ) -> Result<(), Target::AppendError>,
     {
         self.authority.answer.builder.push(
             |target| OptBuilder::new(target)?.build(op),
@@ -2639,9 +2641,21 @@ impl<Target: Composer> Truncate for HashCompressor<Target> {
 
 //============ Errors ========================================================
 
+/// An error occurred when attempting to add data to a message.
 #[derive(Clone, Copy, Debug)]
 pub enum PushError {
+    /// Push attempted to exceed a hard limit.
+    ///
+    /// For example, attempting to put more than 65,535 records in the
+    /// question, answer, authority or additional section of a DNS message.
     CountOverflow,
+
+    /// Push attempted to exceed a soft limit.
+    ///
+    /// See [`MessageBuilder::set_push_limit()`].
+    LimitExceeded,
+
+    /// Push attempted to exceed the capacity of a buffer.
     ShortBuf,
 }
 
@@ -2652,9 +2666,10 @@ impl<T: Into<ShortBuf>> From<T> for PushError {
 }
 
 impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             PushError::CountOverflow => f.write_str("counter overflow"),
+            PushError::LimitExceeded => f.write_str("limit exceeded"),
             PushError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -2761,7 +2776,10 @@ mod test {
         msg.set_push_limit(25);
 
         // Verify that push fails.
-        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert!(matches!(
+            msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())),
+            Err(PushError::LimitExceeded)
+        ));
         assert_eq!(msg.as_slice().len(), hdr_len + 50);
 
         // Remove the limit.
@@ -2774,7 +2792,10 @@ mod test {
         assert_eq!(msg.as_slice().len(), 100);
 
         // Verify that exceeding the underlying capacity limit fails.
-        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert!(matches!(
+            msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())),
+            Err(PushError::ShortBuf)
+        ));
         assert_eq!(msg.as_slice().len(), 100);
     }
 

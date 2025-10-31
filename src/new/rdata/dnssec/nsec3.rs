@@ -4,11 +4,14 @@ use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
-use crate::new::base::{
-    build::BuildInMessage,
-    name::NameCompressor,
-    wire::{AsBytes, BuildBytes, SizePrefixed, TruncationError, U16},
-    CanonicalRecordData,
+use crate::{
+    new::base::{
+        build::BuildInMessage,
+        name::NameCompressor,
+        wire::{AsBytes, BuildBytes, SizePrefixed, TruncationError, U16},
+        CanonicalRecordData,
+    },
+    utils::dst::UnsizedCopy,
 };
 
 use super::TypeBitmaps;
@@ -149,6 +152,15 @@ impl BuildInMessage for NSec3Param {
             .ok_or(TruncationError)?
             .copy_from_slice(bytes);
         Ok(end)
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<NSec3Param> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }
 

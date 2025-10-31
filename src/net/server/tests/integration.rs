@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
-use ring::test::rand::FixedByteRandom;
 use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
@@ -24,6 +23,7 @@ use crate::base::name::ToName;
 use crate::base::net::IpAddr;
 use crate::base::Name;
 use crate::base::Rtype;
+use crate::base::Serial;
 use crate::logging::init_logging;
 use crate::net::client::request::{RequestMessage, RequestMessageMulti};
 use crate::net::client::{dgram, stream, tsig};
@@ -70,6 +70,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // which responses will be expected, and how the server that answers them
     // should be configured.
 
+    use ring::{hkdf::KeyType, hmac};
+
     init_logging();
 
     // Load the test .rpl file that determines which queries will be sent
@@ -82,9 +84,9 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Create a TSIG key store containing a 'TESTKEY'
     let mut key_store = TestKeyStore::new();
     let key_name = KeyName::from_str("TESTKEY").unwrap();
-    let rng = FixedByteRandom { byte: 0u8 };
-    let (key, _) =
-        Key::generate(Algorithm::Sha256, &rng, key_name.clone(), None, None)
+    let key_bytes = vec![0u8; hmac::HMAC_SHA256.len()];
+    let key =
+        Key::new(Algorithm::Sha256, &key_bytes, key_name.clone(), None, None)
             .unwrap();
     key_store.insert((key_name, Algorithm::Sha256), key.into());
     let key_store = Arc::new(key_store);
@@ -217,7 +219,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 #[allow(clippy::type_complexity)]
 fn mk_servers<Svc>(
     service: Svc,
-    server_config: &ServerConfig,
+    server_config: &ServerConfig<'_>,
     dgram_server_conn: ClientServerChannel,
     stream_server_conn: ClientServerChannel,
 ) -> (
@@ -371,7 +373,7 @@ fn mk_client_factory(
 }
 
 fn mk_server_configs(
-    config: &ServerConfig,
+    config: &ServerConfig<'_>,
 ) -> (server::dgram::Config, server::stream::Config) {
     let dgram_config = server::dgram::Config::default();
 
@@ -444,7 +446,7 @@ struct CookieConfig<'a> {
     ip_deny_list: Vec<IpAddr>,
 }
 
-fn parse_server_config(config: &Config) -> ServerConfig {
+fn parse_server_config(config: &Config) -> ServerConfig<'_> {
     let mut parsed_config = ServerConfig::default();
     let mut in_server_block = false;
     let mut zone_name = None;
@@ -562,11 +564,12 @@ impl Notifiable for TestNotifyTarget {
         &self,
         class: Class,
         apex_name: &StoredName,
+        serial: Option<Serial>,
         source: IpAddr,
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
     > {
-        trace!("Notify received from {source} of change to zone {apex_name} in class {class}");
+        trace!("Notify received from {source} of change to zone {apex_name} in class {class} with serial {serial:?}");
 
         let res = match apex_name.to_string().to_lowercase().as_str() {
             "example.com" => Ok(()),
