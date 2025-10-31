@@ -244,7 +244,6 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-#[cfg(feature = "unstable-client-cache")]
 pub mod cache;
 pub mod dgram;
 pub mod dgram_stream;
@@ -255,11 +254,5 @@ pub mod redundant;
 pub mod request;
 pub mod stream;
 pub mod tsig;
-#[cfg(all(
-    feature = "unstable-validator",
-    any(feature = "ring", feature = "openssl")
-))]
 pub mod validator;
-
-#[cfg(all(test, feature = "unstable-validator"))]
 pub mod validator_test;
