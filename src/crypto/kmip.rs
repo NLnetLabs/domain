@@ -233,7 +233,7 @@ impl std::fmt::Display for KeyUrl {
 
 //------------ PublicKey -----------------------------------------------------
 
-/// A public key for verifying a signature.
+/// A public key retrieved from a KMIP server.
 pub struct PublicKey {
     /// The DNSSEC algorithm for use with this public key.
     algorithm: SecurityAlgorithm,
