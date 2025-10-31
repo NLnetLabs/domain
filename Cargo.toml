@@ -34,7 +34,7 @@ chrono         = { version = "0.4.35", optional = true, default-features = false
 futures-util   = { version = "0.3", optional = true }
 hashbrown      = { version = "0.14.2", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
 heapless       = { version = "0.8", optional = true }
-kmip           = { git = "https://github.com/NLnetLabs/kmip-protocol", branch = "next", package = "kmip-protocol", version = "0.5.0", optional = true, features = ["tls-with-openssl-vendored"] } # TODO: use the async feature instead
+kmip           = { git = "https://github.com/NLnetLabs/kmip-protocol", branch = "next", package = "kmip-protocol", version = "0.5.0", optional = true, features = ["tls-with-rustls"] }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
 log            = { version = "0.4.22", optional = true }
 parking_lot    = { version = "0.12", optional = true }
