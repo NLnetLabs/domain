@@ -933,7 +933,7 @@ pub mod sign {
     pub struct SignQueue(Vec<BatchItem>);
 
     impl SignQueue {
-        /// TODO
+        /// Constructs a new empty signing queue.
         pub fn new() -> Self {
             Self(vec![])
         }
@@ -977,7 +977,10 @@ pub mod sign {
     pub fn generate(
         public_key_name: String,
         private_key_name: String,
-        params: GenerateParams, // TODO: Is this enough? Or do we need to take SecurityAlgorithm as input instead of GenerateParams to ensure we don't lose distinctions like 5 vs 7 which are both RSASHA1?
+        params: GenerateParams,
+        // TODO: Is this enough? Or do we need to take SecurityAlgorithm as
+        // input instead of GenerateParams to ensure we don't lose distinctions
+        // like 5 vs 7 which are both RSASHA1?
         flags: u16,
         conn_pool: SyncConnPool,
     ) -> Result<KeyPair, GenerateError> {
