@@ -18,7 +18,8 @@ on:
   pull_request:
     paths:
       - '**.rs'
-      - 'Cargo.{toml,lock}'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/ci.yml'
 
   # If a pull request is merged, at least one commit is added to the target
