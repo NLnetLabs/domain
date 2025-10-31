@@ -32,7 +32,7 @@ arc-swap       = { version = "1.7.0", optional = true }
 bytes          = { version = "1.2", optional = true, default-features = false }
 chrono         = { version = "0.4.35", optional = true, default-features = false } # 0.4.35 deprecates Duration::seconds()
 futures-util   = { version = "0.3", optional = true }
-hashbrown      = { version = "0.14.2", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
+hashbrown      = { version = "0.16.0", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
 heapless       = { version = "0.8", optional = true }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
 log            = { version = "0.4.22", optional = true }
