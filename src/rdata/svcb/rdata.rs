@@ -9,6 +9,9 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
+#[cfg(feature = "std")]
+use crate::base::scan::Scan;
+use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::marker::PhantomData;
@@ -176,6 +179,49 @@ impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedName<Octs>> {
         let target = ParsedName::parse(parser)?;
         let params = SvcParams::parse(parser)?;
         Ok(unsafe { Self::new_unchecked(priority, target, params) })
+    }
+}
+
+impl<Octs: AsRef<[u8]>, Name: ToName> SvcbRdata<SvcbVariant, Octs, Name> {
+    pub fn scan<S: Scanner<Name = Name, Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        #[cfg(feature = "std")]
+        {
+            let priority = u16::scan(scanner)?;
+            let target = scanner.scan_name()?;
+            let params = SvcParams::scan(scanner)?;
+
+            Self::new(priority, target, params)
+                .map_err(|_| S::Error::custom("SVCB record too long"))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            let _ = scanner;
+            Err(S::Error::custom("zonefile parsing of SVCB RRs is not implemented without the domain std feature"))
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>, Name: ToName> SvcbRdata<HttpsVariant, Octs, Name> {
+    pub fn scan<S: Scanner<Name = Name, Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        #[cfg(feature = "std")]
+        {
+            let priority = u16::scan(scanner)?;
+            let target = scanner.scan_name()?;
+            // TODO: The "automatically mandatory" keys (Section 8) are "port" and "no-default-alpn".
+            let params = SvcParams::scan(scanner)?;
+
+            Self::new(priority, target, params)
+                .map_err(|_| S::Error::custom("HTTPS record too long"))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            let _ = scanner;
+            Err(S::Error::custom("zonefile parsing of HTTPS RRs is not implemented without the domain std feature"))
+        }
     }
 }
 
@@ -467,7 +513,7 @@ where
 
 impl<Variant, Octs, Name> fmt::Display for SvcbRdata<Variant, Octs, Name>
 where
-    Octs: Octets,
+    Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -477,7 +523,7 @@ where
 
 impl<Variant, Octs, Name> fmt::Debug for SvcbRdata<Variant, Octs, Name>
 where
-    Octs: Octets,
+    Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -493,7 +539,7 @@ where
 
 impl<Variant, Octs, Name> ZonefileFmt for SvcbRdata<Variant, Octs, Name>
 where
-    Octs: Octets,
+    Octs: AsRef<[u8]>,
     Name: ToName,
 {
     fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
