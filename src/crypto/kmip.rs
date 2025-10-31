@@ -67,8 +67,8 @@ pub const SECP256R1_OID: ConstOid = Oid(&[42, 134, 72, 206, 61, 3, 1, 7]);
 /// same cryptographic algorithm, and we need to know when using the key which
 /// _DNSSEC_ algorithm number to use.
 ///
-/// The server_id could be the actual address of the target, but does not have
-/// to be. There are multiple for this:
+/// The `server_id` could be the actual address of the target, but does not have
+/// to be. There are multiple reasons for this:
 ///
 ///   - In a highly available clustered deployment across multiple subnets
 ///     it could be that the clustered HSM is available to the clustered
@@ -103,7 +103,7 @@ pub const SECP256R1_OID: ConstOid = Oid(&[42, 134, 72, 206, 61, 3, 1, 7]);
 ///     TLS certificate to be valid (which can be inconvenient in test setups
 ///     using self-signed certificates).
 ///
-/// Thus an abstract server_id is stored in the key URL and it is the
+/// Thus an abstract `server_id` is stored in the key URL and it is the
 /// responsibility of the user of the key URL to map the server id to the full
 /// set of settings required to successfully connect to the HSM to make use of
 /// the key.
