@@ -502,6 +502,15 @@ pub mod sign {
             }
         }
 
+        fn flags(&self) -> u16 {
+            match *self {
+                KeyPair::RsaSha256 { flags, .. } => flags,
+                KeyPair::EcdsaP256Sha256 { flags, .. } => flags,
+                KeyPair::EcdsaP384Sha384 { flags, .. } => flags,
+                KeyPair::Ed25519(_, flags) => flags,
+            }
+        }
+
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
             match self {
                 Self::RsaSha256 { key, flags, rng: _ } => {
@@ -575,35 +584,41 @@ pub mod sign {
                         .map(|()| {
                             Signature::RsaSha256(buf.into_boxed_slice())
                         })
-                        .map_err(|_| SignError)
+                        .map_err(|_| "Ring RSASHA256 signing failed".into())
                 }
 
                 Self::EcdsaP256Sha256 { key, flags: _, rng } => key
                     .sign(&**rng, data)
                     .map(|sig| Box::<[u8]>::from(sig.as_ref()))
-                    .map_err(|_| SignError)
+                    .map_err(|_| "Ring ECDSAP256SHA256 signing failed".into())
                     .and_then(|buf| {
                         buf.try_into()
                             .map(Signature::EcdsaP256Sha256)
-                            .map_err(|_| SignError)
+                            .map_err(|_| {
+                                "Ring ECDSAP256SHA256 signature too large"
+                                    .into()
+                            })
                     }),
 
                 Self::EcdsaP384Sha384 { key, flags: _, rng } => key
                     .sign(&**rng, data)
                     .map(|sig| Box::<[u8]>::from(sig.as_ref()))
-                    .map_err(|_| SignError)
+                    .map_err(|_| "Ring ECDSAP384SHA384 signing failed".into())
                     .and_then(|buf| {
                         buf.try_into()
                             .map(Signature::EcdsaP384Sha384)
-                            .map_err(|_| SignError)
+                            .map_err(|_| {
+                                "Ring ECDSAP384SHA384 signature too large"
+                                    .into()
+                            })
                     }),
 
                 Self::Ed25519(key, _) => {
                     let sig = key.sign(data);
                     let buf: Box<[u8]> = sig.as_ref().into();
-                    buf.try_into()
-                        .map(Signature::Ed25519)
-                        .map_err(|_| SignError)
+                    buf.try_into().map(Signature::Ed25519).map_err(|_| {
+                        "Ring ED25519 signature too large".into()
+                    })
                 }
             }
         }
