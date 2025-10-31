@@ -1,25 +1,88 @@
 # Change Log
 
-
 ## Unreleased next version
 
 Breaking changes
 
+* Add new `LimitExceeded` variant to `MessageBuilder`'s `PushError`. ([#349])
+* `StubResolver` now keeps its state in an `Arc` and can be cloned cheaply.
+  ([#393])
+
 New
+
+* Add `rdata::dnssec::Timestamp::to_system_time` to help sorting timestamps.
+ ([#548])
+
+Improvements
+
+* Exclude `moka` dependency from the `resolv` feature, reducing the number of
+  dependencies and compile time significantly. ([#575] by [@WhyNotHugo])
 
 Bug fixes
 
-* Fix handling of tabs when formatting RDATA using `DisplayKind::Tabbed`. ([516])
-* In-place zone parser yields incorrect TTLs. ([538])
-* Generalize ZoneUpdater to support any Record type, not just ParsedRecord. ([#535])
-* Trim leading modulus and public exponent zeroes per RFC 3110 section 2. ([#541])
+Unstable features
+
+* `unstable-crypto-sign`
+  * Add support for RSA/SHA-512 to openssl signer. ([#550])
+* `unstable-server-transport`
+  * Implement `std::error::Error` for `ServiceError`. ([#570] by
+    [@rossmacarthur])
+* `unstable-xfr`
+  * Various fixes and improvements. ([#507])
 
 Other changes
 
+[#349]: https://github.com/NLnetLabs/domain/pull/349
+[#393]: https://github.com/NLnetLabs/domain/pull/393
+[#507]: https://github.com/NLnetLabs/domain/pull/507
+[#548]: https://github.com/NLnetLabs/domain/pull/548
+[#550]: https://github.com/NLnetLabs/domain/pull/550
+[#570]: https://github.com/NLnetLabs/domain/pull/570
+[@rossmacarthur]: https://github.com/rossmacarthur
+[@WhyNotHugo]: https://github.com/WhyNotHugo
+
+
+## 0.11.1
+
+Released 2025-10-22.
+
+Bug fixes
+
+* Fix handling of tabs when formatting RDATA using `DisplayKind::Tabbed`.
+  ([#516])
+* Fix for in-place zone parser yielding incorrect TTLs. ([#538])
+* Generalize `ZoneUpdater` to support any `Record` type, not just
+  `ParsedRecord`. ([#535])
+* Trim leading modulus and public exponent zeroes per RFC 3110 section 2.
+  ([#541])
+* Fix panic in zonetree from in-place zonefile after encountering a malformed
+  record. ([#573])
+
+Unstable features
+
+* `unstable-server-transport`:
+  * Don't discard the NOTIFY SOA serial, if one is received. Existing users
+    of the `Notifiable` trait will need to update their code as this change
+    adds an argument to `Notifiable::notify_zone_changed()`. [#562])
+* `unstable-client-transport`:
+  * Fix an issue in Stream::Transport when a reply arrives early.
+    ([#568] by [@TheJokr])
+
+Other changes
+
+* Fix docs on `XfrResponseInterpreter`. ([#510])
+
+
+[#510]: https://github.com/NLnetLabs/domain/pull/510
 [#516]: https://github.com/NLnetLabs/domain/pull/516
 [#535]: https://github.com/NLnetLabs/domain/pull/535
 [#538]: https://github.com/NLnetLabs/domain/pull/538
 [#541]: https://github.com/NLnetLabs/domain/pull/541
+[#562]: https://github.com/NLnetLabs/domain/pull/562
+[#568]: https://github.com/NLnetLabs/domain/pull/568
+[#573]: https://github.com/NLnetLabs/domain/pull/573
+[@TheJokr]: https://github.com/TheJokr
+
 
 ## 0.11.0
 
