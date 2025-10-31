@@ -1325,7 +1325,7 @@ impl std::error::Error for GenerateError {}
 
 //------------ DestroyError --------------------------------------------------
 
-/// An error while destroying a key using KMIP.
+/// An error occurred while destroying a key using KMIP.
 #[derive(Clone, Debug)]
 pub enum DestroyError {
     /// A problem occurred while communicating with the KMIP server.
