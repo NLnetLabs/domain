@@ -628,6 +628,22 @@ pub mod sign {
     /// A reference to a key pair stored in an [OASIS KMIP] compliant HSM
     /// server.
     ///
+    /// Allows operations to be performed on and using the key pair.
+    ///
+    /// Operations common to key pairs irrespective of the underlying crypto
+    /// backend are offered via the [`SignRaw`] trait impl.
+    ///
+    /// Operations specifc to KMIP key pairs are offered via methods specific
+    /// to this type, e.g. batching support via [`sign_raw_enqueue()`] and
+    /// [`sign_raw_submit_queue()`].
+    ///
+    /// See [`Self::from_metadata()`] and [`Self::from_urls()`] to construct
+    /// a [`KeyPair`] from individual public and private KMIP keys.
+    ///
+    /// To generate individual KMIP keys see [`generate()`].
+    ///
+    /// To destroy individual KMIP keys see [`destroy()`].
+    ///
     /// [OASIS KMIP]: https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=kmip
     #[derive(Clone, Debug)]
     pub struct KeyPair {
