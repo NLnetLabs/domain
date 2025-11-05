@@ -26,7 +26,6 @@ use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "std")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "std")]
