@@ -20,6 +20,9 @@ Improvements
 
 Bug fixes
 
+* When parsing a Bind-style public key file, allow an optional TTL field.
+  ([#593])
+
 Unstable features
 
 * `unstable-crypto-sign`
@@ -27,6 +30,8 @@ Unstable features
 * `unstable-server-transport`
   * Implement `std::error::Error` for `ServiceError`. ([#570] by
     [@rossmacarthur])
+  * Be more lenient when timing out connections while they are in a
+    transaction. ([#399])
 * `unstable-xfr`
   * Various fixes and improvements. ([#507])
 
@@ -34,10 +39,12 @@ Other changes
 
 [#349]: https://github.com/NLnetLabs/domain/pull/349
 [#393]: https://github.com/NLnetLabs/domain/pull/393
+[#399]: https://github.com/NLnetLabs/domain/pull/399
 [#507]: https://github.com/NLnetLabs/domain/pull/507
 [#548]: https://github.com/NLnetLabs/domain/pull/548
 [#550]: https://github.com/NLnetLabs/domain/pull/550
 [#570]: https://github.com/NLnetLabs/domain/pull/570
+[#593]: https://github.com/NLnetLabs/domain/pull/593
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 
