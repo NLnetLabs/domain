@@ -77,7 +77,7 @@ where
 /// // provide, and returns one or more DNS responses.
 /// //
 /// // Note that using `service_fn()` does not permit you to use async code!
-/// fn my_service(req: Request<Vec<u8>>, _meta: MyMeta)
+/// fn my_service(req: Request<Vec<u8>, ()>, _meta: MyMeta)
 ///     -> ServiceResult<Vec<u8>>
 /// {
 ///     let builder = mk_builder_for_target();
@@ -134,12 +134,13 @@ where
     RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
     RequestMeta: Default + Clone,
     Metadata: Clone,
-    Target: Composer + Default,
+    Target: Composer + Default + Send + Sync,
     T: Fn(
             Request<RequestOctets, RequestMeta>,
             Metadata,
         ) -> ServiceResult<Target>
         + Clone,
+    Self: Clone + Send + Sync + 'static,
 {
     type Target = Target;
     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
