@@ -950,7 +950,7 @@ impl KeySet {
 /// The state of a single key.
 ///
 /// The state includes a way to refer to the public key and optionally a
-/// way to refer to the provate key. The state includes the type of the
+/// way to refer to the private key. The state includes the type of the
 /// key (which in itself includes the key state) and a list of timestamps
 /// that mark the various stages in the life of a key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
