@@ -200,7 +200,7 @@ impl KeySet {
     }
 
     fn unique_key_tag(&self, key_tag: u16) -> bool {
-        !self.keys.iter().any(|(_, k)| k.key_tag == key_tag)
+        self.keys.iter().all(|(_, k)| k.key_tag != key_tag)
     }
 
     /// Delete a key.
