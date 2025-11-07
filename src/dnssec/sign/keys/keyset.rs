@@ -1257,10 +1257,16 @@ impl FromStr for RollType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "ksk-roll" {
             Ok(RollType::KskRoll)
+        } else if s == "ksk-double-ds-roll" {
+            Ok(RollType::KskDoubleDsRoll)
         } else if s == "zsk-roll" {
             Ok(RollType::ZskRoll)
+        } else if s == "zsk-double-signature-roll" {
+            Ok(RollType::ZskDoubleSignatureRoll)
         } else if s == "csk-roll" {
             Ok(RollType::CskRoll)
+        } else if s == "algorithm-roll" {
+            Ok(RollType::AlgorithmRoll)
         } else {
             Err(Error::UnknownRollType)
         }
