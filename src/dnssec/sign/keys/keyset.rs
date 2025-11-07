@@ -273,7 +273,7 @@ impl KeySet {
         let next_state = RollState::Propagation1;
         rolltype.rollfn()(RollOp::Start(old, new), self)?;
 
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
 
         Ok(rolltype.roll_actions_fn()(next_state))
     }
@@ -297,7 +297,7 @@ impl KeySet {
         let next_state = RollState::CacheExpire1(ttl);
         rolltype.rollfn()(RollOp::Propagation1, self)?;
 
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
 
         Ok(rolltype.roll_actions_fn()(next_state))
     }
@@ -320,7 +320,7 @@ impl KeySet {
         };
         let next_state = RollState::Propagation2;
         rolltype.rollfn()(RollOp::CacheExpire1(*ttl), self)?;
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
 
         Ok(rolltype.roll_actions_fn()(next_state))
     }
@@ -343,7 +343,7 @@ impl KeySet {
         };
         let next_state = RollState::CacheExpire2(ttl);
         rolltype.rollfn()(RollOp::Propagation2, self)?;
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
         Ok(rolltype.roll_actions_fn()(next_state))
     }
 
@@ -365,7 +365,7 @@ impl KeySet {
         };
         let next_state = RollState::Done;
         rolltype.rollfn()(RollOp::CacheExpire2(*ttl), self)?;
-        self.rollstates.insert(rolltype.clone(), next_state.clone());
+        self.rollstates.insert(rolltype, next_state.clone());
 
         Ok(rolltype.roll_actions_fn()(next_state))
     }
