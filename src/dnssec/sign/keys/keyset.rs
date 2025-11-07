@@ -1295,7 +1295,7 @@ enum Mode {
 /// Note that if a list contains multiple report actions then the user
 /// has to wait until all action have completed and has to report the
 /// highest TTL value among the values to report.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Action {
     /// Generate a new version of the zone with an updated DNSKEY RRset.
     UpdateDnskeyRrset,
@@ -1347,7 +1347,7 @@ pub enum Action {
 }
 
 /// The type of key roll to perform.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum RollType {
     /// A KSK roll. This implements the Double-Signature ZSK Roll as described
     /// in Section 4.1.2 of RFC 6781.
