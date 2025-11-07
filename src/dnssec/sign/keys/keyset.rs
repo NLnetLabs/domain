@@ -2067,7 +2067,7 @@ fn csk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             ks.update_csk(Mode::DryRun, old, new)?;
             // Move the states of the keys
             ks.update_csk(Mode::ForReal, old, new)
-                .expect("Should have been check with DryRun");
+                .expect("Should have been checked with DryRun");
         }
         RollOp::Propagation1 => {
             // Set the visiable time of new KSKs, ZSKs and CSKs to the current
