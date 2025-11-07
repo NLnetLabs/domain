@@ -111,13 +111,13 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
-        available: bool,
+        available: Available,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
         let keystate = KeyState {
-            available,
+            available: available.to_bool(),
             ..Default::default()
         };
         let key = Key::new(
@@ -143,13 +143,13 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
-        available: bool,
+        available: Available,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
         let keystate = KeyState {
-            available,
+            available: available.to_bool(),
             ..Default::default()
         };
         let key = Key::new(
@@ -175,13 +175,13 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
-        available: bool,
+        available: Available,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
         let keystate = KeyState {
-            available,
+            available: available.to_bool(),
             ..Default::default()
         };
         let key = Key::new(
@@ -482,7 +482,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Ksk(ref mut keystate) = key.keytype else {
@@ -1036,7 +1036,7 @@ pub enum KeyType {
 /// * signer. Set if the key either signes the DNSKEY RRset or the rest of the
 ///   zone.
 /// * present. If the key is present in the DNSKEY RRset.
-/// * at_parent. If the key has a DS record at the parent.
+/// * at_parent. If the key has to have a DS record at the parent.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct KeyState {
     available: bool,
@@ -1263,6 +1263,24 @@ impl FromStr for RollType {
             Ok(RollType::CskRoll)
         } else {
             Err(Error::UnknownRollType)
+        }
+    }
+}
+
+/// When adding a key, this specifies whether the key is available to
+/// key rolls or not.
+pub enum Available {
+    /// Key is available to key rolls.
+    Available,
+    /// Key is not available to key rolls.
+    NotAvailable,
+}
+
+impl Available {
+    fn to_bool(&self) -> bool {
+        match self {
+            Available::Available => true,
+            Available::NotAvailable => false,
         }
     }
 }
@@ -2445,7 +2463,7 @@ mod tests {
     use crate::base::Name;
     use crate::dnssec::sign::keys::keyset::SecurityAlgorithm;
     use crate::dnssec::sign::keys::keyset::{
-        Action, KeySet, KeyType, RollType, UnixTime,
+        Action, Available, KeySet, KeyType, RollType, UnixTime,
     };
     use crate::std::string::ToString;
     use mock_instant::global::MockClock;
@@ -2471,7 +2489,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
         ks.add_key_zsk(
@@ -2480,7 +2498,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             1,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -2564,7 +2582,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             2,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
         ks.add_key_zsk(
@@ -2573,7 +2591,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             3,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -2637,7 +2655,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             4,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -2780,7 +2798,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             5,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -2870,7 +2888,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -2947,7 +2965,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             4,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
