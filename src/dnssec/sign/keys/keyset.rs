@@ -408,7 +408,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Ksk(ref mut keystate) = key.keytype else {
@@ -424,7 +424,7 @@ impl KeySet {
         let now = UnixTime::now();
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Ksk(ref mut keystate) = key.keytype else {
@@ -497,7 +497,7 @@ impl KeySet {
         }
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Ksk(ref mut keystate) = key.keytype else {
@@ -552,7 +552,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Zsk(ref mut keystate) = key.keytype else {
@@ -568,7 +568,7 @@ impl KeySet {
         let now = UnixTime::now();
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Zsk(ref mut keystate) = key.keytype else {
@@ -625,7 +625,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Zsk(ref mut keystate) = key.keytype else {
@@ -641,7 +641,7 @@ impl KeySet {
         let now = UnixTime::now();
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Zsk(ref mut keystate) = key.keytype else {
@@ -699,7 +699,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             match key.keytype {
@@ -722,7 +722,7 @@ impl KeySet {
         let now = UnixTime::now();
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             match key.keytype {
@@ -842,7 +842,7 @@ impl KeySet {
             Mode::ForReal => &mut self.keys,
         };
         for k in old {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             match key.keytype {
@@ -861,7 +861,7 @@ impl KeySet {
         }
         let now = UnixTime::now();
         for k in new {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             match key.keytype {
