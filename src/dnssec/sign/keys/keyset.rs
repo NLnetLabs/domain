@@ -913,7 +913,7 @@ impl KeySet {
                         return Err(Error::WrongKeyState);
                     }
 
-                    // Move key state to Incoming.
+                    // Move key state to Active.
                     zsk_keystate.present = true;
                     zsk_keystate.signer = true;
 
@@ -1030,19 +1030,18 @@ pub enum KeyType {
 
 /// State of a key.
 ///
-/// The state is expressed as five booleans:
-/// * available. The key is available as an incoming key during key rolls.
-/// * old. Set if the key is on its way out.
-/// * signer. Set if the key either signes the DNSKEY RRset or the rest of the
-///   zone.
-/// * present. If the key is present in the DNSKEY RRset.
-/// * at_parent. If the key has to have a DS record at the parent.
+/// The state is expressed as five booleans.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct KeyState {
+    /// The key is available as an incoming key during key rolls.
     available: bool,
+    /// Set if the key is on its way out.
     old: bool,
+    /// Set if the key either signes the DNSKEY RRset or the rest of the zone.
     signer: bool,
+    /// Whether the key is present in the DNSKEY RRset.
     present: bool,
+    /// If the key has to have a DS record at the parent.
     at_parent: bool,
 }
 
@@ -1355,7 +1354,7 @@ pub enum Action {
 /// The type of key roll to perform.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum RollType {
-    /// A KSK roll. This implements the Double-Signature ZSK Roll as described
+    /// A KSK roll. This implements the Double-Signature KSK Roll as described
     /// in Section 4.1.2 of RFC 6781.
     KskRoll,
 
@@ -1803,7 +1802,7 @@ fn zsk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
                 .expect("Should have been checked with DryRun");
         }
         RollOp::Propagation1 => {
-            // Set the visiable time of new ZSKs to the current time.
+            // Set the visible time of new ZSKs to the current time.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
@@ -1928,7 +1927,7 @@ fn zsk_double_signature_roll(
                 .expect("Should have been checked with DryRun");
         }
         RollOp::Propagation1 => {
-            // Set the visiable time of new ZSKs to the current time.
+            // Set the visible time of new ZSKs to the current time.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
@@ -1963,7 +1962,7 @@ fn zsk_double_signature_roll(
                 }
             }
 
-            // Move the Leaving keys to Retired.
+            // Move the Leaving keys to Old.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref mut keystate) = k.keytype else {
@@ -1977,15 +1976,7 @@ fn zsk_double_signature_roll(
             }
         }
         RollOp::Propagation2 => {
-            // Set the published time of new RRSIG records to the current time.
-            for k in ks.keys.values_mut() {
-                let KeyType::Zsk(ref keystate) = k.keytype else {
-                    continue;
-                };
-                if keystate.old || !keystate.signer {
-                    continue;
-                }
-            }
+            // No need to do anything here.
         }
         RollOp::CacheExpire2(ttl) => {
             for k in ks.keys.values_mut() {
@@ -1996,11 +1987,18 @@ fn zsk_double_signature_roll(
                     continue;
                 }
 
+                // Logically we should be waiting for the signatures
+                // created with the old ZSK to expire from caches. We
+                // can't do that because we don't keep track of when a key
+                // stops signing (maybe we should?). However, in this case,
+                // old cached signatures don't do any harm. So we can just
+                // continue. We get if the signatures created using the
+                // new key are in the cache, but that should be a no-op.
                 let rrsig_visible = k
                     .timestamps
                     .rrsig_visible
                     .as_ref()
-                    .expect("Should have been set in Propagation2");
+                    .expect("Should have been set in Propagation1");
                 let elapsed = rrsig_visible.elapsed();
                 let ttl = Duration::from_secs(ttl.into());
                 if elapsed < ttl {
@@ -2076,7 +2074,7 @@ fn csk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
                 .expect("Should have been checked with DryRun");
         }
         RollOp::Propagation1 => {
-            // Set the visiable time of new KSKs, ZSKs and CSKs to the current
+            // Set the visible time of new KSKs, ZSKs and CSKs to the current
             // time.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
@@ -2300,8 +2298,7 @@ fn algorithm_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
         }
         RollOp::Propagation1 => {
             // Set the visible time of new KSKs, ZSKs and CSKs to the current
-            // time. Set signer and for new KSKs, ZSKs and CSKs.
-            // Set RRSIG visible for new ZSKs and CSKs.
+            // time. Set RRSIG visible for new ZSKs and CSKs.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
                 match &mut k.keytype {
