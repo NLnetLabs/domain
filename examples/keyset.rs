@@ -2,7 +2,7 @@
 use domain::base::iana::SecurityAlgorithm;
 use domain::base::Name;
 use domain::dnssec::sign::keys::keyset::{
-    Action, Error, KeySet, KeyType, RollType, UnixTime,
+    Action, Available, Error, KeySet, KeyType, RollType, UnixTime,
 };
 use itertools::{Either, Itertools};
 use std::env;
@@ -134,7 +134,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
     } else if keytype == "zsk" {
@@ -144,7 +144,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
     } else if keytype == "csk" {
@@ -154,7 +154,7 @@ fn do_addkey(filename: &str, args: &[String]) {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
     } else {
