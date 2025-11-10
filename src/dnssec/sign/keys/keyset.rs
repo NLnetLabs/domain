@@ -2276,7 +2276,7 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
 }
 
 // An algorithm roll is similar to a CSK roll. The main difference is that
-// to zone is signed with all keys before introducing the DS records for
+// the zone is signed with all keys before introducing the DS records for
 // the new KSKs or CSKs.
 fn algorithm_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
