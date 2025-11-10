@@ -111,13 +111,13 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
-        available: bool,
+        available: Available,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
         let keystate = KeyState {
-            available,
+            available: available.to_bool(),
             ..Default::default()
         };
         let key = Key::new(
@@ -143,13 +143,13 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
-        available: bool,
+        available: Available,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
         let keystate = KeyState {
-            available,
+            available: available.to_bool(),
             ..Default::default()
         };
         let key = Key::new(
@@ -175,13 +175,13 @@ impl KeySet {
         algorithm: SecurityAlgorithm,
         key_tag: u16,
         creation_ts: UnixTime,
-        available: bool,
+        available: Available,
     ) -> Result<(), Error> {
         if !self.unique_key_tag(key_tag) {
             return Err(Error::DuplicateKeyTag);
         }
         let keystate = KeyState {
-            available,
+            available: available.to_bool(),
             ..Default::default()
         };
         let key = Key::new(
@@ -412,7 +412,7 @@ impl KeySet {
     }
 
     fn unique_key_tag(&self, key_tag: u16) -> bool {
-        !self.keys.iter().any(|(_, k)| k.key_tag == key_tag)
+        self.keys.iter().all(|(_, k)| k.key_tag != key_tag)
     }
 
     /// Delete a key.
@@ -608,7 +608,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Ksk(ref mut keystate) = key.keytype else {
@@ -624,7 +624,7 @@ impl KeySet {
         let now = UnixTime::now();
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Ksk(ref mut keystate) = key.keytype else {
@@ -682,7 +682,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Ksk(ref mut keystate) = key.keytype else {
@@ -697,7 +697,7 @@ impl KeySet {
         }
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Ksk(ref mut keystate) = key.keytype else {
@@ -752,7 +752,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Zsk(ref mut keystate) = key.keytype else {
@@ -768,7 +768,7 @@ impl KeySet {
         let now = UnixTime::now();
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Zsk(ref mut keystate) = key.keytype else {
@@ -825,7 +825,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(ref mut key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(ref mut key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Zsk(ref mut keystate) = key.keytype else {
@@ -841,7 +841,7 @@ impl KeySet {
         let now = UnixTime::now();
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             let KeyType::Zsk(ref mut keystate) = key.keytype else {
@@ -899,7 +899,7 @@ impl KeySet {
         };
         let mut algs_old = HashSet::new();
         for k in old {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             match key.keytype {
@@ -922,7 +922,7 @@ impl KeySet {
         let now = UnixTime::now();
         let mut algs_new = HashSet::new();
         for k in new {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             match key.keytype {
@@ -1042,7 +1042,7 @@ impl KeySet {
             Mode::ForReal => &mut self.keys,
         };
         for k in old {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             match key.keytype {
@@ -1061,7 +1061,7 @@ impl KeySet {
         }
         let now = UnixTime::now();
         for k in new {
-            let Some(key) = keys.get_mut(&(*k).to_string()) else {
+            let Some(key) = keys.get_mut(&(k.to_string())) else {
                 return Err(Error::KeyNotFound);
             };
             match key.keytype {
@@ -1113,7 +1113,7 @@ impl KeySet {
                         return Err(Error::WrongKeyState);
                     }
 
-                    // Move key state to Incoming.
+                    // Move key state to Active.
                     zsk_keystate.present = true;
                     zsk_keystate.signer = true;
 
@@ -1150,15 +1150,13 @@ impl KeySet {
 /// The state of a single key.
 ///
 /// The state includes a way to refer to the public key and optionally a
-/// way to refer to the provate key. The state includes the type of the
+/// way to refer to the private key. The state includes the type of the
 /// key (which in itself includes the key state) and a list of timestamps
 /// that mark the various stages in the life of a key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Key {
     privref: Option<String>,
 
-    // XXX - remove the following directive before merging.
-    #[serde(default)]
     decoupled: bool,
 
     keytype: KeyType,
@@ -1242,19 +1240,18 @@ pub enum KeyType {
 
 /// State of a key.
 ///
-/// The state is expressed as five booleans:
-/// * available. The key is available as an incoming key during key rolls.
-/// * old. Set if the key is on its way out.
-/// * signer. Set if the key either signes the DNSKEY RRset or the rest of the
-///   zone.
-/// * present. If the key is present in the DNSKEY RRset.
-/// * at_parent. If the key has a DS record at the parent.
+/// The state is expressed as five booleans.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct KeyState {
+    /// The key is available as an incoming key during key rolls.
     available: bool,
+    /// Set if the key is on its way out.
     old: bool,
+    /// Set if the key either signes the DNSKEY RRset or the rest of the zone.
     signer: bool,
+    /// Whether the key is present in the DNSKEY RRset.
     present: bool,
+    /// If the key has to have a DS record at the parent.
     at_parent: bool,
 }
 
@@ -1474,12 +1471,36 @@ impl FromStr for RollType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "ksk-roll" {
             Ok(RollType::KskRoll)
+        } else if s == "ksk-double-ds-roll" {
+            Ok(RollType::KskDoubleDsRoll)
         } else if s == "zsk-roll" {
             Ok(RollType::ZskRoll)
+        } else if s == "zsk-double-signature-roll" {
+            Ok(RollType::ZskDoubleSignatureRoll)
         } else if s == "csk-roll" {
             Ok(RollType::CskRoll)
+        } else if s == "algorithm-roll" {
+            Ok(RollType::AlgorithmRoll)
         } else {
             Err(Error::UnknownRollType)
+        }
+    }
+}
+
+/// When adding a key, this specifies whether the key is available to
+/// key rolls or not.
+pub enum Available {
+    /// Key is available to key rolls.
+    Available,
+    /// Key is not available to key rolls.
+    NotAvailable,
+}
+
+impl Available {
+    fn to_bool(&self) -> bool {
+        match self {
+            Available::Available => true,
+            Available::NotAvailable => false,
         }
     }
 }
@@ -1494,7 +1515,7 @@ enum Mode {
 /// Note that if a list contains multiple report actions then the user
 /// has to wait until all action have completed and has to report the
 /// highest TTL value among the values to report.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Action {
     /// Generate a new version of the zone with an updated DNSKEY RRset.
     UpdateDnskeyRrset,
@@ -1548,7 +1569,7 @@ pub enum Action {
 /// The type of key roll to perform.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum RollType {
-    /// A KSK roll. This implements the Double-Signature ZSK Roll as described
+    /// A KSK roll. This implements the Double-Signature KSK Roll as described
     /// in Section 4.1.2 of RFC 6781.
     KskRoll,
 
@@ -2000,7 +2021,7 @@ fn zsk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
                 .expect("Should have been checked with DryRun");
         }
         RollOp::Propagation1 => {
-            // Set the visiable time of new ZSKs to the current time.
+            // Set the visible time of new ZSKs to the current time.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
@@ -2125,7 +2146,7 @@ fn zsk_double_signature_roll(
                 .expect("Should have been checked with DryRun");
         }
         RollOp::Propagation1 => {
-            // Set the visiable time of new ZSKs to the current time.
+            // Set the visible time of new ZSKs to the current time.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
                 let KeyType::Zsk(ref keystate) = k.keytype else {
@@ -2174,15 +2195,7 @@ fn zsk_double_signature_roll(
             }
         }
         RollOp::Propagation2 => {
-            // Set the published time of new RRSIG records to the current time.
-            for k in ks.keys.values_mut() {
-                let KeyType::Zsk(ref keystate) = k.keytype else {
-                    continue;
-                };
-                if keystate.old || !keystate.signer {
-                    continue;
-                }
-            }
+            // No need to do anything here.
         }
         RollOp::CacheExpire2(ttl) => {
             for k in ks.keys.values() {
@@ -2193,11 +2206,18 @@ fn zsk_double_signature_roll(
                     continue;
                 }
 
+                // Logically we should be waiting for the signatures
+                // created with the old ZSK to expire from caches. We
+                // can't do that because we don't keep track of when a key
+                // stops signing (maybe we should?). However, in this case,
+                // old cached signatures don't do any harm. So we can just
+                // continue. We get if the signatures created using the
+                // new key are in the cache, but that should be a no-op.
                 let rrsig_visible = k
                     .timestamps
                     .rrsig_visible
                     .as_ref()
-                    .expect("Should have been set in Propagation2");
+                    .expect("Should have been set in Propagation1");
                 let elapsed = rrsig_visible.elapsed();
                 let ttl = Duration::from_secs(ttl.into());
                 if elapsed < ttl {
@@ -2271,10 +2291,10 @@ fn csk_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
             ks.update_csk(Mode::DryRun, old, new)?;
             // Move the states of the keys
             ks.update_csk(Mode::ForReal, old, new)
-                .expect("Should have been check with DryRun");
+                .expect("Should have been checked with DryRun");
         }
         RollOp::Propagation1 => {
-            // Set the visiable time of new KSKs, ZSKs and CSKs to the current
+            // Set the visible time of new KSKs, ZSKs and CSKs to the current
             // time.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
@@ -2475,7 +2495,7 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
 }
 
 // An algorithm roll is similar to a CSK roll. The main difference is that
-// to zone is signed with all keys before introducing the DS records for
+// the zone is signed with all keys before introducing the DS records for
 // the new KSKs or CSKs.
 fn algorithm_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
@@ -2499,8 +2519,7 @@ fn algorithm_roll(rollop: RollOp<'_>, ks: &mut KeySet) -> Result<(), Error> {
         }
         RollOp::Propagation1 => {
             // Set the visible time of new KSKs, ZSKs and CSKs to the current
-            // time. Set signer and for new KSKs, ZSKs and CSKs.
-            // Set RRSIG visible for new ZSKs and CSKs.
+            // time. Set RRSIG visible for new ZSKs and CSKs.
             let now = UnixTime::now();
             for k in ks.keys.values_mut() {
                 match &mut k.keytype {
@@ -2668,7 +2687,7 @@ mod tests {
     use crate::base::Name;
     use crate::dnssec::sign::keys::keyset::SecurityAlgorithm;
     use crate::dnssec::sign::keys::keyset::{
-        Action, KeySet, KeyType, RollType, UnixTime,
+        Action, Available, KeySet, KeyType, RollType, UnixTime,
     };
     use crate::std::string::ToString;
     use mock_instant::global::MockClock;
@@ -2694,7 +2713,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
         ks.add_key_zsk(
@@ -2703,7 +2722,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             1,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -2787,7 +2806,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             2,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
         ks.add_key_zsk(
@@ -2796,7 +2815,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             3,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -2863,7 +2882,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             4,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -3010,7 +3029,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             5,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -3100,7 +3119,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             0,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 
@@ -3181,7 +3200,7 @@ mod tests {
             SecurityAlgorithm::ECDSAP256SHA256,
             4,
             UnixTime::now(),
-            true,
+            Available::Available,
         )
         .unwrap();
 

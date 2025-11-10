@@ -360,9 +360,12 @@ mod test {
 
     #[test]
     fn test_parse_from_bind_ttl() {
-        for &(algorithm, key_tag, _) in
-            &[(SecurityAlgorithm::RSASHA256, 60616, 2048)]
+        // Clippy doesn't like this:
+        // for &(algorithm, key_tag, _) in
+        //     &[(SecurityAlgorithm::RSASHA256, 60616, 2048)]
         {
+            let &(algorithm, key_tag, _) =
+                &(SecurityAlgorithm::RSASHA256, 60616, 2048);
             let name =
                 format!("test-ttl.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
