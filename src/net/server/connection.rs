@@ -1,5 +1,6 @@
 //! Support for stream based connections.
 use core::ops::{ControlFlow, Deref};
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
 use std::fmt::Display;
@@ -264,6 +265,9 @@ where
     /// DNS protocol idle time out tracking.
     idle_timer: IdleTimer,
 
+    /// Is a transaction in progress?
+    in_transaction: Arc<AtomicBool>,
+
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
 }
@@ -313,6 +317,7 @@ where
             mpsc::channel(config.max_queued_responses);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let idle_timer = IdleTimer::new();
+        let in_transaction = Arc::new(AtomicBool::new(false));
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -334,6 +339,7 @@ where
             result_q_tx,
             service,
             idle_timer,
+            in_transaction,
             metrics,
         }
     }
@@ -421,7 +427,7 @@ where
                     }
 
                     _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.load().idle_timeout)) => {
-                        self.process_dns_idle_timeout()
+                        self.process_dns_idle_timeout(self.config.load().idle_timeout)
                     }
 
                     res = &mut msg_recv => {
@@ -617,16 +623,19 @@ where
         Ok(())
     }
 
-    /// Implemnt DNS rules regarding timing out of idle connections.
+    /// Implement DNS rules regarding timing out of idle connections.
     ///
     /// Disconnects the current connection of the timer is expired, flushing
     /// pending responses first.
-    fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
+    fn process_dns_idle_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
-        if self
-            .idle_timer
-            .idle_timeout_expired(self.config.load().idle_timeout)
+        if self.idle_timer.idle_timeout_expired(timeout)
+            && !self.in_transaction.load(Ordering::SeqCst)
         {
+            trace!("Timing out idle connection");
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
             Ok(())
@@ -641,16 +650,18 @@ where
     where
         Svc::Stream: Send,
     {
+        let in_transaction = self.in_transaction.clone();
+
         match res {
             Ok(buf) => {
                 let received_at = Instant::now();
+
+                self.metrics.inc_num_received_requests();
 
                 if log_enabled!(Level::Trace) {
                     let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
                     trace!(addr = %self.addr, pcap_text, "Received message");
                 }
-
-                self.metrics.inc_num_received_requests();
 
                 // Message received, reset the DNS idle timer
                 self.idle_timer.full_msg_received();
@@ -696,21 +707,29 @@ where
                             request.message().header().id()
                         );
                         tokio::spawn(async move {
+                            // If we don't see the next log message it may be
+                            // because the stream listener was originally an
+                            // std listener, not a Tokio listener, and it was
+                            // not properly put in non-blocking mode before
+                            // being passed to us. This then causes .recv()
+                            // above to block, preventing this task from
+                            // running if it is scheduled on the same thread.
+                            trace!("Task spawned to handle message");
+
                             let request_id = request.message().header().id();
                             trace!(
                                 "Calling service for request id {request_id}"
                             );
                             let mut stream = svc.call(request).await;
-                            let mut in_transaction = false;
 
                             trace!("Awaiting service call results for request id {request_id}");
                             while let Some(Ok(call_result)) =
                                 stream.next().await
                             {
-                                trace!("Processing service call result for request id {request_id}");
                                 let (response, feedback) =
                                     call_result.into_inner();
 
+                                trace!("Processing service call result for request id {request_id}: response? {} feedback? {feedback:?}", response.is_some());
                                 if let Some(feedback) = feedback {
                                     match feedback {
                                         ServiceFeedback::Reconfigure {
@@ -733,17 +752,24 @@ where
                                         }
 
                                         ServiceFeedback::BeginTransaction => {
-                                            in_transaction = true;
+                                            in_transaction.store(
+                                                true,
+                                                Ordering::SeqCst,
+                                            );
                                         }
 
                                         ServiceFeedback::EndTransaction => {
-                                            in_transaction = false;
+                                            in_transaction.store(
+                                                false,
+                                                Ordering::SeqCst,
+                                            );
                                         }
                                     }
                                 }
 
                                 if let Some(mut response) = response {
                                     loop {
+                                        trace!("Sending response");
                                         match result_q_tx.try_send(response) {
                                             Ok(()) => {
                                                 let pending_writes =
@@ -767,7 +793,9 @@ where
                                             Err(TrySendError::Full(
                                                 unused_response,
                                             )) => {
-                                                if in_transaction {
+                                                if in_transaction
+                                                    .load(Ordering::SeqCst)
+                                                {
                                                     // Wait until there is space in the message queue.
                                                     tokio::task::yield_now()
                                                         .await;
@@ -781,6 +809,7 @@ where
                                         }
                                     }
                                 }
+                                trace!("Finished processing service call result for request id {request_id}");
                             }
                             trace!("Finished processing service call results for request id {request_id}");
                         });

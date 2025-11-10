@@ -441,6 +441,7 @@ where
         <NextSvc::Stream as Stream>::Item,
     >;
     type Future = Ready<Self::Stream>;
+
     fn call(
         &self,
         mut request: Request<RequestOctets, RequestMeta>,
