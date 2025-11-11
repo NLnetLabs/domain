@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Currently only used with certain features.
+
 use core::cmp;
 
 //------------ DefMinMax -----------------------------------------------------

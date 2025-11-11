@@ -408,11 +408,15 @@ impl<'a> ZoneDiffItem for (&'a (StoredName, Rtype), &'a SharedRrset) {
 }
 
 impl ZoneDiff for InMemoryZoneDiff {
-    type Item<'a> = (&'a (StoredName, Rtype), &'a SharedRrset)
+    type Item<'a>
+        = (&'a (StoredName, Rtype), &'a SharedRrset)
     where
         Self: 'a;
 
-    type Stream<'a> = futures_util::stream::Iter<hash_map::Iter<'a, (StoredName, Rtype), SharedRrset>>
+    type Stream<'a>
+        = futures_util::stream::Iter<
+        hash_map::Iter<'a, (StoredName, Rtype), SharedRrset>,
+    >
     where
         Self: 'a;
 
@@ -489,11 +493,13 @@ impl futures_util::stream::Stream for EmptyZoneDiffStream {
 pub struct EmptyZoneDiff;
 
 impl ZoneDiff for EmptyZoneDiff {
-    type Item<'a> = EmptyZoneDiffItem
+    type Item<'a>
+        = EmptyZoneDiffItem
     where
         Self: 'a;
 
-    type Stream<'a> = EmptyZoneDiffStream
+    type Stream<'a>
+        = EmptyZoneDiffStream
     where
         Self: 'a;
 

@@ -1,23 +1,18 @@
-/// Using the `domain::net::client` module for sending a query.
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
-use std::vec::Vec;
-
-use domain::base::MessageBuilder;
-use domain::base::Name;
-use domain::base::Rtype;
-use domain::net::client::cache;
-use domain::net::client::dgram;
-use domain::net::client::dgram_stream;
-use domain::net::client::multi_stream;
+//! Using the `domain::net::client` module for sending a query.
+use domain::base::{MessageBuilder, Name, Rtype};
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
-use domain::net::client::redundant;
 use domain::net::client::request::{
     RequestMessage, RequestMessageMulti, SendRequest,
 };
-use domain::net::client::stream;
+use domain::net::client::{
+    dgram, dgram_stream, load_balancer, multi_stream, redundant, stream,
+};
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
+#[cfg(feature = "unstable-validator")]
+use std::sync::Arc;
+use std::time::Duration;
+use std::vec::Vec;
 
 #[cfg(feature = "tsig")]
 use domain::net::client::request::SendRequestMulti;
@@ -95,28 +90,6 @@ async fn main() {
     // The query may have a reference to the connection. Drop the query
     // when it is no longer needed.
     drop(request);
-
-    // Create a cached transport.
-    let mut cache_config = cache::Config::new();
-    cache_config.set_max_cache_entries(100); // Just an example.
-    let cache =
-        cache::Connection::with_config(udptcp_conn.clone(), cache_config);
-
-    // Send a request message.
-    let mut request = cache.send_request(req.clone());
-
-    // Get the reply
-    println!("Wating for cache reply");
-    let reply = request.get_response().await;
-    println!("Cache reply: {reply:?}");
-
-    // Send the request message again.
-    let mut request = cache.send_request(req.clone());
-
-    // Get the reply
-    println!("Wating for cached reply");
-    let reply = request.get_response().await;
-    println!("Cached reply: {reply:?}");
 
     #[cfg(feature = "unstable-validator")]
     do_validator(udptcp_conn.clone(), req.clone()).await;
@@ -205,9 +178,9 @@ async fn main() {
     });
 
     // Add the previously created transports.
-    redun.add(Box::new(udptcp_conn)).await.unwrap();
-    redun.add(Box::new(tcp_conn)).await.unwrap();
-    redun.add(Box::new(tls_conn)).await.unwrap();
+    redun.add(Box::new(udptcp_conn.clone())).await.unwrap();
+    redun.add(Box::new(tcp_conn.clone())).await.unwrap();
+    redun.add(Box::new(tls_conn.clone())).await.unwrap();
 
     // Start a few queries.
     for i in 1..10 {
@@ -219,6 +192,37 @@ async fn main() {
     }
 
     drop(redun);
+
+    // Create a transport connection for load balanced connections.
+    let (lb, transp) = load_balancer::Connection::new();
+
+    // Start the run function on a separate task.
+    let run_fut = transp.run();
+    tokio::spawn(async move {
+        run_fut.await;
+        println!("load_balancer run terminated");
+    });
+
+    // Add the previously created transports.
+    let mut conn_conf = load_balancer::ConnConfig::new();
+    conn_conf.set_max_burst(Some(10));
+    conn_conf.set_burst_interval(Duration::from_secs(10));
+    lb.add("UDP+TCP", &conn_conf, Box::new(udptcp_conn))
+        .await
+        .unwrap();
+    lb.add("TCP", &conn_conf, Box::new(tcp_conn)).await.unwrap();
+    lb.add("TLS", &conn_conf, Box::new(tls_conn)).await.unwrap();
+
+    // Start a few queries.
+    for i in 1..10 {
+        let mut request = lb.send_request(req.clone());
+        let reply = request.get_response().await;
+        if i == 2 {
+            println!("load_balancer connection reply: {reply:?}");
+        }
+    }
+
+    drop(lb);
 
     // Create a new datagram transport connection. Pass the destination address
     // and port as parameter. This transport does not retry over TCP if the
@@ -304,13 +308,15 @@ where
 {
     // Create a validating transport
     let anchor_file = std::fs::File::open("examples/root.key").unwrap();
-    let ta =
-        domain::validator::anchor::TrustAnchors::from_reader(anchor_file)
-            .unwrap();
-    let vc = Arc::new(domain::validator::context::ValidationContext::new(
-        ta,
-        conn.clone(),
-    ));
+    let ta = domain::dnssec::validator::anchor::TrustAnchors::from_reader(
+        anchor_file,
+    )
+    .unwrap();
+    let vc =
+        Arc::new(domain::dnssec::validator::context::ValidationContext::new(
+            ta,
+            conn.clone(),
+        ));
     let val_conn = domain::net::client::validator::Connection::new(conn, vc);
 
     // Send a query message.
@@ -319,7 +325,7 @@ where
     // Get the reply
     println!("Wating for Validator reply");
     let reply = request.get_response().await;
-    println!("Validator reply: {:?}", reply);
+    println!("Validator reply: {reply:?}");
 }
 
 #[cfg(feature = "tsig")]
@@ -363,7 +369,7 @@ where
                 .expect("Failed while getting a TSIG signed response. This is probably expected as the server will not know the TSIG key we are using unless you have ensured that is the case.");
         match reply {
             Some(reply) => {
-                println!("Signed reply: {:?}", reply);
+                println!("Signed reply: {reply:?}");
             }
             None => break,
         }

@@ -126,8 +126,8 @@ async fn main() {
         1,
     );
     let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = TsigMiddlewareSvc::new(svc, key_store);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = Arc::new(svc);
 
     let sock = UdpSocket::bind(&addr).await.unwrap();
@@ -270,11 +270,12 @@ impl Notifiable for DemoNotifyTarget {
         &self,
         class: Class,
         apex_name: &StoredName,
+        serial: Option<Serial>,
         source: IpAddr,
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
     > {
-        eprintln!("Notify received from {source} of change to zone {apex_name} in class {class}");
+        eprintln!("Notify received from {source} of change to zone {apex_name} in class {class} with serial {serial:?}");
 
         let res = match apex_name.to_string().to_lowercase().as_str() {
             "example.com" => Ok(()),
@@ -317,12 +318,12 @@ impl ZoneTreeWithDiffs {
     }
 }
 
-impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTreeWithDiffs {
+impl XfrDataProvider<Option<Key>> for ZoneTreeWithDiffs {
     type Diff = InMemoryZoneDiff;
 
     fn request<Octs>(
         &self,
-        req: &Request<Octs, RequestMeta>,
+        req: &Request<Octs, Option<Key>>,
         diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -338,6 +339,10 @@ impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTreeWithDiffs {
     where
         Octs: Octets + Send + Sync,
     {
+        if req.metadata().is_none() {
+            eprintln!("Rejecting request due to missing TSIG key");
+            return Box::pin(ready(Err(XfrDataProviderError::Refused)));
+        }
         let res = req
             .message()
             .sole_question()

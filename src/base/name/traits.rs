@@ -8,8 +8,8 @@ use super::label::Label;
 use super::relative::RelativeName;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use core::cmp;
 use core::convert::Infallible;
+use core::{cmp, fmt};
 use octseq::builder::{
     infallible, BuilderAppendError, EmptyBuilder, FreezeBuilder, FromBuilder,
     OctetsBuilder, ShortBuf,
@@ -81,7 +81,11 @@ pub trait ToLabelIter {
 }
 
 impl<'r, N: ToLabelIter + ?Sized> ToLabelIter for &'r N {
-    type LabelIter<'a> = N::LabelIter<'a> where 'r: 'a, N: 'a;
+    type LabelIter<'a>
+        = N::LabelIter<'a>
+    where
+        'r: 'a,
+        N: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         (*self).iter_labels()
@@ -212,7 +216,7 @@ pub trait ToName: ToLabelIter {
     /// [`as_flat_slice`]: ToName::as_flat_slice
     /// [`to_name`]: ToName::to_name
     #[cfg(feature = "std")]
-    fn to_cow(&self) -> Name<std::borrow::Cow<[u8]>> {
+    fn to_cow(&self) -> Name<std::borrow::Cow<'_, [u8]>> {
         let octets = self
             .as_flat_slice()
             .map(Cow::Borrowed)
@@ -343,6 +347,35 @@ pub trait ToName: ToLabelIter {
             labels.count() as u8
         }
     }
+
+    fn fmt_with_dot(&self) -> DisplayWithDot<'_, Self> {
+        DisplayWithDot(self)
+    }
+}
+
+pub struct DisplayWithDot<'a, T: ?Sized>(&'a T);
+
+impl<T> fmt::Display for DisplayWithDot<'_, T>
+where
+    T: ToLabelIter + ?Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut labels = self.0.iter_labels();
+        let first = match labels.next() {
+            Some(first) => first,
+            None => unreachable!("at least 1 label must be present"),
+        };
+
+        if first.is_root() {
+            f.write_str(".")
+        } else {
+            write!(f, "{}", first)?;
+            for label in labels {
+                write!(f, ".{}", label)?
+            }
+            Ok(())
+        }
+    }
 }
 
 impl<'a, N: ToName + ?Sized + 'a> ToName for &'a N {}
@@ -469,7 +502,7 @@ pub trait ToRelativeName: ToLabelIter {
     /// [`as_flat_slice`]: ToRelativeName::as_flat_slice
     /// [`to_relative_name`]: ToRelativeName::to_relative_name
     #[cfg(feature = "std")]
-    fn to_cow(&self) -> RelativeName<std::borrow::Cow<[u8]>> {
+    fn to_cow(&self) -> RelativeName<std::borrow::Cow<'_, [u8]>> {
         let octets = self
             .as_flat_slice()
             .map(Cow::Borrowed)

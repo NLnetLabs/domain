@@ -1,6 +1,6 @@
 //! Module for testing the validator client transport.
 
-#![cfg(test)]
+#![cfg(all(test, feature = "unstable-validator"))]
 
 use std::fs::File;
 use std::path::PathBuf;
@@ -22,10 +22,10 @@ use tracing::instrument;
 
 // use domain::net::client::clock::{Clock, FakeClock};
 use crate::base::scan::IterScanner;
+use crate::dnssec::validator::anchor::TrustAnchors;
+use crate::dnssec::validator::context::ValidationContext;
 use crate::net::client::{multi_stream, validator};
 use crate::rdata::dnssec::Timestamp;
-use crate::validator::anchor::TrustAnchors;
-use crate::validator::context::ValidationContext;
 
 use lazy_static::lazy_static;
 
@@ -108,7 +108,7 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                         ta.add_u8(a.trim_matches('"').as_bytes()).unwrap();
                     }
                     _ => {
-                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
+                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value:?}");
                     }
                 }
             }

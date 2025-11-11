@@ -26,6 +26,8 @@
 //! responses should be cached and whether truncated responses should be cached
 //! or not.
 
+#![cfg(feature = "unstable-client-cache")]
+
 use crate::base::iana::{Class, Opcode, OptRcode, Rtype};
 use crate::base::name::ToName;
 use crate::base::{
@@ -529,7 +531,7 @@ where
                     let rd = header.rd();
 
                     let dnssec_ok =
-                        msg.opt().map_or(false, |opt| opt.dnssec_ok());
+                        msg.opt().is_some_and(|opt| opt.dnssec_ok());
                     if dnssec_ok && !ad {
                         ad = true;
                     }

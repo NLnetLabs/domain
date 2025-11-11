@@ -12,8 +12,9 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash, mem};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
+use core::{fmt, hash, mem};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
@@ -25,7 +26,7 @@ use octseq::parse::Parser;
 /// allowed in zone files.
 ///
 /// The Null record type is defined in [RFC 1035, section 3.3.10][1].
-/// 
+///
 /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.10
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -264,7 +265,7 @@ impl<Octs: AsRef<Other>, Other> AsRef<Other> for Null<Octs> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Null<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "\\# {}", self.data.as_ref().len())?;
         for ch in self.data.as_ref().iter() {
             write!(f, " {:02x}", ch)?;
@@ -274,10 +275,30 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Null<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for Null<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Null(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Null<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        struct Data<'a>(&'a [u8]);
+
+        impl fmt::Display for Data<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "\\# {}", self.0.len())?;
+                for ch in self.0 {
+                    write!(f, " {:02x}", *ch)?
+                }
+                Ok(())
+            }
+        }
+
+        p.write_token(Data(self.data.as_ref()))
     }
 }
 
@@ -297,4 +318,3 @@ mod test {
         test_compose_parse(&rdata, |parser| Null::parse(parser));
     }
 }
-

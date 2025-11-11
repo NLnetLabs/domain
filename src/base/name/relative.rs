@@ -352,7 +352,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> RelativeName<Octs> {
 ///
 impl<Octs: AsRef<[u8]> + ?Sized> RelativeName<Octs> {
     /// Returns an iterator over the labels of the domain name.
-    pub fn iter(&self) -> NameIter {
+    pub fn iter(&self) -> NameIter<'_> {
         NameIter::new(self.0.as_ref())
     }
 
@@ -637,7 +637,10 @@ impl<Octs> ToLabelIter for RelativeName<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
 {
-    type LabelIter<'a> = NameIter<'a> where Octs: 'a;
+    type LabelIter<'a>
+        = NameIter<'a>
+    where
+        Octs: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()
@@ -717,7 +720,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for RelativeName<Octs> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for RelativeName<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut iter = self.iter();
         match iter.next() {
             Some(label) => label.fmt(f)?,
@@ -732,7 +735,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for RelativeName<Octs> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for RelativeName<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "RelativeName({})", self)
     }
 }
@@ -827,7 +830,7 @@ where
         {
             type Value = RelativeName<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a relative domain name")
             }
 
@@ -872,7 +875,7 @@ where
         {
             type Value = RelativeName<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a relative domain name")
             }
 
@@ -926,7 +929,7 @@ impl<'a> Iterator for NameIter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for NameIter<'a> {
+impl DoubleEndedIterator for NameIter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.slice.is_empty() {
             return None;
@@ -1000,7 +1003,7 @@ impl From<RelativeNameErrorEnum> for RelativeNameError {
 //--- Display and Error
 
 impl fmt::Display for RelativeNameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             RelativeNameErrorEnum::BadLabel(err) => err.fmt(f),
             RelativeNameErrorEnum::CompressedName => {
@@ -1045,7 +1048,7 @@ impl From<FromStrError> for RelativeFromStrError {
 //--- Display and Error
 
 impl fmt::Display for RelativeFromStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RelativeFromStrError::FromStr(err) => err.fmt(f),
             RelativeFromStrError::AbsoluteName => {
@@ -1067,7 +1070,7 @@ pub struct StripSuffixError(());
 //--- Display and Error
 
 impl fmt::Display for StripSuffixError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("suffix not found")
     }
 }

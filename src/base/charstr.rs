@@ -347,7 +347,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
     }
 
     /// Returns an iterator over the octets of the character string.
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> Iter<'_> {
         Iter {
             octets: self.as_slice(),
         }
@@ -357,7 +357,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
 impl CharStr<[u8]> {
     /// Skips over a character string at the beginning of a parser.
     pub fn skip<Src: Octets + ?Sized>(
-        parser: &mut Parser<Src>,
+        parser: &mut Parser<'_, Src>,
     ) -> Result<(), ParseError> {
         let len = parser.parse_u8()?;
         parser.advance(len.into()).map_err(Into::into)
@@ -397,7 +397,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
     /// The returned object will display the content surrounded by double
     /// quotes. It will escape double quotes, backslashes, and non-printable
     /// octets only.
-    pub fn display_quoted(&self) -> DisplayQuoted {
+    pub fn display_quoted(&self) -> DisplayQuoted<'_> {
         DisplayQuoted(self.for_slice())
     }
 
@@ -406,7 +406,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
     /// The returned object will display the content without explicit
     /// delimiters and escapes space, double quotes, semicolons, backslashes,
     /// and non-printable octets.
-    pub fn display_unquoted(&self) -> DisplayUnquoted {
+    pub fn display_unquoted(&self) -> DisplayUnquoted<'_> {
         DisplayUnquoted(self.for_slice())
     }
 }
@@ -535,7 +535,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
 //--- Display and Debug
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::Display for CharStr<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for &ch in self.0.as_ref() {
             fmt::Display::fmt(&Symbol::display_from_octet(ch), f)?;
         }
@@ -544,7 +544,7 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Display for CharStr<T> {
 }
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::LowerHex for CharStr<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for ch in self.0.as_ref() {
             write!(f, "{:02x}", ch)?;
         }
@@ -553,7 +553,7 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::LowerHex for CharStr<T> {
 }
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::UpperHex for CharStr<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for ch in self.0.as_ref() {
             write!(f, "{:02X}", ch)?;
         }
@@ -562,7 +562,7 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::UpperHex for CharStr<T> {
 }
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::Debug for CharStr<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("CharStr")
             .field(&format_args!("{}", self))
             .finish()
@@ -641,7 +641,7 @@ where
         {
             type Value = CharStr<Octets>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a character string")
             }
 
@@ -684,7 +684,7 @@ where
         {
             type Value = CharStr<Octets>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a character string")
             }
 
@@ -911,7 +911,7 @@ impl<'a> Iter<'a> {
     }
 }
 
-impl<'a> Iterator for Iter<'a> {
+impl Iterator for Iter<'_> {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -929,8 +929,8 @@ impl<'a> Iterator for Iter<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct DisplayQuoted<'a>(&'a CharStr<[u8]>);
 
-impl<'a> fmt::Display for DisplayQuoted<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl fmt::Display for DisplayQuoted<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("\"")?;
         for &ch in self.0.as_ref() {
             fmt::Display::fmt(&Symbol::quoted_from_octet(ch), f)?;
@@ -947,8 +947,8 @@ impl<'a> fmt::Display for DisplayQuoted<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct DisplayUnquoted<'a>(&'a CharStr<[u8]>);
 
-impl<'a> fmt::Display for DisplayUnquoted<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl fmt::Display for DisplayUnquoted<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for &ch in self.0.as_ref() {
             fmt::Display::fmt(&Symbol::from_octet(ch), f)?;
         }
@@ -978,8 +978,8 @@ impl<'a, Builder> DeserializeCharStrSeed<'a, Builder> {
 }
 
 #[cfg(feature = "serde")]
-impl<'de, 'a, Builder> serde::de::DeserializeSeed<'de>
-    for DeserializeCharStrSeed<'a, Builder>
+impl<'de, Builder> serde::de::DeserializeSeed<'de>
+    for DeserializeCharStrSeed<'_, Builder>
 where
     Builder: OctetsBuilder + AsMut<[u8]>,
 {
@@ -1000,13 +1000,13 @@ where
             DeserializeCharStrSeed<'a, Builder>,
         );
 
-        impl<'de, 'a, Builder> serde::de::Visitor<'de> for NewtypeVisitor<'a, Builder>
+        impl<'de, Builder> serde::de::Visitor<'de> for NewtypeVisitor<'_, Builder>
         where
             Builder: OctetsBuilder + AsMut<[u8]>,
         {
             type Value = ();
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a character string")
             }
 
@@ -1027,14 +1027,13 @@ where
             DeserializeCharStrSeed<'a, Builder>,
         );
 
-        impl<'de, 'a, Builder> serde::de::Visitor<'de>
-            for ReadableVisitor<'a, Builder>
+        impl<Builder> serde::de::Visitor<'_> for ReadableVisitor<'_, Builder>
         where
             Builder: OctetsBuilder + AsMut<[u8]>,
         {
             type Value = ();
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a character string")
             }
 
@@ -1065,13 +1064,13 @@ where
             DeserializeCharStrSeed<'a, Builder>,
         );
 
-        impl<'de, 'a, Builder> serde::de::Visitor<'de> for BinaryVisitor<'a, Builder>
+        impl<Builder> serde::de::Visitor<'_> for BinaryVisitor<'_, Builder>
         where
             Builder: OctetsBuilder,
         {
             type Value = ();
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a character string")
             }
 
@@ -1102,7 +1101,7 @@ where
 pub struct CharStrError(());
 
 impl fmt::Display for CharStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("long character string")
     }
 }
@@ -1139,7 +1138,7 @@ impl From<ShortBuf> for FromStrError {
 //--- Display and Error
 
 impl fmt::Display for FromStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             FromStrError::Presentation(ref err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
@@ -1192,7 +1191,7 @@ impl From<PresentationErrorEnum> for PresentationError {
 //--- Display and Error
 
 impl fmt::Display for PresentationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             PresentationErrorEnum::LongString => {
                 f.write_str("character string with more than 255 octets")

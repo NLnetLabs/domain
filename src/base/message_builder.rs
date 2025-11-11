@@ -43,22 +43,22 @@
 //! and makes sure the message doesn’t become longer than what the counter
 //! can provide for.
 //!
-//! Two further types, [`TreeCompressor`] and [`StaticCompressor`], provide
-//! name compression. This is a mechanism to decrease the size of a DNS
-//! message by avoiding repeating domain names: Instead of including a domain
-//! name or suffix of a domain name that has been mentioned already, a pointer
-//! to the position of the original mention is provided. Since this process is
-//! somewhat expensive as you have to remember which names have already been
-//! used, it isn’t enabled by default and provided via separate octets
-//! builders instead which we call compressors.
+//! There is also support for name compression. This is a mechanism to decrease
+//! the size of a DNS message by avoiding repeating domain names: Instead of
+//! including a domain name or suffix of a domain name that has been mentioned
+//! already, a pointer to the position of the original mention is provided.
+//! Since this process is somewhat expensive as you have to remember which names
+//! have already been used, it isn’t enabled by default and is instead provided
+//! by separate octets builders which we call compressors.
 //!
-//! Currently, there are two different compressors. [`TreeCompressor`] stores
+//! Currently, there are three different compressors. [`TreeCompressor`] stores
 //! all names it encountered in a binary tree. While it can handle any number
 //! of names, it does require an allocator and therefore cannot be used in a
-//! `no_std` environment. [`StaticCompressor`], meanwhile, has a static table
-//! for up to 24 names. It is thus becoming ineffective on large messages
-//! with lots of different names. However, 24 should be good enough for most
-//! normal messages.
+//! `no_std` environment. [`HashCompressor`] also requires allocation, but uses
+//! a fast and space efficient hash table (via the `hashbrown` crate) instead.
+//! [`StaticCompressor`], meanwhile, has a static table for up to 24 names. It
+//! is ineffective on large messages with lots of different names, but this is
+//! quite rare anyway.
 //!
 //! # Example
 //!
@@ -142,13 +142,17 @@ use bytes::BytesMut;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
+use hashbrown::HashTable;
+#[cfg(feature = "std")]
 use octseq::array::Array;
 #[cfg(any(feature = "std", feature = "bytes"))]
 use octseq::builder::infallible;
 use octseq::builder::{FreezeBuilder, OctetsBuilder, ShortBuf, Truncate};
 use octseq::octets::Octets;
 #[cfg(feature = "std")]
-use std::collections::HashMap;
+use std::collections::{hash_map::RandomState, HashMap};
+#[cfg(feature = "std")]
+use std::hash::BuildHasher;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -475,7 +479,7 @@ impl<Target: Composer> MessageBuilder<Target> {
         let new_pos = self.target.as_ref().len();
         if new_pos >= self.limit {
             self.target.truncate(pos);
-            return Err(PushError::ShortBuf);
+            return Err(PushError::LimitExceeded);
         }
 
         if inc(self.counts_mut()).is_err() {
@@ -1413,10 +1417,12 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     /// [`OptBuilder`]: struct.OptBuilder.html
     pub fn opt<F>(&mut self, op: F) -> Result<(), PushError>
     where
-        F: FnOnce(&mut OptBuilder<Target>) -> Result<(), Target::AppendError>,
+        F: FnOnce(
+            &mut OptBuilder<'_, Target>,
+        ) -> Result<(), Target::AppendError>,
     {
         self.authority.answer.builder.push(
-            |target| OptBuilder::new(target)?.build(op).map_err(Into::into),
+            |target| OptBuilder::new(target)?.build(op),
             |counts| counts.inc_arcount(),
         )
     }
@@ -2367,11 +2373,289 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
     }
 }
 
+//------------ HashCompressor ------------------------------------------------
+
+/// A domain name compressor that uses a hash table.
+///
+/// This type wraps around an octets builder and implements domain name
+/// compression for it. It stores the position of any domain name it has seen
+/// in a hash table.
+///
+/// The position of a domain name is calculated relative to the beginning of
+/// the underlying octets builder. This means that this builder must represent
+/// the message only. This means that if you are using the [`StreamTarget`],
+/// you need to place it inside this type, _not_ the other way around.
+///
+/// [`StreamTarget`]: struct.StreamTarget.html
+#[cfg(feature = "std")]
+#[derive(Clone, Debug)]
+pub struct HashCompressor<Target> {
+    /// The underlying octetsbuilder.
+    target: Target,
+
+    /// The names inserted into the message.
+    ///
+    /// Consider a set of names, where the "parent" (i.e. tail) of each name is
+    /// another name in the set.  For example, a set might contain `.`, `org.`,
+    /// `example.org.`, and `www.example.org.`.  Each of these names (except the
+    /// root, which is handled specially) is stored as a separate entry in this
+    /// hash table.  A name `<head>.<tail>` is stored as the index of `<head>`
+    /// and the index of `<tail>` in the built message.  Its hash is built from
+    /// `<head>` (the bytes in the label, not the index into the message) and
+    /// the index of `<tail>`.
+    ///
+    /// Lookups are performed by iterating backward through the labels in a name
+    /// (to go from the root outward).  At each step, the canonical position of
+    /// `<tail>` is already known; it is hashed together with the next label and
+    /// searched for in the hash table.  An entry with a matching `<head>` (i.e.
+    /// where the referenced content in the message matches the searched label)
+    /// and a matching `<tail>` position represents the same name.
+    ///
+    /// The root is handled specially.  It is never inserted in the hash table,
+    /// and instead has a fixed fake position in the message of 0xFFFF.  That is
+    /// the initial value that lookups start with.
+    ///
+    /// As an example, consider a message `org. example.org. www.example.org.`.
+    /// In the hash table, the first two entries will look like:
+    ///
+    /// ```text
+    /// - head=0 ("org") tail=0xFFFF
+    /// - head=5 ("example") tail=0
+    /// ```
+    ///
+    /// Now, to insert `www.example.org.`, the lookup begins from the end.  We
+    /// search for a label "org" with tail 0xFFFF, and find head=0.  We set this
+    /// as the next tail, and search for label "example" to find head=5.  Since
+    /// a label "www" with tail=5 is not already in the hash table, it will be
+    /// inserted with head=18.
+    ///
+    /// This has a space overhead of 4-5 bytes for each entry, accounting for
+    /// the load factor (which appears to be 87.5%).  Technically, storing the
+    /// labels indirectly means that comparisons are more expensive; but most
+    /// labels are relatively short and storing them inline as 64-byte arrays
+    /// would be quite wasteful.
+    names: HashTable<HashEntry>,
+
+    /// How names in the table are hashed.
+    hasher: RandomState,
+}
+
+#[cfg(feature = "std")]
+#[derive(Copy, Clone, Debug)]
+struct HashEntry {
+    /// The position of the head label in the name.
+    head: u16,
+
+    /// The position of the tail name.
+    tail: u16,
+}
+
+#[cfg(feature = "std")]
+impl HashEntry {
+    /// Try constructing a [`HashEntry`].
+    fn new(head: usize, tail: usize) -> Option<Self> {
+        if head < 0xC000 {
+            Some(Self {
+                head: head as u16,
+                tail: tail as u16,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Get the head label for this entry.
+    fn head<'m>(&self, message: &'m [u8]) -> &'m Label {
+        Label::split_from(&message[self.head as usize..])
+            .expect("the message contains valid labels")
+            .0
+    }
+
+    /// Compute the hash of this entry.
+    fn hash(&self, message: &[u8], hasher: &RandomState) -> u64 {
+        hasher.hash_one((self.head(message), self.tail))
+    }
+
+    /// Compare this entry to a label.
+    fn eq(&self, message: &[u8], query: (&Label, u16)) -> bool {
+        (self.head(message), self.tail) == query
+    }
+}
+
+#[cfg(feature = "std")]
+impl<Target> HashCompressor<Target> {
+    /// Creates a new compressor from an underlying octets builder.
+    pub fn new(target: Target) -> Self {
+        HashCompressor {
+            target,
+            names: Default::default(),
+            hasher: Default::default(),
+        }
+    }
+
+    /// Returns a reference to the underlying octets builder.
+    pub fn as_target(&self) -> &Target {
+        &self.target
+    }
+
+    /// Converts the compressor into the underlying octets builder.
+    pub fn into_target(self) -> Target {
+        self.target
+    }
+
+    /// Returns an octets slice of the data.
+    pub fn as_slice(&self) -> &[u8]
+    where
+        Target: AsRef<[u8]>,
+    {
+        self.target.as_ref()
+    }
+
+    /// Returns an mutable octets slice of the data.
+    pub fn as_slice_mut(&mut self) -> &mut [u8]
+    where
+        Target: AsMut<[u8]>,
+    {
+        self.target.as_mut()
+    }
+}
+
+//--- AsRef, AsMut, and OctetsBuilder
+
+#[cfg(feature = "std")]
+impl<Target: AsRef<[u8]>> AsRef<[u8]> for HashCompressor<Target> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<Target: AsMut<[u8]>> AsMut<[u8]> for HashCompressor<Target> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<Target: OctetsBuilder> OctetsBuilder for HashCompressor<Target> {
+    type AppendError = Target::AppendError;
+
+    fn append_slice(
+        &mut self,
+        slice: &[u8],
+    ) -> Result<(), Self::AppendError> {
+        self.target.append_slice(slice)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<Target: Composer> Composer for HashCompressor<Target> {
+    fn append_compressed_name<N: ToName + ?Sized>(
+        &mut self,
+        name: &N,
+    ) -> Result<(), Self::AppendError> {
+        let mut name = name.iter_labels();
+        let message = self.target.as_ref();
+
+        // Remove the root label -- we know it's there.
+        assert!(
+            name.next_back().is_some_and(|l| l.is_root()),
+            "absolute names must end with a root label"
+        );
+
+        // The position of the consumed labels from the end of the name.
+        let mut position = 0xFFFF;
+
+        // The last label that must be inserted, if any.
+        let mut last_label = None;
+
+        // Look up each label in reverse order.
+        while let Some(label) = name.next_back() {
+            // Look up the labels seen thus far in the hash table.
+            let query = (label, position);
+            let hash = self.hasher.hash_one(query);
+
+            let entry =
+                self.names.find(hash, |&name| name.eq(message, query));
+            if let Some(entry) = entry {
+                // We found a match, so update the position.
+                position = entry.head;
+            } else {
+                // We will have to write this label.
+                last_label = Some(label);
+                break;
+            }
+        }
+
+        // Write out the remaining labels in the name in regular order.
+        let mut labels = name.chain(last_label).peekable();
+        while let Some(label) = labels.next() {
+            let head = self.target.as_ref().len();
+            let tail = head + label.compose_len() as usize;
+
+            label.compose(self)?;
+
+            // Remember this label for future compression, if possible.
+            //
+            // If some labels in this name pass the 0xC000 boundary point, then
+            // none of its remembered labels can be used (since they are looked
+            // up from right to left, and the rightmost ones will fail first).
+            // We could check more thoroughly for this, but it's not worth it.
+            if let Some(mut entry) = HashEntry::new(head, tail) {
+                // If there is no following label, use the remaining position.
+                if labels.peek().is_none() {
+                    entry.tail = position;
+                }
+
+                let message = self.target.as_ref();
+                let hasher = &self.hasher;
+                let hash = entry.hash(message, hasher);
+                self.names.insert_unique(hash, entry, |&name| {
+                    name.hash(message, hasher)
+                });
+            }
+        }
+
+        // Write the compressed pointer or the root label.
+        if position != 0xFFFF {
+            (position | 0xC000).compose(self)
+        } else {
+            Label::root().compose(self)
+        }
+    }
+
+    fn can_compress(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(feature = "std")]
+impl<Target: Composer> Truncate for HashCompressor<Target> {
+    fn truncate(&mut self, len: usize) {
+        self.target.truncate(len);
+        if len < 0xC000 {
+            self.names.retain(|name| name.head < len as u16);
+        }
+    }
+}
+
 //============ Errors ========================================================
 
+/// An error occurred when attempting to add data to a message.
 #[derive(Clone, Copy, Debug)]
 pub enum PushError {
+    /// Push attempted to exceed a hard limit.
+    ///
+    /// For example, attempting to put more than 65,535 records in the
+    /// question, answer, authority or additional section of a DNS message.
     CountOverflow,
+
+    /// Push attempted to exceed a soft limit.
+    ///
+    /// See [`MessageBuilder::set_push_limit()`].
+    LimitExceeded,
+
+    /// Push attempted to exceed the capacity of a buffer.
     ShortBuf,
 }
 
@@ -2382,9 +2666,10 @@ impl<T: Into<ShortBuf>> From<T> for PushError {
 }
 
 impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             PushError::CountOverflow => f.write_str("counter overflow"),
+            PushError::LimitExceeded => f.write_str("limit exceeded"),
             PushError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -2491,7 +2776,10 @@ mod test {
         msg.set_push_limit(25);
 
         // Verify that push fails.
-        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert!(matches!(
+            msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())),
+            Err(PushError::LimitExceeded)
+        ));
         assert_eq!(msg.as_slice().len(), hdr_len + 50);
 
         // Remove the limit.
@@ -2504,7 +2792,10 @@ mod test {
         assert_eq!(msg.as_slice().len(), 100);
 
         // Verify that exceeding the underlying capacity limit fails.
-        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert!(matches!(
+            msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())),
+            Err(PushError::ShortBuf)
+        ));
         assert_eq!(msg.as_slice().len(), 100);
     }
 
@@ -2614,6 +2905,53 @@ mod test {
         let name = "example.com.".parse::<Name<Vec<u8>>>().unwrap();
         let mut msg =
             MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+                .unwrap()
+                .question();
+        msg.header_mut().set_rcode(Rcode::NOERROR);
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ra(true);
+        msg.header_mut().set_qr(true);
+        msg.header_mut().set_ad(true);
+
+        // Question
+        msg.push((name.clone(), Rtype::A)).unwrap();
+
+        // Answer
+        let mut msg = msg.answer();
+        msg.push((name.clone(), 3600, A::from_octets(203, 0, 113, 1)))
+            .unwrap();
+
+        let actual = msg.finish().into_target();
+        assert_eq!(45, actual.len(), "unexpected response size");
+        assert_eq!(expect[..], actual, "unexpected response data");
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn hash_compress_positive_response() {
+        // An example positive response to `A example.com.` that is compressed
+        //
+        // ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 0
+        // ;; flags: qr rd ra ad; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+        //
+        // ;; QUESTION SECTION:
+        // ;example.com.			IN	A
+        //
+        // ;; ANSWER SECTION:
+        // example.com.		3600	IN	A	203.0.113.1
+        //
+        // ;; MSG SIZE  rcvd: 45
+        let expect = &[
+            0x00, 0x00, 0x81, 0xa0, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63,
+            0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x01,
+            0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0xcb, 0x00, 0x71,
+            0x01,
+        ];
+
+        let name = "example.com.".parse::<Name<Vec<u8>>>().unwrap();
+        let mut msg =
+            MessageBuilder::from_target(HashCompressor::new(Vec::new()))
                 .unwrap()
                 .question();
         msg.header_mut().set_rcode(Rcode::NOERROR);

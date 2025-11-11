@@ -2,6 +2,7 @@
 use core::future::Future;
 use core::ops::{ControlFlow, Deref};
 use core::pin::Pin;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
 use std::boxed::Box;
@@ -11,6 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use log::{log_enabled, Level};
 use octseq::Octets;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
@@ -19,8 +21,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 use tokio::time::{sleep_until, timeout};
-use tracing::Level;
-use tracing::{debug, enabled, error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
@@ -44,7 +45,7 @@ use super::ServerCommand;
 /// - "A timeout of at least a few seconds is advisable for normal
 ///   operations".
 /// - "Servers MAY use zero timeouts when they are experiencing heavy load or
-///    are under attack".
+///   are under attack".
 /// - "Servers MAY allow idle connections to remain open for longer periods as
 ///   resources permit".
 ///
@@ -133,7 +134,7 @@ impl Config {
     /// - "A timeout of at least a few seconds is advisable for normal
     ///   operations".
     /// - "Servers MAY use zero timeouts when they are experiencing heavy load
-    ///    or are under attack".
+    ///   or are under attack".
     /// - "Servers MAY allow idle connections to remain open for longer
     ///   periods as resources permit".
     ///
@@ -269,6 +270,9 @@ where
     /// DNS protocol idle time out tracking.
     idle_timer: IdleTimer,
 
+    /// Is a transaction in progress?
+    in_transaction: Arc<AtomicBool>,
+
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
 
@@ -323,6 +327,7 @@ where
             mpsc::channel(config.max_queued_responses);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let idle_timer = IdleTimer::new();
+        let in_transaction = Arc::new(AtomicBool::new(false));
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -350,6 +355,7 @@ where
             result_q_tx,
             service,
             idle_timer,
+            in_transaction,
             metrics,
             request_dispatcher,
         }
@@ -440,7 +446,7 @@ where
                     }
 
                     _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.load().idle_timeout)) => {
-                        self.process_dns_idle_timeout()
+                        self.process_dns_idle_timeout(self.config.load().idle_timeout)
                     }
 
                     res = &mut msg_recv => {
@@ -599,7 +605,7 @@ where
         &mut self,
         msg: StreamTarget<Svc::Target>,
     ) -> Result<(), ConnectionEvent> {
-        if enabled!(Level::TRACE) {
+        if log_enabled!(Level::Trace) {
             let bytes = msg.as_dgram_slice();
             let pcap_text = to_pcap_text(bytes, bytes.len());
             trace!(addr = %self.addr, pcap_text, "Sending {} bytes of response tp {}", self.addr, bytes.len());
@@ -636,16 +642,19 @@ where
         Ok(())
     }
 
-    /// Implemnt DNS rules regarding timing out of idle connections.
+    /// Implement DNS rules regarding timing out of idle connections.
     ///
     /// Disconnects the current connection of the timer is expired, flushing
     /// pending responses first.
-    fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
+    fn process_dns_idle_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
-        if self
-            .idle_timer
-            .idle_timeout_expired(self.config.load().idle_timeout)
+        if self.idle_timer.idle_timeout_expired(timeout)
+            && !self.in_transaction.load(Ordering::SeqCst)
         {
+            trace!("Timing out idle connection");
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
             Ok(())
@@ -665,7 +674,7 @@ where
             Ok(buf) => {
                 let received_at = Instant::now();
 
-                if enabled!(Level::TRACE) {
+                if log_enabled!(Level::Trace) {
                     let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
                     trace!(addr = %self.addr, pcap_text, "Received message");
                 }
@@ -878,7 +887,6 @@ where
 
     /// Handle I/O errors by deciding whether to log them, and whethr to
     /// continue or abort.
-    #[must_use]
     fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
         match err.kind() {
             io::ErrorKind::UnexpectedEof => {

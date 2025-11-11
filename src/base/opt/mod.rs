@@ -24,6 +24,18 @@
 
 #[macro_use]
 mod macros;
+
+pub mod algsig;
+pub mod chain;
+pub mod cookie;
+pub mod expire;
+pub mod exterr;
+pub mod keepalive;
+pub mod keytag;
+pub mod nsid;
+pub mod padding;
+pub mod subnet;
+
 opt_types! {
     algsig::{Dau<Octs>, Dhu<Octs>, N3u<Octs>};
     chain::{Chain<Name>};
@@ -46,6 +58,7 @@ use super::name::{Name, ToName};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
+use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::marker::PhantomData;
@@ -364,17 +377,26 @@ impl<Octs: AsRef<[u8]> + ?Sized> ComposeRecordData for Opt<Octs> {
 //--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Opt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // XXX TODO Print this properly.
         f.write_str("OPT ...")
     }
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Opt(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]> + ?Sized> ZonefileFmt for Opt<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        // XXX TODO Print this properly.
+        p.write_token("OPT ...")
     }
 }
 
@@ -561,8 +583,8 @@ impl<Octs> OptRecord<Octs> {
             Name::root_slice(),
             Class::from_int(self.udp_payload_size),
             Ttl::from_secs(
-                u32::from(self.ext_rcode) << 24
-                    | u32::from(self.version) << 16
+                (u32::from(self.ext_rcode) << 24)
+                    | (u32::from(self.version) << 16)
                     | u32::from(self.flags),
             ),
             self.data.for_slice_ref(),
@@ -704,7 +726,7 @@ impl<Octs> AsRef<Opt<Octs>> for OptRecord<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for OptRecord<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OptRecord")
             .field("udp_payload_size", &self.udp_payload_size)
             .field("ext_rcord", &self.ext_rcode)
@@ -752,7 +774,7 @@ impl OptionHeader {
     }
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         Ok(OptionHeader::new(
             parser.parse_u16_be()?,
@@ -1032,13 +1054,13 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
 //--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for UnknownOptData<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         base16::display(self.data.as_ref(), f)
     }
 }
 
 impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownOptData<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnknownOptData")
             .field("code", &self.code)
             .field("data", &format_args!("{}", self))
@@ -1076,7 +1098,7 @@ impl From<LongOptData> for ParseError {
 }
 
 impl fmt::Display for LongOptData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -1125,7 +1147,7 @@ impl<T: Into<ShortBuf>> From<T> for BuildDataError {
 //--- Display and Error
 
 impl fmt::Display for BuildDataError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::LongOptData => f.write_str("long option data"),
             Self::ShortBuf => ShortBuf.fmt(f),
@@ -1211,7 +1233,7 @@ pub(super) mod test {
     pub fn test_option_compose_parse<In, F, Out>(data: &In, parse: F)
     where
         In: ComposeOptData + PartialEq<Out> + Debug,
-        F: FnOnce(&mut Parser<Bytes>) -> Result<Out, ParseError>,
+        F: FnOnce(&mut Parser<'_, Bytes>) -> Result<Out, ParseError>,
         Out: Debug,
     {
         let mut buf = BytesMut::new();

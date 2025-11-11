@@ -26,10 +26,6 @@ macro_rules! rdata_types {
             };
         )*
 
-        $(
-            pub mod $module;
-        )*
-
         use core::{fmt, hash};
         use crate::base::cmp::CanonicalOrd;
         use crate::base::iana::Rtype;
@@ -456,7 +452,7 @@ macro_rules! rdata_types {
             O: AsRef<[u8]>,
             N: fmt::Display
         {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match *self {
                     $( $( $(
                         ZoneRecordData::$mtype(ref inner) => {
@@ -475,7 +471,7 @@ macro_rules! rdata_types {
             O: AsRef<[u8]>,
             N: fmt::Debug
         {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match *self {
                     $( $( $(
                         ZoneRecordData::$mtype(ref inner) => {
@@ -495,6 +491,28 @@ macro_rules! rdata_types {
                         core::fmt::Debug::fmt(inner, f)?;
                         f.write_str(")")
                     }
+                }
+            }
+        }
+
+        ///--- ZonefileFmt
+
+        impl<O, N> $crate::base::zonefile_fmt::ZonefileFmt for ZoneRecordData<O, N>
+        where
+            O: AsRef<[u8]>,
+            N: ToName,
+        {
+            fn fmt(
+                &self,
+                p: &mut impl $crate::base::zonefile_fmt::Formatter
+            ) -> $crate::base::zonefile_fmt::Result {
+                match *self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(ref inner) => {
+                            inner.fmt(p)
+                        }
+                    )* )* )*
+                    ZoneRecordData::Unknown(ref inner) => inner.fmt(p),
                 }
             }
         }
@@ -1048,7 +1066,7 @@ macro_rules! rdata_types {
         impl<O, N> fmt::Display for AllRecordData<O, N>
         where O: Octets, N: fmt::Display {
             fn fmt(
-                &self, f: &mut fmt::Formatter
+                &self, f: &mut fmt::Formatter<'_>
             ) -> fmt::Result {
                 match *self {
                     $( $( $(
@@ -1070,7 +1088,7 @@ macro_rules! rdata_types {
         impl<O, N> fmt::Debug for AllRecordData<O, N>
         where O: Octets, N: fmt::Debug {
             fn fmt(
-                &self, f: &mut fmt::Formatter
+                &self, f: &mut fmt::Formatter<'_>
             ) -> fmt::Result {
                 match *self {
                     $( $( $(
@@ -1113,6 +1131,29 @@ macro_rules! rdata_types {
             }
         }
 
+        //--- ZonefileFmt
+
+        impl<O, N> $crate::base::zonefile_fmt::ZonefileFmt for AllRecordData<O, N>
+        where O: Octets, N: ToName {
+            fn fmt(
+                &self, f: &mut impl $crate::base::zonefile_fmt::Formatter
+            ) -> $crate::base::zonefile_fmt::Result {
+                match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            inner.fmt(f)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            inner.fmt(f)
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(ref inner) => inner.fmt(f),
+                    AllRecordData::Unknown(ref inner) => inner.fmt(f),
+                }
+            }
+        }
     }
 }
 
@@ -1295,8 +1336,16 @@ macro_rules! name_type_base {
         //--- Display
 
         impl<N: fmt::Display> fmt::Display for $target<N> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{}.", self.$field)
+            }
+        }
+
+        //--- ZonefileFmt
+
+        impl<N: ToName> $crate::base::zonefile_fmt::ZonefileFmt for $target<N> {
+            fn fmt(&self, p: &mut impl $crate::base::zonefile_fmt::Formatter) -> $crate::base::zonefile_fmt::Result {
+                p.write_token(self.$field.fmt_with_dot())
             }
         }
     }

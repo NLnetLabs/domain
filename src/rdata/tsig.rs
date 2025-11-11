@@ -23,6 +23,7 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base64;
 
 //------------ Tsig ----------------------------------------------------------
@@ -103,7 +104,10 @@ impl<O, N> Tsig<O, N> {
         error: TsigRcode,
         other: O,
     ) -> Result<Self, LongRecordData>
-    where O: AsRef<[u8]>, N: ToName {
+    where
+        O: AsRef<[u8]>,
+        N: ToName,
+    {
         LongRecordData::check_len(
             6 // time_signed
             + 2 // fudge
@@ -115,11 +119,17 @@ impl<O, N> Tsig<O, N> {
                 mac.as_ref().len()
             ).expect("long MAC").checked_add(
                 other.as_ref().len()
-            ).expect("long TSIG")
+            ).expect("long TSIG"),
         )?;
         Ok(unsafe {
             Tsig::new_unchecked(
-                algorithm, time_signed, fudge, mac, original_id, error, other,
+                algorithm,
+                time_signed,
+                fudge,
+                mac,
+                original_id,
+                error,
+                other,
             )
         })
     }
@@ -308,7 +318,13 @@ impl<Octs> Tsig<Octs, ParsedName<Octs>> {
         let other = parser.parse_octets(other_len as usize)?;
         Ok(unsafe {
             Tsig::new_unchecked(
-                algorithm, time_signed, fudge, mac, original_id, error, other,
+                algorithm,
+                time_signed,
+                fudge,
+                mac,
+                original_id,
+                error,
+                other,
             )
         })
     }
@@ -346,17 +362,16 @@ impl<Octs, TOcts, Name, TName> FlattenInto<Tsig<TOcts, TName>>
     for Tsig<Octs, Name>
 where
     TOcts: OctetsFrom<Octs>,
-    Name: FlattenInto<TName, AppendError = TOcts::Error>
+    Name: FlattenInto<TName, AppendError = TOcts::Error>,
 {
     type AppendError = TOcts::Error;
 
     fn try_flatten_into(
-        self
-    ) -> Result<Tsig<TOcts, TName>, Self::AppendError > {
+        self,
+    ) -> Result<Tsig<TOcts, TName>, Self::AppendError> {
         self.flatten()
     }
 }
-
 
 //--- PartialEq and Eq
 
@@ -529,9 +544,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     }
 }
 
-impl<Octs: AsRef<[u8]>, Name: ToName> ComposeRecordData
-    for Tsig<Octs, Name>
-{
+impl<Octs: AsRef<[u8]>, Name: ToName> ComposeRecordData for Tsig<Octs, Name> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             6 // time_signed
@@ -578,7 +591,7 @@ impl<Octs: AsRef<[u8]>, Name: ToName> ComposeRecordData
 //--- Display and Debug
 
 impl<O: AsRef<[u8]>, N: fmt::Display> fmt::Display for Tsig<O, N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}. {} {} ",
@@ -592,7 +605,7 @@ impl<O: AsRef<[u8]>, N: fmt::Display> fmt::Display for Tsig<O, N> {
 }
 
 impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Tsig")
             .field("algorithm", &self.algorithm)
             .field("time_signed", &self.time_signed)
@@ -602,6 +615,31 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
             .field("error", &self.error)
             .field("other", &self.other.as_ref())
             .finish()
+    }
+}
+
+//--- ZonefileFmt
+
+impl<O: AsRef<[u8]>, N: ToName> ZonefileFmt for Tsig<O, N> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.algorithm.fmt_with_dot())?;
+            p.write_comment("algorithm")?;
+            p.write_token(self.time_signed)?;
+            p.write_comment("time signed")?;
+            p.write_token(self.fudge)?;
+            p.write_comment("fudge")?;
+            p.write_token(base64::encode_display(&self.mac))?;
+            p.write_comment("mac")?;
+            p.write_token(self.original_id)?;
+            p.write_comment("original id")?;
+            p.write_token(self.error)?;
+            p.write_comment("error")?;
+            p.write_token(format_args!(
+                "\"{}\"",
+                base64::encode_display(&self.other)
+            ))
+        })
     }
 }
 
@@ -615,7 +653,7 @@ pub struct Time48(u64);
 impl Time48 {
     /// Returns the timestamp of the current moment.
     ///
-    /// The funtion will panic if for whatever reason the current moment is
+    /// The function will panic if for whatever reason the current moment is
     /// too far in the future to fit into this type. For a correctly set
     /// clock, this will happen in December 8,921,556, so should be fine.
     #[cfg(feature = "std")]
@@ -684,7 +722,7 @@ impl Time48 {
     }
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         let mut buf = [0u8; 6];
         parser.parse_buf(&mut buf)?;
@@ -710,7 +748,7 @@ impl From<Time48> for u64 {
 //--- Display
 
 impl fmt::Display for Time48 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
@@ -737,7 +775,8 @@ mod test {
             13,
             TsigRcode::BADCOOKIE,
             "",
-        ).unwrap();
+        )
+        .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Tsig::parse(parser));
     }

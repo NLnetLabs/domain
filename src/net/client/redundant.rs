@@ -54,24 +54,51 @@ const SMOOTH_N: f64 = 8.;
 /// Chance to probe a worse connection.
 const PROBE_P: f64 = 0.05;
 
-/// Avoid sending two requests at the same time.
-///
-/// When a worse connection is probed, give it a slight head start.
-const PROBE_RT: Duration = Duration::from_millis(1);
-
 //------------ Config ---------------------------------------------------------
 
 /// User configuration variables.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
     /// Defer transport errors.
-    pub defer_transport_error: bool,
+    defer_transport_error: bool,
 
     /// Defer replies that report Refused.
-    pub defer_refused: bool,
+    defer_refused: bool,
 
     /// Defer replies that report ServFail.
-    pub defer_servfail: bool,
+    defer_servfail: bool,
+}
+
+impl Config {
+    /// Return the value of the defer_transport_error configuration variable.
+    pub fn defer_transport_error(&self) -> bool {
+        self.defer_transport_error
+    }
+
+    /// Set the value of the defer_transport_error configuration variable.
+    pub fn set_defer_transport_error(&mut self, value: bool) {
+        self.defer_transport_error = value
+    }
+
+    /// Return the value of the defer_refused configuration variable.
+    pub fn defer_refused(&self) -> bool {
+        self.defer_refused
+    }
+
+    /// Set the value of the defer_refused configuration variable.
+    pub fn set_defer_refused(&mut self, value: bool) {
+        self.defer_refused = value
+    }
+
+    /// Return the value of the defer_servfail configuration variable.
+    pub fn defer_servfail(&self) -> bool {
+        self.defer_servfail
+    }
+
+    /// Set the value of the defer_servfail configuration variable.
+    pub fn set_defer_servfail(&mut self, value: bool) {
+        self.defer_servfail = value
+    }
 }
 
 //------------ Connection -----------------------------------------------------
@@ -159,7 +186,7 @@ impl<Req: Clone + Debug + Send + Sync + 'static> SendRequest<Req>
 //------------ Request -------------------------------------------------------
 
 /// An active request.
-pub struct Request {
+struct Request {
     /// The underlying future.
     fut: Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
@@ -189,7 +216,7 @@ impl GetResponse for Request {
 }
 
 impl Debug for Request {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -200,7 +227,7 @@ impl Debug for Request {
 
 /// This type represents an active query request.
 #[derive(Debug)]
-pub struct Query<Req>
+struct Query<Req>
 where
     Req: Send + Sync,
 {
@@ -385,10 +412,15 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
         // Do we want to probe a less performant upstream?
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
             let index: usize = 1 + random::<usize>() % (conn_rt_len - 1);
-            conn_rt[index].est_rt = PROBE_RT;
 
-            // Sort again
-            conn_rt.sort_unstable_by(conn_rt_cmp);
+            // Give the probe some head start. We may need a separate
+            // configuration parameter. A multiple of min_rt. Just use
+            // min_rt for now.
+            let min_rt = conn_rt.iter().map(|e| e.est_rt).min().unwrap();
+
+            let mut e = conn_rt.remove(index);
+            e.est_rt = min_rt;
+            conn_rt.insert(0, e);
         }
 
         Self {
@@ -616,7 +648,7 @@ where
     receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
-impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
+impl<Req: Clone + Send + Sync + 'static> Transport<Req> {
     /// Implementation of the new method.
     fn new(receiver: mpsc::Receiver<ChanReq<Req>>) -> Self {
         Self { receiver }

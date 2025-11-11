@@ -13,6 +13,7 @@ macro_rules! int_enum {
                                         $value:expr, $mnemonic:expr) )* ) => {
         $(#[$attr])*
         #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
         pub struct $ianatype($inttype);
 
         impl $ianatype {
@@ -39,7 +40,7 @@ macro_rules! int_enum {
             #[must_use]
             pub fn from_mnemonic(m: &[u8]) -> Option<Self> {
                 $(
-                    if m.eq_ignore_ascii_case($mnemonic) {
+                    if m.eq_ignore_ascii_case($mnemonic.as_bytes()) {
                         return Some($ianatype::$variant)
                     }
                 )*
@@ -52,6 +53,14 @@ macro_rules! int_enum {
             /// is hidden in a `Int` variant.
             #[must_use]
             pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
+                match self.to_mnemonic_str() {
+                    Some(m) => Some(m.as_bytes()),
+                    None => None,
+                }
+            }
+
+            /// Returns the mnemonic as a `&str` for this value if there is one
+            pub const fn to_mnemonic_str(self) -> Option<&'static str> {
                 match self {
                     $(
                         $ianatype::$variant => {
@@ -105,7 +114,7 @@ macro_rules! int_enum {
         //--- Debug
 
         impl core::fmt::Debug for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 match self.to_mnemonic().and_then(|bytes| {
                     core::str::from_utf8(bytes).ok()
                 }) {
@@ -200,7 +209,10 @@ macro_rules! int_enum_str_decimal {
         scan_impl!($ianatype);
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
                 write!(f, "{}", self.to_int())
             }
         }
@@ -272,15 +284,13 @@ macro_rules! int_enum_str_with_decimal {
         }
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                use core::fmt::Write;
-
-                match self.to_mnemonic() {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
+                match self.to_mnemonic_str() {
                     Some(m) => {
-                        for ch in m {
-                            f.write_char(*ch as char)?
-                        }
-                        Ok(())
+                        write!(f, "{m}({})", self.to_int())
                     }
                     None => {
                         write!(f, "{}", self.to_int())
@@ -388,16 +398,12 @@ macro_rules! int_enum_str_with_prefix {
         }
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                use core::fmt::Write;
-
-                match self.to_mnemonic() {
-                    Some(m) => {
-                        for ch in m {
-                            f.write_char(*ch as char)?
-                        }
-                        Ok(())
-                    }
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
+                match self.to_mnemonic_str() {
+                    Some(m) => f.write_str(m),
                     None => {
                         write!(f, "{}{}", $str_prefix, self.to_int())
                     }
@@ -436,6 +442,60 @@ macro_rules! int_enum_str_with_prefix {
     };
 }
 
+macro_rules! int_enum_zonefile_fmt_decimal {
+    ($ianatype:ident, $name:expr) => {
+        impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
+            fn fmt(
+                &self,
+                p: &mut impl $crate::base::zonefile_fmt::Formatter,
+            ) -> $crate::base::zonefile_fmt::Result {
+                p.write_token(self.to_int())?;
+                if let Some(mnemonic) = self.to_mnemonic_str() {
+                    p.write_comment(format_args!("{}: {}", $name, mnemonic))
+                } else {
+                    p.write_comment($name)
+                }
+            }
+        }
+    };
+}
+
+macro_rules! int_enum_zonefile_fmt_with_decimal {
+    ($ianatype:ident) => {
+        impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
+            fn fmt(
+                &self,
+                p: &mut impl $crate::base::zonefile_fmt::Formatter,
+            ) -> $crate::base::zonefile_fmt::Result {
+                match self.to_mnemonic_str() {
+                    Some(m) => p.write_token(m),
+                    None => p.write_token(self.to_int()),
+                }
+            }
+        }
+    };
+}
+
+macro_rules! int_enum_zonefile_fmt_with_prefix {
+    ($ianatype:ident, $str_prefix:expr) => {
+        impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
+            fn fmt(
+                &self,
+                p: &mut impl $crate::base::zonefile_fmt::Formatter,
+            ) -> $crate::base::zonefile_fmt::Result {
+                match self.to_mnemonic_str() {
+                    Some(m) => p.write_token(m),
+                    None => p.write_token(format_args!(
+                        "{}{}",
+                        $str_prefix,
+                        self.to_int()
+                    )),
+                }
+            }
+        }
+    };
+}
+
 macro_rules! scan_impl {
     ($ianatype:ident) => {
         impl $ianatype {
@@ -468,7 +528,10 @@ macro_rules! from_str_error {
         }
 
         impl core::fmt::Display for FromStrError {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
                 $description.fmt(f)
             }
         }

@@ -6,7 +6,7 @@
 //! a validation status to a result code (server failure) and setting or
 //! clearing the AD flag.
 //! For details of the validator see the
-//! [validator](crate::validator) module.
+//! [validator](crate::dnssec::validator) module.
 //!
 //! # Upstream transports
 //!
@@ -30,7 +30,7 @@
 //! some amount of validating for each request.
 //!
 //! The validator has some internal caches (see the
-//! [validator](crate::validator) module) so
+//! [validator](crate::dnssec::validator) module) so
 //! there is no direct need for a cache upstream of the validator. Caching
 //! becomes more complex if there is validator that uses the validator.
 //! in that case, the downstream validator will likely issues requests for
@@ -39,6 +39,11 @@
 //! twice. One solution to that is to create a new type of cache that only
 //! caches DS and DNSKEY records and insert that upstream of the validator.
 
+#![cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
+
 //! # Example
 //! ```rust,no_run
 //! # use domain::base::{MessageBuilder, Name, Rtype};
@@ -46,8 +51,8 @@
 //! # use domain::net::client::protocol::{TcpConnect, UdpConnect};
 //! # use domain::net::client::request::{RequestMessage, SendRequest};
 //! # use domain::net::client::validator;
-//! # use domain::validator::anchor::TrustAnchors;
-//! # use domain::validator::context::ValidationContext;
+//! # use domain::dnssec::validator::anchor::TrustAnchors;
+//! # use domain::dnssec::validator::context::ValidationContext;
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # use std::sync::Arc;
@@ -87,17 +92,29 @@
 //! }
 //! ```
 
+#![cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
+#![cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    )))
+)]
+
 use crate::base::iana::Rcode;
 use crate::base::opt::{AllOptData, ExtendedError};
 use crate::base::{
     Message, MessageBuilder, ParsedName, Rtype, StaticCompressor,
 };
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
+use crate::dnssec::validator::context::{ValidationContext, ValidationState};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
 use crate::rdata::AllRecordData;
-use crate::validator::context::{ValidationContext, ValidationState};
 use bytes::Bytes;
 use std::boxed::Box;
 use std::fmt::{Debug, Formatter};

@@ -45,6 +45,18 @@
 #[macro_use]
 mod macros;
 
+pub mod aaaa;
+pub mod cds;
+pub mod dname;
+pub mod dnssec;
+pub mod naptr;
+pub mod nsec3;
+pub mod rfc1035;
+pub mod srv;
+pub mod svcb;
+pub mod tsig;
+pub mod zonemd;
+
 // The rdata_types! macro (defined in self::macros) defines the modules
 // containing the record data types, re-exports those here, and creates the
 // ZoneRecordData and AllRecordData enums containing all record types that
@@ -103,6 +115,11 @@ rdata_types! {
             Rrsig<O, N>,
             Nsec<O, N>,
             Ds<O>,
+        }
+    }
+    naptr::{
+        zone {
+            Naptr<O, N>,
         }
     }
     nsec3::{

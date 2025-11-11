@@ -4,6 +4,249 @@
 
 Breaking changes
 
+* Add new `LimitExceeded` variant to `MessageBuilder`'s `PushError`. ([#349])
+* `StubResolver` now keeps its state in an `Arc` and can be cloned cheaply.
+  ([#393])
+
+New
+
+* Add `rdata::dnssec::Timestamp::to_system_time` to help sorting timestamps.
+ ([#548])
+
+Improvements
+
+* Exclude `moka` dependency from the `resolv` feature, reducing the number of
+  dependencies and compile time significantly. ([#575] by [@WhyNotHugo])
+
+Bug fixes
+
+* When parsing a Bind-style public key file, allow an optional TTL field.
+  ([#593])
+
+Unstable features
+
+* `unstable-crypto-sign`
+  * Add support for RSA/SHA-512 to openssl signer. ([#550])
+* `unstable-server-transport`
+  * Implement `std::error::Error` for `ServiceError`. ([#570] by
+    [@rossmacarthur])
+  * Be more lenient when timing out connections while they are in a
+    transaction. ([#399])
+* `unstable-sign`
+   * keyset improvements ([#551])
+     * Store the algorithm and key tag of a key to be able to reject duplicate
+       key tags and accidental algorithm rolls.
+     * Store whether a key is considered available for a key roll. Rolls with
+       new keys that are not available are rejected.
+     * Add two alternative key rolls for KSK and ZSK key rolls.
+     * Add an algorithm roll.
+     * Add more operations on UnixTime.
+     * Add more actions
+* `unstable-xfr`
+  * Various fixes and improvements. ([#507])
+
+Other changes
+
+[#349]: https://github.com/NLnetLabs/domain/pull/349
+[#393]: https://github.com/NLnetLabs/domain/pull/393
+[#399]: https://github.com/NLnetLabs/domain/pull/399
+[#507]: https://github.com/NLnetLabs/domain/pull/507
+[#548]: https://github.com/NLnetLabs/domain/pull/548
+[#550]: https://github.com/NLnetLabs/domain/pull/550
+[#551]: https://github.com/NLnetLabs/domain/pull/551
+[#570]: https://github.com/NLnetLabs/domain/pull/570
+[#593]: https://github.com/NLnetLabs/domain/pull/593
+[@rossmacarthur]: https://github.com/rossmacarthur
+[@WhyNotHugo]: https://github.com/WhyNotHugo
+
+
+## 0.11.1
+
+Released 2025-10-22.
+
+Bug fixes
+
+* Fix handling of tabs when formatting RDATA using `DisplayKind::Tabbed`.
+  ([#516])
+* Fix for in-place zone parser yielding incorrect TTLs. ([#538])
+* Generalize `ZoneUpdater` to support any `Record` type, not just
+  `ParsedRecord`. ([#535])
+* Trim leading modulus and public exponent zeroes per RFC 3110 section 2.
+  ([#541])
+* Fix panic in zonetree from in-place zonefile after encountering a malformed
+  record. ([#573])
+
+Unstable features
+
+* `unstable-server-transport`:
+  * Don't discard the NOTIFY SOA serial, if one is received. Existing users
+    of the `Notifiable` trait will need to update their code as this change
+    adds an argument to `Notifiable::notify_zone_changed()`. [#562])
+* `unstable-client-transport`:
+  * Fix an issue in Stream::Transport when a reply arrives early.
+    ([#568] by [@TheJokr])
+
+Other changes
+
+* Fix docs on `XfrResponseInterpreter`. ([#510])
+
+
+[#510]: https://github.com/NLnetLabs/domain/pull/510
+[#516]: https://github.com/NLnetLabs/domain/pull/516
+[#535]: https://github.com/NLnetLabs/domain/pull/535
+[#538]: https://github.com/NLnetLabs/domain/pull/538
+[#541]: https://github.com/NLnetLabs/domain/pull/541
+[#562]: https://github.com/NLnetLabs/domain/pull/562
+[#568]: https://github.com/NLnetLabs/domain/pull/568
+[#573]: https://github.com/NLnetLabs/domain/pull/573
+[@TheJokr]: https://github.com/TheJokr
+
+
+## 0.11.0
+
+Released 2025-05-21.
+
+Breaking changes
+
+* FIX: Use base 16 per RFC 4034 for the DS digest, not base 64. ([#423])
+* FIX: NSEC3 salt strings should only be accepted if within the salt size limit. (#431)
+* Stricter RFC 1035 compliance by default in the `Zonefile` parser. ([#477])
+* Rename {DigestAlg, Nsec3HashAlg, SecAlg, ZonemdAlg} to
+  {DigestAlgorithm, Nsec3HashAlgorithm, SecurityAlgorithm, ZonemdAlgorithm}
+
+New
+
+* Added `HashCompressor`, an unlimited name compressor that uses a hash map
+  rather than a tree. ([#396])
+* Changed `fmt::Display` for `HINFO` records to a show a quoted string.
+  ([#421])
+* Added support for `NAPTR` record type. ([#427] by [@weilence])
+* Added initial fuzz testing support for some types via a new `arbitrary`
+  feature (not enabled by default). ([#441])
+* Added `StubResolver::add_connection()` to allow adding a connection to the
+  running resolver. In combination with `ResolvConf::new()` this can also be
+  used to control the connections made when testing code that uses the stub
+  resolver. ([#440])
+* Added `ZonefileFmt` trait for printing records as zonefiles. ([#379], [#446],
+  [#463])
+
+Bug fixes
+
+* NSEC records should include themselves in the generated bitmap. ([#417])
+* Trailing double quote wrongly preserved when parsing record data. ([#470],
+  [#472])
+* Don't error with unexpected end of entry for RFC 3597 RDATA of length zero. ([475])
+
+Unstable features
+
+* New unstable feature `unstable-crypto` that enable cryptography support
+  for features that do not rely on secret keys. This feature needs either
+  or both of the features `ring` and `openssl` ([#416])
+* New unstable feature `unstable-crypto-sign` that enable cryptography support
+  including features that rely on secret keys. This feature needs either
+  or both of the features `ring` and `openssl` ([#416])
+* New unstable feature `unstable-client-cache` that enable the client transport
+  cache. The reason is that the client cache uses the `moka` crate.
+
+* New unstable feature `unstable-new` that introduces a new API for all of
+  domain (currently only with `base`, `rdata`, and `edns` modules).  Also see
+  the [associated blog post][new-base-post].
+
+* `unstable-server-transport`
+  * The trait `SingleService` which is a simplified service trait for
+    requests that should generate a single response ([#353]).
+  * The trait `ComposeReply` and an implementation of the trait
+    (`ReplyMessage`) to assist in capturing EDNS(0) options that should be
+    included in a response message ([#353]).
+  * Adapters to implement `Service` for `SingleService` and to implement
+    `SingleService` for `SendRequest` ([#353]).
+  * Conversion of a `Request` to a `RequestMessage` ([#353]).
+  * A sample query router, called `QnameRouter`, that routes requests based
+    on the QNAME field in the request ([#353]).
+
+* `unstable-client-transport`
+  * introduce timeout option in multi_stream ([#424]).
+  * improve probing in redundant ([#424]).
+  * restructure configuration for multi_stream and redundant ([#424]).
+  * introduce a load balancer client transport. This transport tries to
+    distribute requests equally over upstream transports ([#425]).
+  * the client cache now has it's own feature `unstable-client-cache`.
+
+* `unstable-sign`
+  * add key lifecycle management ([#459]).
+  * add support for adding NSEC3 records when signing.
+  * add support for ZONEMD.
+
+* `unstable-validator`
+  * The `validate` crate is moved to `dnssec::validator::base`.
+  * The `validator` crate is moved to `dnssec::validator`.
+
+Other changes
+
+[#353]: https://github.com/NLnetLabs/domain/pull/353
+[#379]: https://github.com/NLnetLabs/domain/pull/379
+[#396]: https://github.com/NLnetLabs/domain/pull/396
+[#416]: https://github.com/NLnetLabs/domain/pull/416
+[#417]: https://github.com/NLnetLabs/domain/pull/417
+[#421]: https://github.com/NLnetLabs/domain/pull/421
+[#423]: https://github.com/NLnetLabs/domain/pull/423
+[#424]: https://github.com/NLnetLabs/domain/pull/424
+[#425]: https://github.com/NLnetLabs/domain/pull/425
+[#427]: https://github.com/NLnetLabs/domain/pull/427
+[#431]: https://github.com/NLnetLabs/domain/pull/431
+[#440]: https://github.com/NLnetLabs/domain/pull/440
+[#441]: https://github.com/NLnetLabs/domain/pull/441
+[#446]: https://github.com/NLnetLabs/domain/pull/446
+[#459]: https://github.com/NLnetLabs/domain/pull/459
+[#463]: https://github.com/NLnetLabs/domain/pull/463
+[#470]: https://github.com/NLnetLabs/domain/pull/470
+[#472]: https://github.com/NLnetLabs/domain/pull/472
+[#474]: https://github.com/NLnetLabs/domain/pull/474
+[#475]: https://github.com/NLnetLabs/domain/pull/475
+[#477]: https://github.com/NLnetLabs/domain/pull/477
+[@weilence]: https://github.com/weilence
+[new-base-post]: https://blog.nlnetlabs.nl/overhauling-domain/
+
+
+## 0.10.4
+
+Released 2025-03-31.
+
+Other changes
+
+* Fix a build issue with [*time*](https://time-rs.github.io/) 0.3.41.
+  ([#505], backported from [#503] by [@PSeitz])
+
+[#503]: https://github.com/NLnetLabs/domain/pull/503
+[#505]: https://github.com/NLnetLabs/domain/pull/505
+[@PSeitz]: https://github.com/PSeitz
+
+
+## 0.10.3
+
+Released 2024-10-14.
+
+New
+
+* Added `Deserialize` impl for the `base::net::nostd::Ipv6Addr` and fixed
+  the impl for `Ipv4Addr`. ([#413])
+
+Bug fixes
+
+* Fixed an incorrect feature gate that blocks compilation if only `"net"`
+  is enabled. ([#412])
+* Added (all? most?) missing feature dependencies for all features.
+* Fixed `Deserialize` impls for `ParsedName` and `ExtendedError` to compile
+  and work without `std`. ([#413])
+
+[#412]: https://github.com/NLnetLabs/domain/pull/412
+[#413]: https://github.com/NLnetLabs/domain/pull/413
+
+
+## 0.10.2
+
+Released 2024-10-10.
+
 New
 
 * Added an optional push size limit to `MessageBuilder`. ([#348])
@@ -28,8 +271,10 @@ Bug fixes
 * Fixed the way the `Txt<_> `record data implements comparison-related
   traits. They now directly compare the underlying octets, i.e., the wire
   format bytes. ([#374] by [@dklbreitling])
-* Fixed the `tsig` module to reject messages with multiple TSIG records
+* Fixed the `tsig` module to reject messages with multiple TSIG records.
   ([#334])
+* Fixed Display rendering of empty NSEC3 salt to be '-' per RFC 5155
+  section 3.3. ([#407])
 
 Unstable features
 
@@ -107,10 +352,6 @@ Unstable features
   * Zone walking now includes glue records. A new flag `at_zone_cut` was
     added to the callback interface. ([#401])
 
-Other changes
-
-* None.
-
 [#309]: https://github.com/NLnetLabs/domain/pull/309
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
@@ -146,7 +387,9 @@ Other changes
 [#400]: https://github.com/NLnetLabs/domain/pull/400
 [#401]: https://github.com/NLnetLabs/domain/pull/401
 [#403]: https://github.com/NLnetLabs/domain/pull/403
+[#407]: https://github.com/NLnetLabs/domain/pull/407
 [@dklbreitling]: https://github.com/dklbreitling
+
 
 ## 0.10.1
 

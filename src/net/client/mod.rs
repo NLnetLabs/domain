@@ -21,7 +21,13 @@
 //!   transport connections. The [redundant] transport favors the connection
 //!   with the lowest response time. Any of the other transports can be added
 //!   as upstream transports.
-//! * [cache] This is a simple message cache provided as a pass through
+//! * [load_balancer] This transport distributes requests over a collecton of
+//!   transport connections. The [load_balancer] transport favors connections
+//!   with the shortest outstanding request queue. Any of the other transports
+//!   can be added as upstream transports.
+#![cfg_attr(feature = "unstable-client-cache", doc = "* [cache]:")]
+#![cfg_attr(not(feature = "unstable-client-cache",), doc = "* cache:")]
+//!   This is a simple message cache provided as a pass through
 //!   transport. The cache works with any of the other transports.
 #![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
 #![cfg_attr(not(feature = "tsig",), doc = "* tsig:")]
@@ -29,8 +35,20 @@
 //!   pass through transport. The tsig transport works with any upstream
 //!   transports so long as they don't modify the message once signed nor
 //!   modify the response before it can be verified.
-#![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
-#![cfg_attr(not(feature = "unstable-validator",), doc = "* validator:")]
+#![cfg_attr(
+    all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    ),
+    doc = "* [validator]:"
+)]
+#![cfg_attr(
+    not(all(
+        feature = "unstable-validator",
+        any(feature = "ring", feature = "openssl")
+    )),
+    doc = "* validator:"
+)]
 //!   This is a DNSSEC validator provided as a pass through transport.
 //!   The validator works with any of the other transports.
 //!
@@ -199,7 +217,14 @@
 //! * The [multi_stream] transport does not support timeouts or other limits on
 //!   the number of attempts to open a connection. The caller has to
 //!   implement a timeout mechanism.
-//! * The [cache] transport does not support:
+#![cfg_attr(
+    feature = "unstable-client-cache",
+    doc = "* The [cache] transport does not support:"
+)]
+#![cfg_attr(
+    not(feature = "unstable-client-cache"),
+    doc = "* The cache transport does not support:"
+)]
 //!   * Prefetching. In this context, prefetching means updating a cache entry
 //!     before it expires.
 //!   * [RFC 8767](https://tools.ietf.org/html/rfc8767)
@@ -222,13 +247,12 @@
 pub mod cache;
 pub mod dgram;
 pub mod dgram_stream;
+pub mod load_balancer;
 pub mod multi_stream;
 pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
-#[cfg(feature = "tsig")]
 pub mod tsig;
-#[cfg(feature = "unstable-validator")]
 pub mod validator;
 pub mod validator_test;

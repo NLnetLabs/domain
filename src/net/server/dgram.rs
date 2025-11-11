@@ -24,6 +24,7 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
+use log::{log_enabled, Level};
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
@@ -32,9 +33,7 @@ use tokio::time::interval;
 use tokio::time::timeout;
 use tokio::time::Instant;
 use tokio::time::MissedTickBehavior;
-use tracing::warn;
-use tracing::Level;
-use tracing::{enabled, error, trace};
+use tracing::{error, trace, warn};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
@@ -253,7 +252,6 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 /// [`VecBufSource`]: super::buf::VecBufSource
 /// [`tokio::net::TcpListener`]:
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
-
 pub struct DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
@@ -569,7 +567,7 @@ where
         let received_at = Instant::now();
         self.metrics.inc_num_received_requests();
 
-        if enabled!(Level::TRACE) {
+        if log_enabled!(Level::Trace) {
             let pcap_text = to_pcap_text(&buf, bytes_read);
             trace!(%addr, pcap_text, "Received message");
         }
@@ -701,7 +699,7 @@ where
         let bytes = target.as_dgram_slice();
 
         // Logging
-        if enabled!(Level::TRACE) {
+        if log_enabled!(Level::Trace) {
             let pcap_text = to_pcap_text(bytes, bytes.len());
             trace!(%addr, pcap_text, "Sending {} bytes of response tp {addr}", bytes.len());
         }
@@ -741,7 +739,7 @@ where
         let sent = send_res?;
 
         if sent != data.len() {
-            Err(io::Error::new(io::ErrorKind::Other, "short send"))
+            Err(io::Error::other("short send"))
         } else {
             Ok(())
         }

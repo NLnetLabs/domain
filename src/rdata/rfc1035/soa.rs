@@ -5,15 +5,14 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{FlattenInto, ParsedName, ToName};
-use crate::base::rdata::{
-    ComposeRecordData, ParseRecordData, RecordData,
-};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::record::Ttl;
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, ParseError};
-use core::fmt;
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
+use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
@@ -25,7 +24,7 @@ use octseq::parse::Parser;
 /// name server maintenance operations.
 ///
 /// The Soa record type is defined in [RFC 1035, section 3.3.13][1].
-/// 
+///
 /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.13
 #[derive(Clone, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -118,7 +117,9 @@ impl<N> Soa<N> {
     pub(in crate::rdata) fn flatten<TargetName>(
         self,
     ) -> Result<Soa<TargetName>, N::AppendError>
-    where N: FlattenInto<TargetName> {
+    where
+        N: FlattenInto<TargetName>,
+    {
         Ok(Soa::new(
             self.mname.try_flatten_into()?,
             self.rname.try_flatten_into()?,
@@ -386,7 +387,7 @@ impl<Name: ToName> Soa<Name> {
 //--- Display
 
 impl<N: fmt::Display> fmt::Display for Soa<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}. {}. {} {} {} {} {}",
@@ -398,6 +399,38 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
             self.expire.as_secs(),
             self.minimum.as_secs()
         )
+    }
+}
+
+impl<N: ToName> ZonefileFmt for Soa<N> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.mname.fmt_with_dot())?;
+            p.write_comment("mname")?;
+            p.write_token(self.rname.fmt_with_dot())?;
+            p.write_comment("rname")?;
+            p.write_token(self.serial)?;
+            p.write_comment("serial")?;
+            p.write_show(self.refresh)?;
+            p.write_comment(format_args!(
+                "refresh ({})",
+                self.refresh.pretty(),
+            ))?;
+            p.write_show(self.retry)?;
+            p.write_comment(
+                format_args!("retry ({})", self.retry.pretty(),),
+            )?;
+            p.write_show(self.expire)?;
+            p.write_comment(format_args!(
+                "expire ({})",
+                self.expire.pretty(),
+            ))?;
+            p.write_show(self.minimum)?;
+            p.write_comment(format_args!(
+                "minumum ({})",
+                self.minimum.pretty(),
+            ))
+        })
     }
 }
 
@@ -443,4 +476,3 @@ mod test {
         );
     }
 }
-

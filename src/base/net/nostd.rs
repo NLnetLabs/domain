@@ -27,7 +27,7 @@ impl From<[u8; 4]> for Ipv4Addr {
 }
 
 impl fmt::Display for Ipv4Addr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}.{}", self.0[0], self.0[1], self.0[2], self.0[3])
     }
 }
@@ -73,7 +73,7 @@ impl<'de> serde::Deserialize<'de> for Ipv4Addr {
         if deserializer.is_human_readable() {
             deserializer.deserialize_str(Visitor)
         } else {
-            deserializer.deserialize_tuple(4, Visitor)
+            <[u8; 4]>::deserialize(deserializer).map(Ipv4Addr::from)
         }
     }
 }
@@ -135,7 +135,7 @@ impl From<[u16; 8]> for Ipv6Addr {
 #[allow(clippy::many_single_char_names)]
 #[allow(clippy::needless_range_loop)]
 impl fmt::Display for Ipv6Addr {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.segments() {
             // We need special cases for :: and ::1, otherwise they're
             // formatted as ::0.0.0.[01]
@@ -236,6 +236,38 @@ impl serde::Serialize for Ipv6Addr {
             serializer.collect_str(self)
         } else {
             self.octets().serialize(serializer)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Ipv6Addr {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = Ipv6Addr;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an IPv6 address")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> Result<Self::Value, E> {
+                use core::str::FromStr;
+
+                Ipv6Addr::from_str(v).map_err(E::custom)
+            }
+        }
+
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_str(Visitor)
+        } else {
+            <[u8; 16]>::deserialize(deserializer).map(Ipv6Addr::from)
         }
     }
 }

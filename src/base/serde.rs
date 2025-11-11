@@ -32,14 +32,14 @@ where
     ) -> Result<T, D::Error> {
         struct Visitor<T>(PhantomData<T>);
 
-        impl<'de, T> serde::de::Visitor<'de> for Visitor<T>
+        impl<T> serde::de::Visitor<'_> for Visitor<T>
         where
             T: From<u8> + FromStr,
             T::Err: fmt::Display,
         {
             type Value = T;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "a u8 or string")
             }
 
@@ -70,14 +70,14 @@ where
     ) -> Result<T, D::Error> {
         struct Visitor<T>(PhantomData<T>);
 
-        impl<'de, T> serde::de::Visitor<'de> for Visitor<T>
+        impl<T> serde::de::Visitor<'_> for Visitor<T>
         where
             T: From<u16> + FromStr,
             T::Err: fmt::Display,
         {
             type Value = T;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "a u16 or string")
             }
 
@@ -108,14 +108,14 @@ where
     ) -> Result<T, D::Error> {
         struct Visitor<T>(PhantomData<T>);
 
-        impl<'de, T> serde::de::Visitor<'de> for Visitor<T>
+        impl<T> serde::de::Visitor<'_> for Visitor<T>
         where
             T: From<u32> + FromStr,
             T::Err: fmt::Display,
         {
             type Value = T;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "a u32 or string")
             }
 

@@ -22,6 +22,7 @@ use super::rdata::{
     ComposeRecordData, ParseAnyRecordData, ParseRecordData, RecordData,
 };
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
+use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
 use core::time::Duration;
 use core::{fmt, hash};
@@ -403,7 +404,7 @@ where
     Name: fmt::Display,
     Data: RecordData + fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}. {} {} {} {}",
@@ -421,13 +422,29 @@ where
     Name: fmt::Debug,
     Data: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Record")
             .field("owner", &self.owner)
             .field("class", &self.class)
             .field("ttl", &self.ttl)
             .field("data", &self.data)
             .finish()
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Name, Data> ZonefileFmt for Record<Name, Data>
+where
+    Name: ToName,
+    Data: RecordData + ZonefileFmt,
+{
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.write_token(self.owner.fmt_with_dot())?;
+        p.write_show(self.ttl)?;
+        p.write_show(self.class)?;
+        p.write_show(self.data.rtype())?;
+        p.write_show(&self.data)
     }
 }
 
@@ -454,7 +471,7 @@ pub trait ComposeRecord {
     ) -> Result<(), Target::AppendError>;
 }
 
-impl<'a, T: ComposeRecord> ComposeRecord for &'a T {
+impl<T: ComposeRecord> ComposeRecord for &T {
     fn compose_record<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -660,7 +677,7 @@ impl<Name> RecordHeader<Name> {
 impl RecordHeader<()> {
     /// Parses only the record length and skips over all the other fields.
     fn parse_rdlen<Octs: Octets + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<u16, ParseError> {
         ParsedName::skip(parser)?;
         parser.advance(
@@ -835,7 +852,7 @@ impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
 //--- Debug
 
 impl<Name: fmt::Debug> fmt::Debug for RecordHeader<Name> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RecordHeader")
             .field("owner", &self.owner)
             .field("rtype", &self.rtype)
@@ -1009,8 +1026,8 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
 
 //--- PartialEq and Eq
 
-impl<'a, 'o, Octs, Other> PartialEq<ParsedRecord<'o, Other>>
-    for ParsedRecord<'a, Octs>
+impl<'o, Octs, Other> PartialEq<ParsedRecord<'o, Other>>
+    for ParsedRecord<'_, Octs>
 where
     Octs: Octets + ?Sized,
     Other: Octets + ?Sized,
@@ -1024,7 +1041,7 @@ where
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Eq for ParsedRecord<'a, Octs> {}
+impl<Octs: Octets + ?Sized> Eq for ParsedRecord<'_, Octs> {}
 
 //------------ RecordParseError ----------------------------------------------
 
@@ -1040,7 +1057,7 @@ where
     N: fmt::Display,
     D: fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             RecordParseError::Name(ref name) => name.fmt(f),
             RecordParseError::Data(ref data) => data.fmt(f),
@@ -1079,7 +1096,7 @@ const SECS_PER_DAY: u32 = 86400;
 ///
 /// Two reasons make [`std::time::Duration`] not suited for representing DNS TTL values:
 /// 1. According to [RFC 2181](https://datatracker.ietf.org/doc/html/rfc2181#section-8) TTL values have second-level precision while [`std::time::Duration`] can represent time down to the nanosecond level.
-///     This amount of precision is simply not needed and might cause confusion when sending `Duration`s over the network.
+///    This amount of precision is simply not needed and might cause confusion when sending `Duration`s over the network.
 /// 2. When working with DNS TTL values it's common to want to know a time to live in minutes or hours. [`std::time::Duration`] does not expose easy to use methods for this purpose, while `Ttl` does.
 ///
 /// `Ttl` provides two methods [`Ttl::from_duration_lossy`] and [`Ttl::into_duration`] to convert between `Duration` and `Ttl`.
@@ -1479,6 +1496,63 @@ impl Ttl {
             .map(Ttl::from_secs)
             .map_err(Into::into)
     }
+
+    /// Display the [`Ttl`] in a pretty format with time units
+    ///
+    /// This writes the TTL as a duration with weeks, days, hours, minutes
+    /// and seconds. For example:
+    ///
+    /// ```txt
+    /// 5 weeks 1 day 30 seconds
+    /// ```
+    ///
+    /// In most cases it will be a single unit, because people tend to pick
+    /// a nice number as TTL.
+    pub(crate) fn pretty(&self) -> impl fmt::Display {
+        struct Inner {
+            inner: Ttl,
+        }
+
+        impl fmt::Display for Inner {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let days = self.inner.as_days();
+                let weeks = days / 7;
+                let days = days % 7;
+                let hours = self.inner.as_hours() % 24;
+                let minutes = self.inner.as_minutes() % 60;
+                let seconds = self.inner.as_secs() % 60;
+
+                let mut first = true;
+                for (n, unit) in [
+                    (weeks, "week"),
+                    (days, "day"),
+                    (hours as u16, "hour"),
+                    (minutes as u16, "minute"),
+                    (seconds as u16, "second"),
+                ] {
+                    if n == 0 {
+                        continue;
+                    }
+                    if first {
+                        write!(f, " ")?;
+                    }
+                    let s = if n > 1 { "s" } else { "" };
+                    write!(f, "{n} {unit}{s}")?;
+                    first = false;
+                }
+
+                Ok(())
+            }
+        }
+
+        Inner { inner: *self }
+    }
+}
+
+impl ZonefileFmt for Ttl {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.write_token(self.as_secs())
+    }
 }
 
 impl core::ops::Add for Ttl {
@@ -1581,7 +1655,7 @@ mod test {
     #[cfg(feature = "bytes")]
     fn ds_octets_into() {
         use super::*;
-        use crate::base::iana::{Class, DigestAlg, SecAlg};
+        use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
         use crate::base::name::Name;
         use crate::rdata::Ds;
         use bytes::Bytes;
@@ -1593,8 +1667,8 @@ mod test {
             Ttl::from_secs(86400),
             Ds::new(
                 12,
-                SecAlg::RSASHA256,
-                DigestAlg::SHA256,
+                SecurityAlgorithm::RSASHA256,
+                DigestAlgorithm::SHA256,
                 b"something".as_ref(),
             )
             .unwrap(),

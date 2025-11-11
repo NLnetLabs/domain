@@ -133,10 +133,10 @@ impl ZoneStore for ZoneApex {
         self: Arc<Self>,
     ) -> Pin<
         Box<
-            (dyn Future<Output = Box<(dyn WritableZone + 'static)>>
-                 + Send
-                 + Sync
-                 + 'static),
+            dyn Future<Output = Box<dyn WritableZone + 'static>>
+                + Send
+                + Sync
+                + 'static,
         >,
     > {
         Box::pin(async move {
@@ -294,7 +294,7 @@ impl NodeRrsets {
             .for_each(|rrset| rrset.remove(version));
     }
 
-    pub(super) fn iter(&self) -> NodeRrsetsIter {
+    pub(super) fn iter(&self) -> NodeRrsetsIter<'_> {
         NodeRrsetsIter::new(self.rrsets.read())
     }
 }

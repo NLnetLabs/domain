@@ -5,15 +5,14 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::net::Ipv4Addr;
-use crate::base::rdata::{
-    ComposeRecordData, ParseRecordData, RecordData,
-};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, Parse, ParseError};
-use core::{fmt, str};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
 use core::convert::Infallible;
 use core::str::FromStr;
+use core::{fmt, str};
 use octseq::octets::OctetsFrom;
 use octseq::parse::Parser;
 
@@ -26,7 +25,7 @@ use octseq::parse::Parser;
 /// is the usual dotted notation.
 ///
 /// The A record type is defined in [RFC 1035, section 3.4.1][1].
-/// 
+///
 /// [1]: https://tools.ietf.org/html/rfc1035#section-3.4.1
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -69,7 +68,7 @@ impl A {
     }
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         Ipv4Addr::parse(parser).map(Self::new)
     }
@@ -167,8 +166,16 @@ impl ComposeRecordData for A {
 //--- Display
 
 impl fmt::Display for A {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.addr.fmt(f)
+    }
+}
+
+//--- ZonefileFmt
+
+impl ZonefileFmt for A {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.write_token(self.addr)
     }
 }
 
@@ -204,4 +211,3 @@ mod test {
         test_scan(&["1.2.3.4"], A::scan, &rdata);
     }
 }
-

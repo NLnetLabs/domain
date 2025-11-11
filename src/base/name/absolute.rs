@@ -50,6 +50,7 @@ use std::vec::Vec;
 /// [`Display`]: std::fmt::Display
 #[derive(Clone)]
 #[repr(transparent)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Name<Octs: ?Sized>(Octs);
 
 impl Name<()> {
@@ -394,7 +395,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// add a dot after the name, this method can be used to display the name
     /// always ending in a single dot.
     pub fn fmt_with_dot(&self) -> impl fmt::Display + '_ {
-        DisplayWithDot(self.for_slice())
+        ToName::fmt_with_dot(self)
     }
 }
 
@@ -402,7 +403,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
 ///
 impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// Returns an iterator over the labels of the domain name.
-    pub fn iter(&self) -> NameIter {
+    pub fn iter(&self) -> NameIter<'_> {
         NameIter::new(self.0.as_ref())
     }
 
@@ -714,7 +715,7 @@ impl<Octs> Name<Octs> {
 
     /// Peeks at a parser and returns the length of a name at its beginning.
     fn parse_name_len<Source: AsRef<[u8]> + ?Sized>(
-        parser: &Parser<Source>,
+        parser: &Parser<'_, Source>,
     ) -> Result<usize, ParseError> {
         let len = {
             let mut tmp = parser.peek_all();
@@ -879,7 +880,10 @@ impl<Octs> ToLabelIter for Name<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
 {
-    type LabelIter<'a> = NameIter<'a> where Octs: 'a;
+    type LabelIter<'a>
+        = NameIter<'a>
+    where
+        Octs: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()
@@ -918,7 +922,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Name<Octs> {
     /// This will produce the domain name in ‘common display format’ without
     /// the trailing dot with the exception of a root name which will be just
     /// a dot.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_root() {
             return f.write_str(".");
         }
@@ -937,7 +941,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Name<Octs> {
 //--- Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Name<Octs> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Name({})", self.fmt_with_dot())
     }
 }
@@ -1024,7 +1028,7 @@ where
         {
             type Value = Name<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an absolute domain name")
             }
 
@@ -1067,7 +1071,7 @@ where
         {
             type Value = Name<Octs>;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("an absolute domain name")
             }
 
@@ -1124,25 +1128,6 @@ impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
             self.start = Some(start + usize::from(label.compose_len()))
         }
         Some(res)
-    }
-}
-
-//------------ DisplayWithDot ------------------------------------------------
-
-struct DisplayWithDot<'a>(&'a Name<[u8]>);
-
-impl<'a> fmt::Display for DisplayWithDot<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.0.is_root() {
-            f.write_str(".")
-        } else {
-            let mut iter = self.0.iter();
-            write!(f, "{}", iter.next().unwrap())?;
-            for label in iter {
-                write!(f, ".{}", label)?
-            }
-            Ok(())
-        }
     }
 }
 
@@ -1218,7 +1203,7 @@ impl From<NameError> for ParseError {
 //--- Display and Error
 
 impl fmt::Display for NameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             DnameErrorEnum::BadLabel(ref err) => err.fmt(f),
             DnameErrorEnum::CompressedName => {
