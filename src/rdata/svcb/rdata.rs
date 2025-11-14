@@ -816,9 +816,10 @@ mod test {
     #[test]
     fn test_vectors_alpn_with_escapes_quoted_zonefile() {
         // [RFC9460 Figure 10](https://www.rfc-editor.org/rfc/rfc9460.html#name-an-alpn-value-with-an-escap)
-        // b"example.com.   SVCB   16 foo.example.org. alpn=f\\\092oo\092,bar,h2\n",
+        let rr = br#"example.com.   SVCB   16 foo.example.org. alpn="f\\\\oo\\,bar,h2""#;
+        let rr = [rr.as_ref(), b"\n"].concat();
         svcb_zonefile_parse_expect(
-            b"example.com.   SVCB   16 foo.example.org. alpn=\"f\\\\oo\\,bar,h2\"\n",
+            rr,
             b"\x00\x10\
                 \x03foo\x07example\x03org\x00\
                 \x00\x01\
@@ -834,8 +835,10 @@ mod test {
     #[test]
     fn test_vectors_alpn_with_escapes_unquoted_zonefile() {
         // [RFC9460 Figure 10](https://www.rfc-editor.org/rfc/rfc9460.html#name-an-alpn-value-with-an-escap)
+        let rr = br"example.com.   SVCB   16 foo.example.org. alpn=f\\\092oo\092,bar,h2";
+        let rr = [rr.as_ref(), b"\n"].concat();
         svcb_zonefile_parse_expect(
-            b"example.com.   SVCB   16 foo.example.org. alpn=f\\\\\\092oo\\092,bar,h2\n",
+            rr,
             b"\x00\x10\
                 \x03foo\x07example\x03org\x00\
                 \x00\x01\
