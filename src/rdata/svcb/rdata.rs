@@ -560,9 +560,7 @@ mod test {
     use super::super::value::AllValues;
     use super::super::UnknownSvcParam;
     use super::*;
-    use crate::base::iana::Class;
     use crate::base::Name;
-    use crate::zonefile::inplace::{self, Zonefile};
     use core::str::FromStr;
     use octseq::array::Array;
 
@@ -650,6 +648,18 @@ mod test {
         svcb_builder.compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
+
+}
+
+#[cfg(test)]
+#[cfg(feature = "zonefile")]
+mod svcb_zonefile_tests {
+    use super::*;
+    use crate::base::iana::Class;
+    use crate::zonefile::inplace::{self, Zonefile};
+    use octseq::array::Array;
+
+    type Octets512 = Array<512>;
 
     #[track_caller]
     /// A helper function that takes a single resource record in zonefile
