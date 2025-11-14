@@ -12,6 +12,9 @@ New
 
 * Add `rdata::dnssec::Timestamp::to_system_time` to help sorting timestamps.
  ([#548])
+* Added support for the `TLSA`, `OPENPGPKEY`, `SSHFP`, and `IPSECKEY`
+  record types and added presentation format support for the `SVCB`/`HTTPS`
+  record types. ([#569])
 
 Improvements
 
@@ -57,6 +60,7 @@ Other changes
 [#548]: https://github.com/NLnetLabs/domain/pull/548
 [#550]: https://github.com/NLnetLabs/domain/pull/550
 [#551]: https://github.com/NLnetLabs/domain/pull/551
+[#569]: https://github.com/NLnetLabs/domain/pull/569
 [#570]: https://github.com/NLnetLabs/domain/pull/570
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [@rossmacarthur]: https://github.com/rossmacarthur
