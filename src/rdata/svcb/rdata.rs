@@ -687,14 +687,12 @@ mod svcb_zonefile_tests {
             } else {
                 panic!()
             }
+        } else if let crate::rdata::ZoneRecordData::Svcb(scanned_rdata) =
+            scanned_rr.data()
+        {
+            scanned_rdata.compose_rdata(&mut buf).unwrap();
         } else {
-            if let crate::rdata::ZoneRecordData::Svcb(scanned_rdata) =
-                scanned_rr.data()
-            {
-                scanned_rdata.compose_rdata(&mut buf).unwrap();
-            } else {
-                panic!()
-            }
+            panic!()
         }
 
         assert_eq!(buf.as_ref(), expected.as_ref());
