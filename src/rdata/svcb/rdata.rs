@@ -648,7 +648,6 @@ mod test {
         svcb_builder.compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
-
 }
 
 #[cfg(test)]
