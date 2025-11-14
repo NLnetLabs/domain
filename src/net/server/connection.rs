@@ -1,14 +1,17 @@
 //! Support for stream based connections.
+use core::future::Future;
 use core::ops::{ControlFlow, Deref};
+use core::pin::Pin;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
+use std::boxed::Box;
 use std::fmt::Display;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use futures_util::StreamExt;
 use log::{log_enabled, Level};
 use octseq::Octets;
 use tokio::io::{
@@ -20,16 +23,18 @@ use tokio::time::Instant;
 use tokio::time::{sleep_until, timeout};
 use tracing::{debug, error, trace, warn};
 
+use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::service::{Service, ServiceFeedback};
-use crate::net::server::util::to_pcap_text;
+use crate::net::server::service::Service;
+use crate::net::server::util::{mk_error_response, to_pcap_text};
 use crate::utils::config::DefMinMax;
 
+use super::invoker::{InvokerStatus, ServiceInvoker};
 use super::message::{NonUdpTransportContext, TransportSpecificContext};
 use super::stream::Config as ServerConfig;
 use super::ServerCommand;
@@ -221,9 +226,10 @@ impl Clone for Config {
 /// A handler for a single stream connection between client and server.
 pub struct Connection<Stream, Buf, Svc>
 where
-    Buf: BufSource,
-    Buf::Output: Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Clone,
+    Buf: BufSource + Clone + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Target: Composer + Default + Send,
 {
     /// Flag used by the Drop impl to track if the metric count has to be
     /// decreased or not.
@@ -264,8 +270,14 @@ where
     /// DNS protocol idle time out tracking.
     idle_timer: IdleTimer,
 
+    /// Is a transaction in progress?
+    in_transaction: Arc<AtomicBool>,
+
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
+
+    /// Dispatches requests to the service and enqueues responses for sending.
+    request_dispatcher: ServiceResponseHandler<Buf::Output, Svc>,
 }
 
 /// Creation
@@ -273,9 +285,12 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite,
-    Buf: BufSource,
+    Buf: BufSource + Clone + Send + Sync,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Clone,
+    Svc: Service<Buf::Output> + Clone + Send + Sync,
+    Svc::Target: Composer + Default + Send,
+    Svc::Stream: Send,
+    Svc::Future: Send,
 {
     /// Creates a new handler for an accepted stream connection.
     #[must_use]
@@ -312,6 +327,7 @@ where
             mpsc::channel(config.max_queued_responses);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let idle_timer = IdleTimer::new();
+        let in_transaction = Arc::new(AtomicBool::new(false));
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -321,6 +337,12 @@ where
         // without taking a reference to self as that conflicts with other
         // uses of self we have to do while running.
         let stream_rx = Some(stream_rx);
+
+        let request_dispatcher = ServiceResponseHandler::new(
+            config.clone(),
+            result_q_tx.clone(),
+            metrics.clone(),
+        );
 
         Self {
             active: false,
@@ -333,7 +355,9 @@ where
             result_q_tx,
             service,
             idle_timer,
+            in_transaction,
             metrics,
+            request_dispatcher,
         }
     }
 }
@@ -346,8 +370,9 @@ where
     Buf: BufSource + Send + Sync + Clone + 'static,
     Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
-    Svc::Target: Composer + Send,
+    Svc::Target: Composer + Default + Send,
     Svc::Stream: Send,
+    Svc::Future: Send,
 {
     /// Start reading requests and writing responses to the stream.
     ///
@@ -363,9 +388,7 @@ where
     pub async fn run(
         mut self,
         command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
-    ) where
-        Svc::Future: Send,
-    {
+    ) {
         self.metrics.inc_num_connections();
 
         // Flag that we have to decrease the metric count on Drop.
@@ -383,7 +406,7 @@ where
     Buf: BufSource + Send + Sync + Clone + 'static,
     Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
-    Svc::Target: Composer + Send,
+    Svc::Target: Composer + Default + Send,
     Svc::Future: Send,
     Svc::Stream: Send,
 {
@@ -423,7 +446,7 @@ where
                     }
 
                     _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.load().idle_timeout)) => {
-                        self.process_dns_idle_timeout()
+                        self.process_dns_idle_timeout(self.config.load().idle_timeout)
                     }
 
                     res = &mut msg_recv => {
@@ -585,7 +608,7 @@ where
         if log_enabled!(Level::Trace) {
             let bytes = msg.as_dgram_slice();
             let pcap_text = to_pcap_text(bytes, bytes.len());
-            trace!(addr = %self.addr, pcap_text, "Sending response");
+            trace!(addr = %self.addr, pcap_text, "Sending {} bytes of response tp {}", self.addr, bytes.len());
         }
 
         match timeout(
@@ -619,16 +642,19 @@ where
         Ok(())
     }
 
-    /// Implemnt DNS rules regarding timing out of idle connections.
+    /// Implement DNS rules regarding timing out of idle connections.
     ///
     /// Disconnects the current connection of the timer is expired, flushing
     /// pending responses first.
-    fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
+    fn process_dns_idle_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
-        if self
-            .idle_timer
-            .idle_timeout_expired(self.config.load().idle_timeout)
+        if self.idle_timer.idle_timeout_expired(timeout)
+            && !self.in_transaction.load(Ordering::SeqCst)
         {
+            trace!("Timing out idle connection");
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
             Ok(())
@@ -642,6 +668,7 @@ where
     ) -> Result<(), ConnectionEvent>
     where
         Svc::Stream: Send,
+        Svc::Target: Default,
     {
         match res {
             Ok(buf) => {
@@ -663,6 +690,9 @@ where
                         tracing::warn!(
                             "Failed while parsing request message: {err}"
                         );
+                        // Consider the client to be a threat to us if it is
+                        // sending garbage that we can't parse: disconnect it
+                        // immediately.
                         return Err(ConnectionEvent::DisconnectWithoutFlush);
                     }
 
@@ -673,118 +703,39 @@ where
                     Ok(msg) if msg.header().qr() => {
                         // TO DO: Count this event?
                         trace!("Ignoring received message because it is a reply, not a query.");
+                        let response =
+                            mk_error_response::<Buf::Output, Svc::Target>(
+                                &msg,
+                                OptRcode::FORMERR,
+                            );
+                        let dispatcher = self.request_dispatcher.clone();
+                        tokio::spawn(async move {
+                            dispatcher.do_enqueue_response(response).await;
+                        });
                     }
 
                     Ok(msg) => {
                         let ctx = NonUdpTransportContext::new(Some(
                             self.config.load().idle_timeout,
                         ));
-                        let ctx = TransportSpecificContext::NonUdp(ctx);
+
                         let request = Request::new(
                             self.addr,
                             received_at,
                             msg,
-                            ctx,
+                            TransportSpecificContext::NonUdp(ctx),
                             (),
                         );
-
-                        let svc = self.service.clone();
-                        let result_q_tx = self.result_q_tx.clone();
-                        let metrics = self.metrics.clone();
-                        let config = self.config.clone();
 
                         trace!(
                             "Spawning task to handle new message with id {}",
                             request.message().header().id()
                         );
+
+                        let mut dispatcher = self.request_dispatcher.clone();
+                        let service = self.service.clone();
                         tokio::spawn(async move {
-                            let request_id = request.message().header().id();
-                            trace!(
-                                "Calling service for request id {request_id}"
-                            );
-                            let mut stream = svc.call(request).await;
-                            let mut in_transaction = false;
-
-                            trace!("Awaiting service call results for request id {request_id}");
-                            while let Some(Ok(call_result)) =
-                                stream.next().await
-                            {
-                                trace!("Processing service call result for request id {request_id}");
-                                let (response, feedback) =
-                                    call_result.into_inner();
-
-                                if let Some(feedback) = feedback {
-                                    match feedback {
-                                        ServiceFeedback::Reconfigure {
-                                            idle_timeout,
-                                        } => {
-                                            if let Some(idle_timeout) =
-                                                idle_timeout
-                                            {
-                                                debug!(
-                                                    "Reconfigured connection timeout to {idle_timeout:?}"
-                                                );
-                                                let guard = config.load();
-                                                let mut new_config = **guard;
-                                                new_config.idle_timeout =
-                                                    idle_timeout;
-                                                config.store(Arc::new(
-                                                    new_config,
-                                                ));
-                                            }
-                                        }
-
-                                        ServiceFeedback::BeginTransaction => {
-                                            in_transaction = true;
-                                        }
-
-                                        ServiceFeedback::EndTransaction => {
-                                            in_transaction = false;
-                                        }
-                                    }
-                                }
-
-                                if let Some(mut response) = response {
-                                    loop {
-                                        match result_q_tx.try_send(response) {
-                                            Ok(()) => {
-                                                let pending_writes =
-                                                    result_q_tx
-                                                        .max_capacity()
-                                                        - result_q_tx
-                                                            .capacity();
-                                                trace!("Queued message for sending: # pending writes={pending_writes}");
-                                                metrics
-                                                    .set_num_pending_writes(
-                                                        pending_writes,
-                                                    );
-                                                break;
-                                            }
-
-                                            Err(TrySendError::Closed(_)) => {
-                                                error!("Unable to queue message for sending: connection is shutting down.");
-                                                return;
-                                            }
-
-                                            Err(TrySendError::Full(
-                                                unused_response,
-                                            )) => {
-                                                if in_transaction {
-                                                    // Wait until there is space in the message queue.
-                                                    tokio::task::yield_now()
-                                                        .await;
-                                                    response =
-                                                        unused_response;
-                                                } else {
-                                                    error!("Unable to queue message for sending: queue is full.");
-                                                    return;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            trace!("Finished processing service call results for request id {request_id}");
+                            dispatcher.dispatch(request, service, ()).await
                         });
                     }
                 }
@@ -801,9 +752,10 @@ where
 
 impl<Stream, Buf, Svc> Drop for Connection<Stream, Buf, Svc>
 where
-    Buf: BufSource,
-    Buf::Output: Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Clone,
+    Buf: BufSource + Clone + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone + Send + Sync,
+    Svc::Target: Composer + Default + Send,
 {
     fn drop(&mut self) {
         if self.active {
@@ -1062,5 +1014,149 @@ impl IdleTimer {
         // session to be idle when it has sent responses to all the queries it
         // has received on that connection."
         self.reset_idle_timer()
+    }
+}
+
+//------------ ServiceResponseHandler -----------------------------------------
+
+/// Handles responses from the [`Service`] impl.
+struct ServiceResponseHandler<RequestOctets, Svc>
+where
+    RequestOctets: Octets + Send + Sync,
+    Svc: Service<RequestOctets> + Clone + Send + Sync + 'static,
+    Svc::Target: Composer + Default + Send,
+{
+    /// User supplied settings that influence our behaviour.
+    ///
+    /// May updated during request and response processing based on received
+    /// [`ServiceFeedback`].
+    config: Arc<ArcSwap<Config>>,
+
+    /// The writer for pushing ready responses onto the queue waiting
+    /// to be written back the client.
+    result_q_tx: mpsc::Sender<AdditionalBuilder<StreamTarget<Svc::Target>>>,
+
+    /// [`ServerMetrics`] describing the status of the server.
+    metrics: Arc<ServerMetrics>,
+
+    /// The status of the service invoker.
+    status: InvokerStatus,
+}
+
+impl<RequestOctets, Svc> ServiceResponseHandler<RequestOctets, Svc>
+where
+    RequestOctets: Octets + Send + Sync,
+    Svc: Service<RequestOctets> + Clone + Send + Sync,
+    Svc::Target: Composer + Default + Send,
+{
+    /// Creates a new instance of the service response handler.
+    fn new(
+        config: Arc<ArcSwap<Config>>,
+        result_q_tx: mpsc::Sender<
+            AdditionalBuilder<StreamTarget<Svc::Target>>,
+        >,
+        metrics: Arc<ServerMetrics>,
+    ) -> Self {
+        Self {
+            config,
+            result_q_tx,
+            metrics,
+            status: InvokerStatus::Normal,
+        }
+    }
+
+    /// Apply changes to our configuration as requested by the [`Service`]
+    /// impl.
+    fn update_config(&self, idle_timeout: Option<Duration>) {
+        if let Some(idle_timeout) = idle_timeout {
+            debug!("Reconfigured connection timeout to {idle_timeout:?}");
+            let guard = self.config.load();
+            let mut new_config = **guard;
+            new_config.idle_timeout = idle_timeout;
+            self.config.store(Arc::new(new_config));
+        }
+    }
+
+    /// Enqueue a response from the [`Service`] impl for writing back to the
+    /// client.
+    async fn do_enqueue_response(
+        &self,
+        mut response: AdditionalBuilder<StreamTarget<Svc::Target>>,
+    ) {
+        loop {
+            match self.result_q_tx.try_send(response) {
+                Ok(()) => {
+                    let pending_writes = self.result_q_tx.max_capacity()
+                        - self.result_q_tx.capacity();
+                    trace!("Queued message for sending: # pending writes={pending_writes}");
+                    self.metrics.set_num_pending_writes(pending_writes);
+                    break;
+                }
+
+                Err(TrySendError::Closed(_)) => {
+                    error!("Unable to queue message for sending: connection is shutting down.");
+                    break;
+                }
+
+                Err(TrySendError::Full(unused_response)) => {
+                    if matches!(self.status, InvokerStatus::InTransaction) {
+                        // Wait until there is space in the message queue.
+                        tokio::task::yield_now().await;
+                        response = unused_response;
+                    } else {
+                        error!("Unable to queue message for sending: queue is full.");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+//--- Clone
+
+impl<RequestOctets, Svc> Clone for ServiceResponseHandler<RequestOctets, Svc>
+where
+    RequestOctets: Octets + Send + Sync,
+    Svc: Service<RequestOctets> + Clone + Send + Sync + 'static,
+    Svc::Target: Composer + Default + Send,
+{
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            result_q_tx: self.result_q_tx.clone(),
+            metrics: self.metrics.clone(),
+            status: InvokerStatus::Normal,
+        }
+    }
+}
+
+//--- ServiceInvoker
+
+impl<RequestOctets, Svc> ServiceInvoker<RequestOctets, Svc, ()>
+    for ServiceResponseHandler<RequestOctets, Svc>
+where
+    RequestOctets: Octets + Send + Sync + 'static,
+    Svc: Service<RequestOctets> + Clone + Send + Sync,
+    Svc::Target: Composer + Default + Send,
+{
+    fn status(&self) -> InvokerStatus {
+        self.status
+    }
+
+    fn set_status(&mut self, status: InvokerStatus) {
+        self.status = status;
+    }
+
+    fn reconfigure(&self, idle_timeout: Option<Duration>) {
+        self.update_config(idle_timeout);
+    }
+
+    fn enqueue_response(
+        &self,
+        response: AdditionalBuilder<StreamTarget<Svc::Target>>,
+        _meta: &(),
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { self.do_enqueue_response(response).await })
     }
 }

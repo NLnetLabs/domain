@@ -6,7 +6,7 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use crate::base::iana::{Class, Nsec3HashAlgorithm};
-use crate::base::scan::{IterScanner, Scanner};
+use crate::base::scan::{IterScanner, Scanner, ScannerError};
 use crate::base::wire::Composer;
 use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
 use crate::base::{Name, Record, Rtype, ToName, Ttl};
@@ -19,6 +19,7 @@ use crate::rdata::{Dnskey, Nsec3param};
 
 use std::error;
 use std::fmt;
+use std::str::FromStr;
 
 //------------ Nsec3HashError -------------------------------------------------
 
@@ -203,7 +204,27 @@ where
 
     let name = scanner.scan_name().map_err(|_| ParseDnskeyTextError)?;
 
-    let _ = Class::scan(&mut scanner).map_err(|_| ParseDnskeyTextError)?;
+    // We can have an optional TTL here. Try to scan either a TTL or a
+    // Class. Return Some(ttl) if we found a TTL. Return None if we
+    // Successfully scanned a class. Otherwise return an error.
+    let opt_ttl = scanner
+        .scan_ascii_str(|s| {
+            if let Ok(ttl) = u32::from_str(s) {
+                Ok(Some(Ttl::from_secs(ttl)))
+            } else if Class::from_str(s).is_ok() {
+                Ok(None)
+            } else {
+                Err(ScannerError::custom("TTL or Class expected"))
+            }
+        })
+        .map_err(|_| ParseDnskeyTextError)?;
+
+    if opt_ttl.is_some() {
+        // The previous token was a TTL. If opt_ttl is None then the previous
+        // token was a class.
+        let _ =
+            Class::scan(&mut scanner).map_err(|_| ParseDnskeyTextError)?;
+    }
 
     if Rtype::scan(&mut scanner).map_or(true, |t| t != Rtype::DNSKEY) {
         return Err(ParseDnskeyTextError);
@@ -212,7 +233,12 @@ where
     let data =
         Dnskey::scan(&mut scanner).map_err(|_| ParseDnskeyTextError)?;
 
-    Ok(Record::new(name, Class::IN, Ttl::ZERO, data))
+    Ok(Record::new(
+        name,
+        Class::IN,
+        opt_ttl.unwrap_or(Ttl::ZERO),
+        data,
+    ))
 }
 
 //------------ format_as_bind ------------------------------------------------
@@ -325,6 +351,23 @@ mod test {
         for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let _ = parse_from_bind::<Vec<u8>>(&data).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_parse_from_bind_ttl() {
+        // Clippy doesn't like this:
+        // for &(algorithm, key_tag, _) in
+        //     &[(SecurityAlgorithm::RSASHA256, 60616, 2048)]
+        {
+            let &(algorithm, key_tag, _) =
+                &(SecurityAlgorithm::RSASHA256, 60616, 2048);
+            let name =
+                format!("test-ttl.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();

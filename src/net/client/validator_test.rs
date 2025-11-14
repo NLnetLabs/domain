@@ -1,6 +1,6 @@
 //! Module for testing the validator client transport.
 
-#![cfg(test)]
+#![cfg(all(test, feature = "unstable-validator"))]
 
 use std::fs::File;
 use std::path::PathBuf;
