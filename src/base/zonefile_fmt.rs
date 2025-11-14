@@ -322,6 +322,7 @@ mod test {
     use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
     use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
     use crate::base::{Name, Record, Ttl};
+    use crate::rdata::caa::CaaTag;
     use crate::rdata::{Cds, Cname, Ds, Mx, Txt, A};
 
     fn create_record<Data>(data: Data) -> Record<&'static Name<[u8]>, Data> {
@@ -501,7 +502,7 @@ mod test {
         use crate::rdata::Caa;
         let record = create_record(Caa::new(
             0,
-            "issue".parse().unwrap(),
+            CaaTag::new("issue".parse().unwrap()),
             "ca.example.net".as_bytes().to_vec(),
         ));
         assert_eq!(

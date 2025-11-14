@@ -7,7 +7,7 @@
 use crate::base::{
     name::FlattenInto,
     rdata::ComposeRecordData,
-    scan::{Scan, Scanner},
+    scan::{Scan, Scanner, ScannerError},
     wire::{Compose, Parse, ParseError},
     zonefile_fmt::{self, Formatter, ZonefileFmt},
     CanonicalOrd, CharStr, ParseRecordData, RecordData, Rtype,
@@ -15,11 +15,11 @@ use crate::base::{
 use core::{cmp::Ordering, fmt, hash};
 #[cfg(feature = "serde")]
 use octseq::{
-    builder::{EmptyBuilder, FromBuilder, OctetsBuilder},
+    builder::{EmptyBuilder, FromBuilder},
     serde::DeserializeOctets,
     serde::SerializeOctets,
 };
-use octseq::{Octets, OctetsFrom, OctetsInto, Parser};
+use octseq::{Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parser};
 
 //------------ Caa ---------------------------------------------------------
 
@@ -53,7 +53,7 @@ use octseq::{Octets, OctetsFrom, OctetsInto, Parser};
 )]
 pub struct Caa<Octs> {
     flags: u8,
-    tag: CharStr<Octs>,
+    tag: CaaTag<Octs>,
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -75,7 +75,7 @@ impl Caa<()> {
 
 impl<Octs> Caa<Octs> {
     /// Creates a new CAA record data from the flags, tag, and value.
-    pub fn new(flags: u8, tag: CharStr<Octs>, value: Octs) -> Self {
+    pub fn new(flags: u8, tag: CaaTag<Octs>, value: Octs) -> Self {
         Caa { flags, tag, value }
     }
 
@@ -88,7 +88,7 @@ impl<Octs> Caa<Octs> {
     }
 
     /// The Property identifier
-    pub fn tag(&self) -> &CharStr<Octs> {
+    pub fn tag(&self) -> &CaaTag<Octs> {
         &self.tag
     }
 
@@ -115,20 +115,26 @@ impl<Octs> Caa<Octs> {
 
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         Ok(Self::new(
             u8::scan(scanner)?,
-            CharStr::scan(scanner)?,
+            CaaTag::scan(scanner)?,
             scanner.scan_octets()?,
         ))
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
-    ) -> Result<Self, ParseError> {
+    ) -> Result<Self, ParseError>
+    where
+        Octs: AsRef<[u8]>,
+    {
         Ok(Self::new(
             u8::parse(parser)?,
-            CharStr::parse(parser)?,
+            CaaTag::parse(parser)?,
             parser.parse_octets(parser.remaining())?,
         ))
     }
@@ -145,7 +151,7 @@ where
     fn try_octets_from(source: Caa<SrcOcts>) -> Result<Self, Self::Error> {
         Ok(Caa {
             flags: source.flags,
-            tag: CharStr::try_octets_from(source.tag)?,
+            tag: CaaTag::try_octets_from(source.tag)?,
             value: Octs::try_octets_from(source.value)?,
         })
     }
@@ -350,34 +356,192 @@ impl<O: AsRef<[u8]>> ZonefileFmt for Caa<O> {
     }
 }
 
+#[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "Octs: AsRef<[u8]> + octseq::serde::SerializeOctets",
+        deserialize = "
+            Octs: FromBuilder+ octseq::serde::DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: AsRef<[u8]> + EmptyBuilder
+        ",
+    ))
+)]
+pub struct CaaTag<Octs>(CharStr<Octs>);
+
+impl<Octs> CaaTag<Octs> {
+    /// Creates a new CAA tag from the given character string.
+    pub fn new(tag: CharStr<Octs>) -> Self {
+        CaaTag(tag)
+    }
+}
+
+impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
+    pub fn from_octets(octets: Octs) -> Result<Self, ParseError> {
+        let octs = CharStr::from_octets(octets)
+            .map_err(|_| ParseError::form_error("CAA tag too long"))?;
+        if !Self::check_slice(octs.as_slice()) {
+            return Err(ParseError::form_error(
+                "CAA tag contains invalid character",
+            ));
+        }
+
+        Ok(CaaTag(octs))
+    }
+
+    pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
+        CaaTag(CharStr::from_octets_unchecked(octets))
+    }
+
+    fn check_slice(octets: &[u8]) -> bool {
+        for ele in octets {
+            if !ele.is_ascii_alphanumeric() {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn compose_len(&self) -> u16 {
+        self.0.compose_len()
+    }
+
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
+    }
+
+    /// Scans a CAA tag from the scanner.
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        let octets = CharStr::scan(scanner)?;
+        if !Self::check_slice(octets.as_slice()) {
+            return Err(ScannerError::custom(
+                "CAA tag contains invalid character",
+            ));
+        }
+
+        Ok(CaaTag(octets))
+    }
+
+    /// Parses a CAA tag from the parser.
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
+        let octets = CharStr::parse(parser)?;
+        if !Self::check_slice(octets.as_slice()) {
+            return Err(ParseError::form_error(
+                "CAA tag contains invalid character",
+            ));
+        }
+
+        Ok(CaaTag(octets))
+    }
+}
+
+impl<Octs, SrcOcts> OctetsFrom<CaaTag<SrcOcts>> for CaaTag<Octs>
+where
+    Octs: OctetsFrom<SrcOcts>,
+{
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: CaaTag<SrcOcts>) -> Result<Self, Self::Error> {
+        Ok(CaaTag(CharStr::try_octets_from(source.0)?))
+    }
+}
+
+//--- PartialEq and Eq
+
+impl<Octs, OtherOcts> PartialEq<CaaTag<OtherOcts>> for CaaTag<Octs>
+where
+    Octs: AsRef<[u8]>,
+    OtherOcts: AsRef<[u8]>,
+{
+    fn eq(&self, other: &CaaTag<OtherOcts>) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+
+impl<O: AsRef<[u8]>> Eq for CaaTag<O> {}
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<Octs, OtherOcts> PartialOrd<CaaTag<OtherOcts>> for CaaTag<Octs>
+where
+    Octs: AsRef<[u8]>,
+    OtherOcts: AsRef<[u8]>,
+{
+    fn partial_cmp(&self, other: &CaaTag<OtherOcts>) -> Option<Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+impl<Octs, OtherOcts> CanonicalOrd<CaaTag<OtherOcts>> for CaaTag<Octs>
+where
+    Octs: AsRef<[u8]>,
+    OtherOcts: AsRef<[u8]>,
+{
+    fn canonical_cmp(&self, other: &CaaTag<OtherOcts>) -> Ordering {
+        self.0.canonical_cmp(&other.0)
+    }
+}
+
+impl<O: AsRef<[u8]>> Ord for CaaTag<O> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+//--- Hash
+impl<O: AsRef<[u8]>> hash::Hash for CaaTag<O> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+//--- Display and Debug
+impl<O: AsRef<[u8]>> fmt::Display for CaaTag<O> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<O: AsRef<[u8]>> fmt::Debug for CaaTag<O> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
     use crate::std::string::ToString;
-    use std::vec::Vec;
 
     #[test]
     fn caa_eq() {
-        let caa1: Caa<Vec<u8>> = Caa::new(
+        let caa1 = Caa::new(
             0,
-            "ISSUE".parse().unwrap(),
-            "ca.example.net".as_bytes().to_vec(),
+            CaaTag::from_octets("ISSUE".as_bytes()).unwrap(),
+            "ca.example.net".as_bytes(),
         );
-        let caa2: Caa<Vec<u8>> = Caa::new(
+        let caa2 = Caa::new(
             0,
-            "issue".parse().unwrap(),
-            "ca.example.net".as_bytes().to_vec(),
+            CaaTag::from_octets("issue".as_bytes()).unwrap(),
+            "ca.example.net".as_bytes(),
         );
         assert_eq!(caa1, caa2);
     }
 
     #[test]
     fn caa_octets_info() {
-        let caa: Caa<Vec<u8>> = Caa::new(
+        let caa = Caa::new(
             0,
-            "issue".parse().unwrap(),
-            "ca.example.net".as_bytes().to_vec(),
+            CaaTag::from_octets("issue".as_bytes()).unwrap(),
+            "ca.example.net".as_bytes(),
         );
         let caa_bytes: Caa<bytes::Bytes> = caa.clone().octets_into();
         assert_eq!(caa.flags, caa_bytes.flags);
@@ -387,10 +551,10 @@ mod test {
 
     #[test]
     fn caa_display() {
-        let caa: Caa<Vec<u8>> = Caa::new(
+        let caa = Caa::new(
             0,
-            "issue".parse().unwrap(),
-            "ca.example.net".as_bytes().to_vec(),
+            CaaTag::from_octets("issue".as_bytes()).unwrap(),
+            "ca.example.net".as_bytes(),
         );
 
         assert_eq!(caa.to_string(), r#"0 issue "ca.example.net""#);
