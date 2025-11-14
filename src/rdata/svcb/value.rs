@@ -551,6 +551,11 @@ where
                     ));
                 }
             }
+            if keys.is_empty() {
+                return Err(S::Error::custom(
+                    "mandatory requires at least one value",
+                ));
+            }
             for k in keys {
                 k.compose(&mut tmp).map_err(|_| S::Error::short_buf())?;
             }
@@ -1352,9 +1357,15 @@ where
                     .map_err(|_| S::Error::short_buf())?;
             }
             // tmp.append_slice();
-            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+            let ipv4hint = Self::from_octets(tmp.freeze()).map_err(|_| {
                 S::Error::custom("invalid svc param value for ipv4hint")
-            })?))
+            })?;
+            if ipv4hint.as_slice().is_empty() {
+                return Err(S::Error::custom(
+                    "ipv4hint requires at least one value",
+                ));
+            }
+            Ok(Some(ipv4hint))
         } else {
             Ok(None)
         }
@@ -1534,10 +1545,15 @@ where
                 tmp.append_slice(&ip.octets())
                     .map_err(|_| S::Error::short_buf())?;
             }
-            // tmp.append_slice();
-            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+            let ipv6hint = Self::from_octets(tmp.freeze()).map_err(|_| {
                 S::Error::custom("invalid svc param value for ipv6hint")
-            })?))
+            })?;
+            if ipv6hint.as_slice().is_empty() {
+                return Err(S::Error::custom(
+                    "ipv6hint requires at least one value",
+                ));
+            }
+            Ok(Some(ipv6hint))
         } else {
             Ok(None)
         }
