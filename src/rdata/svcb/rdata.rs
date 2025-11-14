@@ -9,6 +9,9 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
+#[cfg(feature = "std")]
+use crate::base::scan::Scan;
+use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::marker::PhantomData;
@@ -176,6 +179,49 @@ impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedName<Octs>> {
         let target = ParsedName::parse(parser)?;
         let params = SvcParams::parse(parser)?;
         Ok(unsafe { Self::new_unchecked(priority, target, params) })
+    }
+}
+
+impl<Octs: AsRef<[u8]>, Name: ToName> SvcbRdata<SvcbVariant, Octs, Name> {
+    pub fn scan<S: Scanner<Name = Name, Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        #[cfg(feature = "std")]
+        {
+            let priority = u16::scan(scanner)?;
+            let target = scanner.scan_name()?;
+            let params = SvcParams::scan(scanner)?;
+
+            Self::new(priority, target, params)
+                .map_err(|_| S::Error::custom("SVCB record too long"))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            let _ = scanner;
+            Err(S::Error::custom("zonefile parsing of SVCB RRs is not implemented without the domain std feature"))
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>, Name: ToName> SvcbRdata<HttpsVariant, Octs, Name> {
+    pub fn scan<S: Scanner<Name = Name, Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        #[cfg(feature = "std")]
+        {
+            let priority = u16::scan(scanner)?;
+            let target = scanner.scan_name()?;
+            // TODO: The "automatically mandatory" keys (Section 8) are "port" and "no-default-alpn".
+            let params = SvcParams::scan(scanner)?;
+
+            Self::new(priority, target, params)
+                .map_err(|_| S::Error::custom("HTTPS record too long"))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            let _ = scanner;
+            Err(S::Error::custom("zonefile parsing of HTTPS RRs is not implemented without the domain std feature"))
+        }
     }
 }
 
@@ -467,7 +513,7 @@ where
 
 impl<Variant, Octs, Name> fmt::Display for SvcbRdata<Variant, Octs, Name>
 where
-    Octs: Octets,
+    Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -477,7 +523,7 @@ where
 
 impl<Variant, Octs, Name> fmt::Debug for SvcbRdata<Variant, Octs, Name>
 where
-    Octs: Octets,
+    Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -493,7 +539,7 @@ where
 
 impl<Variant, Octs, Name> ZonefileFmt for SvcbRdata<Variant, Octs, Name>
 where
-    Octs: Octets,
+    Octs: AsRef<[u8]>,
     Name: ToName,
 {
     fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
@@ -601,5 +647,279 @@ mod test {
         let mut buf = Octets512::new();
         svcb_builder.compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "zonefile")]
+mod svcb_zonefile_tests {
+    use super::*;
+    use crate::base::iana::Class;
+    use crate::zonefile::inplace::{self, Zonefile};
+    use octseq::array::Array;
+
+    type Octets512 = Array<512>;
+
+    #[track_caller]
+    /// A helper function that takes a single resource record in zonefile
+    /// format as input for the Zonefile parser (because only the
+    /// inplace::Zonefile parser has SVCB implemented), and compares it to the
+    /// expected rdata octets.
+    fn svcb_zonefile_parse_expect(
+        rr: impl AsRef<[u8]>,
+        expected: impl AsRef<[u8]>,
+        is_https: bool,
+    ) {
+        let mut zonefile = Zonefile::from(rr.as_ref());
+        zonefile.set_default_class(Class::IN);
+        let inplace::Entry::Record(scanned_rr) =
+            zonefile.next_entry().unwrap().unwrap()
+        else {
+            panic!()
+        };
+
+        let mut buf = Octets512::new();
+        if is_https {
+            if let crate::rdata::ZoneRecordData::Https(scanned_rdata) =
+                scanned_rr.data()
+            {
+                scanned_rdata.compose_rdata(&mut buf).unwrap();
+            } else {
+                panic!()
+            }
+        } else if let crate::rdata::ZoneRecordData::Svcb(scanned_rdata) =
+            scanned_rr.data()
+        {
+            scanned_rdata.compose_rdata(&mut buf).unwrap();
+        } else {
+            panic!()
+        }
+
+        assert_eq!(buf.as_ref(), expected.as_ref());
+    }
+
+    #[track_caller]
+    /// A helper function that takes a single resource record in zonefile
+    /// format as input for the Zonefile parser (because only the
+    /// inplace::Zonefile parser has SVCB implemented), and only unwraps the
+    /// result. This is used by the should panic parsing tests.
+    fn svcb_zonefile_parse_only(
+        rr: impl AsRef<[u8]>,
+    ) -> Result<Option<inplace::Entry>, inplace::Error> {
+        let mut zonefile = Zonefile::from(rr.as_ref());
+        zonefile.set_default_class(Class::IN);
+        zonefile.next_entry()
+    }
+
+    #[test]
+    fn test_vectors_alias_zonefile() {
+        // [RFC9460 Figure 2](https://www.rfc-editor.org/rfc/rfc9460.html#name-aliasmode-4)
+        svcb_zonefile_parse_expect(
+            b"example.com.   HTTPS   0 foo.example.com.\n",
+            b"\x00\x00\x03foo\x07example\x03com\x00",
+            true,
+        )
+    }
+
+    #[test]
+    fn test_vectors_target_name_dot_zonefile() {
+        // [RFC9460 Figure 3](https://www.rfc-editor.org/rfc/rfc9460.html#name-targetname-is)
+        svcb_zonefile_parse_expect(
+            b"example.com.   SVCB   1 .\n",
+            b"\x00\x01\x00",
+            false,
+        )
+    }
+
+    #[test]
+    fn test_vectors_specifies_a_port_zonefile() {
+        // [RFC9460 Figure 4](https://www.rfc-editor.org/rfc/rfc9460.html#name-specifies-a-port)
+        svcb_zonefile_parse_expect(
+            b"example.com.   SVCB   16 foo.example.com. port=53\n",
+            b"\x00\x10\x03foo\x07example\x03com\x00\x00\x03\x00\x02\x00\x35",
+            false,
+        )
+    }
+
+    #[test]
+    fn test_vectors_generic_key_unquoted_value_zonefile() {
+        // [RFC9460 Figure 5](https://www.rfc-editor.org/rfc/rfc9460.html#name-a-generic-key-and-unquoted-)
+        svcb_zonefile_parse_expect(
+            b"example.com.   SVCB   1 foo.example.com. key667=hello\n",
+            b"\x00\x01\x03foo\x07example\x03com\x00\x02\x9b\x00\x05hello",
+            false,
+        )
+    }
+
+    #[test]
+    fn test_vectors_generic_key_quoted_value_decimal_escape_zonefile() {
+        // [RFC9460 Figure 6](https://www.rfc-editor.org/rfc/rfc9460.html#name-a-generic-key-and-quoted-va)
+        svcb_zonefile_parse_expect(
+            b"example.com.   SVCB   1 foo.example.com. key667=\"hello\\210qoo\"\n",
+            b"\x00\x01\x03foo\x07example\x03com\x00\x02\x9b\x00\x09hello\xd2qoo",
+            false,
+        )
+    }
+
+    #[test]
+    fn test_vectors_two_quoted_ipv6_hints_zonefile() {
+        // [RFC9460 Figure 7](https://www.rfc-editor.org/rfc/rfc9460.html#name-two-quoted-ipv6-hints)
+        svcb_zonefile_parse_expect(
+            b"example.com.   SVCB   1 foo.example.com. ( ipv6hint=\"2001:db8::1,2001:db8::53:1\" )\n",
+            b"\x00\x01\
+                \x03foo\x07example\x03com\x00\
+                \x00\x06\
+                \x00\x20\
+                \x20\x01\x0d\xb8\x00\x00\x00\x00\
+                \x00\x00\x00\x00\x00\x00\x00\x01\
+                \x20\x01\x0d\xb8\x00\x00\x00\x00\
+                \x00\x00\x00\x00\x00\x53\x00\x01",
+            false,
+        )
+    }
+
+    #[test]
+    fn test_vectors_ipv6_hint_embedded_ipv4_zonefile() {
+        // [RFC9460 Figure 8](https://www.rfc-editor.org/rfc/rfc9460.html#name-an-ipv6-hint-using-the-embe)
+        svcb_zonefile_parse_expect(
+            b"example.com.   SVCB   1 example.com. ( ipv6hint=\"2001:db8:122:344::192.0.2.33\" )\n",
+            b"\x00\x01\
+                \x07example\x03com\x00\
+                \x00\x06\
+                \x00\x10\
+                \x20\x01\x0d\xb8\x01\x22\x03\x44\
+                \x00\x00\x00\x00\xc0\x00\x02\x21",
+            false,
+        )
+    }
+
+    #[test]
+    fn test_vectors_ordered_in_wireformat_zonefile() {
+        // [RFC9460 Figure 9](https://www.rfc-editor.org/rfc/rfc9460.html#name-svcparamkey-ordering-is-arb)
+        svcb_zonefile_parse_expect(
+            b"example.com.   SVCB   16 foo.example.org. (
+                alpn=h2,h3-19 mandatory=ipv4hint,alpn
+                ipv4hint=192.0.2.1
+                )\n",
+            b"\x00\x10\
+                \x03foo\x07example\x03org\x00\
+                \x00\x00\
+                \x00\x04\
+                \x00\x01\
+                \x00\x04\
+                \x00\x01\
+                \x00\x09\
+                \x02\
+                h2\
+                \x05\
+                h3-19\
+                \x00\x04\
+                \x00\x04\
+                \xc0\x00\x02\x01",
+            false,
+        )
+    }
+
+    // Disabled until SvcParamValueScanIter::next() is implemented/fixed to
+    // evaluate r"\\" and r"\," correctly.
+    // #[test]
+    // fn test_vectors_alpn_with_escapes_quoted_zonefile() {
+    //     // [RFC9460 Figure 10](https://www.rfc-editor.org/rfc/rfc9460.html#name-an-alpn-value-with-an-escap)
+    //     let rr = br#"example.com.   SVCB   16 foo.example.org. alpn="f\\\\oo\\,bar,h2""#;
+    //     let rr = [rr.as_ref(), b"\n"].concat();
+    //     svcb_zonefile_parse_expect(
+    //         rr,
+    //         b"\x00\x10\
+    //             \x03foo\x07example\x03org\x00\
+    //             \x00\x01\
+    //             \x00\x0c\
+    //             \x08\
+    //             f\\oo,bar\
+    //             \x02\
+    //             h2",
+    //         false,
+    //     )
+    // }
+
+    // Disabled until SvcParamValueScanIter::next() is implemented/fixed to
+    // evaluate r"\\" and r"\," correctly.
+    // #[test]
+    // fn test_vectors_alpn_with_escapes_unquoted_zonefile() {
+    //     // [RFC9460 Figure 10](https://www.rfc-editor.org/rfc/rfc9460.html#name-an-alpn-value-with-an-escap)
+    //     let rr = br"example.com.   SVCB   16 foo.example.org. alpn=f\\\092oo\092,bar,h2";
+    //     let rr = [rr.as_ref(), b"\n"].concat();
+    //     svcb_zonefile_parse_expect(
+    //         rr,
+    //         b"\x00\x10\
+    //             \x03foo\x07example\x03org\x00\
+    //             \x00\x01\
+    //             \x00\x0c\
+    //             \x08\
+    //             f\\oo,bar\
+    //             \x02\
+    //             h2",
+    //         false,
+    //     )
+    // }
+
+    #[test]
+    fn test_vectors_multiple_instances_of_same_key_zonefile() {
+        // [RFC9460 Figure 11](https://www.rfc-editor.org/rfc/rfc9460.html#name-multiple-instances-of-the-s)
+        svcb_zonefile_parse_only(
+            b"example.com.   SVCB   1 foo.example.com. (
+                key123=abc key123=def )\n",
+        )
+        .unwrap_err();
+    }
+
+    #[test]
+    fn test_vectors_missing_paramvalues_zonefile() {
+        // [RFC9460 Figure 12](https://www.rfc-editor.org/rfc/rfc9460.html#name-missing-svcparamvalues-that)
+        for rr in [
+            b"example.com.   SVCB   1 foo.example.com. mandatory\n".as_ref(),
+            b"example.com.   SVCB   2 foo.example.com. alpn\n".as_ref(),
+            b"example.com.   SVCB   3 foo.example.com. port\n".as_ref(),
+            b"example.com.   SVCB   4 foo.example.com. ipv4hint\n".as_ref(),
+            b"example.com.   SVCB   5 foo.example.com. ipv6hint\n".as_ref(),
+        ] {
+            svcb_zonefile_parse_only(rr).unwrap_err();
+        }
+    }
+
+    #[test]
+    fn test_vectors_empty_no_default_alpn_zonefile() {
+        // [RFC9460 Figure 13](https://www.rfc-editor.org/rfc/rfc9460.html#name-the-no-default-alpn-svcpara)
+        svcb_zonefile_parse_only(
+            b"example.com.   SVCB   1 foo.example.com. no-default-alpn=abc\n",
+        )
+        .unwrap_err();
+    }
+
+    #[test]
+    fn test_vectors_mandatory_param_missing_zonefile() {
+        // [RFC9460 Figure 14](https://www.rfc-editor.org/rfc/rfc9460.html#name-a-mandatory-svcparam-is-mis)
+        svcb_zonefile_parse_only(
+            b"example.com.   SVCB   1 foo.example.com. mandatory=key123\n",
+        )
+        .unwrap_err();
+    }
+
+    #[test]
+    fn test_vectors_mandatory_not_in_mandatory_zonefile() {
+        // [RFC9460 Figure 15](https://www.rfc-editor.org/rfc/rfc9460.html#name-the-mandatory-svcparamkey-m)
+        svcb_zonefile_parse_only(
+            b"example.com.   SVCB   1 foo.example.com. mandatory=mandatory\n",
+        )
+        .unwrap_err();
+    }
+
+    #[test]
+    fn test_vectors_multiple_of_same_key_in_mandatory_zonefile() {
+        // [RFC9460 Figure 16](https://www.rfc-editor.org/rfc/rfc9460.html#name-multiple-instances-of-the-sa)
+        svcb_zonefile_parse_only(
+            b"example.com.   SVCB   1 foo.example.com. (
+                mandatory=key123,key123 key123=abc )\n",
+        )
+        .unwrap_err();
     }
 }
