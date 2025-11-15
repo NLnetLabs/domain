@@ -502,8 +502,8 @@ mod test {
         use crate::rdata::Caa;
         let record = create_record(Caa::new(
             0,
-            CaaTag::new("issue".parse().unwrap()),
-            "ca.example.net".as_bytes().to_vec(),
+            CaaTag::from_octets("issue".as_bytes()).unwrap(),
+            "ca.example.net".as_bytes(),
         ));
         assert_eq!(
             "example.com. 3600 IN CAA 0 issue \"ca.example.net\"",

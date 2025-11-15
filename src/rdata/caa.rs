@@ -357,52 +357,66 @@ impl<O: AsRef<[u8]>> ZonefileFmt for Caa<O> {
 }
 
 #[derive(Clone)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(bound(
-        serialize = "Octs: AsRef<[u8]> + octseq::serde::SerializeOctets",
-        deserialize = "
-            Octs: FromBuilder+ octseq::serde::DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder: AsRef<[u8]> + EmptyBuilder
-        ",
-    ))
-)]
-pub struct CaaTag<Octs>(CharStr<Octs>);
+#[repr(transparent)]
+pub struct CaaTag<Octs: ?Sized>(CharStr<Octs>);
 
 impl<Octs> CaaTag<Octs> {
-    /// Creates a new CAA tag from the given character string.
-    pub fn new(tag: CharStr<Octs>) -> Self {
-        CaaTag(tag)
+    pub fn new(charstr: CharStr<Octs>) -> Result<Self, ParseError>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        CaaTag::check_slice(charstr.as_slice())?;
+        Ok(CaaTag(charstr))
+    }
+
+    pub fn from_octets(octets: Octs) -> Result<Self, ParseError>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        CaaTag::check_slice(octets.as_ref())?;
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
+    }
+
+    /// Creates a new CAA tag from an octets sequence without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to make sure that the octets only contains ascii
+    /// alphanumeric characters and is not longer than 255 bytes.
+    pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
+        CaaTag(CharStr::from_octets_unchecked(octets))
     }
 }
 
-impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
-    pub fn from_octets(octets: Octs) -> Result<Self, ParseError> {
-        let octs = CharStr::from_octets(octets)
-            .map_err(|_| ParseError::form_error("CAA tag too long"))?;
-        if !Self::check_slice(octs.as_slice()) {
+impl CaaTag<[u8]> {
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, ParseError> {
+        Self::check_slice(slice)?;
+        Ok(unsafe { Self::from_slice_unchecked(slice) })
+    }
+
+    /// Creates a new value from a slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to make sure that the slice only contains ascii
+    /// alphanumeric characters and is not longer than 255 bytes.
+    pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        // SAFETY: CaaTag has repr(transparent)
+        &*(CharStr::from_slice_unchecked(slice) as *const CharStr<[u8]>
+            as *const Self)
+    }
+
+    fn check_slice(octets: &[u8]) -> Result<(), ParseError> {
+        if octets.iter().any(|e| !e.is_ascii_alphanumeric()) {
             return Err(ParseError::form_error(
                 "CAA tag contains invalid character",
             ));
         }
-
-        Ok(CaaTag(octs))
+        Ok(())
     }
+}
 
-    pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
-        CaaTag(CharStr::from_octets_unchecked(octets))
-    }
-
-    fn check_slice(octets: &[u8]) -> bool {
-        for ele in octets {
-            if !ele.is_ascii_alphanumeric() {
-                return false;
-            }
-        }
-        true
-    }
-
+impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
     pub fn compose_len(&self) -> u16 {
         self.0.compose_len()
     }
@@ -419,12 +433,9 @@ impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         let octets = CharStr::scan(scanner)?;
-        if !Self::check_slice(octets.as_slice()) {
-            return Err(ScannerError::custom(
-                "CAA tag contains invalid character",
-            ));
-        }
-
+        CaaTag::check_slice(octets.as_slice()).map_err(|_| {
+            S::Error::custom("CAA tag contains invalid character")
+        })?;
         Ok(CaaTag(octets))
     }
 
@@ -432,14 +443,7 @@ impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        let octets = CharStr::parse(parser)?;
-        if !Self::check_slice(octets.as_slice()) {
-            return Err(ParseError::form_error(
-                "CAA tag contains invalid character",
-            ));
-        }
-
-        Ok(CaaTag(octets))
+        Self::new(CharStr::parse(parser)?)
     }
 }
 
@@ -514,6 +518,37 @@ impl<O: AsRef<[u8]>> fmt::Debug for CaaTag<O> {
         self.0.fmt(f)
     }
 }
+
+//--- Serialize and Deserialize
+
+#[cfg(feature = "serde")]
+impl<Octs> serde::Serialize for CaaTag<Octs>
+where
+    Octs: AsRef<[u8]> + octseq::serde::SerializeOctets,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, Octs> serde::Deserialize<'de> for CaaTag<Octs>
+where
+    Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
+    <Octs as FromBuilder>::Builder: AsRef<[u8]> + EmptyBuilder,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::new(CharStr::deserialize(deserializer)?)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
