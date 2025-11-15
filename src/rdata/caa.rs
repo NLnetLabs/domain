@@ -302,7 +302,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Caa<Octs> {
     ) -> Result<(), Target::AppendError> {
         self.flags.compose(target)?;
         self.tag.compose_canonical(target)?;
-        unsafe { CharStr::from_octets_unchecked(&self.value) }.compose(target)
+        target.append_slice(self.value.as_ref())
     }
 }
 
@@ -429,7 +429,11 @@ impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        target.append_slice(self.0.as_ref().to_ascii_lowercase().as_ref())
+        target.append_slice(&[self.0.len() as u8])?;
+        for ch in self.0.iter() {
+            target.append_slice(&[ch.to_ascii_lowercase()])?;
+        }
+        Ok(())
     }
 
     /// Scans a CAA tag from the scanner.
