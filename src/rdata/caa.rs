@@ -271,10 +271,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     }
 }
 
-impl<Octs: AsRef<[u8]>> ComposeRecordData for Caa<Octs>
-where
-    Octs: AsRef<[u8]>,
-{
+impl<Octs: AsRef<[u8]>> ComposeRecordData for Caa<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u8::COMPOSE_LEN
@@ -304,8 +301,8 @@ where
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.flags.compose(target)?;
-        self.tag.compose(target)?;
-        target.append_slice(self.value.as_ref())
+        self.tag.compose_canonical(target)?;
+        unsafe { CharStr::from_octets_unchecked(&self.value) }.compose(target)
     }
 }
 
@@ -426,6 +423,13 @@ impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.0.compose(target)
+    }
+
+    pub fn compose_canonical<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.0.as_ref().to_ascii_lowercase().as_ref())
     }
 
     /// Scans a CAA tag from the scanner.
