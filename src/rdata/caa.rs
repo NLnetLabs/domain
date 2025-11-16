@@ -353,11 +353,22 @@ impl<O: AsRef<[u8]>> ZonefileFmt for Caa<O> {
     }
 }
 
+/// A CAA property tag as defined in [RFC 8659 section 4.1].
+///
+/// A CAA tag identifies the property name that an issuer must honor when
+/// evaluating a certificate issuance request. RFC 8659 restricts the tag to
+/// printable ASCII alphabetic characters and digits with a maximal length of
+/// 255 octets, and the wire format is a length-prefixed string of those
+/// characters.
+///
+/// [RFC 8659 section 4.1]: https://www.rfc-editor.org/rfc/rfc8659#section-4.1
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct CaaTag<Octs: ?Sized>(CharStr<Octs>);
 
 impl<Octs> CaaTag<Octs> {
+    /// Constructs a CAA tag from a `CharStr`, validating that it only contains
+    /// ASCII letters/digits and is at most 255 octets long.
     pub fn new(charstr: CharStr<Octs>) -> Result<Self, ParseError>
     where
         Octs: AsRef<[u8]>,
@@ -366,6 +377,8 @@ impl<Octs> CaaTag<Octs> {
         Ok(CaaTag(charstr))
     }
 
+    /// Parses a CAA tag from an octets sequence while enforcing the same
+    /// validation as [`CaaTag::new`].
     pub fn from_octets(octets: Octs) -> Result<Self, ParseError>
     where
         Octs: AsRef<[u8]>,
@@ -374,18 +387,20 @@ impl<Octs> CaaTag<Octs> {
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
-    /// Creates a new CAA tag from an octets sequence without checking.
+    /// Creates a CAA tag from octets without validation.
     ///
     /// # Safety
     ///
-    /// The caller needs to make sure that the octets only contains ascii
-    /// alphanumeric characters and is not longer than 255 bytes.
+    /// The caller must ensure `octets` consists only of ASCII alphanumeric
+    /// characters and is no longer than 255 octets, as required by RFC 8659.
     pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         CaaTag(CharStr::from_octets_unchecked(octets))
     }
 }
 
 impl CaaTag<[u8]> {
+    /// Parses a CAA tag from a slice, validating it against the same rules as
+    /// [`CaaTag::new`].
     pub fn from_slice(slice: &[u8]) -> Result<&Self, ParseError> {
         Self::check_slice(slice)?;
         Ok(unsafe { Self::from_slice_unchecked(slice) })
@@ -414,10 +429,14 @@ impl CaaTag<[u8]> {
 }
 
 impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
+    /// Returns the length of the wire-format tag, which mirrors the length of
+    /// the underlying `CharStr`.
     pub fn compose_len(&self) -> u16 {
         self.0.compose_len()
     }
 
+    /// Writes the tag into `target` using the standard length-prefixed wire
+    /// format built from the ASCII characters of the tag.
     pub fn compose<Target: OctetsBuilder + ?Sized>(
         &self,
         target: &mut Target,
@@ -425,6 +444,8 @@ impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
         self.0.compose(target)
     }
 
+    /// Writes the canonicalized tag with lowercased characters for
+    /// canonical comparison and serialization.
     pub fn compose_canonical<Target: OctetsBuilder + ?Sized>(
         &self,
         target: &mut Target,
@@ -436,7 +457,8 @@ impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
         Ok(())
     }
 
-    /// Scans a CAA tag from the scanner.
+    /// Scans a CAA tag from the scanner, enforcing the ASCII rules used by
+    /// the CAA property tag.
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
@@ -447,7 +469,8 @@ impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
         Ok(CaaTag(octets))
     }
 
-    /// Parses a CAA tag from the parser.
+    /// Parses a CAA tag from the parser while validating it for ASCII letters
+    /// and digits with a valid length.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -523,7 +546,7 @@ impl<O: AsRef<[u8]>> fmt::Display for CaaTag<O> {
 
 impl<O: AsRef<[u8]>> fmt::Debug for CaaTag<O> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        f.debug_tuple("CaaTag").field(&self.0).finish()
     }
 }
 
@@ -562,6 +585,7 @@ where
 mod test {
     use super::*;
     use crate::std::string::ToString;
+    use octseq::array::Array;
 
     #[test]
     fn caa_eq() {
@@ -600,5 +624,26 @@ mod test {
         );
 
         assert_eq!(caa.to_string(), r#"0 issue "ca.example.net""#);
+    }
+
+    #[test]
+    fn caa_tag_creation_and_validation() {
+        assert!(CaaTag::from_octets("issue".as_bytes()).is_ok());
+        assert!(CaaTag::from_octets("bad tag".as_bytes()).is_err());
+    }
+
+    #[test]
+    fn caa_tag_display_and_debug() {
+        let tag = CaaTag::from_octets("ISSUE".as_bytes()).unwrap();
+        assert_eq!(tag.to_string(), "ISSUE");
+        assert_eq!(format!("{:?}", tag), "CaaTag(CharStr(ISSUE))");
+    }
+
+    #[test]
+    fn caa_tag_compose_canonical_lowercases() {
+        let tag = CaaTag::from_octets("Issue".as_bytes()).unwrap();
+        let mut buf = Array::<8>::new();
+        tag.compose_canonical(&mut buf).unwrap();
+        assert_eq!(buf.as_ref(), &[5, b'i', b's', b's', b'u', b'e']);
     }
 }
