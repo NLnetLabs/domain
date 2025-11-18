@@ -278,6 +278,7 @@ pub mod batcher;
 pub mod buf;
 pub mod dgram;
 pub mod error;
+pub mod invoker;
 pub mod message;
 pub mod metrics;
 pub mod middleware;
