@@ -87,22 +87,7 @@ macro_rules! impl_scan_unsigned {
     };
 }
 
-impl<S: Scanner> Scan<S> for u8 {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        let mut res: u8 = 0;
-        scanner.scan_symbols(|ch| {
-            res = res
-                .checked_mul(10)
-                .ok_or_else(|| S::Error::custom("decimal number overflow"))?;
-            res += ch
-                .into_digit(10)
-                .map_err(|_| S::Error::custom("expected decimal number"))?
-                as u8;
-            Ok(())
-        })?;
-        Ok(res)
-    }
-}
+impl_scan_unsigned!(u8);
 impl_scan_unsigned!(u16);
 impl_scan_unsigned!(u32);
 impl_scan_unsigned!(u64);
