@@ -5,6 +5,7 @@
 //! [RFC 8659]: https://www.rfc-editor.org/info/rfc8659
 
 use crate::base::{
+    charstr::DisplayQuoted,
     name::FlattenInto,
     rdata::ComposeRecordData,
     scan::{Scan, Scanner, ScannerError},
@@ -52,7 +53,7 @@ use octseq::{Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parser};
     ))
 )]
 pub struct Caa<Octs> {
-    flags: u8,
+    flags: CaaFlags,
     tag: CaaTag<Octs>,
     #[cfg_attr(
         feature = "serde",
@@ -69,30 +70,30 @@ pub struct Caa<Octs> {
 }
 
 impl Caa<()> {
-    // The rtype of this record data type.
+    /// The rtype of this record data type.
     pub const RTYPE: Rtype = Rtype::CAA;
 }
 
 impl<Octs> Caa<Octs> {
     /// Creates a new CAA record data from the flags, tag, and value.
-    pub fn new(flags: u8, tag: CaaTag<Octs>, value: Octs) -> Self {
+    pub fn new(flags: CaaFlags, tag: CaaTag<Octs>, value: Octs) -> Self {
         Caa { flags, tag, value }
     }
 
-    /// If the value is set to "1", the Property is critical.
+    /// Returns the flags. If the value is set to "1", the Property is critical.
     /// A CA MUST NOT issue certificates for any FQDN if the
     /// Relevant RRset for that FQDN contains a CAA critical
     /// Property for an unknown or unsupported Property Tag.
-    pub fn flags(&self) -> u8 {
+    pub fn flags(&self) -> CaaFlags {
         self.flags
     }
 
-    /// The Property identifier
+    /// Returns the Property identifier
     pub fn tag(&self) -> &CaaTag<Octs> {
         &self.tag
     }
 
-    /// The Property Value
+    /// Returns the Property Value
     pub fn value(&self) -> &Octs {
         &self.value
     }
@@ -120,7 +121,7 @@ impl<Octs> Caa<Octs> {
         Octs: AsRef<[u8]>,
     {
         Ok(Self::new(
-            u8::scan(scanner)?,
+            CaaFlags::scan(scanner)?,
             CaaTag::scan(scanner)?,
             scanner.scan_octets()?,
         ))
@@ -133,7 +134,7 @@ impl<Octs> Caa<Octs> {
         Octs: AsRef<[u8]>,
     {
         Ok(Self::new(
-            u8::parse(parser)?,
+            CaaFlags::parse(parser)?,
             CaaTag::parse(parser)?,
             parser.parse_octets(parser.remaining())?,
         ))
@@ -301,7 +302,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Caa<Octs> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.flags.compose(target)?;
-        self.tag.compose_canonical(target)?;
+        self.tag.compose(target)?;
         target.append_slice(self.value.as_ref())
     }
 }
@@ -315,8 +316,7 @@ impl<O: AsRef<[u8]>> fmt::Display for Caa<O> {
             "{} {} {}",
             self.flags,
             self.tag,
-            unsafe { CharStr::from_octets_unchecked(&self.value) }
-                .display_quoted()
+            DisplayQuoted::from_slice(self.value.as_ref()),
         )
     }
 }
@@ -328,9 +328,7 @@ impl<O: AsRef<[u8]>> fmt::Debug for Caa<O> {
         f.debug_struct("Caa")
             .field("flags", &self.flags)
             .field("tag", &self.tag)
-            .field("value", &unsafe {
-                CharStr::from_octets_unchecked(&self.value)
-            })
+            .field("value", &DisplayQuoted::from_slice(self.value.as_ref()))
             .finish()
     }
 }
@@ -344,10 +342,7 @@ impl<O: AsRef<[u8]>> ZonefileFmt for Caa<O> {
             p.write_comment("flags")?;
             p.write_token(&self.tag)?;
             p.write_comment("tag")?;
-            p.write_token(
-                unsafe { CharStr::from_octets_unchecked(&self.value) }
-                    .display_quoted(),
-            )?;
+            p.write_token(DisplayQuoted::from_slice(self.value.as_ref()))?;
             p.write_comment("value")
         })
     }
@@ -442,19 +437,6 @@ impl<Octs: AsRef<[u8]>> CaaTag<Octs> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.0.compose(target)
-    }
-
-    /// Writes the canonicalized tag with lowercased characters for
-    /// canonical comparison and serialization.
-    pub fn compose_canonical<Target: OctetsBuilder + ?Sized>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), Target::AppendError> {
-        target.append_slice(&[self.0.len() as u8])?;
-        for ch in self.0.iter() {
-            target.append_slice(&[ch.to_ascii_lowercase()])?;
-        }
-        Ok(())
     }
 
     /// Scans a CAA tag from the scanner, enforcing the ASCII rules used by
@@ -580,6 +562,64 @@ where
     }
 }
 
+/// CAA flags as defined in [RFC 8659 section 4.1].
+///
+/// The only defined flag is the critical flag (bit 7).
+/// You can create a plain CAA flags instance with [CaaFlags::default()]
+/// or critical CAA flags with [CaaFlags::critical()].
+///
+/// The [CaaFlags::new()] method allows creating a CAA flags instance
+/// from any underlying byte, but be aware that only bit 7 is defined.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CaaFlags(u8);
+
+impl CaaFlags {
+    /// Creates a new CAA flags instance from the underlying byte.
+    pub fn new(bits: u8) -> Self {
+        CaaFlags(bits)
+    }
+
+    /// Creates a CAA flags instance with the critical flag set.
+    pub fn critical() -> Self {
+        CaaFlags(0x80)
+    }
+
+    /// Returns the underlying flags byte.
+    pub fn bits(&self) -> u8 {
+        self.0
+    }
+}
+
+impl fmt::Display for CaaFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Compose for CaaFlags {
+    fn compose<Target: octseq::OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
+    }
+}
+
+impl<S: Scanner> Scan<S> for CaaFlags {
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(CaaFlags(u8::scan(scanner)?))
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for CaaFlags {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(CaaFlags(u8::parse(parser)?))
+    }
+}
+
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
@@ -590,12 +630,12 @@ mod test {
     #[test]
     fn caa_eq() {
         let caa1 = Caa::new(
-            0,
+            CaaFlags::default(),
             CaaTag::from_octets("ISSUE".as_bytes()).unwrap(),
             "ca.example.net".as_bytes(),
         );
         let caa2 = Caa::new(
-            0,
+            CaaFlags::default(),
             CaaTag::from_octets("issue".as_bytes()).unwrap(),
             "ca.example.net".as_bytes(),
         );
@@ -605,7 +645,7 @@ mod test {
     #[test]
     fn caa_octets_info() {
         let caa = Caa::new(
-            0,
+            CaaFlags::default(),
             CaaTag::from_octets("issue".as_bytes()).unwrap(),
             "ca.example.net".as_bytes(),
         );
@@ -618,7 +658,7 @@ mod test {
     #[test]
     fn caa_display() {
         let caa = Caa::new(
-            0,
+            CaaFlags::default(),
             CaaTag::from_octets("issue".as_bytes()).unwrap(),
             "ca.example.net".as_bytes(),
         );
@@ -643,7 +683,19 @@ mod test {
     fn caa_tag_compose_canonical_lowercases() {
         let tag = CaaTag::from_octets("Issue".as_bytes()).unwrap();
         let mut buf = Array::<8>::new();
-        tag.compose_canonical(&mut buf).unwrap();
-        assert_eq!(buf.as_ref(), &[5, b'i', b's', b's', b'u', b'e']);
+        tag.compose(&mut buf).unwrap();
+        assert_eq!(buf.as_ref(), &[5, b'I', b's', b's', b'u', b'e']);
+    }
+
+    #[test]
+    fn caa_flags_display() {
+        let flags = CaaFlags::default();
+        assert_eq!(flags.bits(), 0);
+    }
+
+    #[test]
+    fn caa_flags_critical() {
+        let flags = CaaFlags::critical();
+        assert_eq!(flags.bits(), 0x80);
     }
 }
