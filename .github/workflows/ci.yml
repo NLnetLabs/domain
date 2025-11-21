@@ -45,6 +45,10 @@ on:
   schedule:
     - cron: '0 10 * * FRI'
 
+defaults:
+  run:
+    shell: bash
+
 # Jobs
 # ----------------------------------------------------------------------------
 jobs:
@@ -295,6 +299,10 @@ jobs:
     # Build and run the test suite.
     - name: Test
       run: cargo test --all-targets $DOMAIN_FEATURES
+
+    # doc test suite.
+    - name: Doc Test
+      run: cargo test doc $DOMAIN_FEATURES
 
   # Build Cache
   # -----------

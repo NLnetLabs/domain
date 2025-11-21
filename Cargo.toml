@@ -139,6 +139,10 @@ name = "client-transports"
 required-features = ["net", "tokio-rustls", "unstable-client-transport"]
 
 [[example]]
+name = "crypto-doc"
+required-features = ["std","ring"]
+
+[[example]]
 name = "client-cache-transport"
 required-features = ["net", "unstable-client-cache"]
 
