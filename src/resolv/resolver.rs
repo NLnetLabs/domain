@@ -27,13 +27,15 @@ pub trait Resolver {
     type Answer: AsRef<Message<Self::Octets>>;
 
     /// The future resolving into an answer.
-    type Query: Future<Output = Result<Self::Answer, io::Error>> + Send;
+    type Query<'a>: Future<Output = Result<Self::Answer, io::Error>> + Send
+    where
+        Self: 'a;
 
     /// Returns a future answering a question.
     ///
     /// The method takes anything that can be converted into a question and
     /// produces a future trying to answer the question.
-    fn query<N, Q>(&self, question: Q) -> Self::Query
+    fn query<'a, N, Q>(&'a self, question: Q) -> Self::Query<'a>
     where
         N: ToName,
         Q: Into<Question<N>>;
@@ -51,8 +53,10 @@ pub trait Resolver {
 /// implemented via an iterator over domain names.
 pub trait SearchNames {
     type Name: ToName;
-    type Iter: Iterator<Item = Self::Name>;
+    type Iter<'a>: Iterator<Item = Self::Name>
+    where
+        Self: 'a;
 
     /// Returns an iterator over the search suffixes.
-    fn search_iter(&self) -> Self::Iter;
+    fn search_iter<'a>(&'a self) -> Self::Iter<'a>;
 }
