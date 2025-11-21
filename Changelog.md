@@ -15,6 +15,7 @@ New
 * Added support for the `TLSA`, `OPENPGPKEY`, `SSHFP`, and `IPSECKEY`
   record types and added presentation format support for the `SVCB`/`HTTPS`
   record types. ([#569])
+* Add support for the `CAA` record type. ([#434] by [@weilence])
 
 Improvements
 
@@ -56,6 +57,7 @@ Other changes
 [#390]: https://github.com/NLnetLabs/domain/pull/390
 [#393]: https://github.com/NLnetLabs/domain/pull/393
 [#399]: https://github.com/NLnetLabs/domain/pull/399
+[#434]: https://github.com/NLnetLabs/domain/pull/434
 [#507]: https://github.com/NLnetLabs/domain/pull/507
 [#548]: https://github.com/NLnetLabs/domain/pull/548
 [#550]: https://github.com/NLnetLabs/domain/pull/550
@@ -64,6 +66,7 @@ Other changes
 [#570]: https://github.com/NLnetLabs/domain/pull/570
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [@rossmacarthur]: https://github.com/rossmacarthur
+[@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 
 
