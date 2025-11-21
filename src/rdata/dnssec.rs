@@ -20,7 +20,6 @@ use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
-#[cfg(feature = "std")]
 use time::{Date, Month, PrimitiveDateTime, Time};
 
 use crate::base::cmp::CanonicalOrd;
