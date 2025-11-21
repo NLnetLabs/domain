@@ -296,6 +296,10 @@ jobs:
     - name: Test
       run: cargo test --all-targets $DOMAIN_FEATURES
 
+    # Test docs.
+    - name: Test docs
+      run: cargo test --doc $DOMAIN_FEATURES
+
   # Build Cache
   # -----------
   #

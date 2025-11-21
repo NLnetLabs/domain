@@ -118,11 +118,7 @@ async fn main() {
     let svc = service_fn(my_service, zones.clone());
 
     #[cfg(feature = "siphasher")]
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, _>::new(
-        svc,
-        zones_and_diffs.clone(),
-        1,
-    );
+    let svc = XfrMiddlewareSvc::new(svc, zones_and_diffs.clone(), 1);
     let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
     let svc = CookiesMiddlewareSvc::with_random_secret(svc);
     let svc = EdnsMiddlewareSvc::new(svc);
@@ -135,11 +131,8 @@ async fn main() {
     let mut udp_metrics = vec![];
     let num_cores = std::thread::available_parallelism().unwrap().get();
     for _i in 0..num_cores {
-        let udp_srv = DgramServer::<_, _, _>::new(
-            sock.clone(),
-            VecBufSource,
-            svc.clone(),
-        );
+        let udp_srv =
+            DgramServer::new(sock.clone(), VecBufSource, svc.clone());
         let metrics = udp_srv.metrics();
         udp_metrics.push(metrics);
         tokio::spawn(async move { udp_srv.run().await });
