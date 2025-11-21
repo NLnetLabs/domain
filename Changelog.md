@@ -12,6 +12,9 @@ New
 
 * Add `rdata::dnssec::Timestamp::to_system_time` to help sorting timestamps.
  ([#548])
+* Added support for the `TLSA`, `OPENPGPKEY`, `SSHFP`, and `IPSECKEY`
+  record types and added presentation format support for the `SVCB`/`HTTPS`
+  record types. ([#569])
 
 Improvements
 
@@ -20,24 +23,46 @@ Improvements
 
 Bug fixes
 
+* When parsing a Bind-style public key file, allow an optional TTL field.
+  ([#593])
+
 Unstable features
 
 * `unstable-crypto-sign`
   * Add support for RSA/SHA-512 to openssl signer. ([#550])
 * `unstable-server-transport`
+  * Return an error response when a `Service` returns a `ServiceError`.
+    ([#390])
   * Implement `std::error::Error` for `ServiceError`. ([#570] by
     [@rossmacarthur])
+  * Be more lenient when timing out connections while they are in a
+    transaction. ([#399])
+* `unstable-sign`
+   * keyset improvements ([#551])
+     * Store the algorithm and key tag of a key to be able to reject duplicate
+       key tags and accidental algorithm rolls.
+     * Store whether a key is considered available for a key roll. Rolls with
+       new keys that are not available are rejected.
+     * Add two alternative key rolls for KSK and ZSK key rolls.
+     * Add an algorithm roll.
+     * Add more operations on UnixTime.
+     * Add more actions
 * `unstable-xfr`
   * Various fixes and improvements. ([#507])
 
 Other changes
 
 [#349]: https://github.com/NLnetLabs/domain/pull/349
+[#390]: https://github.com/NLnetLabs/domain/pull/390
 [#393]: https://github.com/NLnetLabs/domain/pull/393
+[#399]: https://github.com/NLnetLabs/domain/pull/399
 [#507]: https://github.com/NLnetLabs/domain/pull/507
 [#548]: https://github.com/NLnetLabs/domain/pull/548
 [#550]: https://github.com/NLnetLabs/domain/pull/550
+[#551]: https://github.com/NLnetLabs/domain/pull/551
+[#569]: https://github.com/NLnetLabs/domain/pull/569
 [#570]: https://github.com/NLnetLabs/domain/pull/570
+[#593]: https://github.com/NLnetLabs/domain/pull/593
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 

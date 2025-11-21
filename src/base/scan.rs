@@ -211,6 +211,18 @@ pub trait Scanner {
     /// It can be of any length.
     fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error>;
 
+    /// Scans a token into an octets sequence combining tokens that are not
+    /// separated by whitespace into a single token (used for SVCB quoted
+    /// SvcParamValues).
+    ///
+    /// The returned sequence has all symbols converted into their octets.
+    /// It can be of any length.
+    fn scan_svcb_octets(&mut self) -> Result<Self::Octets, Self::Error> {
+        Err(Self::Error::custom(
+            "Scanning SVCB octets is only implemented by some Scanners",
+        ))
+    }
+
     /// Scans a token as a borrowed ASCII string.
     ///
     /// If the next token contains non-ascii characters, returns an error.

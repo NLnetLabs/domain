@@ -29,8 +29,8 @@
 //!
 pub use self::params::{
     ComposeSvcParamValue, LongSvcParam, ParseSvcParamValue, PushError,
-    SvcParamValue, SvcParams, SvcParamsBuilder, SvcParamsError,
-    UnknownSvcParam, ValueIter,
+    ScanSvcParamValue, SvcParamValue, SvcParams, SvcParamsBuilder,
+    SvcParamsError, UnknownSvcParam, ValueIter,
 };
 pub use self::rdata::{Https, HttpsVariant, Svcb, SvcbRdata, SvcbVariant};
 
