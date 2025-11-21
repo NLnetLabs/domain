@@ -118,16 +118,12 @@ async fn main() {
     let svc = service_fn(my_service, zones.clone());
 
     #[cfg(feature = "siphasher")]
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, _>::new(
-        svc,
-        zones_and_diffs.clone(),
-        1,
-    );
+    let svc = XfrMiddlewareSvc::new(svc, zones_and_diffs.clone(), 1);
     let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
-    let svc = TsigMiddlewareSvc::<_, _, _, ()>::new(svc, key_store);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = CookiesMiddlewareSvc::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::new(svc);
+    let svc = TsigMiddlewareSvc::new(svc, key_store);
+    let svc = MandatoryMiddlewareSvc::new(svc);
     let svc = Arc::new(svc);
 
     let sock = UdpSocket::bind(&addr).await.unwrap();
@@ -135,18 +131,15 @@ async fn main() {
     let mut udp_metrics = vec![];
     let num_cores = std::thread::available_parallelism().unwrap().get();
     for _i in 0..num_cores {
-        let udp_srv = DgramServer::<_, _, _>::new(
-            sock.clone(),
-            VecBufSource,
-            svc.clone(),
-        );
+        let udp_srv =
+            DgramServer::new(sock.clone(), VecBufSource, svc.clone());
         let metrics = udp_srv.metrics();
         udp_metrics.push(metrics);
         tokio::spawn(async move { udp_srv.run().await });
     }
 
     let sock = TcpListener::bind(addr).await.unwrap();
-    let tcp_srv = StreamServer::<_, _, _>::new(sock, VecBufSource, svc);
+    let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
     let tcp_metrics = tcp_srv.metrics();
 
     tokio::spawn(async move { tcp_srv.run().await });
