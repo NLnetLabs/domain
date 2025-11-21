@@ -14,7 +14,6 @@ use octseq::Octets;
 use tracing::trace;
 
 use crate::base::message_builder::AdditionalBuilder;
-use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 
 use super::message::Request;
@@ -50,12 +49,12 @@ pub enum InvokerStatus {
 ///
 /// Also handles [`ServiceFeedback`] by invoking fn impls on the trait
 /// implementing type.
-pub trait ServiceInvoker<RequestOctets, Svc, EnqueueMeta>
+pub trait ServiceInvoker<RequestOctets, Svc, RequestMeta, EnqueueMeta>
 where
-    Svc: Service<RequestOctets> + Send + Sync + 'static,
-    Svc::Target: Composer + Default,
     RequestOctets: Octets + Send + Sync + 'static,
-    EnqueueMeta: Send + Sync + 'static,
+    RequestMeta: Clone + Default + Send + 'static,
+    Svc: Service<RequestOctets, RequestMeta>,
+    EnqueueMeta: Send + 'static,
 {
     /// Dispatch a request and process the responses.
     ///
@@ -70,15 +69,12 @@ where
     /// to the trait impl'd [`reconfugure`] function.
     fn dispatch(
         &mut self,
-        request: Request<RequestOctets>,
+        request: Request<RequestOctets, RequestMeta>,
         svc: Svc,
         enqueue_meta: EnqueueMeta,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
     where
-        Self: Send + Sync,
-        Svc::Target: Send,
-        Svc::Stream: Send,
-        Svc::Future: Send,
+        Self: Send,
     {
         Box::pin(async move {
             let req_msg = request.message().clone();

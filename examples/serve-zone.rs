@@ -118,16 +118,12 @@ async fn main() {
     let svc = service_fn(my_service, zones.clone());
 
     #[cfg(feature = "siphasher")]
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, _>::new(
-        svc,
-        zones_and_diffs.clone(),
-        1,
-    );
+    let svc = XfrMiddlewareSvc::new(svc, zones_and_diffs.clone(), 1);
     let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
+    let svc = CookiesMiddlewareSvc::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::new(svc);
     let svc = TsigMiddlewareSvc::new(svc, key_store);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = MandatoryMiddlewareSvc::new(svc);
     let svc = Arc::new(svc);
 
     let sock = UdpSocket::bind(&addr).await.unwrap();
@@ -240,8 +236,8 @@ async fn main() {
 }
 
 #[allow(clippy::type_complexity)]
-fn my_service(
-    request: Request<Vec<u8>>,
+fn my_service<RequestMeta>(
+    request: Request<Vec<u8>, RequestMeta>,
     zones: Arc<ZoneTree>,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();

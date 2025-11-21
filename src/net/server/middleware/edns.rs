@@ -12,7 +12,6 @@ use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::keepalive::IdleTimeout;
 use crate::base::opt::{ComposeOptData, Opt, OptRecord, TcpKeepalive};
-use crate::base::wire::Composer;
 use crate::base::{Message, Name, StreamTarget};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
@@ -47,7 +46,13 @@ const EDNS_VERSION_ZERO: u8 = 0;
 /// [7828]: https://datatracker.ietf.org/doc/html/rfc7828
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 #[derive(Clone, Debug, Default)]
-pub struct EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+pub struct EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+where
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Future: Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+    RequestMeta: Clone + Default + Unpin + Send + Sync + 'static,
+{
     /// The upstream [`Service`] to pass requests to and receive responses
     /// from.
     next_svc: NextSvc,
@@ -63,6 +68,11 @@ pub struct EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
 
 impl<RequestOctets, NextSvc, RequestMeta>
     EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+where
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Future: Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+    RequestMeta: Clone + Default + Unpin + Send + Sync + 'static,
 {
     /// Creates an instance of this middleware service.
     #[must_use]
@@ -83,10 +93,10 @@ impl<RequestOctets, NextSvc, RequestMeta>
 impl<RequestOctets, NextSvc, RequestMeta>
     EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
-    RequestOctets: Octets + Send + Sync + Unpin,
     NextSvc: Service<RequestOctets, RequestMeta>,
-    NextSvc::Target: Composer + Default,
-    RequestMeta: Clone + Default,
+    NextSvc::Future: Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+    RequestMeta: Clone + Default + Unpin + Send + Sync + 'static,
 {
     fn preprocess(
         &self,
@@ -411,11 +421,10 @@ where
 impl<RequestOctets, NextSvc, RequestMeta> Service<RequestOctets, RequestMeta>
     for EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
-    RequestOctets: Octets + Send + Sync + 'static + Unpin,
-    RequestMeta: Clone + Default + Unpin,
     NextSvc: Service<RequestOctets, RequestMeta>,
-    NextSvc::Target: Composer + Default,
     NextSvc::Future: Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin + Clone,
+    RequestMeta: Clone + Default + Unpin + Send + Sync + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
@@ -431,8 +440,7 @@ where
         Once<Ready<<NextSvc::Stream as Stream>::Item>>,
         <NextSvc::Stream as Stream>::Item,
     >;
-    type Future = core::future::Ready<Self::Stream>;
-
+    type Future = Ready<Self::Stream>;
     fn call(
         &self,
         mut request: Request<RequestOctets, RequestMeta>,
@@ -568,7 +576,7 @@ mod tests {
         );
 
         fn my_service(
-            req: Request<Vec<u8>>,
+            req: Request<Vec<u8>, ()>,
             _meta: (),
         ) -> ServiceResult<Vec<u8>> {
             // For each request create a single response:

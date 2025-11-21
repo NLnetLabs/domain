@@ -61,7 +61,6 @@ use crate::base::message::CopyRecordsError;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::name::Name;
 use crate::base::net::IpAddr;
-use crate::base::wire::Composer;
 use crate::base::{
     Message, ParsedName, Question, Rtype, Serial, StreamTarget, ToName,
 };
@@ -83,7 +82,15 @@ use crate::rdata::{AllRecordData, ZoneRecordData};
 ///
 /// [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
 #[derive(Clone, Debug)]
-pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N> {
+pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
+where
+    NextSvc: Service<RequestOctets, RequestMeta> + Unpin + Clone,
+    NextSvc::Future: Sync + Unpin,
+    N: Notifiable + Clone + Sync + Send + 'static,
+    RequestOctets: Octets + Send + Sync + 'static + Clone,
+    RequestMeta: Clone + Default + Sync + Send + 'static,
+    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
+{
     /// The upstream [`Service`] to pass requests to and receive responses
     /// from.
     next_svc: NextSvc,
@@ -96,6 +103,13 @@ pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N> {
 
 impl<RequestOctets, NextSvc, RequestMeta, N>
     NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
+where
+    NextSvc: Service<RequestOctets, RequestMeta> + Unpin + Clone,
+    NextSvc::Future: Sync + Unpin,
+    N: Notifiable + Clone + Sync + Send + 'static,
+    RequestOctets: Octets + Send + Sync + 'static + Clone,
+    RequestMeta: Clone + Default + Sync + Send + 'static,
+    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
 {
     /// Creates an instance of this middleware service.
     ///
@@ -114,11 +128,12 @@ impl<RequestOctets, NextSvc, RequestMeta, N>
 impl<RequestOctets, NextSvc, RequestMeta, N>
     NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 where
-    RequestOctets: Octets + Send + Sync,
-    RequestMeta: Clone + Default,
-    NextSvc: Service<RequestOctets, RequestMeta>,
-    NextSvc::Target: Composer + Default,
-    N: Clone + Notifiable + Sync + Send,
+    NextSvc: Service<RequestOctets, RequestMeta> + Unpin + Clone,
+    NextSvc::Future: Sync + Unpin,
+    N: Notifiable + Clone + Sync + Send + 'static,
+    RequestOctets: Octets + Send + Sync + 'static + Clone,
+    RequestMeta: Clone + Default + Sync + Send + 'static,
+    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
 {
     /// Pre-process received DNS NOTIFY queries.
     ///
@@ -353,18 +368,12 @@ impl<RequestOctets, NextSvc, RequestMeta, N>
     Service<RequestOctets, RequestMeta>
     for NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 where
-    RequestOctets: Octets + Send + Sync + 'static,
+    NextSvc: Service<RequestOctets, RequestMeta> + Unpin + Clone,
+    NextSvc::Future: Sync + Unpin,
+    N: Notifiable + Clone + Sync + Send + 'static,
+    RequestOctets: Octets + Send + Sync + 'static + Clone,
     RequestMeta: Clone + Default + Sync + Send + 'static,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    NextSvc: Service<RequestOctets, RequestMeta>
-        + Clone
-        + 'static
-        + Send
-        + Sync
-        + Unpin,
-    NextSvc::Future: Send + Sync + Unpin,
-    NextSvc::Target: Composer + Default + Send + Sync,
-    N: Notifiable + Clone + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = MiddlewareStream<

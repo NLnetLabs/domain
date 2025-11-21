@@ -13,17 +13,20 @@
 //! > the Internet._
 //!
 //! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse
-use arc_swap::ArcSwap;
 use core::future::poll_fn;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
-use octseq::Octets;
+
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
+
+use arc_swap::ArcSwap;
+use octseq::Octets;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::time::{interval, timeout, MissedTickBehavior};
@@ -39,8 +42,6 @@ use crate::utils::config::DefMinMax;
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
 use super::ServerCommand;
-use crate::base::wire::Composer;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 // TODO: Should this crate also provide a TLS listener implementation?
 
@@ -229,7 +230,7 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 /// use domain::net::server::stream::StreamServer;
 /// use domain::net::server::util::service_fn;
 ///
-/// fn my_service(msg: Request<Vec<u8>>, _meta: ()) -> ServiceResult<Vec<u8>>
+/// fn my_service(msg: Request<Vec<u8>, ()>, _meta: ()) -> ServiceResult<Vec<u8>>
 /// {
 ///     todo!()
 /// }
@@ -270,8 +271,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default, // + 'static,
+    Svc: Service<Buf::Output, ()> + Clone,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config>>,
@@ -315,8 +315,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default,
+    Svc: Service<Buf::Output, ()> + Clone,
 {
     /// Creates a new [`StreamServer`] instance.
     ///
@@ -395,8 +394,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Debug + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default,
+    Svc: Service<Buf::Output, ()> + Clone,
 {
     /// Get a reference to the source for this server.
     #[must_use]
@@ -418,8 +416,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default,
+    Svc: Service<Buf::Output, ()> + Clone,
 {
     /// Start the server.
     ///
@@ -435,10 +432,6 @@ where
         Listener::Error: Send,
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
-        Svc: 'static,
-        Svc::Target: Send + Sync,
-        Svc::Stream: Send,
-        Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
             error!("Server stopped due to error: {err}");
@@ -513,8 +506,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default,
+    Svc: Service<Buf::Output, ()> + Clone,
 {
     /// Accept stream connections until shutdown or fatal error.
     async fn run_until_error(&self) -> Result<(), String>
@@ -524,10 +516,6 @@ where
         Listener::Error: Send,
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
-        Svc: 'static,
-        Svc::Target: Send + Sync,
-        Svc::Stream: Send,
-        Svc::Future: Send,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -646,10 +634,6 @@ where
         Listener::Error: Send,
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
-        Svc: 'static,
-        Svc::Target: Composer + Send + Sync,
-        Svc::Stream: Send,
-        Svc::Future: Send,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
@@ -713,8 +697,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default,
+    Svc: Service<Buf::Output, ()> + Clone,
 {
     fn drop(&mut self) {
         // Shutdown the StreamServer. Don't handle the failure case here as

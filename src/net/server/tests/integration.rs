@@ -21,7 +21,6 @@ use tracing::{trace, warn};
 use crate::base::iana::{Class, Rcode};
 use crate::base::name::ToName;
 use crate::base::net::IpAddr;
-use crate::base::wire::Composer;
 use crate::base::Name;
 use crate::base::Rtype;
 use crate::base::Serial;
@@ -228,17 +227,14 @@ fn mk_servers<Svc>(
     Arc<StreamServer<ClientServerChannel, VecBufSource, Svc>>,
 )
 where
-    Svc: Clone + Service + Send + Sync,
-    <Svc as Service>::Future: Send,
-    <Svc as Service>::Target: Composer + Default + Send + Sync,
-    <Svc as Service>::Stream: Send,
+    Svc: Service<Vec<u8>, ()> + Clone,
 {
     // Prepare middleware to be used by the DNS servers to pre-process
     // received requests and post-process created responses.
     let (dgram_config, stream_config) = mk_server_configs(server_config);
 
     // Create a dgram server for handling UDP requests.
-    let dgram_server = DgramServer::<_, _, Svc>::with_config(
+    let dgram_server = DgramServer::with_config(
         dgram_server_conn.clone(),
         VecBufSource,
         service.clone(),
