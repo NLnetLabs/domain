@@ -7,7 +7,6 @@ use core::time::Duration;
 use std::fs::File;
 use std::io;
 use std::io::BufReader;
-use std::marker::Unpin;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
