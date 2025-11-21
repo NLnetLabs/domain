@@ -744,7 +744,8 @@ impl<Sock> Clone for ServiceResponseHandler<Sock> {
 
 //--- ServiceInvoker
 
-impl<Sock, RequestOctets, Svc, RequestMeta> ServiceInvoker<RequestOctets, Svc, RequestMeta, SocketAddr>
+impl<Sock, RequestOctets, Svc, RequestMeta>
+    ServiceInvoker<RequestOctets, Svc, RequestMeta, SocketAddr>
     for ServiceResponseHandler<Sock>
 where
     RequestOctets: Octets + Send + Sync + 'static,
