@@ -243,14 +243,6 @@ pub fn rsa_encode(mut e: &[u8], mut n: &[u8]) -> Vec<u8> {
     key
 }
 
-pub fn trim_leading_zeroes(bytes: &[u8]) -> &[u8] {
-    bytes
-        .iter()
-        .position(|&v| v != 0)
-        .map(|idx| &bytes[idx..])
-        .unwrap_or_default()
-}
-
 //------------ AlgorithmError ------------------------------------------------
 
 /// An algorithm error during verification.

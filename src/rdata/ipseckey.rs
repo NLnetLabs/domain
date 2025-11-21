@@ -80,12 +80,16 @@ impl<Octs, N> Ipseckey<Octs, N> {
     /// Create a Ipseckey record data from provided parameters.
     pub fn new(
         precedence: u8,
-        gateway_type: IpseckeyGatewayType,
         algorithm: IpseckeyAlgorithm,
         gateway: IpseckeyGateway<N>,
         key: Octs,
     ) -> Self {
-        // TODO: Check if gateway_type and gateway variant are compatible?
+        let gateway_type = match gateway {
+            IpseckeyGateway::None => IpseckeyGatewayType::NONE,
+            IpseckeyGateway::Ipv4(_) => IpseckeyGatewayType::IPV4,
+            IpseckeyGateway::Ipv6(_) => IpseckeyGatewayType::IPV6,
+            IpseckeyGateway::Name(_) => IpseckeyGatewayType::NAME,
+        };
         Self {
             precedence,
             gateway_type,
@@ -706,7 +710,7 @@ mod test {
         for (precedence, gateway_type, algorithm, gateway_str, gateway) in [
             (
                 10,
-                1.into(),
+                IpseckeyGatewayType::from_int(1),
                 2.into(),
                 "192.0.2.38",
                 IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
@@ -751,13 +755,7 @@ mod test {
                 ),
             ),
         ] {
-            let rdata = Ipseckey::new(
-                precedence,
-                gateway_type,
-                algorithm,
-                gateway,
-                &key,
-            );
+            let rdata = Ipseckey::new(precedence, algorithm, gateway, &key);
             test_rdlen(&rdata);
             test_compose_parse(&rdata, |parser| Ipseckey::parse(parser));
             test_scan(
@@ -776,7 +774,6 @@ mod test {
         // IPSECKEY ( 10 0 0 . )
         let rdata = Ipseckey::new(
             10,
-            0.into(),
             0.into(),
             IpseckeyGateway::<Name<Vec<u8>>>::None,
             &[],
@@ -798,7 +795,7 @@ mod test {
     fn ipseckey_scan_wrong_gateway() {
         // IPSECKEY ( 10 0 2 this.should.be.just.dot. AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
         let precedence = 10;
-        let gateway_type = 0.into();
+        let gateway_type = IpseckeyGatewayType::from_int(0);
         let algorithm = 2.into();
         let wrong_gateway_str = "this.should.be.just.dot.";
         // let wrong_gateway: IpseckeyGateway<Name<Vec<u8>>> =
@@ -806,13 +803,8 @@ mod test {
         let correct_gateway = IpseckeyGateway::<Name<Vec<u8>>>::None;
         let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
         let key: Vec<u8> = decode(key_str).unwrap();
-        let correct_rdata = Ipseckey::new(
-            precedence,
-            gateway_type,
-            algorithm,
-            correct_gateway,
-            key,
-        );
+        let correct_rdata =
+            Ipseckey::new(precedence, algorithm, correct_gateway, key);
         // This should panic in the unwrap within test_scan
         test_scan(
             &[
@@ -868,7 +860,6 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
         let expected_ipseckeys = [
             Ipseckey::new(
                 10,
-                1.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
                     Ipv4Addr::new(192, 0, 2, 38).into(),
@@ -877,14 +868,12 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
             ),
             Ipseckey::new(
                 10,
-                0.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::None,
                 &key,
             ),
             Ipseckey::new(
                 10,
-                1.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::Ipv4(
                     Ipv4Addr::new(192, 0, 2, 3).into(),
@@ -893,7 +882,6 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
             ),
             Ipseckey::new(
                 10,
-                3.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::Name(
                     Name::from_str("mygateway.example.com.").unwrap(),
@@ -902,7 +890,6 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
             ),
             Ipseckey::new(
                 10,
-                2.into(),
                 2.into(),
                 IpseckeyGateway::<Name<Vec<u8>>>::Ipv6(
                     Ipv6Addr::new(

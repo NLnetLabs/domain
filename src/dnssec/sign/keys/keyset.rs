@@ -8,7 +8,7 @@
 //! ```no_run
 //! use domain::base::iana::SecurityAlgorithm;
 //! use domain::base::Name;
-//! use domain::dnssec::sign::keys::keyset::{KeySet, RollType, UnixTime};
+//! use domain::dnssec::sign::keys::keyset::{Available, KeySet, RollType, UnixTime};
 //! use std::fs::File;
 //! use std::io::Write;
 //! use std::str::FromStr;
@@ -20,10 +20,10 @@
 //!
 //! // Add two keys.
 //! ks.add_key_ksk("first KSK.key".to_string(), None,
-//!    SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now(), true);
+//!    SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now(), Available::Available);
 //! ks.add_key_zsk("first ZSK.key".to_string(),
 //!     Some("first ZSK.private".to_string()),
-//!     SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now(), true);
+//!     SecurityAlgorithm::ECDSAP256SHA256, 0, UnixTime::now(), Available::Available);
 //!
 //! // Save the state.
 //! let json = serde_json::to_string(&ks).unwrap();

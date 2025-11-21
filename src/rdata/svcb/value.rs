@@ -551,6 +551,11 @@ where
                     ));
                 }
             }
+            if keys.is_empty() {
+                return Err(S::Error::custom(
+                    "mandatory requires at least one value",
+                ));
+            }
             for k in keys {
                 k.compose(&mut tmp).map_err(|_| S::Error::short_buf())?;
             }
@@ -711,7 +716,17 @@ where
             let mut tmp = scanner.octets_builder()?;
             let mut iter = SvcParamValueScanIter::from_slice(octs.as_ref());
             let mut at_least_one = false;
-            while let Some(item) = iter.next() {
+            // For now: "Zone-file implementations MAY disallow the "," and
+            // "\" characters in ALPN IDs instead of implementing the
+            // value-list escaping procedure, relying on the opaque key format
+            // (e.g., key1=\002h2) in the event that these characters are
+            // needed."
+            // (https://www.rfc-editor.org/rfc/rfc9460.html#section-7.1.1-3)
+            // TODO: implement ALPN escaping
+            // while let Some(item) = iter.next() {
+            while let Some(item) = iter.next_no_escapes().map_err(|_| {
+                S::Error::custom("this implementation does not allow escape sequences in alpn")
+            })? {
                 at_least_one = true;
                 let len: u8 = item.len().try_into().map_err(|_| {
                     S::Error::custom("SvcParamValue is too long")
@@ -1352,9 +1367,15 @@ where
                     .map_err(|_| S::Error::short_buf())?;
             }
             // tmp.append_slice();
-            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+            let ipv4hint = Self::from_octets(tmp.freeze()).map_err(|_| {
                 S::Error::custom("invalid svc param value for ipv4hint")
-            })?))
+            })?;
+            if ipv4hint.as_slice().is_empty() {
+                return Err(S::Error::custom(
+                    "ipv4hint requires at least one value",
+                ));
+            }
+            Ok(Some(ipv4hint))
         } else {
             Ok(None)
         }
@@ -1534,10 +1555,15 @@ where
                 tmp.append_slice(&ip.octets())
                     .map_err(|_| S::Error::short_buf())?;
             }
-            // tmp.append_slice();
-            Ok(Some(Self::from_octets(tmp.freeze()).map_err(|_| {
+            let ipv6hint = Self::from_octets(tmp.freeze()).map_err(|_| {
                 S::Error::custom("invalid svc param value for ipv6hint")
-            })?))
+            })?;
+            if ipv6hint.as_slice().is_empty() {
+                return Err(S::Error::custom(
+                    "ipv6hint requires at least one value",
+                ));
+            }
+            Ok(Some(ipv6hint))
         } else {
             Ok(None)
         }
@@ -2118,40 +2144,52 @@ impl<'a> SvcParamValueScanIter<'a> {
         }
     }
 
-    pub fn next(&mut self) -> Option<&[u8]> {
-        if self.start_next >= self.data.len() {
-            None
-        } else {
-            let mut is_escaped = false;
-            let start = self.start_next;
-            self.end = self.start_next;
+    // Evaluating the escape sequences for SvcParamValues was broken and is
+    // therefore removed for now. The needed fix is to move the escaped byte
+    // to the left in the buffer and overwrite the backslash that was used to
+    // escape said byte. So, r"\\" needs to turn into r"\" and r"\," into
+    // r",".
+    // https://www.rfc-editor.org/rfc/rfc9460.html#appendix-A.1-3
+    // item            = 1*OCTET
+    // escaped-item    = 1*(item-allowed / "\," / "\\")
+    // comma-separated = [escaped-item *("," escaped-item)]
 
-            loop {
-                if self.end < self.data.len() {
-                    // Still data to read
-                    if !is_escaped && self.data[self.end] == b',' {
-                        // End of value. Return item
-                        break;
-                    } else {
-                        // Value not yet ended. Read more
-                        if is_escaped {
-                            is_escaped = false;
-                        } else if self.data[self.end] == b'\\' {
-                            is_escaped = true;
-                        }
+    // pub fn next(&mut self) -> Option<&[u8]> {
+    //     if self.start_next >= self.data.len() {
+    //         None
+    //     } else {
+    //         let mut is_escaped = false;
+    //         let start = self.start_next;
+    //         self.end = self.start_next;
 
-                        self.end += 1;
-                    }
-                } else {
-                    // End of data. Return item
-                    break;
-                }
-            }
+    //         loop {
+    //             if self.end < self.data.len() {
+    //                 // Still data to read
+    //                 if !is_escaped && self.data[self.end] == b',' {
+    //                     // End of value. Return item
+    //                     break;
+    //                 } else {
+    //                     // Value not yet ended. Read more
+    //                     if is_escaped {
+    //                          // TODO: move current byte one byte to the
+    //                          // left to overwrite the escaping backslash
+    //                         is_escaped = false;
+    //                     } else if self.data[self.end] == b'\\' {
+    //                         is_escaped = true;
+    //                     }
 
-            self.start_next = self.end + 1;
-            Some(&self.data[start..self.end])
-        }
-    }
+    //                     self.end += 1;
+    //                 }
+    //             } else {
+    //                 // End of data. Return item
+    //                 break;
+    //             }
+    //         }
+
+    //         self.start_next = self.end + 1;
+    //         Some(&self.data[start..self.end])
+    //     }
+    // }
 
     /// An iterator but error on escape sequences
     pub fn next_no_escapes(&mut self) -> Result<Option<&[u8]>, ()> {

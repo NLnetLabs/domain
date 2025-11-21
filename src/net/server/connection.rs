@@ -1,15 +1,17 @@
 //! Support for stream based connections.
+use core::future::Future;
 use core::ops::{ControlFlow, Deref};
+use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
+use std::boxed::Box;
 use std::fmt::Display;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use futures_util::StreamExt;
 use log::{log_enabled, Level};
 use octseq::Octets;
 use tokio::io::{
@@ -21,15 +23,17 @@ use tokio::time::Instant;
 use tokio::time::{sleep_until, timeout};
 use tracing::{debug, error, trace, warn};
 
+use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::service::{Service, ServiceFeedback};
-use crate::net::server::util::to_pcap_text;
+use crate::net::server::service::Service;
+use crate::net::server::util::{mk_error_response, to_pcap_text};
 use crate::utils::config::DefMinMax;
 
+use super::invoker::{InvokerStatus, ServiceInvoker};
 use super::message::{NonUdpTransportContext, TransportSpecificContext};
 use super::stream::Config as ServerConfig;
 use super::ServerCommand;
@@ -270,6 +274,9 @@ where
 
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
+
+    /// Dispatches requests to the service and enqueues responses for sending.
+    request_dispatcher: ServiceResponseHandler<Buf::Output, Svc, RequestMeta>,
 }
 
 /// Creation
@@ -278,7 +285,7 @@ impl<Stream, Buf, Svc, RequestMeta> Connection<Stream, Buf, Svc, RequestMeta>
 where
     RequestMeta: Default + Clone + Send + 'static,
     Stream: AsyncRead + AsyncWrite,
-    Buf: BufSource,
+    Buf: BufSource + Clone + Send + Sync,
     Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output, RequestMeta> + Clone,
 {
@@ -328,6 +335,12 @@ where
         // uses of self we have to do while running.
         let stream_rx = Some(stream_rx);
 
+        let request_dispatcher = ServiceResponseHandler::new(
+            config.clone(),
+            result_q_tx.clone(),
+            metrics.clone(),
+        );
+
         Self {
             active: false,
             buf,
@@ -341,6 +354,7 @@ where
             idle_timer,
             in_transaction,
             metrics,
+            request_dispatcher,
         }
     }
 }
@@ -369,9 +383,7 @@ where
     pub async fn run(
         mut self,
         command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
-    ) where
-        Svc::Future: Send,
-    {
+    ) {
         self.metrics.inc_num_connections();
 
         // Flag that we have to decrease the metric count on Drop.
@@ -589,7 +601,7 @@ where
         if log_enabled!(Level::Trace) {
             let bytes = msg.as_dgram_slice();
             let pcap_text = to_pcap_text(bytes, bytes.len());
-            trace!(addr = %self.addr, pcap_text, "Sending response");
+            trace!(addr = %self.addr, pcap_text, "Sending {} bytes of response tp {}", self.addr, bytes.len());
         }
 
         match timeout(
@@ -649,19 +661,18 @@ where
     ) -> Result<(), ConnectionEvent>
     where
         Svc::Stream: Send,
+        Svc::Target: Default,
     {
-        let in_transaction = self.in_transaction.clone();
-
         match res {
             Ok(buf) => {
                 let received_at = Instant::now();
-
-                self.metrics.inc_num_received_requests();
 
                 if log_enabled!(Level::Trace) {
                     let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
                     trace!(addr = %self.addr, pcap_text, "Received message");
                 }
+
+                self.metrics.inc_num_received_requests();
 
                 // Message received, reset the DNS idle timer
                 self.idle_timer.full_msg_received();
@@ -672,6 +683,9 @@ where
                         tracing::warn!(
                             "Failed while parsing request message: {err}"
                         );
+                        // Consider the client to be a threat to us if it is
+                        // sending garbage that we can't parse: disconnect it
+                        // immediately.
                         return Err(ConnectionEvent::DisconnectWithoutFlush);
                     }
 
@@ -682,136 +696,39 @@ where
                     Ok(msg) if msg.header().qr() => {
                         // TO DO: Count this event?
                         trace!("Ignoring received message because it is a reply, not a query.");
+                        let response =
+                            mk_error_response::<Buf::Output, Svc::Target>(
+                                &msg,
+                                OptRcode::FORMERR,
+                            );
+                        let dispatcher = self.request_dispatcher.clone();
+                        tokio::spawn(async move {
+                            dispatcher.do_enqueue_response(response).await;
+                        });
                     }
 
                     Ok(msg) => {
                         let ctx = NonUdpTransportContext::new(Some(
                             self.config.load().idle_timeout,
                         ));
-                        let ctx = TransportSpecificContext::NonUdp(ctx);
+
                         let request = Request::new(
                             self.addr,
                             received_at,
                             msg,
-                            ctx,
+                            TransportSpecificContext::NonUdp(ctx),
                             Default::default(),
                         );
-
-                        let svc = self.service.clone();
-                        let result_q_tx = self.result_q_tx.clone();
-                        let metrics = self.metrics.clone();
-                        let config = self.config.clone();
 
                         trace!(
                             "Spawning task to handle new message with id {}",
                             request.message().header().id()
                         );
+
+                        let mut dispatcher = self.request_dispatcher.clone();
+                        let service = self.service.clone();
                         tokio::spawn(async move {
-                            // If we don't see the next log message it may be
-                            // because the stream listener was originally an
-                            // std listener, not a Tokio listener, and it was
-                            // not properly put in non-blocking mode before
-                            // being passed to us. This then causes .recv()
-                            // above to block, preventing this task from
-                            // running if it is scheduled on the same thread.
-                            trace!("Task spawned to handle message");
-
-                            let request_id = request.message().header().id();
-                            trace!(
-                                "Calling service for request id {request_id}"
-                            );
-                            let mut stream = svc.call(request).await;
-
-                            trace!("Awaiting service call results for request id {request_id}");
-                            while let Some(Ok(call_result)) =
-                                stream.next().await
-                            {
-                                let (response, feedback) =
-                                    call_result.into_inner();
-
-                                trace!("Processing service call result for request id {request_id}: response? {} feedback? {feedback:?}", response.is_some());
-                                if let Some(feedback) = feedback {
-                                    match feedback {
-                                        ServiceFeedback::Reconfigure {
-                                            idle_timeout,
-                                        } => {
-                                            if let Some(idle_timeout) =
-                                                idle_timeout
-                                            {
-                                                debug!(
-                                                    "Reconfigured connection timeout to {idle_timeout:?}"
-                                                );
-                                                let guard = config.load();
-                                                let mut new_config = **guard;
-                                                new_config.idle_timeout =
-                                                    idle_timeout;
-                                                config.store(Arc::new(
-                                                    new_config,
-                                                ));
-                                            }
-                                        }
-
-                                        ServiceFeedback::BeginTransaction => {
-                                            in_transaction.store(
-                                                true,
-                                                Ordering::SeqCst,
-                                            );
-                                        }
-
-                                        ServiceFeedback::EndTransaction => {
-                                            in_transaction.store(
-                                                false,
-                                                Ordering::SeqCst,
-                                            );
-                                        }
-                                    }
-                                }
-
-                                if let Some(mut response) = response {
-                                    loop {
-                                        trace!("Sending response");
-                                        match result_q_tx.try_send(response) {
-                                            Ok(()) => {
-                                                let pending_writes =
-                                                    result_q_tx
-                                                        .max_capacity()
-                                                        - result_q_tx
-                                                            .capacity();
-                                                trace!("Queued message for sending: # pending writes={pending_writes}");
-                                                metrics
-                                                    .set_num_pending_writes(
-                                                        pending_writes,
-                                                    );
-                                                break;
-                                            }
-
-                                            Err(TrySendError::Closed(_)) => {
-                                                error!("Unable to queue message for sending: connection is shutting down.");
-                                                return;
-                                            }
-
-                                            Err(TrySendError::Full(
-                                                unused_response,
-                                            )) => {
-                                                if in_transaction
-                                                    .load(Ordering::SeqCst)
-                                                {
-                                                    // Wait until there is space in the message queue.
-                                                    tokio::task::yield_now()
-                                                        .await;
-                                                    response =
-                                                        unused_response;
-                                                } else {
-                                                    error!("Unable to queue message for sending: queue is full.");
-                                                    return;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                trace!("Finished processing service call result for request id {request_id}");
-                            }
-                            trace!("Finished processing service call results for request id {request_id}");
+                            dispatcher.dispatch(request, service, ()).await
                         });
                     }
                 }
@@ -1091,5 +1008,149 @@ impl IdleTimer {
         // session to be idle when it has sent responses to all the queries it
         // has received on that connection."
         self.reset_idle_timer()
+    }
+}
+
+//------------ ServiceResponseHandler -----------------------------------------
+
+/// Handles responses from the [`Service`] impl.
+struct ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
+where
+    RequestOctets: AsRef<[u8]> + Send + Sync,
+    RequestMeta: Clone + Default,
+    Svc: Service<RequestOctets, RequestMeta> + Clone,
+{
+    /// User supplied settings that influence our behaviour.
+    ///
+    /// May updated during request and response processing based on received
+    /// [`ServiceFeedback`].
+    config: Arc<ArcSwap<Config>>,
+
+    /// The writer for pushing ready responses onto the queue waiting
+    /// to be written back the client.
+    result_q_tx: mpsc::Sender<AdditionalBuilder<StreamTarget<Svc::Target>>>,
+
+    /// [`ServerMetrics`] describing the status of the server.
+    metrics: Arc<ServerMetrics>,
+
+    /// The status of the service invoker.
+    status: InvokerStatus,
+}
+
+impl<RequestOctets, Svc, RequestMeta> ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
+where
+    RequestOctets: AsRef<[u8]> + Send + Sync,
+    RequestMeta: Clone + Default,
+    Svc: Service<RequestOctets, RequestMeta> + Clone,
+{
+    /// Creates a new instance of the service response handler.
+    fn new(
+        config: Arc<ArcSwap<Config>>,
+        result_q_tx: mpsc::Sender<
+            AdditionalBuilder<StreamTarget<Svc::Target>>,
+        >,
+        metrics: Arc<ServerMetrics>,
+    ) -> Self {
+        Self {
+            config,
+            result_q_tx,
+            metrics,
+            status: InvokerStatus::Normal,
+        }
+    }
+
+    /// Apply changes to our configuration as requested by the [`Service`]
+    /// impl.
+    fn update_config(&self, idle_timeout: Option<Duration>) {
+        if let Some(idle_timeout) = idle_timeout {
+            debug!("Reconfigured connection timeout to {idle_timeout:?}");
+            let guard = self.config.load();
+            let mut new_config = **guard;
+            new_config.idle_timeout = idle_timeout;
+            self.config.store(Arc::new(new_config));
+        }
+    }
+
+    /// Enqueue a response from the [`Service`] impl for writing back to the
+    /// client.
+    async fn do_enqueue_response(
+        &self,
+        mut response: AdditionalBuilder<StreamTarget<Svc::Target>>,
+    ) {
+        loop {
+            match self.result_q_tx.try_send(response) {
+                Ok(()) => {
+                    let pending_writes = self.result_q_tx.max_capacity()
+                        - self.result_q_tx.capacity();
+                    trace!("Queued message for sending: # pending writes={pending_writes}");
+                    self.metrics.set_num_pending_writes(pending_writes);
+                    break;
+                }
+
+                Err(TrySendError::Closed(_)) => {
+                    error!("Unable to queue message for sending: connection is shutting down.");
+                    break;
+                }
+
+                Err(TrySendError::Full(unused_response)) => {
+                    if matches!(self.status, InvokerStatus::InTransaction) {
+                        // Wait until there is space in the message queue.
+                        tokio::task::yield_now().await;
+                        response = unused_response;
+                    } else {
+                        error!("Unable to queue message for sending: queue is full.");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+//--- Clone
+
+impl<RequestOctets, Svc, RequestMeta> Clone for ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
+where
+    RequestOctets: AsRef<[u8]> + Send + Sync,
+    RequestMeta: Clone + Default,
+    Svc: Service<RequestOctets, RequestMeta> + Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            result_q_tx: self.result_q_tx.clone(),
+            metrics: self.metrics.clone(),
+            status: InvokerStatus::Normal,
+        }
+    }
+}
+
+//--- ServiceInvoker
+
+impl<RequestOctets, Svc, RequestMeta> ServiceInvoker<RequestOctets, Svc, RequestMeta, ()>
+    for ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
+where
+    RequestOctets: Octets + Send + Sync + 'static,
+    RequestMeta: Clone + Default + Send + 'static,
+    Svc: Service<RequestOctets, RequestMeta> + Clone,
+{
+    fn status(&self) -> InvokerStatus {
+        self.status
+    }
+
+    fn set_status(&mut self, status: InvokerStatus) {
+        self.status = status;
+    }
+
+    fn reconfigure(&self, idle_timeout: Option<Duration>) {
+        self.update_config(idle_timeout);
+    }
+
+    fn enqueue_response(
+        &self,
+        response: AdditionalBuilder<StreamTarget<Svc::Target>>,
+        _meta: &(),
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { self.do_enqueue_response(response).await })
     }
 }
