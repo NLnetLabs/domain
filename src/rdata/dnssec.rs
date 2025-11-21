@@ -4,6 +4,24 @@
 //!
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
+use core::cmp::Ordering;
+use core::convert::TryInto;
+use core::{cmp, fmt, hash, str};
+
+#[cfg(feature = "std")]
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(feature = "std")]
+use std::vec::Vec;
+
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
+};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
+use time::{Date, Month, PrimitiveDateTime, Time};
+
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlgorithm, Rtype, SecurityAlgorithm};
 use crate::base::name::{FlattenInto, ParsedName, ToName};
@@ -16,21 +34,6 @@ use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::Ttl;
 use crate::utils::{base16, base64};
-use core::cmp::Ordering;
-use core::convert::TryInto;
-use core::{cmp, fmt, hash, str};
-use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
-};
-use octseq::octets::{Octets, OctetsFrom, OctetsInto};
-use octseq::parse::Parser;
-#[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
-#[cfg(feature = "std")]
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-#[cfg(feature = "std")]
-use std::vec::Vec;
-use time::{Date, Month, PrimitiveDateTime, Time};
 
 //------------ Dnskey --------------------------------------------------------
 
