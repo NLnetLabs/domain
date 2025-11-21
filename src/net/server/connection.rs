@@ -1037,7 +1037,8 @@ where
     status: InvokerStatus,
 }
 
-impl<RequestOctets, Svc, RequestMeta> ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
+impl<RequestOctets, Svc, RequestMeta>
+    ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
 where
     RequestOctets: AsRef<[u8]> + Send + Sync,
     RequestMeta: Clone + Default,
@@ -1109,7 +1110,8 @@ where
 
 //--- Clone
 
-impl<RequestOctets, Svc, RequestMeta> Clone for ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
+impl<RequestOctets, Svc, RequestMeta> Clone
+    for ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
 where
     RequestOctets: AsRef<[u8]> + Send + Sync,
     RequestMeta: Clone + Default,
@@ -1127,7 +1129,8 @@ where
 
 //--- ServiceInvoker
 
-impl<RequestOctets, Svc, RequestMeta> ServiceInvoker<RequestOctets, Svc, RequestMeta, ()>
+impl<RequestOctets, Svc, RequestMeta>
+    ServiceInvoker<RequestOctets, Svc, RequestMeta, ()>
     for ServiceResponseHandler<RequestOctets, Svc, RequestMeta>
 where
     RequestOctets: Octets + Send + Sync + 'static,
