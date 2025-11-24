@@ -50,7 +50,7 @@ pub(crate) fn mk_record<D>(owner: &str, data: D) -> Record<StoredName, D> {
 
 pub(crate) fn mk_a_rr<R>(owner: &str) -> Record<StoredName, R>
 where
-    R: From<A>,
+    R: From<A> + Send,
 {
     mk_record(owner, A::from_str("1.2.3.4").unwrap().into())
 }
@@ -214,7 +214,7 @@ pub(crate) fn mk_rrsig_rr<R>(
     signature: Bytes,
 ) -> Record<StoredName, R>
 where
-    R: From<Rrsig<Bytes, StoredName>>,
+    R: From<Rrsig<Bytes, StoredName>> + Send,
 {
     let signer_name = mk_name(signer_name);
     let expiration = Timestamp::from(expiration);
@@ -243,7 +243,7 @@ pub(crate) fn mk_soa_rr<R>(
     rname: &str,
 ) -> Record<StoredName, R>
 where
-    R: From<Soa<StoredName>>,
+    R: From<Soa<StoredName>> + Send,
 {
     let soa = Soa::new(
         mk_name(mname),
@@ -254,7 +254,7 @@ where
         TEST_TTL,
         TEST_TTL,
     );
-    mk_record(owner, soa.into())
+    mk_record::<R>(owner, soa.into())
 }
 
 #[allow(clippy::type_complexity)]
