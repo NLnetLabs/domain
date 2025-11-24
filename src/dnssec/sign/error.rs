@@ -7,7 +7,7 @@ use crate::rdata::dnssec::Timestamp;
 
 //------------ SigningError --------------------------------------------------
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum SigningError {
     /// One or more keys does not have a signature validity period defined.
     NoSignatureValidityPeriodProvided,

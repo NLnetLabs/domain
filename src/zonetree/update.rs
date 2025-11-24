@@ -14,7 +14,7 @@ use tracing::trace;
 
 use crate::base::name::{FlattenInto, Label};
 use crate::base::scan::ScannerError;
-use crate::base::{Name, ParsedName, Record, Rtype, ToName};
+use crate::base::{Name, Record, Rtype, ToName};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
@@ -76,8 +76,8 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #
 /// # // Prepare some records to pass to ZoneUpdater
 /// # let serial = Serial::now();
-/// # let mname = ParsedName::from(Name::from_str("mname").unwrap());
-/// # let rname = ParsedName::from(Name::from_str("rname").unwrap());
+/// # let mname = ParsedName::from(Name::<Bytes>::from_str("mname").unwrap());
+/// # let rname = ParsedName::from(Name::<Bytes>::from_str("rname").unwrap());
 /// # let ttl = Ttl::from_secs(0);
 /// # let new_soa_rec = Record::new(
 /// #     ParsedName::from(Name::from_str("example.com").unwrap()),
@@ -94,7 +94,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
 /// # );
 /// #
-/// let mut updater = ZoneUpdater::<ParsedName<Bytes>>::new(zone.clone()).await.unwrap();
+/// let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 /// updater.apply(ZoneUpdate::DeleteAllRecords);
 /// updater.apply(ZoneUpdate::AddRecord(a_rec));
 /// updater.apply(ZoneUpdate::Finished(new_soa_rec));
@@ -133,8 +133,8 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #
 /// # // Prepare some records to pass to ZoneUpdater
 /// # let serial = Serial::now();
-/// # let mname = ParsedName::from(Name::from_str("mname").unwrap());
-/// # let rname = ParsedName::from(Name::from_str("rname").unwrap());
+/// # let mname = ParsedName::from(Name::<Bytes>::from_str("mname").unwrap());
+/// # let rname = ParsedName::from(Name::<Bytes>::from_str("rname").unwrap());
 /// # let ttl = Ttl::from_secs(0);
 /// # let new_soa_rec = Record::new(
 /// #     ParsedName::from(Name::from_str("example.com").unwrap()),
@@ -159,7 +159,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
 /// # );
 /// #
-/// let mut updater = ZoneUpdater::<ParsedName<Bytes>>::new(zone.clone()).await.unwrap();
+/// let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 /// updater.apply(ZoneUpdate::DeleteRecord(old_a_rec));
 /// updater.apply(ZoneUpdate::AddRecord(new_aaaa_rec));
 /// updater.apply(ZoneUpdate::Finished(new_soa_rec));
@@ -188,7 +188,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// let zone = builder.build();
 ///
 /// // And a ZoneUpdater
-/// let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+/// let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 ///
 /// // And an XFR response interpreter
 /// let mut interpreter = XfrResponseInterpreter::new();
@@ -214,7 +214,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// ```
 ///
 /// [`apply()`]: ZoneUpdater::apply()
-pub struct ZoneUpdater<N = ParsedName<Bytes>> {
+pub struct ZoneUpdater<N> {
     /// The zone to be updated.
     zone: Zone,
 
@@ -244,9 +244,11 @@ where
     /// Use [`apply`][Self::apply] to apply changes to the zone.
     pub fn new(
         zone: Zone,
+        create_diff: bool,
     ) -> Pin<Box<dyn Future<Output = Result<Self, Error>> + Send>> {
         Box::pin(async move {
-            let write = ReopenableZoneWriter::new(zone.clone()).await?;
+            let write =
+                ReopenableZoneWriter::new(zone.clone(), create_diff).await?;
 
             Ok(Self {
                 zone,
@@ -528,15 +530,22 @@ struct ReopenableZoneWriter {
     /// A write interface to the root node of a zone for a particular zone
     /// version.
     writable: Option<Box<dyn WritableZoneNode>>,
+
+    /// Whether or not to create diffs on write.
+    create_diff: bool,
 }
 
 impl ReopenableZoneWriter {
     /// Creates a writer for the given [`Zone`].
-    async fn new(zone: Zone) -> std::io::Result<Self> {
+    async fn new(zone: Zone, create_diff: bool) -> std::io::Result<Self> {
         let write = zone.write().await;
-        let writable = Some(write.open(true).await?);
+        let writable = Some(write.open(create_diff).await?);
         let write = Some(write);
-        Ok(Self { write, writable })
+        Ok(Self {
+            write,
+            writable,
+            create_diff,
+        })
     }
 
     /// Commits any pending changes to the [`Zone`] being written to.
@@ -570,7 +579,7 @@ impl ReopenableZoneWriter {
             self.write
                 .as_mut()
                 .ok_or(Error::Finished)?
-                .open(true)
+                .open(self.create_diff)
                 .await?,
         );
         Ok(())
@@ -654,7 +663,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         let qname = Name::from_str("example.com").unwrap();
 
@@ -712,7 +721,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         let qname = Name::from_str("example.com").unwrap();
 
@@ -753,7 +762,7 @@ mod tests {
         let res = updater.apply(ZoneUpdate::AddRecord(soa_rec.clone())).await;
         assert!(matches!(res, Err(crate::zonetree::update::Error::Finished)));
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         updater
             .apply(ZoneUpdate::AddRecord(soa_rec.clone()))
@@ -802,7 +811,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         // Create an AXFR request to reply to.
         let req = mk_request("example.com", Rtype::AXFR).into_message();
@@ -913,7 +922,7 @@ mod tests {
         //     serial number of 3,"
         let zone = mk_empty_zone("JAIN.AD.JP.");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
         //    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (
         //                                      1 600 600 3600000 604800)
         let soa_1 = mk_rfc_1995_ixfr_example_soa(1);
@@ -924,7 +933,7 @@ mod tests {
 
         //                        IN NS  NS.JAIN.AD.JP.
         let ns_1 = Record::new(
-            ParsedName::from(Name::from_str("JAIN.AD.JP.").unwrap()),
+            ParsedName::from(Name::<Bytes>::from_str("JAIN.AD.JP.").unwrap()),
             Class::IN,
             Ttl::from_secs(0),
             Ns::new(ParsedName::from(
@@ -939,7 +948,9 @@ mod tests {
 
         //    NS.JAIN.AD.JP.      IN A   133.69.136.1
         let a_1 = Record::new(
-            ParsedName::from(Name::from_str("NS.JAIN.AD.JP.").unwrap()),
+            ParsedName::from(
+                Name::<Bytes>::from_str("NS.JAIN.AD.JP.").unwrap(),
+            ),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 1)).into(),
@@ -951,7 +962,9 @@ mod tests {
 
         //    NEZU.JAIN.AD.JP.    IN A   133.69.136.5
         let nezu = Record::new(
-            ParsedName::from(Name::from_str("NEZU.JAIN.AD.JP.").unwrap()),
+            ParsedName::from(
+                Name::<Bytes>::from_str("NEZU.JAIN.AD.JP.").unwrap(),
+            ),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 5)).into(),
@@ -976,7 +989,9 @@ mod tests {
             .await
             .unwrap();
         let a_2 = Record::new(
-            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
+            ParsedName::from(
+                Name::<Bytes>::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(),
+            ),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 4)).into(),
@@ -1011,7 +1026,9 @@ mod tests {
             .await
             .unwrap();
         let a_4 = Record::new(
-            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
+            ParsedName::from(
+                Name::<Bytes>::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(),
+            ),
             Class::IN,
             Ttl::from_secs(0),
             A::new(Ipv4Addr::new(133, 69, 136, 3)).into(),
@@ -1208,7 +1225,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone(), true).await.unwrap();
 
         // Create an AXFR request to reply to.
         let req = mk_request("example.com", Rtype::AXFR).into_message();

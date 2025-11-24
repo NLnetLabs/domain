@@ -34,6 +34,7 @@ chrono         = { version = "0.4.35", optional = true, default-features = false
 futures-util   = { version = "0.3", optional = true }
 hashbrown      = { version = "0.16.0", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
 heapless       = { version = "0.8", optional = true }
+kmip           = { git = "https://github.com/NLnetLabs/kmip-protocol", branch = "next", package = "kmip-protocol", version = "0.5.0", optional = true, features = ["tls-with-rustls"] }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
 log            = { version = "0.4.22", optional = true }
 parking_lot    = { version = "0.12", optional = true }
@@ -41,6 +42,7 @@ moka           = { version = "0.12.3", optional = true, features = ["future"] }
 openssl        = { version = "0.10.72", optional = true } # 0.10.70 upgrades to 'bitflags' 2.x
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17.2", optional = true }
+bcder          = { version = "0.7", optional = true }
 rustversion    = { version = "1", optional = true }
 secrecy        = { version = "0.10", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
@@ -51,6 +53,8 @@ tokio-rustls   = { version = "0.26", optional = true, default-features = false }
 tokio-stream   = { version = "0.1.1", optional = true }
 tracing        = { version = "0.1.40", optional = true, features = ["log"] }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
+url            = { version = "2.5.4", optional = true }
+uuid           = { version = "1.17.0", optional = true, features = ["v4"] }
 
 [features]
 default     = ["std", "rand"]
@@ -66,8 +70,9 @@ std         = ["alloc", "dep:hashbrown", "bumpalo?/std", "bytes?/std", "octseq/s
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
-ring    = ["dep:ring"]
-openssl = ["dep:openssl"]
+ring        = ["dep:ring"]
+openssl     = ["dep:openssl"]
+kmip        = ["dep:kmip", "dep:bcder", "dep:url", "dep:uuid", "dep:openssl"]
 
 # Crate features
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
