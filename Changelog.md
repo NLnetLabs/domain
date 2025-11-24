@@ -15,6 +15,7 @@ New
 * Added support for the `TLSA`, `OPENPGPKEY`, `SSHFP`, and `IPSECKEY`
   record types and added presentation format support for the `SVCB`/`HTTPS`
   record types. ([#569])
+* Add support for the `CAA` record type. ([#434] by [@weilence])
 
 Improvements
 
@@ -37,6 +38,13 @@ Unstable features
     [@rossmacarthur])
   * Be more lenient when timing out connections while they are in a
     transaction. ([#399])
+  * Removed defaults for type arguments to prevent intermediate types that
+    impl the trait from not allowing the defaults to be overridden.
+    ([#484])
+  * Added commonly required bounds to the `Service` trait rather than
+    leaving them to the impl. ([#484])
+  * Removed unnecessary `?Sized` bound on `impl Service for U where U: Deref`.
+    ([#484])
 * `unstable-sign`
    * keyset improvements ([#551])
      * Store the algorithm and key tag of a key to be able to reject duplicate
@@ -56,6 +64,8 @@ Other changes
 [#390]: https://github.com/NLnetLabs/domain/pull/390
 [#393]: https://github.com/NLnetLabs/domain/pull/393
 [#399]: https://github.com/NLnetLabs/domain/pull/399
+[#434]: https://github.com/NLnetLabs/domain/pull/434
+[#484]: https://github.com/NLnetLabs/domain/pull/484
 [#507]: https://github.com/NLnetLabs/domain/pull/507
 [#548]: https://github.com/NLnetLabs/domain/pull/548
 [#550]: https://github.com/NLnetLabs/domain/pull/550
@@ -64,6 +74,7 @@ Other changes
 [#570]: https://github.com/NLnetLabs/domain/pull/570
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [@rossmacarthur]: https://github.com/rossmacarthur
+[@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 
 

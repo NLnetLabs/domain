@@ -398,7 +398,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
     /// quotes. It will escape double quotes, backslashes, and non-printable
     /// octets only.
     pub fn display_quoted(&self) -> DisplayQuoted<'_> {
-        DisplayQuoted(self.for_slice())
+        DisplayQuoted(self.0.as_ref())
     }
 
     /// Returns an object that formats in unquoted presentation format.
@@ -407,7 +407,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
     /// delimiters and escapes space, double quotes, semicolons, backslashes,
     /// and non-printable octets.
     pub fn display_unquoted(&self) -> DisplayUnquoted<'_> {
-        DisplayUnquoted(self.for_slice())
+        DisplayUnquoted(self.0.as_ref())
     }
 }
 
@@ -927,12 +927,18 @@ impl Iterator for Iter<'_> {
 ///
 /// A value of this type can be obtained via `CharStr::display_quoted`.
 #[derive(Clone, Copy, Debug)]
-pub struct DisplayQuoted<'a>(&'a CharStr<[u8]>);
+pub struct DisplayQuoted<'a>(&'a [u8]);
+
+impl<'a> DisplayQuoted<'a> {
+    pub fn from_slice(octets: &'a [u8]) -> Self {
+        DisplayQuoted(octets)
+    }
+}
 
 impl fmt::Display for DisplayQuoted<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("\"")?;
-        for &ch in self.0.as_ref() {
+        for &ch in self.0 {
             fmt::Display::fmt(&Symbol::quoted_from_octet(ch), f)?;
         }
         f.write_str("\"")
@@ -945,11 +951,11 @@ impl fmt::Display for DisplayQuoted<'_> {
 ///
 /// A value of this type can be obtained via `CharStr::display_serialized`.
 #[derive(Clone, Copy, Debug)]
-pub struct DisplayUnquoted<'a>(&'a CharStr<[u8]>);
+pub struct DisplayUnquoted<'a>(&'a [u8]);
 
 impl fmt::Display for DisplayUnquoted<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for &ch in self.0.as_ref() {
+        for &ch in self.0 {
             fmt::Display::fmt(&Symbol::from_octet(ch), f)?;
         }
         Ok(())

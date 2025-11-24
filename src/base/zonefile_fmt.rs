@@ -322,6 +322,7 @@ mod test {
     use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
     use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
     use crate::base::{Name, Record, Ttl};
+    use crate::rdata::caa::{CaaFlags, CaaTag};
     use crate::rdata::{Cds, Cname, Ds, Mx, Txt, A};
 
     fn create_record<Data>(data: Data) -> Record<&'static Name<[u8]>, Data> {
@@ -493,6 +494,20 @@ mod test {
         assert_eq!(
             "example.com.\t3600\tIN\tCDS\t5414 15 2 DEADBEEF",
             record.display_zonefile(DisplayKind::Tabbed).to_string()
+        );
+    }
+
+    #[test]
+    fn caa_record() {
+        use crate::rdata::Caa;
+        let record = create_record(Caa::new(
+            CaaFlags::default(),
+            CaaTag::from_octets("issue".as_bytes()).unwrap(),
+            "ca.example.net".as_bytes(),
+        ));
+        assert_eq!(
+            "example.com. 3600 IN CAA 0 issue \"ca.example.net\"",
+            record.display_zonefile(DisplayKind::Simple).to_string()
         );
     }
 }
