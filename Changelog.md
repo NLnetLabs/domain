@@ -55,6 +55,8 @@ Unstable features
      * Add an algorithm roll.
      * Add more operations on UnixTime.
      * Add more actions
+     * Allow loading public keys only. ([#594])
+     * Add support for decoupled keys. ([#594])
 * `unstable-xfr`
   * Various fixes and improvements. ([#507])
 
@@ -73,6 +75,7 @@ Other changes
 [#569]: https://github.com/NLnetLabs/domain/pull/569
 [#570]: https://github.com/NLnetLabs/domain/pull/570
 [#593]: https://github.com/NLnetLabs/domain/pull/593
+[#594]: https://github.com/NLnetLabs/domain/pull/594
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
