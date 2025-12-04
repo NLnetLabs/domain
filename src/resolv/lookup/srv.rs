@@ -144,6 +144,9 @@ impl FoundSrvs {
         if self.items.is_err() {
             let one =
                 mem::replace(&mut self.items, Ok(Vec::new())).unwrap_err();
+
+            // False positive. -- XXX This whole thing should be re-written.
+            #[allow(clippy::panicking_unwrap)]
             self.items.as_mut().unwrap().push(one);
         }
         match self.items {
