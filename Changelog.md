@@ -16,6 +16,8 @@ New
   record types and added presentation format support for the `SVCB`/`HTTPS`
   record types. ([#569])
 * Add support for the `CAA` record type. ([#434] by [@weilence])
+* Added `FreezeBuilder` to the message compressors. ([#601] by
+  [@rossmacarthur])
 
 Improvements
 
@@ -76,9 +78,11 @@ Other changes
 [#570]: https://github.com/NLnetLabs/domain/pull/570
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [#594]: https://github.com/NLnetLabs/domain/pull/594
+[#601]: https://github.com/NLnetLabs/domain/pull/601
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
+[@rossmacarthur]: https://github.com/rossmacarthur
 
 
 ## 0.11.1
