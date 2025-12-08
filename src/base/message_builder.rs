@@ -2373,6 +2373,15 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
     }
 }
 
+#[cfg(feature = "std")]
+impl<Target: FreezeBuilder> FreezeBuilder for TreeCompressor<Target> {
+    type Octets = Target::Octets;
+
+    fn freeze(self) -> Self::Octets {
+        self.target.freeze()
+    }
+}
+
 //------------ HashCompressor ------------------------------------------------
 
 /// A domain name compressor that uses a hash table.
@@ -2639,6 +2648,15 @@ impl<Target: Composer> Truncate for HashCompressor<Target> {
     }
 }
 
+#[cfg(feature = "std")]
+impl<Target: FreezeBuilder> FreezeBuilder for HashCompressor<Target> {
+    type Octets = Target::Octets;
+
+    fn freeze(self) -> Self::Octets {
+        self.target.freeze()
+    }
+}
+
 //============ Errors ========================================================
 
 /// An error occurred when attempting to add data to a message.
@@ -2878,6 +2896,22 @@ mod test {
 
         let msg = create_compressed(TreeCompressor::new(Vec::new()));
         assert_eq!(&expect[..], msg.as_ref());
+    }
+
+    // just check into_message compiles for all compressors
+    #[test]
+    fn compressor_into_message() {
+        let target = StaticCompressor::new(Vec::new());
+        let _msg =
+            MessageBuilder::from_target(target).unwrap().into_message();
+
+        let target = TreeCompressor::new(Vec::new());
+        let _msg =
+            MessageBuilder::from_target(target).unwrap().into_message();
+
+        let target = HashCompressor::new(Vec::new());
+        let _msg =
+            MessageBuilder::from_target(target).unwrap().into_message();
     }
 
     #[test]
