@@ -510,7 +510,7 @@ enum RequestState<K> {
 /// the request prior to sending it, e.g. to assign a message ID or to add
 /// EDNS options, and signing **MUST** be the last modification made to the
 /// message prior to sending.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RequestMessage<CR, K>
 where
     CR: Send + Sync,
