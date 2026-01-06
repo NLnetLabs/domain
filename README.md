@@ -2,7 +2,9 @@
 
 [![Current](https://img.shields.io/crates/v/domain.svg)](https://crates.io/crates/domain)
 [![Documentation](https://docs.rs/domain/badge.svg)](https://docs.rs/domain)
+[![Discuss on Discourse](https://img.shields.io/badge/Discourse-NLnet_Labs-orange?logo=Discourse)](https://community.nlnetlabs.nl/c/dns-libraries-tools/12)
 [![Mastodon Follow](https://img.shields.io/mastodon/follow/114692612288811644?domain=social.nlnetlabs.nl&style=social)](https://social.nlnetlabs.nl/@nlnetlabs)
+
 
 A library for interacting with the Domain Name System. The crate contains
 an ever-growing set of building blocks for including DNS functionality in
