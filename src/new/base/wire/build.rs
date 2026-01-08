@@ -27,30 +27,43 @@ pub trait BuildBytes {
     fn built_bytes_size(&self) -> usize;
 }
 
-impl<T: ?Sized + BuildBytes> BuildBytes for &T {
-    fn build_bytes<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        T::build_bytes(*self, bytes)
-    }
+/// Implement [`BuildBytes`] for a [`Deref`]-based generic container.
+macro_rules! impl_build_bytes_for_deref {
+    {$(
+        $(#[$attr:meta])*
+        impl[$($args:tt)*] BuildBytes for $subject:ty;
+    )*} => {$(
+        $(#[$attr])*
+        impl<$($args)*> BuildBytes for $subject {
+            fn build_bytes<'b>(
+                &self,
+                bytes: &'b mut [u8],
+            ) -> Result<&'b mut [u8], TruncationError> {
+                (**self).build_bytes(bytes)
+            }
 
-    fn built_bytes_size(&self) -> usize {
-        T::built_bytes_size(*self)
-    }
+            fn built_bytes_size(&self) -> usize {
+                (**self).built_bytes_size()
+            }
+        }
+    )*};
 }
 
-impl<T: ?Sized + BuildBytes> BuildBytes for &mut T {
-    fn build_bytes<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        T::build_bytes(*self, bytes)
-    }
+impl_build_bytes_for_deref! {
+    impl[T: ?Sized + BuildBytes] BuildBytes for &T;
+    impl[T: ?Sized + BuildBytes] BuildBytes for &mut T;
 
-    fn built_bytes_size(&self) -> usize {
-        T::built_bytes_size(*self)
-    }
+    #[cfg(feature = "alloc")]
+    impl[T: ?Sized + BuildBytes] BuildBytes for alloc::boxed::Box<T>;
+    #[cfg(feature = "alloc")]
+    impl[T: ?Sized + BuildBytes] BuildBytes for alloc::rc::Rc<T>;
+    #[cfg(feature = "alloc")]
+    impl[T: ?Sized + BuildBytes] BuildBytes for alloc::sync::Arc<T>;
+
+    #[cfg(feature = "alloc")]
+    impl[] BuildBytes for alloc::string::String;
+    #[cfg(feature = "alloc")]
+    impl[T: BuildBytes] BuildBytes for alloc::vec::Vec<T>;
 }
 
 impl BuildBytes for () {
@@ -123,48 +136,6 @@ impl<T: BuildBytes, const N: usize> BuildBytes for [T; N] {
 
     fn built_bytes_size(&self) -> usize {
         self.as_slice().built_bytes_size()
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<T: ?Sized + BuildBytes> BuildBytes for alloc::boxed::Box<T> {
-    fn build_bytes<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        T::build_bytes(self, bytes)
-    }
-
-    fn built_bytes_size(&self) -> usize {
-        T::built_bytes_size(self)
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<T: BuildBytes> BuildBytes for alloc::vec::Vec<T> {
-    fn build_bytes<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.as_slice().build_bytes(bytes)
-    }
-
-    fn built_bytes_size(&self) -> usize {
-        self.as_slice().built_bytes_size()
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl BuildBytes for alloc::string::String {
-    fn build_bytes<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        self.as_str().build_bytes(bytes)
-    }
-
-    fn built_bytes_size(&self) -> usize {
-        self.as_str().built_bytes_size()
     }
 }
 
