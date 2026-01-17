@@ -63,15 +63,6 @@ impl WalkState {
         }
     }
 
-    pub(super) fn op_glue_rec(&self, rec: &StoredRecord) {
-        if let Some(inner) = &self.inner {
-            let owner = rec.owner().to_owned();
-            let rrset: Rrset = rec.clone().into();
-            let rrset = SharedRrset::new(rrset);
-            (inner.op)(owner, &rrset, true);
-        }
-    }
-
     pub(super) fn push(&self, label: OwnedLabel) {
         if let Some(inner) = &self.inner {
             inner.label_stack.lock().unwrap().push(label);

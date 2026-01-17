@@ -91,9 +91,6 @@ impl ReadZone {
                     if let Some(ds) = &cut.ds {
                         walk.op(ds, true);
                     }
-                    for glue_rec in &cut.glue {
-                        walk.op_glue_rec(glue_rec);
-                    }
                     NodeAnswer::no_data()
                 } else {
                     // There is nothing more in this zone, only a cut here.
