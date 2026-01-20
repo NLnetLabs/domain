@@ -336,6 +336,7 @@ impl KeyPair {
                         .key_size()
                         < 2048
                 }
+                SecurityAlgorithm::ED448 => true,
                 _ => false,
             };
 
@@ -1066,8 +1067,9 @@ mod tests {
     use std::vec::Vec;
 
     use crate::base::iana::SecurityAlgorithm;
-    use crate::crypto::sign::SecretKeyBytes;
-
+    use crate::crypto::sign::{
+        generate, GenerateParams, KeyPair, SecretKeyBytes,
+    };
     const KEYS: &[(SecurityAlgorithm, u16)] = &[
         (SecurityAlgorithm::RSASHA256, 60616),
         (SecurityAlgorithm::ECDSAP256SHA256, 42253),
@@ -1100,6 +1102,29 @@ mod tests {
             let data = data.lines().collect::<Vec<_>>();
             let same = same.lines().collect::<Vec<_>>();
             assert_eq!(data, same);
+        }
+    }
+
+    #[test]
+    fn keypair_from_bytes() {
+        for &(algorithm, _) in KEYS {
+            let params = match algorithm {
+                SecurityAlgorithm::RSASHA256 => {
+                    GenerateParams::RsaSha256 { bits: 2048 }
+                }
+                SecurityAlgorithm::ECDSAP256SHA256 => {
+                    GenerateParams::EcdsaP256Sha256
+                }
+                SecurityAlgorithm::ECDSAP384SHA384 => {
+                    GenerateParams::EcdsaP384Sha384
+                }
+                SecurityAlgorithm::ED25519 => GenerateParams::Ed25519,
+                SecurityAlgorithm::ED448 => GenerateParams::Ed448,
+                _ => unreachable!(),
+            };
+            let (sec_bytes, pub_key) = generate(params, 257).unwrap();
+            let _key_pair =
+                KeyPair::from_bytes(&sec_bytes, &pub_key).unwrap();
         }
     }
 }
