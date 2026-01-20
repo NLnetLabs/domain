@@ -1122,9 +1122,12 @@ mod tests {
                 SecurityAlgorithm::ED448 => GenerateParams::Ed448,
                 _ => unreachable!(),
             };
-            let (sec_bytes, pub_key) = generate(params, 257).unwrap();
-            let _key_pair =
-                KeyPair::from_bytes(&sec_bytes, &pub_key).unwrap();
+            let (sec_bytes, pub_key) = generate(params.clone(), 257).unwrap();
+            let _key_pair = KeyPair::from_bytes(&sec_bytes, &pub_key)
+                .map_err(|e| {
+                    format!("KeyPair::from_bytes failed for {params:?}: {e}")
+                })
+                .unwrap();
         }
     }
 }
