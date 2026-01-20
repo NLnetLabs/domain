@@ -1110,7 +1110,12 @@ mod tests {
         for &(algorithm, _) in KEYS {
             let params = match algorithm {
                 SecurityAlgorithm::RSASHA256 => {
-                    GenerateParams::RsaSha256 { bits: 2048 }
+                    if cfg!(feature = "openssl") {
+                        GenerateParams::RsaSha256 { bits: 2048 }
+                    } else {
+                        // No support for RSASHA256 in Ring.
+                        continue;
+                    }
                 }
                 SecurityAlgorithm::ECDSAP256SHA256 => {
                     GenerateParams::EcdsaP256Sha256
@@ -1119,7 +1124,14 @@ mod tests {
                     GenerateParams::EcdsaP384Sha384
                 }
                 SecurityAlgorithm::ED25519 => GenerateParams::Ed25519,
-                SecurityAlgorithm::ED448 => GenerateParams::Ed448,
+                SecurityAlgorithm::ED448 => {
+                    if cfg!(feature = "openssl") {
+                        GenerateParams::Ed448
+                    } else {
+                        // No support for ED448 in Ring.
+                        continue;
+                    }
+                }
                 _ => unreachable!(),
             };
             let (sec_bytes, pub_key) = generate(params.clone(), 257)
