@@ -9,8 +9,8 @@
 
 name: CI
 
-# When the worflow runs
-# ---------------------
+# When the workflow runs
+# ----------------------
 on:
   # Execute when a pull request is (re-) opened or its head changes (e.g. new
   # commits are added or the commit history is rewritten) ... but only if
@@ -320,6 +320,8 @@ jobs:
     env:
       RUSTFLAGS: "-D warnings"
       DOMAIN_FEATURES: "--all-features"
+      # See <https://github.com/actions/runner-images/issues/12432>
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: "rust-lld"
     steps:
 
     # Load the repository.
@@ -336,9 +338,6 @@ jobs:
         features=`cargo metadata --no-deps --format-version 1 | jq -r '.packages[]|select(.name == "domain")|.features|keys|map(select(.!="openssl"))|join(",")'`
         # Overwrite the 'DOMAIN_FEATURES' environment variable.
         echo "DOMAIN_FEATURES=--features=$features" >> "$GITHUB_ENV"
-        # See <https://github.com/actions/runner-images/issues/12432>
-        mkdir -p .cargo
-        printf '[target.x86_64-pc-windows-msvc]\nlinker = "rust-lld"\n' >> .cargo/config.toml
 
     # Set up the Rust toolchain.
     - name: Set up Rust ${{ matrix.rust }}
