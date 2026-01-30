@@ -1453,10 +1453,10 @@ impl Ttl {
     without modifying the original"]
     #[inline]
     pub const fn checked_div(self, rhs: u32) -> Option<Ttl> {
-        if rhs != 0 {
-            Some(Ttl(self.0 / rhs))
-        } else {
-            None
+        // Can’t use map here because it isn’t const just yet.
+        match self.0.checked_div(rhs) {
+            Some(ttl) => Some(Ttl(ttl)),
+            None => None,
         }
     }
 
