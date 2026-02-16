@@ -28,6 +28,8 @@ Bug fixes
 
 * When parsing a Bind-style public key file, allow an optional TTL field.
   ([#593])
+* XfrMiddlewareService should always support at least one concurrent XFR.
+  ([#599])
 
 Unstable features
 
@@ -78,6 +80,7 @@ Other changes
 [#570]: https://github.com/NLnetLabs/domain/pull/570
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [#594]: https://github.com/NLnetLabs/domain/pull/594
+[#599]: https://github.com/NLnetLabs/domain/pull/599
 [#601]: https://github.com/NLnetLabs/domain/pull/601
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
