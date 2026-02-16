@@ -111,6 +111,7 @@ where
         xfr_data_provider: XDP,
         max_concurrency: usize,
     ) -> Self {
+        let max_concurrency = max_concurrency.max(1);
         let zone_walking_semaphore =
             Arc::new(Semaphore::new(max_concurrency));
         let batcher_semaphore = Arc::new(Semaphore::new(max_concurrency));
