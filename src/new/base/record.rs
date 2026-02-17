@@ -14,7 +14,7 @@ use super::wire::{
 //----------- Record ---------------------------------------------------------
 
 /// A DNS record.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Record<N, D> {
     /// The name of the record.
     pub rname: N,

@@ -4,6 +4,7 @@
 
 use core::cmp::Ordering;
 use core::fmt;
+use core::hash::{Hash, Hasher};
 use core::iter::FusedIterator;
 
 use crate::new::base::build::{
@@ -231,6 +232,16 @@ impl<const N: usize> PartialEq<[EdnsOption<'_>; N]> for &Opt {
 }
 
 impl Eq for Opt {}
+
+//--- Hashing
+
+impl Hash for Opt {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for option in self.options() {
+            option.hash(state);
+        }
+    }
+}
 
 //--- Canonical operations
 

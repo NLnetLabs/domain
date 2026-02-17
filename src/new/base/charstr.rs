@@ -2,6 +2,7 @@
 
 use core::borrow::{Borrow, BorrowMut};
 use core::fmt;
+use core::hash::{Hash, Hasher};
 use core::ops::{Deref, DerefMut};
 use core::str::FromStr;
 
@@ -171,6 +172,18 @@ impl PartialEq for CharStr {
 }
 
 impl Eq for CharStr {}
+
+//--- Hashing
+
+impl Hash for CharStr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Add a length prefix; this also matches the wire format.
+        state.write_u8(self.len() as u8);
+        for byte in &self.octets {
+            state.write_u8(byte.to_ascii_lowercase());
+        }
+    }
+}
 
 //--- Formatting
 

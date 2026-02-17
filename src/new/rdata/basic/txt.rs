@@ -1,5 +1,6 @@
 //! The TXT record data type.
 
+use core::hash::{Hash, Hasher};
 use core::{cmp::Ordering, fmt};
 
 use crate::new::base::build::{BuildInMessage, NameCompressor};
@@ -229,6 +230,18 @@ impl PartialEq for Txt {
 }
 
 impl Eq for Txt {}
+
+//--- Hashing
+
+impl Hash for Txt {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Add a length prefix; this also matches the wire format.
+        state.write_u16(self.content.len() as u16);
+        for charstr in self.iter() {
+            charstr.hash(state);
+        }
+    }
+}
 
 //--- Parsing record data
 
