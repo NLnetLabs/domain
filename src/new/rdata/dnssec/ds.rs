@@ -1,5 +1,6 @@
 //! The DS record data type.
 
+use core::hash::{Hash, Hasher};
 use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
@@ -15,9 +16,7 @@ use super::SecAlg;
 //----------- Ds -------------------------------------------------------------
 
 /// The signing key for a delegated zone.
-#[derive(
-    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
-)]
+#[derive(Debug, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy)]
 #[repr(C)]
 pub struct Ds {
     /// The key tag of the signing key.
@@ -57,6 +56,25 @@ impl BuildInMessage for Ds {
             .ok_or(TruncationError)?
             .copy_from_slice(bytes);
         Ok(end)
+    }
+}
+
+//--- Equality
+
+impl PartialEq for Ds {
+    fn eq(&self, other: &Self) -> bool {
+        // All elements are compared bytewise.
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for Ds {}
+
+//--- Hashing
+
+impl Hash for Ds {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_bytes())
     }
 }
 

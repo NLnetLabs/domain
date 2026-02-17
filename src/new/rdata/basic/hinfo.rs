@@ -138,7 +138,15 @@ use crate::new::base::{
 /// To serialize an [`HInfo`] in the wire format, use [`BuildBytes`].  It also
 /// supports [`BuildInMessage`].
 #[derive(
-    Copy, Clone, Debug, PartialEq, Eq, BuildBytes, ParseBytes, SplitBytes,
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    BuildBytes,
+    ParseBytes,
+    SplitBytes,
 )]
 pub struct HInfo<'a> {
     /// The type of the machine hosting the domain name.

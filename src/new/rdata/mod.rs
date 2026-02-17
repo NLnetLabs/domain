@@ -62,7 +62,10 @@
 use core::cmp::Ordering;
 
 #[cfg(feature = "alloc")]
-use core::fmt;
+use core::{
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
@@ -227,7 +230,7 @@ macro_rules! define_record_data {
 
 define_record_data! {
     /// DNS record data.
-    #[derive(Clone, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     #[non_exhaustive]
     pub enum RecordData<'a, N> {
         /// The IPv4 address of a host responsible for this domain.
@@ -523,6 +526,15 @@ impl PartialEq for BoxedRecordData {
 #[cfg(feature = "alloc")]
 impl Eq for BoxedRecordData {}
 
+//--- Hashing
+
+#[cfg(feature = "alloc")]
+impl Hash for BoxedRecordData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.get().hash(state)
+    }
+}
+
 //--- Clone
 
 #[cfg(feature = "alloc")]
@@ -697,7 +709,7 @@ impl BuildBytes for BoxedRecordData {
 /// implementation.  It must not be used for well-known record types, because
 /// some of them have special rules that this type does not follow.
 #[derive(
-    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
+    Debug, PartialEq, Eq, Hash, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct UnknownRecordData {

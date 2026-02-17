@@ -14,7 +14,7 @@ use super::SecAlg;
 //----------- RRSig ----------------------------------------------------------
 
 /// A cryptographic signature on a DNS record set.
-#[derive(Clone, Debug, PartialEq, Eq, BuildBytes, ParseBytes)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, BuildBytes, ParseBytes)]
 pub struct RRSig<'a> {
     /// The type of the RRset being signed.
     pub rtype: RType,
