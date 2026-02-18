@@ -783,11 +783,11 @@ pub mod sign {
 
     /// Generate a new secret key for the given algorithm.
     pub fn generate(
-        params: GenerateParams,
+        params: &GenerateParams,
         flags: u16,
     ) -> Result<KeyPair, GenerateError> {
         let algorithm = params.algorithm();
-        let pkey = match params {
+        let pkey = match *params {
             GenerateParams::RsaSha256 { bits }
             | GenerateParams::RsaSha512 { bits } => {
                 Rsa::generate(bits).and_then(PKey::from_rsa)?
@@ -851,7 +851,7 @@ pub mod sign {
                     _ => unreachable!(),
                 };
 
-                let _ = crate::crypto::sign::generate(params, 0).unwrap();
+                let _ = crate::crypto::sign::generate(&params, 0).unwrap();
             }
         }
 
@@ -873,7 +873,7 @@ pub mod sign {
                     _ => unreachable!(),
                 };
 
-                let key = super::generate(params, 256).unwrap();
+                let key = super::generate(&params, 256).unwrap();
                 let gen_key = key.to_bytes();
                 let pub_key = key.dnskey();
                 let equiv = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();

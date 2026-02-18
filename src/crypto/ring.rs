@@ -287,20 +287,6 @@ impl PublicKey {
             }
         }
     }
-
-    // key_size should only be called for RSA keys to see if the key is long
-    // enough to be supported by ring.
-    #[cfg(feature = "unstable-crypto-sign")]
-    /// Compute the key size. This is currently only implemented for RSA.
-    pub(super) fn key_size(&self) -> usize {
-        match self {
-            PublicKey::Rsa(_, components) => {
-                let n = &components.n;
-                n.len() * 8
-            }
-            PublicKey::Unparsed(_, _) => unreachable!(),
-        }
-    }
 }
 
 #[cfg(feature = "unstable-crypto-sign")]
@@ -314,12 +300,11 @@ pub mod sign {
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::sign::{
-        FromBytesError, GenerateParams, SecretKeyBytes, SignError, SignRaw,
-        Signature,
+        GenerateParams, SecretKeyBytes, SignError, SignRaw, Signature,
     };
     use crate::rdata::Dnskey;
 
-    use super::{GenerateError, PublicKey};
+    use super::{FromBytesError, GenerateError, PublicKey};
 
     use ring::rand::SystemRandom;
     use ring::signature::{
@@ -617,11 +602,11 @@ pub mod sign {
     /// is not possible to export a secret key from [`KeyPair`].  Thus, the bytes
     /// of the secret key are returned directly.
     pub fn generate(
-        params: GenerateParams,
+        params: &GenerateParams,
         flags: u16,
         rng: &dyn ring::rand::SecureRandom,
     ) -> Result<(SecretKeyBytes, Dnskey<Vec<u8>>), GenerateError> {
-        match params {
+        match *params {
             GenerateParams::EcdsaP256Sha256 => {
                 // Generate a key and a PKCS#8 document out of Ring.
                 let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
@@ -713,8 +698,7 @@ pub mod sign {
         fn generated_roundtrip() {
             for params in GENERATE_PARAMS {
                 let (sk, pk) =
-                    crate::crypto::sign::generate(params.clone(), 256)
-                        .unwrap();
+                    crate::crypto::sign::generate(params, 256).unwrap();
                 let key = KeyPair::from_bytes(&sk, &pk).unwrap();
                 assert_eq!(key.dnskey(), pk);
             }
