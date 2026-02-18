@@ -30,6 +30,7 @@ Bug fixes
   ([#593])
 * XfrMiddlewareService should always support at least one concurrent XFR.
   ([#599])
+* Fix generating an ED448 keypair ([#608])
 
 Unstable features
 
@@ -82,6 +83,7 @@ Other changes
 [#594]: https://github.com/NLnetLabs/domain/pull/594
 [#599]: https://github.com/NLnetLabs/domain/pull/599
 [#601]: https://github.com/NLnetLabs/domain/pull/601
+[#608]: https://github.com/NLnetLabs/domain/pull/608
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
