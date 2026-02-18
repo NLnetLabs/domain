@@ -240,7 +240,7 @@ where
     let mut records = rrset.as_slice().to_vec();
     records
         .sort_by(|a, b| a.as_ref().data().canonical_cmp(b.as_ref().data()));
-    let rrset = Rrset::new(&records)
+    let rrset = Rrset::new_from_refs(&records)
         .expect("records is not empty so new should not fail");
 
     sign_sorted_rrset_in(key, &rrset, inception, expiration, &mut vec![])
