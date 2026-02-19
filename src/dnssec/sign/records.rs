@@ -185,15 +185,15 @@ where
         }
     }
 
-    pub fn owner_rrs(&self) -> OwnedRecordsIter<'_, N, D> {
-        OwnedRecordsIter::new(&self.records)
+    pub fn owner_rrs(&self) -> RecordsIter<'_, N, D> {
+        RecordsIter::new_from_owned(&self.records)
     }
 
-    pub fn rrsets(&self) -> OwnedRrsetIter<'_, N, D> {
-        OwnedRrsetIter::new(&self.records)
+    pub fn rrsets(&self) -> RrsetIter<'_, N, D> {
+        RrsetIter::new_from_owned(&self.records)
     }
 
-    pub fn find_soa(&self) -> Option<OwnedRrset<'_, N, D>>
+    pub fn find_soa(&self) -> Option<Rrset<'_, N, D>>
     where
         N: ToName,
         D: RecordData,
@@ -205,7 +205,7 @@ where
         &self,
         name: &N,
         rtype: Rtype,
-    ) -> Option<OwnedRrset<'_, N, D>>
+    ) -> Option<Rrset<'_, N, D>>
     where
         N: CanonicalOrd + ToName,
         D: RecordData,
@@ -380,79 +380,27 @@ where
 /// A set of records with the same owner name.
 #[derive(Clone)]
 pub struct OwnerRrs<'a, N, D> {
-    slice: &'a [&'a Record<N, D>],
+    slice: SliceRefsOrOwned<'a, Record<N, D>>,
 }
 
 impl<'a, N, D> OwnerRrs<'a, N, D> {
-    /*
-        fn new(slice: &'a [Record<N, D>]) -> Self {
-            OwnerRrs { slice }
-        }
-    */
-
-    fn new_from_refs(slice: &'a [&Record<N, D>]) -> Self {
+    fn new(slice: SliceRefsOrOwned<'a, Record<N, D>>) -> Self {
         OwnerRrs { slice }
     }
 
     pub fn owner(&self) -> &N {
-        self.slice[0].owner()
+        self.slice.first_unchecked().owner()
     }
 
     pub fn class(&self) -> Class {
-        self.slice[0].class()
+        self.slice.first_unchecked().class()
     }
 
     pub fn rrsets(&self) -> OwnerRrsIter<'a, N, D> {
-        OwnerRrsIter::new_from_refs(self.slice)
+        OwnerRrsIter::new(self.slice.clone())
     }
 
-    pub fn records(&self) -> slice::Iter<'a, &Record<N, D>> {
-        self.slice.iter()
-    }
-
-    pub fn is_zone_cut(&self, apex: &N) -> bool
-    where
-        N: ToName + PartialEq,
-        D: RecordData,
-    {
-        self.owner().ne(apex)
-            && self.records().any(|record| record.rtype() == Rtype::NS)
-    }
-
-    pub fn is_in_zone(&self, apex: &N) -> bool
-    where
-        N: ToName,
-    {
-        self.owner().ends_with(&apex)
-    }
-}
-
-//------------ OwnedOwnerRrs -------------------------------------------------
-
-/// A set of records with the same owner name.
-#[derive(Clone)]
-pub struct OwnedOwnerRrs<'a, N, D> {
-    slice: &'a [Record<N, D>],
-}
-
-impl<'a, N, D> OwnedOwnerRrs<'a, N, D> {
-    fn new(slice: &'a [Record<N, D>]) -> Self {
-        OwnedOwnerRrs { slice }
-    }
-
-    pub fn owner(&self) -> &N {
-        self.slice[0].owner()
-    }
-
-    pub fn class(&self) -> Class {
-        self.slice[0].class()
-    }
-
-    pub fn rrsets(&self) -> OwnedOwnerRrsIter<'a, N, D> {
-        OwnedOwnerRrsIter::new(self.slice)
-    }
-
-    pub fn records(&self) -> slice::Iter<'a, Record<N, D>> {
+    pub fn records(&self) -> SliceRefsOrOwnedIterator<'a, Record<N, D>> {
         self.slice.iter()
     }
 
@@ -476,24 +424,14 @@ impl<'a, N, D> OwnedOwnerRrs<'a, N, D> {
 //------------ Rrset ---------------------------------------------------------
 
 /// A set of records with the same owner name, class, and record type.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Rrset<'a, N, D> {
-    slice: &'a [&'a Record<N, D>],
+    slice: SliceRefsOrOwned<'a, Record<N, D>>,
 }
 
 impl<'a, N, D> Rrset<'a, N, D> {
-    /*
-        pub fn new(slice: &'a [Record<N, D>]) -> Result<Self, SigningError> {
-            if slice.is_empty() {
-                Err(SigningError::EmptyRecordSlice)
-            } else {
-                Ok(Rrset { slice })
-            }
-        }
-    */
-
-    pub fn new_from_refs(
-        slice: &'a [&Record<N, D>],
+    pub fn new(
+        slice: SliceRefsOrOwned<'a, Record<N, D>>,
     ) -> Result<Self, SigningError> {
         if slice.is_empty() {
             Err(SigningError::EmptyRecordSlice)
@@ -502,88 +440,54 @@ impl<'a, N, D> Rrset<'a, N, D> {
         }
     }
 
-    pub fn owner(&self) -> &N {
-        self.slice[0].owner()
-    }
-
-    pub fn class(&self) -> Class {
-        self.slice[0].class()
-    }
-
-    pub fn rtype(&self) -> Rtype
-    where
-        D: RecordData,
-    {
-        self.slice[0].rtype()
-    }
-
-    pub fn ttl(&self) -> Ttl {
-        self.slice[0].ttl()
-    }
-
-    pub fn first(&self) -> &Record<N, D> {
-        self.slice[0]
-    }
-
-    pub fn iter(&self) -> slice::Iter<'a, &Record<N, D>> {
-        self.slice.iter()
-    }
-
-    #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize {
-        self.slice.len()
-    }
-
-    pub fn as_slice(&self) -> &'a [&Record<N, D>] {
-        self.slice
-    }
-
-    pub fn into_inner(self) -> &'a [&'a Record<N, D>] {
-        self.slice
-    }
-}
-
-//------------ OwnedRrset ----------------------------------------------------
-
-/// A set of records with the same owner name, class, and record type.
-#[derive(Debug)]
-pub struct OwnedRrset<'a, N, D> {
-    slice: &'a [Record<N, D>],
-}
-
-impl<'a, N, D> OwnedRrset<'a, N, D> {
-    pub fn new(slice: &'a [Record<N, D>]) -> Result<Self, SigningError> {
+    pub fn new_from_refs(
+        slice: &'a [&Record<N, D>],
+    ) -> Result<Self, SigningError> {
         if slice.is_empty() {
             Err(SigningError::EmptyRecordSlice)
         } else {
-            Ok(OwnedRrset { slice })
+            Ok(Rrset {
+                slice: SliceRefsOrOwned::new_from_refs(slice),
+            })
+        }
+    }
+
+    pub fn new_from_owned(
+        slice: &'a [Record<N, D>],
+    ) -> Result<Self, SigningError> {
+        if slice.is_empty() {
+            Err(SigningError::EmptyRecordSlice)
+        } else {
+            Ok(Rrset {
+                slice: SliceRefsOrOwned::new_from_owned(slice),
+            })
         }
     }
 
     pub fn owner(&self) -> &N {
-        self.slice[0].owner()
+        self.slice.first_unchecked().owner()
     }
 
     pub fn class(&self) -> Class {
-        self.slice[0].class()
+        self.slice.first_unchecked().class()
     }
 
     pub fn rtype(&self) -> Rtype
     where
         D: RecordData,
     {
-        self.slice[0].rtype()
+        self.slice.first_unchecked().rtype()
     }
 
     pub fn ttl(&self) -> Ttl {
-        self.slice[0].ttl()
+        self.slice.first_unchecked().ttl()
     }
 
     pub fn first(&self) -> &Record<N, D> {
-        &self.slice[0]
+        self.slice.first_unchecked()
     }
 
-    pub fn iter(&self) -> slice::Iter<'a, Record<N, D>> {
+    pub fn iter(&self) -> SliceRefsOrOwnedIterator<'a, Record<N, D>> {
         self.slice.iter()
     }
 
@@ -592,11 +496,7 @@ impl<'a, N, D> OwnedRrset<'a, N, D> {
         self.slice.len()
     }
 
-    pub fn as_slice(&self) -> &'a [Record<N, D>] {
-        self.slice
-    }
-
-    pub fn into_inner(self) -> &'a [Record<N, D>] {
+    pub fn into_inner(self) -> SliceRefsOrOwned<'a, Record<N, D>> {
         self.slice
     }
 }
@@ -606,22 +506,28 @@ impl<'a, N, D> OwnedRrset<'a, N, D> {
 /// An iterator that produces groups of records belonging to the same owner
 /// from sorted records.
 pub struct RecordsIter<'a, N, D> {
-    slice: &'a [&'a Record<N, D>],
+    slice: SliceRefsOrOwned<'a, Record<N, D>>,
 }
 
 impl<'a, N, D> RecordsIter<'a, N, D> {
-    /*
-        pub fn new(slice: &'a [Record<N, D>]) -> Self {
-            RecordsIter { slice }
-        }
-    */
-
-    pub fn new_from_refs(slice: &'a [&Record<N, D>]) -> Self {
+    pub fn new(slice: SliceRefsOrOwned<'a, Record<N, D>>) -> Self {
         RecordsIter { slice }
     }
 
-    pub fn first(&self) -> &'a Record<N, D> {
-        self.slice[0]
+    pub fn new_from_refs(slice: &'a [&Record<N, D>]) -> Self {
+        RecordsIter {
+            slice: SliceRefsOrOwned::new_from_refs(slice),
+        }
+    }
+
+    pub fn new_from_owned(slice: &'a [Record<N, D>]) -> Self {
+        RecordsIter {
+            slice: SliceRefsOrOwned::new_from_owned(slice),
+        }
+    }
+
+    pub fn first(&'a self) -> &'a Record<N, D> {
+        self.slice.first_unchecked()
     }
 
     pub fn skip_before(&mut self, apex: &N)
@@ -632,7 +538,9 @@ impl<'a, N, D> RecordsIter<'a, N, D> {
             if apex == first || first.ends_with(apex) {
                 break;
             }
-            self.slice = &self.slice[1..]
+            //self.slice = &self.slice[1..]
+            //self.slice = self.slice.index(1..)
+            self.slice = self.slice.skip_first()
         }
     }
 }
@@ -655,59 +563,7 @@ where
         }
         let (res, slice) = self.slice.split_at(end);
         self.slice = slice;
-        Some(OwnerRrs::new_from_refs(res))
-    }
-}
-
-//------------ OwnedRecordsIter ----------------------------------------------
-
-/// An iterator that produces groups of records belonging to the same owner
-/// from sorted records.
-pub struct OwnedRecordsIter<'a, N, D> {
-    slice: &'a [Record<N, D>],
-}
-
-impl<'a, N, D> OwnedRecordsIter<'a, N, D> {
-    pub fn new(slice: &'a [Record<N, D>]) -> Self {
-        OwnedRecordsIter { slice }
-    }
-
-    pub fn first(&self) -> &'a Record<N, D> {
-        &self.slice[0]
-    }
-
-    pub fn skip_before(&mut self, apex: &N)
-    where
-        N: ToName + PartialEq,
-    {
-        while let Some(first) = self.slice.first().map(|r| r.owner()) {
-            if apex == first || first.ends_with(apex) {
-                break;
-            }
-            self.slice = &self.slice[1..]
-        }
-    }
-}
-
-impl<'a, N, D> Iterator for OwnedRecordsIter<'a, N, D>
-where
-    N: ToName + 'a,
-    D: RecordData + 'a,
-{
-    type Item = OwnedOwnerRrs<'a, N, D>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let first = self.slice.first()?;
-        let mut end = 1;
-        while let Some(record) = self.slice.get(end) {
-            if !record.owner().name_eq(first.owner()) {
-                break;
-            }
-            end += 1;
-        }
-        let (res, slice) = self.slice.split_at(end);
-        self.slice = slice;
-        Some(OwnedOwnerRrs::new(res))
+        Some(OwnerRrs::new(res))
     }
 }
 
@@ -715,21 +571,15 @@ where
 
 /// An iterator that produces RRsets from sorted records.
 pub struct RrsetIter<'a, N, D> {
-    slice: &'a [&'a Record<N, D>],
+    slice: SliceRefsOrOwned<'a, Record<N, D>>,
 }
 
 impl<'a, N, D> RrsetIter<'a, N, D> {
-    /*
-        fn new(slice: &'a [Record<N, D>]) -> Self {
-            RrsetIter { slice }
+    fn new_from_owned(slice: &'a [Record<N, D>]) -> Self {
+        Self {
+            slice: SliceRefsOrOwned::new_from_owned(slice),
         }
-    */
-
-    /*
-        fn new_from_refs(slice: &'a [&Record<N, D>]) -> Self {
-            RrsetIter { slice }
-        }
-    */
+    }
 }
 
 impl<'a, N, D> Iterator for RrsetIter<'a, N, D>
@@ -753,48 +603,7 @@ where
         let (res, slice) = self.slice.split_at(end);
         self.slice = slice;
         Some(
-            Rrset::new_from_refs(res)
-                .expect("res is not empty so new should not fail"),
-        )
-    }
-}
-
-//------------ OwnedRrsetIter ------------------------------------------------
-
-/// An iterator that produces RRsets from sorted records.
-pub struct OwnedRrsetIter<'a, N, D> {
-    slice: &'a [Record<N, D>],
-}
-
-impl<'a, N, D> OwnedRrsetIter<'a, N, D> {
-    fn new(slice: &'a [Record<N, D>]) -> Self {
-        OwnedRrsetIter { slice }
-    }
-}
-
-impl<'a, N, D> Iterator for OwnedRrsetIter<'a, N, D>
-where
-    N: ToName + 'a,
-    D: RecordData + 'a,
-{
-    type Item = OwnedRrset<'a, N, D>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let first = self.slice.first()?;
-        let mut end = 1;
-        while let Some(record) = self.slice.get(end) {
-            if !record.owner().name_eq(first.owner())
-                || record.rtype() != first.rtype()
-            {
-                break;
-            }
-            end += 1;
-        }
-        let (res, slice) = self.slice.split_at(end);
-        self.slice = slice;
-        Some(
-            OwnedRrset::new(res)
-                .expect("res is not empty so new should not fail"),
+            Rrset::new(res).expect("res is not empty so new should not fail"),
         )
     }
 }
@@ -804,17 +613,11 @@ where
 /// An iterator that produces RRsets from a set of records with the same owner
 /// name.
 pub struct OwnerRrsIter<'a, N, D> {
-    slice: &'a [&'a Record<N, D>],
+    slice: SliceRefsOrOwned<'a, Record<N, D>>,
 }
 
 impl<'a, N, D> OwnerRrsIter<'a, N, D> {
-    /*
-        fn new(slice: &'a [Record<N, D>]) -> Self {
-            OwnerRrsIter { slice }
-        }
-    */
-
-    fn new_from_refs(slice: &'a [&Record<N, D>]) -> Self {
+    fn new(slice: SliceRefsOrOwned<'a, Record<N, D>>) -> Self {
         OwnerRrsIter { slice }
     }
 }
@@ -838,46 +641,137 @@ where
         let (res, slice) = self.slice.split_at(end);
         self.slice = slice;
         Some(
-            Rrset::new_from_refs(res)
-                .expect("res is not empty so new should not fail"),
+            Rrset::new(res).expect("res is not empty so new should not fail"),
         )
     }
 }
-//------------ OwnedOwnerRrsIter ---------------------------------------------
 
-/// An iterator that produces RRsets from a set of records with the same owner
-/// name.
-pub struct OwnedOwnerRrsIter<'a, N, D> {
-    slice: &'a [Record<N, D>],
+//------------ SliceRefsOrOwned ----------------------------------------------
+
+/// An enum that keeps either a slice of T or a slice of &T.
+#[derive(Debug)]
+pub enum SliceRefsOrOwned<'a, T> {
+    Refs(&'a [&'a T]),
+    Owned(&'a [T]),
 }
 
-impl<'a, N, D> OwnedOwnerRrsIter<'a, N, D> {
-    fn new(slice: &'a [Record<N, D>]) -> Self {
-        OwnedOwnerRrsIter { slice }
+impl<'a, T> SliceRefsOrOwned<'a, T> {
+    fn new_from_refs(slice: &'a [&'a T]) -> Self {
+        Self::Refs(slice)
     }
-}
 
-impl<'a, N, D> Iterator for OwnedOwnerRrsIter<'a, N, D>
-where
-    N: ToName + 'a,
-    D: RecordData + 'a,
-{
-    type Item = OwnedRrset<'a, N, D>;
+    pub fn new_from_owned(slice: &'a [T]) -> Self {
+        Self::Owned(slice)
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let first = self.slice.first()?;
-        let mut end = 1;
-        while let Some(record) = self.slice.get(end) {
-            if record.rtype() != first.rtype() {
-                break;
-            }
-            end += 1;
+    fn first(&self) -> Option<&T> {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => slice.first().copied(),
+            SliceRefsOrOwned::Owned(slice) => slice.first(),
         }
-        let (res, slice) = self.slice.split_at(end);
-        self.slice = slice;
-        Some(
-            OwnedRrset::new(res)
-                .expect("res is not empty so new should not fail"),
-        )
+    }
+
+    fn first_unchecked(&self) -> &T {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => slice[0],
+            SliceRefsOrOwned::Owned(slice) => &slice[0],
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => slice.is_empty(),
+            SliceRefsOrOwned::Owned(slice) => slice.is_empty(),
+        }
+    }
+
+    // We want to do index, but that seems to hard. We mainly need to
+    // delete the first element.
+    fn skip_first(&self) -> Self {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => Self::new_from_refs(&slice[1..]),
+            SliceRefsOrOwned::Owned(slice) => {
+                Self::new_from_owned(&slice[1..])
+            }
+        }
+    }
+
+    fn get(&self, i: usize) -> Option<&T> {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => slice.get(i).copied(),
+            SliceRefsOrOwned::Owned(slice) => slice.get(i),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => slice.len(),
+            SliceRefsOrOwned::Owned(slice) => slice.len(),
+        }
+    }
+
+    fn split_at(&self, i: usize) -> (Self, Self) {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => {
+                let (left, right) = slice.split_at(i);
+                (Self::new_from_refs(left), Self::new_from_refs(right))
+            }
+            SliceRefsOrOwned::Owned(slice) => {
+                let (left, right) = slice.split_at(i);
+                (Self::new_from_owned(left), Self::new_from_owned(right))
+            }
+        }
+    }
+
+    pub fn iter(&self) -> SliceRefsOrOwnedIterator<'a, T> {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => {
+                SliceRefsOrOwnedIterator::new_from_refs(slice.iter())
+            }
+            SliceRefsOrOwned::Owned(slice) => {
+                SliceRefsOrOwnedIterator::new_from_owned(slice.iter())
+            }
+        }
+    }
+}
+
+impl<'a, T> Clone for SliceRefsOrOwned<'a, T> {
+    fn clone(&self) -> Self {
+        match self {
+            SliceRefsOrOwned::Refs(slice) => {
+                SliceRefsOrOwned::new_from_refs(slice)
+            }
+            SliceRefsOrOwned::Owned(slice) => {
+                SliceRefsOrOwned::new_from_owned(slice)
+            }
+        }
+    }
+}
+
+//------------ SliceRefsOrOwnedIterator --------------------------------------
+
+/// An iterator over either a slice of T or a slice of &T.
+#[derive(Debug)]
+pub enum SliceRefsOrOwnedIterator<'a, T> {
+    Refs(Iter<'a, &'a T>),
+    Owned(Iter<'a, T>),
+}
+
+impl<'a, T> SliceRefsOrOwnedIterator<'a, T> {
+    fn new_from_refs(iter: slice::Iter<'a, &'a T>) -> Self {
+        Self::Refs(iter)
+    }
+    fn new_from_owned(iter: slice::Iter<'a, T>) -> Self {
+        Self::Owned(iter)
+    }
+}
+
+impl<'a, T> Iterator for SliceRefsOrOwnedIterator<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+        match self {
+            SliceRefsOrOwnedIterator::Refs(iter) => iter.next().copied(),
+            SliceRefsOrOwnedIterator::Owned(iter) => iter.next(),
+        }
     }
 }

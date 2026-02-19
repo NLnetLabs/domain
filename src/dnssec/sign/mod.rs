@@ -411,8 +411,7 @@ where
         + Default,
     T: Deref<Target = [Record<N, ZoneRecordData<Octs, N>>]>,
 {
-    let slice: Vec<_> = in_out.as_slice().iter().collect();
-    let owner_rrs = RecordsIter::new_from_refs(&slice);
+    let owner_rrs = RecordsIter::new_from_owned(in_out.as_slice());
 
     match &signing_config.denial {
         DenialConfig::AlreadyPresent => {
@@ -447,8 +446,7 @@ where
         );
 
         // Sign the NSEC(3)s.
-        let slice: Vec<_> = in_out.as_out_slice().iter().collect();
-        let owner_rrs = RecordsIter::new_from_refs(&slice);
+        let owner_rrs = RecordsIter::new_from_owned(in_out.as_out_slice());
 
         let rrsigs = sign_sorted_zone_records(
             apex_owner,

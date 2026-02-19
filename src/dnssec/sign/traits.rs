@@ -495,6 +495,6 @@ where
     <Octs as FromBuilder>::Builder: AsRef<[u8]> + AsMut<[u8]> + EmptyBuilder,
 {
     fn owner_rrs(&self) -> RecordsIter<'_, N, ZoneRecordData<Octs, N>> {
-        RecordsIter::new_from_refs(self.as_slice())
+        RecordsIter::new(self.clone().into_inner())
     }
 }
