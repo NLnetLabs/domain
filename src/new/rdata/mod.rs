@@ -58,6 +58,9 @@
 //! - [`NSec`]
 //! - [`NSec3`]
 //! - [`Ds`]
+//!
+//! ZONEMD support (RFC 8976):
+//! - [`ZoneMD`]
 
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
@@ -109,6 +112,9 @@ pub use dnssec::{
     DNSKey, DNSKeyFlags, DigestType, Ds, NSec, NSec3, NSec3Flags,
     NSec3HashAlg, NSec3Param, RRSig, SecAlg, TypeBitmaps,
 };
+
+mod zonemd;
+pub use zonemd::{ZoneMD, ZoneMDHashAlg, ZoneMDScheme};
 
 use super::base::wire::ParseBytesZC;
 
@@ -288,7 +294,10 @@ define_record_data! {
         NSec3(NSec3<'a>) = NSEC3,
 
         /// Parameters for computing [`NSec3`] records.
-        NSec3Param(&'a NSec3Param) = NSEC3PARAM;
+        NSec3Param(&'a NSec3Param) = NSEC3PARAM,
+
+        /// A message digest of the enclosing zone.
+        ZoneMD(&'a ZoneMD) = ZONEMD;
 
         /// Data for an unknown DNS record type.
         Unknown(RType, &'a UnknownRecordData)
@@ -318,6 +327,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::DNSKey(r) => RecordData::DNSKey(r),
             Self::NSec3(r) => RecordData::NSec3(r),
             Self::NSec3Param(r) => RecordData::NSec3Param(r),
+            Self::ZoneMD(r) => RecordData::ZoneMD(r),
             Self::Unknown(rt, rd) => RecordData::Unknown(rt, rd),
         }
     }
@@ -345,6 +355,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::DNSKey(r) => RecordData::DNSKey(r),
             Self::NSec3(r) => RecordData::NSec3(r.clone()),
             Self::NSec3Param(r) => RecordData::NSec3Param(r),
+            Self::ZoneMD(r) => RecordData::ZoneMD(r),
             Self::Unknown(rt, rd) => RecordData::Unknown(*rt, rd),
         }
     }
@@ -380,6 +391,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::NSec3Param(r) => {
                 RecordData::NSec3Param(copy_to_bump(*r, bump))
             }
+            Self::ZoneMD(r) => RecordData::ZoneMD(copy_to_bump(*r, bump)),
             Self::Unknown(rt, rd) => {
                 RecordData::Unknown(*rt, rd.clone_to_bump(bump))
             }
@@ -443,6 +455,9 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             RType::NSEC3PARAM => {
                 <&NSec3Param>::parse_bytes(&contents[start..])
                     .map(Self::NSec3Param)
+            }
+            RType::ZONEMD => {
+                <&ZoneMD>::parse_bytes(&contents[start..]).map(Self::ZoneMD)
             }
             _ => <&UnknownRecordData>::parse_bytes(&contents[start..])
                 .map(|data| Self::Unknown(rtype, data)),
