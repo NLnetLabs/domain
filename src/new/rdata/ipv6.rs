@@ -24,10 +24,10 @@ use crate::utils::dst::UnsizedCopy;
 
 /// The IPv6 address of a host responsible for this domain.
 ///
-/// A [`Aaaa`] record indicates that a domain name is backed by a server that
-/// can be reached over the Internet at the specified IPv6 address. It does
-/// not specify the server's capabilities (e.g. what protocols it supports);
-/// those have to be communicated elsewhere.
+/// A [`Aaaa`] ("quad-A") record indicates that a domain name is backed
+/// by a server that can be reached over the Internet at the specified
+/// IPv6 address. It does not specify the server's capabilities (e.g. what
+/// protocols it supports); those have to be communicated elsewhere.
 ///
 /// [`Aaaa`] is specified by [RFC 3596, section 2]. It works identically to
 /// the [`A`] record.
@@ -54,7 +54,7 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
-/// There's a few ways to build an [`Aaaa`]:
+/// There's a few ways to build a [`Aaaa`]:
 ///
 /// ```
 /// # use domain::new::base::wire::{ParseBytes, ParseBytesZC};
@@ -75,7 +75,7 @@ use crate::utils::dst::UnsizedCopy;
 /// let from_str: Aaaa = "2001:db8::".parse().unwrap();
 /// # assert_eq!(from_raw, from_str);
 ///
-/// // Parse a 'Aaaaa' from the DNS wire format.
+/// // Parse a 'Aaaa' from the DNS wire format.
 /// let bytes = [0x20, 0x01, 0x0D, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 /// let from_wire: Aaaa = Aaaa::parse_bytes(&bytes).unwrap();
 /// # assert_eq!(from_raw, from_wire);
