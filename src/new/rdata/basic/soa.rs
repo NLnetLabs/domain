@@ -6,9 +6,9 @@ use crate::new::base::build::{BuildInMessage, NameCompressor};
 use crate::new::base::name::CanonicalName;
 use crate::new::base::parse::{ParseMessageBytes, SplitMessageBytes};
 use crate::new::base::{
-    wire::*, ParseRecordData, ParseRecordDataBytes, RType,
+    wire::*, CanonicalRecordData, ParseRecordData, ParseRecordDataBytes,
+    RType, Serial,
 };
-use crate::new::base::{CanonicalRecordData, Serial};
 
 //----------- Soa ------------------------------------------------------------
 

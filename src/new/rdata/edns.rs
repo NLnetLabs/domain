@@ -111,7 +111,7 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// As a DST, [`Opt`] does not implement [`Copy`] or [`Clone`]. Instead, it
 /// implements [`UnsizedCopy`]. An [`Opt`], held by reference, can be copied
-/// into a different container (e.g. `Box`) using [`unsized_copy_into()`]
+/// into a different container (e.g. `Box`) using [`unsized_copy_into()`].
 ///
 /// [`unsized_copy_into()`]: UnsizedCopy::unsized_copy_into()
 ///
