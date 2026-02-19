@@ -57,7 +57,12 @@ impl ImplSkeleton {
                 }
 
                 GenericParam::Type(value) => {
-                    types.push(value.clone());
+                    types.push(TypeParam {
+                        // Defaults are not allowed in 'impl' blocks.
+                        eq_token: None,
+                        default: None,
+                        ..value.clone()
+                    });
                     let id = value.ident.clone();
                     let id = syn::TypePath {
                         qself: None,
