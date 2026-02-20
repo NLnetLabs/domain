@@ -423,7 +423,7 @@ where
 ///       ZoneRecordData::A(A::from_str("1.2.3.4").unwrap()))).unwrap();
 /// use domain::dnssec::sign::traits::Signable;
 /// let apex = Name::<Vec<u8>>::root();
-/// let rrset = Rrset::new(&records).expect("records is not empty");
+/// let rrset = Rrset::new_from_owned(&records).expect("records is not empty");
 /// let generated_records = rrset.sign(&apex, &keys, 0.into(), 0.into()).unwrap();
 /// ```
 pub trait Signable<N, Octs, Inner, Sort = DefaultSorter>
