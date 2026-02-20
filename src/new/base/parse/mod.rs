@@ -1,12 +1,12 @@
 //! Parsing DNS messages from the wire format.
 //!
 //! At the moment, a high-level or mid-level API for parsing DNS messages is
-//! not implemented.  This section documents the low-level API.
+//! not implemented. This section documents the low-level API.
 //!
 //! # Mid-Level API
 //!
 //! To parse the questions and records in a [`Message`], use
-//! [`Message::parse()`].  To parse a message (including questions and
+//! [`Message::parse()`]. To parse a message (including questions and
 //! records) from bytes, use [`MessageParser::new()`].
 //!
 //! [`Message`]: super::Message
@@ -73,7 +73,7 @@
 //!
 //! # Low-Level API
 //!
-//! The low-level API is much more involved.  Here's the same example as
+//! The low-level API is much more involved. Here's the same example as
 //! above, but using the low-level API:
 //!
 //! ```
@@ -162,7 +162,7 @@
 //!
 //! Individual message items were extracted with [`SplitMessageBytes`] here.
 //! The low-level API is actually made up of a large number of related parsing
-//! traits, and they all have different advantages and limitations.  Most of
+//! traits, and they all have different advantages and limitations. Most of
 //! them come from [`super::wire`], which provides bytewise (de)serialization
 //! but is not aware of DNS-specific considerations.
 //!
@@ -175,14 +175,14 @@
 //!   If the target type supports [`ParseBytesZC`], that can be used instead.
 //!   [`parse_bytes_by_ref()`] will parse from a reference to a byte sequence.
 //!   This is more efficient than [`ParseBytes`], because it won't copy the
-//!   data out of the byte sequence.  The byte sequence will be re-interpreted
+//!   data out of the byte sequence. The byte sequence will be re-interpreted
 //!   as an instance of the target type in place, like a pointer cast in C.
 //!
 //!   [`parse_bytes_by_ref()`]: ParseBytesZC::parse_bytes_by_ref()
 //!
 //!   If the byte sequence is stored in certain container types, like [`Box`],
 //!   it can also be parsed _in place_ (e.g. `Box<[u8]> -> Box<Message>`), via
-//!   [`parse_bytes_in()`].  The container implements [`ParseBytesInPlace`];
+//!   [`parse_bytes_in()`]. The container implements [`ParseBytesInPlace`];
 //!   see its documentation for a list of implementing types.
 //!
 //!   [`Box`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
@@ -197,26 +197,26 @@
 //!
 //! - If you have a byte sequence and you know that it _starts_ with a certain
 //!   object (and you don't know how many bytes the object takes up), try to
-//!   use [`SplitBytes::split_bytes()`].  It will return the parsed object and
+//!   use [`SplitBytes::split_bytes()`]. It will return the parsed object and
 //!   the remainder of the input bytes.
 //!
 //!   [`SplitBytesZC`] also exists, and works analogously to [`ParseBytesZC`].
 //!   It is equivalent to but more efficient than [`SplitBytes`], it can work
 //!   for dynamically sized types where [`SplitBytes`] can't, and `&T` will
-//!   implement [`SplitBytes`] if `T` implements [`SplitBytesZC`].  However,
+//!   implement [`SplitBytes`] if `T` implements [`SplitBytesZC`]. However,
 //!   there is no `split_bytes_in()`.
 //!
 //! - The previous traits don't support decompressing domain names in the DNS
 //!   wire format, since that would also require knowledge of the DNS message
-//!   containing the bytes being parsed.  If you have a byte sequence within a
+//!   containing the bytes being parsed. If you have a byte sequence within a
 //!   DNS message, and it may contain compressed domain names that need to be
-//!   resolved, use [`ParseMessageBytes`] or [`SplitMessageBytes`].  These are
+//!   resolved, use [`ParseMessageBytes`] or [`SplitMessageBytes`]. These are
 //!   analogous to [`ParseBytes`] and [`SplitBytes`], but have different
 //!   parameters.
 //!
 //!   Note that `ParseMessageBytesZC` or `SplitMessageBytesZC` don't exist, as
 //!   resolving domain names inherently requires copying data from different
-//!   parts of the DNS message.  However, many types that don't contain domain
+//!   parts of the DNS message. However, many types that don't contain domain
 //!   names still implement [`ParseMessageBytes`] and [`SplitMessageBytes`].
 //!   If `T` implements [`ParseBytesZC`] or [`SplitBytesZC`], `&T` will also
 //!   implement [`ParseMessageBytes`] and [`SplitMessageBytes`] respectively.
@@ -238,8 +238,8 @@ pub trait ParseMessageBytes<'a>: ParseBytes<'a> {
     /// Parse a value from bytes in a DNS message.
     ///
     /// The contents of the DNS message (up to and including the actual bytes
-    /// to be parsed) is provided as `contents`.  The 12-byte message header
-    /// is not included.  `contents[start..]` is the input to be parsed.  The
+    /// to be parsed) is provided as `contents`. The 12-byte message header
+    /// is not included. `contents[start..]` is the input to be parsed. The
     /// earlier bytes are provided for resolving compressed domain names.
     fn parse_message_bytes(
         contents: &'a [u8],
@@ -323,12 +323,12 @@ pub trait SplitMessageBytes<'a>:
     /// Parse a value from the start of a byte sequence within a DNS message.
     ///
     /// The contents of the DNS message (i.e. without the 12-byte header) is
-    /// provided as `contents`.  `contents[start..]` is the beginning of the
-    /// input to be parsed.  The earlier bytes are provided for resolving
+    /// provided as `contents`. `contents[start..]` is the beginning of the
+    /// input to be parsed. The earlier bytes are provided for resolving
     /// compressed domain names.
     ///
     /// If parsing is successful, the parsed value and the offset for the rest
-    /// of the input are returned.  If `len` bytes were parsed to form `self`,
+    /// of the input are returned. If `len` bytes were parsed to form `self`,
     /// `start + len` should be the returned offset.
     fn split_message_bytes(
         contents: &'a [u8],

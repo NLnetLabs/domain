@@ -25,11 +25,11 @@ use crate::utils::dst::UnsizedCopy;
 /// The IPv6 address of a host responsible for this domain.
 ///
 /// A [`Aaaa`] record indicates that a domain name is backed by a server that
-/// can be reached over the Internet at the specified IPv6 address.  It does
+/// can be reached over the Internet at the specified IPv6 address. It does
 /// not specify the server's capabilities (e.g. what protocols it supports);
 /// those have to be communicated elsewhere.
 ///
-/// [`Aaaa`] is specified by [RFC 3596, section 2].  It works identically to
+/// [`Aaaa`] is specified by [RFC 3596, section 2]. It works identically to
 /// the [`A`] record.
 ///
 /// [`A`]: crate::new::rdata::A
@@ -38,18 +38,18 @@ use crate::utils::dst::UnsizedCopy;
 /// ## Wire Format
 ///
 /// The wire format of a [`Aaaa`] record is the 16 bytes of its IPv6 address,
-/// in conventional order (from most to least significant).  For example,
+/// in conventional order (from most to least significant). For example,
 /// `2001::db8::` would be serialized as `20 01 0D B8 00 00 00 00 00 00 00 00
 /// 00 00 00 00`.
 ///
 /// The memory layout of the [`Aaaa`] type is identical to its serialization
-/// in the wire format.  This means it can be parsed from the wire format in a
+/// in the wire format. This means it can be parsed from the wire format in a
 /// zero-copy fashion, which is more efficient.
 ///
 /// ## Usage
 ///
 /// Because [`Aaaa`] is a record data type, it is usually handled within
-/// an enum like [`RecordData`].  This section describes how to use it
+/// an enum like [`RecordData`]. This section describes how to use it
 /// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
@@ -94,7 +94,7 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// To serialize a [`Aaaa`] in the wire format, use [`BuildBytes`] (which
 /// will serialize it to a given buffer) or [`AsBytes`] (which will
-/// cast the [`Aaaa`] into a byte sequence in place).  It also supports
+/// cast the [`Aaaa`] into a byte sequence in place). It also supports
 /// [`BuildInMessage`].
 #[derive(
     Copy,

@@ -16,15 +16,15 @@ use crate::new::base::{
 
 /// The canonical name for this domain.
 ///
-/// A [`CName`] record indicates that a domain name is an alias.  Any data
+/// A [`CName`] record indicates that a domain name is an alias. Any data
 /// associated with that domain name originates from the "canonical" domain
-/// name (with a few DNSSEC-related exceptions).  If a domain name is an
+/// name (with a few DNSSEC-related exceptions). If a domain name is an
 /// alias, it has a single canonical name (see [RFC 2181, section 10.1]); it
 /// cannot have multiple distinct [`CName`] records.
 ///
 /// [RFC 2181, section 10.1]: https://datatracker.ietf.org/doc/html/rfc2181#section-10.1
 ///
-/// [`CName`] is specified by [RFC 1035, section 3.3.1].  The behaviour of DNS
+/// [`CName`] is specified by [RFC 1035, section 3.3.1]. The behaviour of DNS
 /// lookups and name servers is specified by [RFC 1034, section 3.6.2].
 ///
 /// [RFC 1034, section 3.6.2]: https://datatracker.ietf.org/doc/html/rfc1034#section-3.6.2
@@ -38,14 +38,14 @@ use crate::new::base::{
 /// ## Usage
 ///
 /// Because [`CName`] is a record data type, it is usually handled within
-/// an enum like [`RecordData`].  This section describes how to use it
+/// an enum like [`RecordData`]. This section describes how to use it
 /// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
 /// In order to build a [`CName`], it's first important to choose a domain
-/// name type.  For short-term usage (where the [`CName`] is a local
-/// variable), it is common to pick [`RevNameBuf`].  If the [`CName`] will
+/// name type. For short-term usage (where the [`CName`] is a local
+/// variable), it is common to pick [`RevNameBuf`]. If the [`CName`] will
 /// be placed on the heap, <code>Box&lt;[`RevName`]&gt;</code> will be more
 /// efficient.
 ///
@@ -54,7 +54,7 @@ use crate::new::base::{
 ///
 /// The primary way to build a new [`CName`] is to construct each
 /// field manually. To parse a [`CName`] from a DNS message, use
-/// [`ParseMessageBytes`].  In case the input bytes don't use name
+/// [`ParseMessageBytes`]. In case the input bytes don't use name
 /// compression, [`ParseBytes`] can be used.
 ///
 /// ```
@@ -81,8 +81,8 @@ use crate::new::base::{
 /// ```
 ///
 /// Since [`CName`] is a sized type, and it implements [`Copy`] and [`Clone`],
-/// it's straightforward to handle and move around.  However, this depends on
-/// the domain name type.  It can be changed using [`CName::map_name()`] and
+/// it's straightforward to handle and move around. However, this depends on
+/// the domain name type. It can be changed using [`CName::map_name()`] and
 /// [`CName::map_name_by_ref()`].
 ///
 /// For debugging, [`CName`] can be formatted using [`fmt::Debug`].
@@ -90,7 +90,7 @@ use crate::new::base::{
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
 /// To serialize a [`CName`] in the wire format, use [`BuildInMessage`]
-/// (which supports name compression).  If name compression is not desired,
+/// (which supports name compression). If name compression is not desired,
 /// use [`BuildBytes`].
 #[derive(
     Copy,

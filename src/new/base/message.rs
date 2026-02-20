@@ -86,11 +86,11 @@ impl Message {
     /// # Safety
     ///
     /// This method uses `pointer::offset()`: `self` must be "derived from a
-    /// pointer to some allocated object".  There must be at least 12 bytes
-    /// between `self` and the end of that allocated object.  A reference to
+    /// pointer to some allocated object". There must be at least 12 bytes
+    /// between `self` and the end of that allocated object. A reference to
     /// `Message` will always result in a pointer satisfying this.
     pub unsafe fn truncate_ptr(this: *mut Message, size: usize) -> *mut Self {
-        // Extract the metadata from 'this'.  We know it's slice metadata.
+        // Extract the metadata from 'this'. We know it's slice metadata.
         //
         // SAFETY: '[()]' is a zero-sized type and references to it can be
         // created from arbitrary pointers, since every pointer is valid for
@@ -160,7 +160,7 @@ impl fmt::Display for Header {
 ///
 /// This 16-bit field provides information about the containing DNS message.
 /// Its contents define the purpose of the message, e.g. whether it is a query
-/// or a response.  Due to its small size, it doesn't cover everything; the
+/// or a response. Due to its small size, it doesn't cover everything; the
 /// OPT record may provide additional information, if it is present.
 ///
 /// # Specification
@@ -168,11 +168,11 @@ impl fmt::Display for Header {
 // TODO: Update regularly.
 //
 /// The header field has been updated by several RFCs and the interpretation
-/// of its bits has changed in some places.  The following is a collection of
+/// of its bits has changed in some places. The following is a collection of
 /// the relevant RFC notes; it is up-to-date as of *2025-04-03*.
 ///
 /// The descriptions here are specific to the `QUERY` opcode, which is by far
-/// the most common.  Other opcodes can change the interpretation of the bits
+/// the most common. Other opcodes can change the interpretation of the bits
 /// here.
 ///
 /// ```text
@@ -201,8 +201,8 @@ impl fmt::Display for Header {
 ///
 /// - `TC`: whether the response is truncated (due to channel limitations).
 ///
-///   Specified by [RFC 1035, section 4.1.1].  Behaviour clarified by [RFC
-///   2181, section 9].  Behaviour for DNSSEC servers specified by [RFC 4035,
+///   Specified by [RFC 1035, section 4.1.1]. Behaviour clarified by [RFC
+///   2181, section 9]. Behaviour for DNSSEC servers specified by [RFC 4035,
 ///   section 3.1].
 ///
 /// - `RD`: whether the DNS client wishes for a recursively resolved answer.
@@ -215,16 +215,16 @@ impl fmt::Display for Header {
 ///
 /// - `AD`: whether the DNS server has authenticated the answer.
 ///
-///   Defined by [RFC 2535, section 6.1].  Behaviour for authoritative name
-///   servers specified by [RFC 4035, section 3.1.6].  Behaviour for recursive
+///   Defined by [RFC 2535, section 6.1]. Behaviour for authoritative name
+///   servers specified by [RFC 4035, section 3.1.6]. Behaviour for recursive
 ///   name servers specified by [RFC 4035, section 3.2.3] and updated by [RFC
-///   6840, section 5.8].  Behaviour for DNS clients specified by [RFC 6840,
+///   6840, section 5.8]. Behaviour for DNS clients specified by [RFC 6840,
 ///   section 5.7].
 ///
 /// - `CD`: whether the DNS server should avoid authenticating the answer.
 ///
-///   Defined by [RFC 2535, section 6.1].  Behaviour for authoritative name
-///   servers specified by [RFC 4035, section 3.1.6].  Behaviour for recursive
+///   Defined by [RFC 2535, section 6.1]. Behaviour for authoritative name
+///   servers specified by [RFC 4035, section 3.1.6]. Behaviour for recursive
 ///   name servers specified by [RFC 4035, section 3.2.2] and updated by [RFC
 ///   6840, section 5.9].
 ///
@@ -516,7 +516,7 @@ impl fmt::Display for SectionCounts {
 /// A question or a record.
 ///
 /// This is useful for building and parsing the contents of a [`Message`]
-/// ergonomically and efficiently.  An iterator of [`MessageItem`]s can be
+/// ergonomically and efficiently. An iterator of [`MessageItem`]s can be
 /// retrieved using [`Message::parse()`].
 #[derive(Clone, Debug)]
 pub enum MessageItem<N, RD, ED> {
@@ -536,7 +536,7 @@ pub enum MessageItem<N, RD, ED> {
 
     /// An EDNS record.
     ///
-    /// This is a record in the additional section.  It uses a distinct type
+    /// This is a record in the additional section. It uses a distinct type
     /// as the class and TTL fields of the record are interpreted differently.
     Edns(EdnsRecord<ED>),
 }

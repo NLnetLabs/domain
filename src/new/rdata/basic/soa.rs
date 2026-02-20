@@ -18,7 +18,7 @@ use crate::new::base::{CanonicalRecordData, Serial};
 /// It provides several parameters to describe how the zone should be used,
 /// e.g. how often it should be refreshed.
 ///
-/// [`Soa`]'s most important use is to detect changes to the zone.  Whenever
+/// [`Soa`]'s most important use is to detect changes to the zone. Whenever
 /// the zone is changed, [`Soa::serial`] is incremented; secondary DNS servers
 /// (which cache and redistribute the contents of the zone) can thus detect
 /// whether they need to update their cache.
@@ -29,7 +29,7 @@ use crate::new::base::{CanonicalRecordData, Serial};
 /// The zone (along with its authoritative name servers) is authoritative for
 /// the record.
 ///
-/// [`Soa`] is specified by [RFC 1035, section 3.3.13].  The behaviour of
+/// [`Soa`] is specified by [RFC 1035, section 3.3.13]. The behaviour of
 /// secondary name servers using [`Soa`] to check for updates to a zone is
 /// specified by [RFC 1034, section 4.3.5].
 ///
@@ -39,21 +39,21 @@ use crate::new::base::{CanonicalRecordData, Serial};
 /// ## Wire format
 ///
 /// The wire format of a [`Soa`] record is the concatenation of its fields, in
-/// the same order as the `struct` definition.  The domain names within a
-/// [`Soa`] may be compressed in DNS messages.  Every other field is an
+/// the same order as the `struct` definition. The domain names within a
+/// [`Soa`] may be compressed in DNS messages. Every other field is an
 /// unsigned 32-bit big-endian integer.
 ///
 /// ## Usage
 ///
 /// Because [`Soa`] is a record data type, it is usually handled within
-/// an enum like [`RecordData`].  This section describes how to use it
+/// an enum like [`RecordData`]. This section describes how to use it
 /// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
 /// In order to build a [`Soa`], it's first important to choose a domain name
-/// type.  For short-term usage (where the [`Soa`] is a local variable), it is
-/// common to pick [`RevNameBuf`].  If the [`Soa`] will be placed on the heap,
+/// type. For short-term usage (where the [`Soa`] is a local variable), it is
+/// common to pick [`RevNameBuf`]. If the [`Soa`] will be placed on the heap,
 /// <code>Box&lt;[`RevName`]&gt;</code> will be more efficient.
 ///
 /// [`RevName`]: crate::new::base::name::RevName
@@ -61,7 +61,7 @@ use crate::new::base::{CanonicalRecordData, Serial};
 ///
 /// The primary way to build a new [`Soa`] is to construct each
 /// field manually. To parse a [`Soa`] from a DNS message, use
-/// [`ParseMessageBytes`].  In case the input bytes don't use name
+/// [`ParseMessageBytes`]. In case the input bytes don't use name
 /// compression, [`ParseBytes`] can be used.
 ///
 /// ```
@@ -101,8 +101,8 @@ use crate::new::base::{CanonicalRecordData, Serial};
 /// ```
 ///
 /// Since [`Soa`] is a sized type, and it implements [`Copy`] and [`Clone`],
-/// it's straightforward to handle and move around.  However, this depends on
-/// the domain name type.  It can be changed using [`Soa::map_names()`] and
+/// it's straightforward to handle and move around. However, this depends on
+/// the domain name type. It can be changed using [`Soa::map_names()`] and
 /// [`Soa::map_names_by_ref()`].
 ///
 /// For debugging, [`Soa`] can be formatted using [`fmt::Debug`].
@@ -110,7 +110,7 @@ use crate::new::base::{CanonicalRecordData, Serial};
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
 /// To serialize a [`Soa`] in the wire format, use [`BuildInMessage`]
-/// (which supports name compression).  If name compression is not desired,
+/// (which supports name compression). If name compression is not desired,
 /// use [`BuildBytes`].
 #[derive(
     Copy,
@@ -129,7 +129,7 @@ pub struct Soa<N> {
     /// This domain name should point to a name server that is authoritative
     /// for this zone -- more specifically, that is the original source of
     /// information that all other name servers are (directly or indirectly)
-    /// loading this zone from.  This need not be listed in the [`Ns`] records
+    /// loading this zone from. This need not be listed in the [`Ns`] records
     /// for this zone, if it is not intended for public querying.
     ///
     /// [`Ns`]: crate::new::rdata::Ns
@@ -138,9 +138,9 @@ pub struct Soa<N> {
     /// The mailbox of the maintainer of this zone.
     ///
     /// The first label here is the username (i.e. local part) of the e-mail
-    /// address, and the remaining labels make up the mail domain name.  For
+    /// address, and the remaining labels make up the mail domain name. For
     /// example, <hostmaster@sri-nic.arpa> would be represented as
-    /// `hostmaster.sri-nic.arpa`.  This convention is specified in [RFC 1034,
+    /// `hostmaster.sri-nic.arpa`. This convention is specified in [RFC 1034,
     /// section 3.3].
     ///
     /// [RFC 1034, section 3.3]: https://datatracker.ietf.org/doc/html/rfc1034#section-3.3
@@ -148,21 +148,21 @@ pub struct Soa<N> {
 
     /// The version number of the original copy of this zone.
     ///
-    /// This value is increased when the contents of the zone change.  If a
+    /// This value is increased when the contents of the zone change. If a
     /// secondary name server wishes to cache the contents of this zone, it
     /// can periodically check the version number from the primary name server
     /// to determine whether it needs to update its cache.
     ///
-    /// There are multiple conventions for versioning strategies.  Some zones
+    /// There are multiple conventions for versioning strategies. Some zones
     /// will increase this value by 1 when a change occurs; some set it to the
     /// Unix timestamp of the latest change; others set it so that the decimal
-    /// representation includes the current date.  As long as the version
+    /// representation includes the current date. As long as the version
     /// number increases (by a relatively small value) upon every change, any
     /// strategy is valid.
     ///
     /// This field is represented using [`Serial`], which provides special
-    /// "sequence space arithmetic".  This ensures that ordering comparisons
-    /// are well-defined even if the number overflows modulo `2^32`.  See its
+    /// "sequence space arithmetic". This ensures that ordering comparisons
+    /// are well-defined even if the number overflows modulo `2^32`. See its
     /// documentation for more information.
     pub serial: Serial,
 
@@ -170,7 +170,7 @@ pub struct Soa<N> {
     ///
     /// If a secondary name server is caching and serving a zone, it is
     /// expected to periodically check the zone's serial number in the
-    /// primary name server for changes to the zone contents.  The server is
+    /// primary name server for changes to the zone contents. The server is
     /// expected to wait this long (in seconds) after the last successful
     /// check, before checking again.
     ///
@@ -187,7 +187,7 @@ pub struct Soa<N> {
     ///
     /// If a secondary name server is caching and serving a zone, it is
     /// expected to periodically check the zone's serial number in the
-    /// primary name server for changes to the zone contents.  The server is
+    /// primary name server for changes to the zone contents. The server is
     /// expected to wait this long (in seconds) after the last _failing_ check
     /// before trying again.
     ///
@@ -199,7 +199,7 @@ pub struct Soa<N> {
     ///
     /// If a secondary name server is caching and serving a zone, it is
     /// expected to periodically check the zone's serial number in the
-    /// primary name server for changes to the zone contents.  If the server
+    /// primary name server for changes to the zone contents. If the server
     /// fails to check for or retrieve updates to the zone for this period of
     /// time (in seconds), it should consider its copy of the zone obsolete
     /// and should discard it.
@@ -207,9 +207,9 @@ pub struct Soa<N> {
 
     /// The minimum TTL for any record in this zone.
     ///
-    /// The meaning of this field has changed over time.  According to [RFC
+    /// The meaning of this field has changed over time. According to [RFC
     /// 2308, section 4], it is the time for which a negative response (i.e.
-    /// that a certain record does not exist) should be cached.  [RFC 4035,
+    /// that a certain record does not exist) should be cached. [RFC 4035,
     /// section 2.3] likewise states that the [`NSec`] records for a zone
     /// should have a TTL of this value.
     ///

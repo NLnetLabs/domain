@@ -24,10 +24,10 @@ use crate::utils::dst::UnsizedCopy;
 /// EDNS options.
 ///
 /// An [`Opt`] record holds an unordered set of [`EdnsOption`]s, which provide
-/// additional non-critical information about the containing DNS message.  It
+/// additional non-critical information about the containing DNS message. It
 /// has fairly different semantics from other record data types, since it only
 /// exists for communication between peers (it is not part of any zone, and it
-/// is not cached).  As such, it is often called a "pseudo-RR".
+/// is not cached). As such, it is often called a "pseudo-RR".
 ///
 /// A record containing [`Opt`] data is interpreted differently from records
 /// containing normal data types (its class and TTL fields are different).
@@ -37,7 +37,7 @@ use crate::utils::dst::UnsizedCopy;
 /// [`EdnsRecord`]: crate::new::edns::EdnsRecord
 /// [`Record`]: crate::new::base::Record
 ///
-/// [`Opt`] is specified by [RFC 6891, section 6].  For more information about
+/// [`Opt`] is specified by [RFC 6891, section 6]. For more information about
 /// EDNS, see [`crate::new::edns`].
 ///
 /// [RFC 6891, section 6]: https://datatracker.ietf.org/doc/html/rfc6891#section-6
@@ -45,32 +45,32 @@ use crate::utils::dst::UnsizedCopy;
 /// ## Wire Format
 ///
 /// The wire format of an [`Opt`] record is the concatenation of zero or more
-/// EDNS options.  An EDNS option is serialized as a 16-bit big-endian code
+/// EDNS options. An EDNS option is serialized as a 16-bit big-endian code
 /// (specifying the meaning of the option), a 16-bit big-endian size (the size
 /// of the option data), and the variable-length option data.
 ///
 /// The memory layout of the [`Opt`] type is identical to its serialization in
-/// the wire format.  This means that it can be parsed from the wire format in
+/// the wire format. This means that it can be parsed from the wire format in
 /// a zero-copy fashion, which is more efficient.
 ///
 /// ## Usage
 ///
 /// Because [`Opt`] is a record data type, it is usually handled within an
-/// enum like [`RecordData`].  This section describes how to use it
+/// enum like [`RecordData`]. This section describes how to use it
 /// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
-/// [`Opt`] is a _dynamically sized type_ (DST).  It is not possible to
+/// [`Opt`] is a _dynamically sized type_ (DST). It is not possible to
 /// store an [`Opt`] in place (e.g. in a local variable); it must be held
-/// indirectly, via a reference or a smart pointer type like [`Box`].  This
+/// indirectly, via a reference or a smart pointer type like [`Box`]. This
 /// makes it more difficult to _create_ new [`Opt`]s; but once they are placed
 /// somewhere, they can be used by reference (i.e. `&Opt`) exactly like any
 /// other type.
 ///
 /// [`Box`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
 ///
-/// It is currently a bit difficult to build a new [`Opt`] from scratch.  It
+/// It is currently a bit difficult to build a new [`Opt`] from scratch. It
 /// is easiest to build the wire format representation of the [`Opt`] manually
 /// (by building a sequence of [`EdnsOption`]s) and then to parse it.
 ///
@@ -109,8 +109,8 @@ use crate::utils::dst::UnsizedCopy;
 /// assert_eq!(from_bytes, &*from_boxed_bytes);
 /// ```
 ///
-/// As a DST, [`Opt`] does not implement [`Copy`] or [`Clone`].  Instead, it
-/// implements [`UnsizedCopy`].  An [`Opt`], held by reference, can be copied
+/// As a DST, [`Opt`] does not implement [`Copy`] or [`Clone`]. Instead, it
+/// implements [`UnsizedCopy`]. An [`Opt`], held by reference, can be copied
 /// into a different container (e.g. `Box`) using [`unsized_copy_into()`]
 ///
 /// [`unsized_copy_into()`]: UnsizedCopy::unsized_copy_into()
@@ -119,7 +119,7 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// To serialize a [`Opt`] in the wire format, use [`BuildBytes`] (which
 /// will serialize it to a given buffer) or [`AsBytes`] (which will
-/// cast the [`Opt`] into a byte sequence in place).  It also supports
+/// cast the [`Opt`] into a byte sequence in place). It also supports
 /// [`BuildInMessage`].
 #[derive(AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
@@ -146,7 +146,7 @@ impl Opt {
     /// The byte sequence must a valid instance of [`Opt`] in the wire format;
     /// it must contain a sequence of [`EdnsOption`]s, concatenated together.
     /// The contents of each [`EdnsOption`] need not be valid (i.e. they can
-    /// be incorrect with respect to the underlying option type).  The byte
+    /// be incorrect with respect to the underlying option type). The byte
     /// sequence must be at most 65,535 bytes long.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'Opt' is 'repr(transparent)' to '[u8]'.

@@ -18,12 +18,12 @@ use crate::new::base::{
 ///
 /// An [`Ns`] record indicates that a domain name is the apex of a DNS zone,
 /// and it specifies (the domain name of) the name server that queries about
-/// the domain name (and its descendants) should be sent to.  A domain name
+/// the domain name (and its descendants) should be sent to. A domain name
 /// can be associated with multiple name servers (using multiple [`Ns`]
 /// records).
 ///
 /// DNS is designed around the concept of delegating responsibility for domain
-/// names.  If a name server responds to a query with an empty answer section,
+/// names. If a name server responds to a query with an empty answer section,
 /// but with [`Ns`] records in the authority section, it is claiming to not be
 /// the authoritative source of information about the queried domain name;
 /// the [`Ns`] records specify name servers to whom that authority has been
@@ -40,26 +40,26 @@ use crate::new::base::{
 /// ## Wire format
 ///
 /// The wire format of an [`Ns`] record is simply the domain name of the name
-/// server.  This domain name may be compressed in DNS messages.
+/// server. This domain name may be compressed in DNS messages.
 ///
 /// ## Usage
 ///
 /// Because [`Ns`] is a record data type, it is usually handled within an enum
-/// like [`RecordData`].  This section describes how to use it independently
+/// like [`RecordData`]. This section describes how to use it independently
 /// (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
 /// In order to build an [`Ns`], it's first important to choose a domain name
-/// type.  For short-term usage (where the [`Ns`] is a local variable), it is
-/// common to pick [`RevNameBuf`].  If the [`Ns`] will be placed on the heap,
+/// type. For short-term usage (where the [`Ns`] is a local variable), it is
+/// common to pick [`RevNameBuf`]. If the [`Ns`] will be placed on the heap,
 /// <code>Box&lt;[`RevName`]&gt;</code> will be more efficient.
 ///
 /// [`RevName`]: crate::new::base::name::RevName
 /// [`RevNameBuf`]: crate::new::base::name::RevNameBuf
 ///
 /// The primary way to build a new [`Ns`] is to construct each field manually.
-/// To parse an [`Ns`] from a DNS message, use [`ParseMessageBytes`].  In case
+/// To parse an [`Ns`] from a DNS message, use [`ParseMessageBytes`]. In case
 /// the input bytes don't use name compression, [`ParseBytes`] can be used.
 ///
 /// ```
@@ -86,8 +86,8 @@ use crate::new::base::{
 /// ```
 ///
 /// Since [`Ns`] is a sized type, and it implements [`Copy`] and [`Clone`],
-/// it's straightforward to handle and move around.  However, this depends on
-/// the domain name type.  It can be changed using [`Ns::map_name()`] and
+/// it's straightforward to handle and move around. However, this depends on
+/// the domain name type. It can be changed using [`Ns::map_name()`] and
 /// [`Ns::map_name_by_ref()`].
 ///
 /// For debugging, [`Ns`] can be formatted using [`fmt::Debug`].
@@ -95,7 +95,7 @@ use crate::new::base::{
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
 /// To serialize an [`Ns`] in the wire format, use [`BuildInMessage`] (which
-/// supports name compression).  If name compression is not desired, use
+/// supports name compression). If name compression is not desired, use
 /// [`BuildBytes`].
 #[derive(
     Copy,

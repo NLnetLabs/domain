@@ -18,7 +18,7 @@ use crate::utils::dst::UnsizedCopy;
 /// The IPv4 address of a host responsible for this domain.
 ///
 /// An [`A`] record indicates that a domain name is backed by a server that
-/// can be reached over the Internet at the specified IPv4 address.  It does
+/// can be reached over the Internet at the specified IPv4 address. It does
 /// not specify the server's capabilities (e.g. what protocols it supports);
 /// those have to be communicated elsewhere.
 ///
@@ -29,17 +29,17 @@ use crate::utils::dst::UnsizedCopy;
 /// ## Wire Format
 ///
 /// The wire format of an [`A`] record is the 4 bytes of its IPv4 address, in
-/// conventional order (from most to least significant).  For example,
+/// conventional order (from most to least significant). For example,
 /// `127.0.0.1` would be serialized as `7F 00 00 01`.
 ///
 /// The memory layout of the [`A`] type is identical to its serialization in
-/// the wire format.  This means it can be parsed from the wire format in a
+/// the wire format. This means it can be parsed from the wire format in a
 /// zero-copy fashion, which is more efficient.
 ///
 /// ## Usage
 ///
 /// Because [`A`] is a record data type, it is usually handled within an enum
-/// like [`RecordData`].  This section describes how to use it independently
+/// like [`RecordData`]. This section describes how to use it independently
 /// (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
@@ -81,7 +81,7 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// To serialize an [`A`] in the wire format, use [`BuildBytes`] (which will
 /// serialize it to a given buffer) or [`AsBytes`] (which will cast the [`A`]
-/// into a byte sequence in place).  It also supports [`BuildInMessage`].
+/// into a byte sequence in place). It also supports [`BuildInMessage`].
 #[derive(
     Copy,
     Clone,

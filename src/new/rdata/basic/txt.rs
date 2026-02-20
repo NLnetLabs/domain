@@ -16,13 +16,13 @@ use crate::utils::dst::UnsizedCopy;
 /// Free-form text strings about this domain.
 ///
 /// A [`Txt`] record holds a collection of "strings" (really byte sequences),
-/// with no fixed purpose.  Usually, a [`Txt`] record holds a single string;
+/// with no fixed purpose. Usually, a [`Txt`] record holds a single string;
 /// if data has to be stored for different purposes, multiple [`Txt`] records
 /// would be used.
 ///
 /// Currently, [`Txt`] records are used systematically for e-mail security,
 /// e.g. in SPF ([RFC 7208, section 3]), DKIM ([RFC 6376, section 3.6.2]), and
-/// DMARC ([RFC 7489, section 6.1]).  As a record data type with no strict
+/// DMARC ([RFC 7489, section 6.1]). As a record data type with no strict
 /// semantics and arbitrary data storage, it is likely to continue being
 /// used.
 ///
@@ -37,30 +37,30 @@ use crate::utils::dst::UnsizedCopy;
 /// ## Wire Format
 ///
 /// The wire format of a [`Txt`] record is the concatenation of a (non-empty)
-/// sequence of "character strings" (see [`CharStr`]).  A character string is
+/// sequence of "character strings" (see [`CharStr`]). A character string is
 /// serialized as a 1-byte length, followed by up to 255 bytes of content.
 ///
 /// The memory layout of the [`Txt`] type is identical to its serialization in
-/// the wire format.  This means it can be parsed from the wire format in a
+/// the wire format. This means it can be parsed from the wire format in a
 /// zero-copy fashion, which is more efficient.
 ///
 /// ## Usage
 ///
 /// Because [`Txt`] is a record data type, it is usually handled within
-/// an enum like [`RecordData`].  This section describes how to use it
+/// an enum like [`RecordData`]. This section describes how to use it
 /// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
-/// [`Txt`] is a _dynamically sized type_ (DST).  It is not possible to store
+/// [`Txt`] is a _dynamically sized type_ (DST). It is not possible to store
 /// a [`Txt`] in place (e.g. in a local variable); it must be held indirectly,
-/// via a reference or a smart pointer type like [`Box`].  This makes it more
+/// via a reference or a smart pointer type like [`Box`]. This makes it more
 /// difficult to _create_ new [`Txt`]s; but once they are placed somewhere,
 /// they can be used by reference (i.e. `&Txt`) exactly like any other type.
 ///
 /// [`Box`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
 ///
-/// It is currently a bit difficult to build a new [`Txt`] from scratch.  It
+/// It is currently a bit difficult to build a new [`Txt`] from scratch. It
 /// is easiest to build the wire format representation of the [`Txt`] manually
 /// (by building a sequence of [`CharStr`]s) and then to parse it.
 ///
@@ -91,8 +91,8 @@ use crate::utils::dst::UnsizedCopy;
 /// assert_eq!(from_bytes, &*from_boxed_bytes);
 /// ```
 ///
-/// As a DST, [`Txt`] does not implement [`Copy`] or [`Clone`].  Instead, it
-/// implements [`UnsizedCopy`].  A [`Txt`], held by reference, can be copied
+/// As a DST, [`Txt`] does not implement [`Copy`] or [`Clone`]. Instead, it
+/// implements [`UnsizedCopy`]. A [`Txt`], held by reference, can be copied
 /// into a different container (e.g. `Box`) using [`unsized_copy_into()`].
 ///
 /// [`unsized_copy_into()`]: UnsizedCopy::unsized_copy_into()
@@ -101,7 +101,7 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// To serialize a [`Txt`] in the wire format, use [`BuildBytes`] (which
 /// will serialize it to a given buffer) or [`AsBytes`] (which will
-/// cast the [`Txt`] into a byte sequence in place).  It also supports
+/// cast the [`Txt`] into a byte sequence in place). It also supports
 /// [`BuildInMessage`].
 #[derive(AsBytes, BuildBytes, UnsizedCopy)]
 #[repr(transparent)]
@@ -119,7 +119,7 @@ impl Txt {
     ///
     /// The byte sequence must a valid instance of [`Txt`] in the wire format;
     /// it must contain one or more serialized [`CharStr`]s, concatenated
-    /// together.  The byte sequence must be at most 65,535 bytes long.
+    /// together. The byte sequence must be at most 65,535 bytes long.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'Txt' is 'repr(transparent)' to '[u8]'.
         unsafe { core::mem::transmute::<&[u8], &Txt>(bytes) }

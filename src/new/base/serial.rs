@@ -49,7 +49,7 @@ impl Serial {
 impl Serial {
     /// Increment this by a non-negative number.
     ///
-    /// The number must be in the range `[0, 2^31 - 1]`.  An [`i32`] is used
+    /// The number must be in the range `[0, 2^31 - 1]`. An [`i32`] is used
     /// instead of a [`u32`] because it is easier to understand and implement
     /// a non-negative check versus the upper range check.
     ///

@@ -65,7 +65,7 @@ impl ClientCookie {
     /// Build a [`Cookie`] in response to this request.
     ///
     /// A 24-byte version-1 interoperable cookie will be generated and written
-    /// to the given buffer.  If the buffer is big enough, the remaining part
+    /// to the given buffer. If the buffer is big enough, the remaining part
     /// of the buffer is returned.
     #[cfg(feature = "siphasher")]
     pub fn respond_into<'b>(
@@ -169,7 +169,7 @@ impl Cookie {
     /// The version number of this interoperable cookie.
     ///
     /// Assuming this is an interoperable cookie, as specified by [RFC 9018],
-    /// the 1-byte version number of the cookie is returned.  Currently, only
+    /// the 1-byte version number of the cookie is returned. Currently, only
     /// version 1 has been specified.
     ///
     /// [RFC 9018]: https://datatracker.ietf.org/doc/html/rfc9018
@@ -194,9 +194,9 @@ impl Cookie {
     /// Verify this cookie.
     ///
     /// This cookie is verified as a 24-byte version-1 interoperable cookie,
-    /// as specified by [RFC 9018].  A 16-byte secret is used to generate a
+    /// as specified by [RFC 9018]. A 16-byte secret is used to generate a
     /// hash for this cookie, based on its fields and the IP address of the
-    /// client which used it.  If the cookie was generated in the given time
+    /// client which used it. If the cookie was generated in the given time
     /// period, and the generated hash matches the hash in the cookie, it is
     /// valid.
     ///

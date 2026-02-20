@@ -24,35 +24,35 @@ use super::{
 
 /// A wrapper adding a size prefix during serialization.
 ///
-/// DNS messages often contain size-prefixed data.  Record data is prefixed by
+/// DNS messages often contain size-prefixed data. Record data is prefixed by
 /// a [`U16`](super::U16), indicating its size in bytes, and NSEC3 salts are
-/// prefixed by a [`u8`] with the same meaning.  [`SizePrefixed`] wraps such
+/// prefixed by a [`u8`] with the same meaning. [`SizePrefixed`] wraps such
 /// data and handles the logic for (de)serialization.
 ///
 /// *Warning:* in order to implement zero-copy (de)serialization, this type
 /// has a `size` field which always holds the size of `T` (or the size of the
-/// currently stored object, if `T` is `?Sized`).  If this size overflows `S`,
-/// a panic will occur.  This can occur even if `T` is only used serialized
+/// currently stored object, if `T` is `?Sized`). If this size overflows `S`,
+/// a panic will occur. This can occur even if `T` is only used serialized
 /// via [`ParseBytes`] / [`BuildBytes`], which don't use the `size` field.
 /// Thus, a 300-byte `T` cannot be used with a `u8` size prefix, even if the
-/// `T` serializes into 20 bytes.  This almost never occurs in practice.
+/// `T` serializes into 20 bytes. This almost never occurs in practice.
 ///
 /// ## Bounds
 ///
 /// `S` must satisfy various bounds for use in (de)serialization.
 ///
-/// - `S` should almost always implement `TryFrom<usize>`.  This is needed to
-///   initialize it manually, e.g. from the size of `T`.  It can be omitted
+/// - `S` should almost always implement `TryFrom<usize>`. This is needed to
+///   initialize it manually, e.g. from the size of `T`. It can be omitted
 ///   for the zero-copy traits [`ParseBytesZC`], [`SplitBytesZC`], and
 ///   [`AsBytes`].
 ///
 /// - During parsing, `S` should implement [`SplitMessageBytes`],
-///   [`SplitBytes`], or [`SplitBytesZC`].  It should also implement
+///   [`SplitBytes`], or [`SplitBytesZC`]. It should also implement
 ///   `Into<usize>`; this is used to read the right number of bytes for the
 ///   actual size-prefixed data.
 ///
 /// - During building, `S` should implement [`BuildInMessage`],
-///   [`BuildBytes`], or [`AsBytes`].  For the first two, it should also
+///   [`BuildBytes`], or [`AsBytes`]. For the first two, it should also
 ///   implement [`Default`]; this is used to temporarily initialize it, to be
 ///   overwritten once the actual size-prefixed data is built (and its size is
 ///   determined).
@@ -61,7 +61,7 @@ use super::{
 pub struct SizePrefixed<S, T: ?Sized> {
     /// The size prefix (needed for 'ParseBytesZC' / 'AsBytes').
     ///
-    /// This field is only used by the zero-copy (de)serialization traits.  As
+    /// This field is only used by the zero-copy (de)serialization traits. As
     /// such, this field should always be consistent with the size of `data`.
     size: S,
 
@@ -79,7 +79,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if the size of `data` in memory cannot fit in `S`.  This is
+    /// Panics if the size of `data` in memory cannot fit in `S`. This is
     /// necessary for `SizePrefixed` to correctly implement [`AsBytes`] and
     /// [`ParseBytesZC`] / [`SplitBytesZC`].
     pub fn new(data: T) -> Self {

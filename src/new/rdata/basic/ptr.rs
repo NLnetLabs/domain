@@ -15,9 +15,9 @@ use crate::new::base::{
 /// A pointer to another domain name.
 ///
 /// A [`Ptr`] record is used with special domain names for pointing to other
-/// locations in the domain name space.  It is conventionally used for reverse
+/// locations in the domain name space. It is conventionally used for reverse
 /// lookups: for example, the [`Ptr`] record for `<addr>.in-addr.arpa` points
-/// to the domain name using the IPv4 `<addr>` in an [`A`] record.  The same
+/// to the domain name using the IPv4 `<addr>` in an [`A`] record. The same
 /// technique works with `<addr>.ip6.arpa` for IPv6 addresses.
 ///
 /// [`A`]: crate::new::rdata::A
@@ -29,26 +29,26 @@ use crate::new::base::{
 /// ## Wire format
 ///
 /// The wire format of a [`Ptr`] record is simply the domain name of the name
-/// server.  This domain name may be compressed in DNS messages.
+/// server. This domain name may be compressed in DNS messages.
 ///
 /// ## Usage
 ///
 /// Because [`Ptr`] is a record data type, it is usually handled within
-/// an enum like [`RecordData`].  This section describes how to use it
+/// an enum like [`RecordData`]. This section describes how to use it
 /// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
 /// In order to build a [`Ptr`], it's first important to choose a domain name
-/// type.  For short-term usage (where the [`Ptr`] is a local variable), it is
-/// common to pick [`RevNameBuf`].  If the [`Ptr`] will be placed on the heap,
+/// type. For short-term usage (where the [`Ptr`] is a local variable), it is
+/// common to pick [`RevNameBuf`]. If the [`Ptr`] will be placed on the heap,
 /// <code>Box&lt;[`RevName`]&gt;</code> will be more efficient.
 ///
 /// [`RevName`]: crate::new::base::name::RevName
 /// [`RevNameBuf`]: crate::new::base::name::RevNameBuf
 ///
 /// The primary way to build a new [`Ptr`] is to construct each field manually.
-/// To parse a [`Ptr`] from a DNS message, use [`ParseMessageBytes`].  In case
+/// To parse a [`Ptr`] from a DNS message, use [`ParseMessageBytes`]. In case
 /// the input bytes don't use name compression, [`ParseBytes`] can be used.
 ///
 /// ```
@@ -75,8 +75,8 @@ use crate::new::base::{
 /// ```
 ///
 /// Since [`Ptr`] is a sized type, and it implements [`Copy`] and [`Clone`],
-/// it's straightforward to handle and move around.  However, this depends on
-/// the domain name type.  It can be changed using [`Ptr::map_name()`] and
+/// it's straightforward to handle and move around. However, this depends on
+/// the domain name type. It can be changed using [`Ptr::map_name()`] and
 /// [`Ptr::map_name_by_ref()`].
 ///
 /// For debugging, [`Ptr`] can be formatted using [`fmt::Debug`].
@@ -84,7 +84,7 @@ use crate::new::base::{
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
 /// To serialize a [`Ptr`] in the wire format, use [`BuildInMessage`] (which
-/// supports name compression).  If name compression is not desired, use
+/// supports name compression). If name compression is not desired, use
 /// [`BuildBytes`].
 #[derive(
     Copy,
