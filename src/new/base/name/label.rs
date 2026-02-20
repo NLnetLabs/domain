@@ -224,8 +224,8 @@ impl PartialOrd for Label {
     /// Determine the order between labels.
     ///
     /// Any uppercase ASCII characters in the labels are treated as if they
-    /// were lowercase.  The first unequal byte between two labels determines
-    /// its ordering: the label with the smaller byte value is the lesser.  If
+    /// were lowercase. The first unequal byte between two labels determines
+    /// its ordering: the label with the smaller byte value is the lesser. If
     /// two labels have all the same bytes, the shorter label is lesser; if
     /// they are the same length, they are equal.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -237,8 +237,8 @@ impl Ord for Label {
     /// Determine the order between labels.
     ///
     /// Any uppercase ASCII characters in the labels are treated as if they
-    /// were lowercase.  The first unequal byte between two labels determines
-    /// its ordering: the label with the smaller byte value is the lesser.  If
+    /// were lowercase. The first unequal byte between two labels determines
+    /// its ordering: the label with the smaller byte value is the lesser. If
     /// two labels have all the same bytes, the shorter label is lesser; if
     /// they are the same length, they are equal.
     fn cmp(&self, other: &Self) -> Ordering {
@@ -253,12 +253,12 @@ impl Ord for Label {
 impl Hash for Label {
     /// Hash this label.
     ///
-    /// All uppercase ASCII characters are lowercased beforehand.  This way,
+    /// All uppercase ASCII characters are lowercased beforehand. This way,
     /// the hash of a label is case-independent, consistent with how labels
     /// are compared and ordered.
     ///
     /// The label is hashed as if it were a name containing a single label --
-    /// the length octet is thus included.  This makes the hashing consistent
+    /// the length octet is thus included. This makes the hashing consistent
     /// between names and tuples (not slices!) of labels.
     fn hash<H: Hasher>(&self, state: &mut H) {
         for &byte in self.as_bytes() {
@@ -765,7 +765,7 @@ impl fmt::Debug for LabelIter<'_> {
 
 /// An error in parsing a [`Label`] from a string.
 ///
-/// This can be returned by [`LabelBuf::from_str()`].  It is not used when
+/// This can be returned by [`LabelBuf::from_str()`]. It is not used when
 /// parsing labels from the zonefile format, which uses a different mechanism.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LabelParseError {
@@ -782,7 +782,7 @@ pub enum LabelParseError {
 
     /// An invalid character was used.
     ///
-    /// Only alphanumeric characters and hyphens are allowed in labels.  This
+    /// Only alphanumeric characters and hyphens are allowed in labels. This
     /// prevents the encoding of perfectly valid labels containing non-ASCII
     /// bytes, but they're fairly rare anyway.
     InvalidChar,

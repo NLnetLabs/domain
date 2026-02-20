@@ -27,9 +27,9 @@ use super::{LabelIter, NameBuf, NameParseError};
 /// A domain name in reversed order.
 ///
 /// Domain names are conventionally presented and encoded from the innermost
-/// label to the root label.  This ordering is inconvenient and difficult to
+/// label to the root label. This ordering is inconvenient and difficult to
 /// use, making many common operations (e.g. comparing and ordering domain
-/// names) more computationally expensive.  A [`RevName`] stores the labels in
+/// names) more computationally expensive. A [`RevName`] stores the labels in
 /// reversed order for more efficient use.
 #[derive(UnsizedCopy)]
 #[repr(transparent)]
@@ -57,7 +57,7 @@ impl RevName {
     ///
     /// # Safety
     ///
-    /// The byte sequence must begin with a root label (0-value byte).  It
+    /// The byte sequence must begin with a root label (0-value byte). It
     /// must be followed by any number of encoded labels, as long as the size
     /// of the whole string is 255 bytes or less.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
@@ -70,7 +70,7 @@ impl RevName {
     ///
     /// # Safety
     ///
-    /// The byte sequence must begin with a root label (0-value byte).  It
+    /// The byte sequence must begin with a root label (0-value byte). It
     /// must be followed by any number of encoded labels, as long as the size
     /// of the whole string is 255 bytes or less.
     pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
@@ -194,7 +194,7 @@ impl Clone for alloc::boxed::Box<RevName> {
 
 impl PartialEq for RevName {
     fn eq(&self, that: &Self) -> bool {
-        // Instead of iterating labels, blindly iterate bytes.  The locations
+        // Instead of iterating labels, blindly iterate bytes. The locations
         // of labels don't matter since we're testing everything for equality.
 
         // NOTE: Label lengths (which are less than 64) aren't affected by
@@ -218,9 +218,9 @@ impl PartialOrd for RevName {
 
 impl Ord for RevName {
     fn cmp(&self, that: &Self) -> Ordering {
-        // Unfortunately, names cannot be compared bytewise.  Labels are
+        // Unfortunately, names cannot be compared bytewise. Labels are
         // preceded by their length octets, but a longer label can be less
-        // than a shorter one if its first bytes are less.  We are forced to
+        // than a shorter one if its first bytes are less. We are forced to
         // compare lexicographically over labels.
         self.labels().cmp(that.labels())
     }
@@ -319,11 +319,11 @@ impl<'a> SplitMessageBytes<'a> for RevNameBuf {
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        // NOTE: The input may be controlled by an attacker.  Compression
+        // NOTE: The input may be controlled by an attacker. Compression
         // pointers can be arranged to cause loops or to access every byte in
-        // the message in random order.  Instead of performing complex loop
+        // the message in random order. Instead of performing complex loop
         // detection, which would probably perform allocations, we simply
-        // disallow a name to point to data _after_ it.  Standard name
+        // disallow a name to point to data _after_ it. Standard name
         // compressors will never generate such pointers.
 
         let mut buffer = Self::empty();
@@ -362,7 +362,7 @@ impl<'a> ParseMessageBytes<'a> for RevNameBuf {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        // See 'split_from_message()' for details.  The only differences are
+        // See 'split_from_message()' for details. The only differences are
         // in the range of the first iteration, and the check that the first
         // iteration exactly covers the input range.
 

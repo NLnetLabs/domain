@@ -22,9 +22,9 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// A [`DName`] record indicates that a doamin name is a (partial!) alias.
 /// Queries for data _under_ that domain name (not that domain name itself)
-/// are redirected to the specified target.  A domain name can have at most
-/// one [`DName`] record; in this case, it cannot define subordinate records
-/// nor have a [`CName`] record.  It is conceptually similar to [`CName`].
+/// are redirected to the specified target. A domain name can have at most one
+/// [`DName`] record; in this case, it cannot define subordinate records nor
+/// have a [`CName`] record. It is conceptually similar to [`CName`].
 ///
 /// [`DName`] is specified by [RFC 6672].
 ///
@@ -37,28 +37,28 @@ use crate::utils::dst::UnsizedCopy;
 /// This domain name *cannot* be compressed in DNS messages.
 ///
 /// The memory layout of the [`DName`] type is identical to its serialization
-/// in the wire format.  This means that it can be parsed from the wire format
+/// in the wire format. This means that it can be parsed from the wire format
 /// in a zero-copy fashion, which is more efficient.
 ///
 /// ## Usage
 ///
 /// Because [`DName`] is a record data type, it is usually handled within
-/// an enum like [`RecordData`].  This section describes how to use it
+/// an enum like [`RecordData`]. This section describes how to use it
 /// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
-/// [`DName`] is a _dynamically sized type_ (DST).  It is not possible to
+/// [`DName`] is a _dynamically sized type_ (DST). It is not possible to
 /// store an [`DName`] in place (e.g. in a local variable); it must be held
-/// indirectly, via a reference or a smart pointer type like [`Box`].  This
+/// indirectly, via a reference or a smart pointer type like [`Box`]. This
 /// makes it more difficult to _create_ new [`DName`]s; but once they are
 /// placed somewhere, they can be used by reference (i.e. `&DName`) exactly
 /// like any other type.
 ///
 /// [`Box`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
 ///
-/// It is currently a bit difficult to build a new [`DName`] from scratch.  It
-/// is easiest to use [`DName::new()`] on a reference to a [`Name`], or to
+/// It is currently a bit difficult to build a new [`DName`] from scratch.
+/// It is easiest to use [`DName::new()`] on a reference to a [`Name`], or to
 /// build the wire format representation of the [`DName`] manually and then to
 /// parse it.
 ///
@@ -81,8 +81,8 @@ use crate::utils::dst::UnsizedCopy;
 /// let heaped: Box<DName> = dname.unsized_copy_into();
 /// ```
 ///
-/// As a DST, [`DName`] does not implement [`Copy`] or [`Clone`].  Instead, it
-/// implements [`UnsizedCopy`].  A [`DName`], held by reference, can be copied
+/// As a DST, [`DName`] does not implement [`Copy`] or [`Clone`]. Instead, it
+/// implements [`UnsizedCopy`]. A [`DName`], held by reference, can be copied
 /// into a different container (e.g. `Box`) using [`unsized_copy_into()`]
 ///
 /// [`unsized_copy_into()`]: UnsizedCopy::unsized_copy_into()
@@ -93,7 +93,7 @@ use crate::utils::dst::UnsizedCopy;
 ///
 /// To serialize a [`DName`] in the wire format, use [`BuildBytes`]
 /// (which will serialize it to a given buffer) or [`AsBytes`] (which will
-/// cast the [`DName`] into a byte sequence in place).  It also supports
+/// cast the [`DName`] into a byte sequence in place). It also supports
 /// [`BuildInMessage`].
 #[derive(
     Debug,

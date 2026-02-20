@@ -7,15 +7,15 @@ use super::{Name, RevName};
 /// A domain name compressor.
 ///
 /// This struct provides name compression functionality when building DNS
-/// messages.  It compares domain names to those already in the message, and
+/// messages. It compares domain names to those already in the message, and
 /// if a shared suffix is found, the newly-inserted name will point at the
 /// existing instance of the suffix.
 ///
 /// This struct stores the positions of domain names already present in the
 /// DNS message, as it is otherwise impossible to differentiate domain names
-/// from other bytes.  Only recently-inserted domain names are stored, and
+/// from other bytes. Only recently-inserted domain names are stored, and
 /// only from the first 16KiB of the message (as compressed names cannot point
-/// any further).  This is good enough for building small and large messages.
+/// any further). This is good enough for building small and large messages.
 #[repr(align(64))] // align to a typical cache line
 pub struct NameCompressor {
     /// The last use position of every entry.
@@ -26,12 +26,12 @@ pub struct NameCompressor {
     /// The last use position is calculated somewhat approximately; it would
     /// most appropriately be '(number of children, position of inserted
     /// name)', but it is approximated as 'position of inserted name + offset
-    /// into the name if it were uncompressed'.  In either formula, the entry
+    /// into the name if it were uncompressed'. In either formula, the entry
     /// with the minimum value would be evicted first.
     ///
     /// Both formulae guarantee that entries will be evicted before any of
-    /// their dependencies.  The former formula requires at least 19 bits of
-    /// storage, while the latter requires less than 15 bits.  The latter can
+    /// their dependencies. The former formula requires at least 19 bits of
+    /// storage, while the latter requires less than 15 bits. The latter can
     /// prioritize a deeply-nested name suffix over a slightly more recently
     /// used name that is less nested, but this should be quite rare.
     ///
@@ -53,7 +53,7 @@ pub struct NameCompressor {
     /// The length of the relative domain name in each entry.
     ///
     /// This is the length of the domain name each entry represents, up to
-    /// (but excluding) the root label or compression pointer.  It is used to
+    /// (but excluding) the root label or compression pointer. It is used to
     /// quickly find the end of the domain name for matching suffixes.
     ///
     /// Valid values:
@@ -75,7 +75,7 @@ pub struct NameCompressor {
     /// A 16-bit hash of the entry's last label.
     ///
     /// An existing entry will be used for compressing a new domain name when
-    /// the last label in both of them is identical.  This field stores a hash
+    /// the last label in both of them is identical. This field stores a hash
     /// over the last label in every entry, to speed up lookups.
     ///
     /// Valid values:
@@ -102,14 +102,14 @@ impl NameCompressor {
     /// write a [`RevName`] into a DNS message.
     ///
     /// Given the contents of the DNS message, determine how to compress the
-    /// given domain name.  If a suitable compression for the name could be
+    /// given domain name. If a suitable compression for the name could be
     /// found, this function returns the length of the uncompressed suffix as
     /// well as the address of the compressed prefix.
     ///
     /// The contents slice should begin immediately after the 12-byte message
-    /// header.  It must end at the position the name will be inserted.  It is
+    /// header. It must end at the position the name will be inserted. It is
     /// assumed that the domain names inserted in these contents still exist
-    /// from previous calls to [`compress_name()`] and related methods.  If
+    /// from previous calls to [`compress_name()`] and related methods. If
     /// this is not true, panics or silently invalid results may occur.
     ///
     /// The compressor's state will be updated to assume the provided name was
@@ -199,7 +199,7 @@ impl NameCompressor {
 
         // Search for an entry with a matching hash and parent.
         for i in 0..32 {
-            // Check the hash first, as it's less likely to match.  It's also
+            // Check the hash first, as it's less likely to match. It's also
             // okay if both checks are performed unconditionally.
             if self.hash[i] != hash || self.parent[i] != parent {
                 continue;
@@ -213,10 +213,10 @@ impl NameCompressor {
 
             // Find a shared suffix between the entry and the name.
             //
-            // Comparing a 'Name' to a 'RevName' properly is difficult.  We're
+            // Comparing a 'Name' to a 'RevName' properly is difficult. We're
             // just going for the lazy and not-pedantically-correct version,
             // where we blindly match 'RevName' labels against the end of the
-            // 'Name'.  The bytes are definitely correct, but there's a small
+            // 'Name'. The bytes are definitely correct, but there's a small
             // chance that we aren't consistent with label boundaries.
 
             // TODO(1.80): Use 'slice::split_at_checked()'.
@@ -239,7 +239,7 @@ impl NameCompressor {
             }
 
             // Suffixes from 'entry' that were also in 'name' have been
-            // removed.  The remainder of 'entry' does not match with 'name'.
+            // removed. The remainder of 'entry' does not match with 'name'.
             // 'name' can be compressed using this entry.
             let rest = name_labels.remaining();
             let pos = pos + entry.len();
@@ -255,14 +255,14 @@ impl NameCompressor {
     /// write a [`Name`] into a DNS message.
     ///
     /// Given the contents of the DNS message, determine how to compress the
-    /// given domain name.  If a suitable compression for the name could be
+    /// given domain name. If a suitable compression for the name could be
     /// found, this function returns the length of the uncompressed prefix as
     /// well as the address of the suffix.
     ///
     /// The contents slice should begin immediately after the 12-byte message
-    /// header.  It must end at the position the name will be inserted.  It is
+    /// header. It must end at the position the name will be inserted. It is
     /// assumed that the domain names inserted in these contents still exist
-    /// from previous calls to [`compress_name()`] and related methods.  If
+    /// from previous calls to [`compress_name()`] and related methods. If
     /// this is not true, panics or silently invalid results may occur.
     ///
     /// The compressor's state will be updated to assume the provided name was
@@ -305,7 +305,7 @@ impl NameCompressor {
         }
 
         // If there is a non-empty uncompressed prefix, register it as a new
-        // entry here.  We already know what the hash of its last label is.
+        // entry here. We already know what the hash of its last label is.
         if !name.is_empty() && contents.len() < 16384 {
             // Pick the entry that was least recently used (or uninitialized).
             //
@@ -347,7 +347,7 @@ impl NameCompressor {
 
         // Search for an entry with a matching hash and parent.
         for i in 0..32 {
-            // Check the hash first, as it's less likely to match.  It's also
+            // Check the hash first, as it's less likely to match. It's also
             // okay if both checks are performed unconditionally.
             if self.hash[i] != hash || self.parent[i] != parent {
                 continue;
@@ -362,7 +362,7 @@ impl NameCompressor {
             // Find a shared suffix between the entry and the name.
             //
             // We're going to use a not-pendantically-correct implementation
-            // where we blindly match the ends of the names.  The bytes are
+            // where we blindly match the ends of the names. The bytes are
             // definitely correct, but there's a small chance we aren't
             // consistent with label boundaries.
 
@@ -374,20 +374,20 @@ impl NameCompressor {
 
             let Some(suffix_len) = suffix_len else {
                 // 'iter::zip()' simply ignores unequal iterators, stopping
-                // when either iterator finishes.  Even though the two names
+                // when either iterator finishes. Even though the two names
                 // had no mismatching bytes, one could be longer than the
                 // other.
                 if name.len() > entry.len() {
-                    // 'entry' is a proper suffix of 'name'.  'name' can be
+                    // 'entry' is a proper suffix of 'name'. 'name' can be
                     // compressed using 'entry', and will have at least one
-                    // more label before it.  This label needs to be found and
+                    // more label before it. This label needs to be found and
                     // hashed.
 
                     let rest = &name[..name.len() - entry.len()];
                     let hash = Self::hash_label(Self::last_label(rest));
                     return Some((i as u8, rest, hash, pos as u16));
                 } else {
-                    // 'name' is a suffix of 'entry'.  'name' can be
+                    // 'name' is a suffix of 'entry'. 'name' can be
                     // compressed using 'entry', and no labels will be left.
                     let rest = &name[..0];
                     let hash = 0u16;
@@ -419,9 +419,9 @@ impl NameCompressor {
             }
 
             // 'entry' and 'name' share zero or more labels, and this shared
-            // suffix is equal to 'name_labels'.  The 'name_label' bytes might
+            // suffix is equal to 'name_labels'. The 'name_label' bytes might
             // not lie on the correct label boundaries in 'entry', but this is
-            // not problematic.  If 'name_labels' is non-empty, 'name' can be
+            // not problematic. If 'name_labels' is non-empty, 'name' can be
             // compressed using this entry.
 
             let suffix_len = name_labels.remaining().len();
@@ -443,19 +443,19 @@ impl NameCompressor {
     /// The name must be a valid non-empty sequence of labels.
     fn last_label(name: &[u8]) -> &Label {
         // The last label begins with a length octet and is followed by
-        // the corresponding number of bytes.  While the length octet
+        // the corresponding number of bytes. While the length octet
         // could look like a valid ASCII character, it would have to be
         // 45 (ASCII '-') or above; most labels are not that long.
         //
         // We will search backwards for a byte that could be the length
-        // octet of the last label.  It is highly likely that exactly one
+        // octet of the last label. It is highly likely that exactly one
         // match will be found; this is guaranteed to be the right result.
         // If more than one match is found, we will fall back to searching
         // from the beginning.
         //
         // It is possible (although unlikely) for LLVM to vectorize this
         // process, since it performs 64 unconditional byte comparisons
-        // over a fixed array.  A manually vectorized implementation would
+        // over a fixed array. A manually vectorized implementation would
         // generate a 64-byte mask for the valid bytes in 'name', load all
         // 64 bytes blindly, then do a masked comparison against iota.
 
@@ -496,7 +496,7 @@ impl NameCompressor {
     /// Hash a label.
     fn hash_label(label: &Label) -> u16 {
         // This code is copied from the 'hash_bytes()' function of
-        // 'rustc-hash' v2.1.1, with helpers.  The codebase is dual-licensed
+        // 'rustc-hash' v2.1.1, with helpers. The codebase is dual-licensed
         // under Apache-2.0 and MIT, with no explicit copyright statement.
         //
         // 'hash_bytes()' is described as "a wyhash-inspired
@@ -511,19 +511,19 @@ impl NameCompressor {
         // Source: <https://github.com/rust-lang/rustc-hash/blob/dc5c33f1283de2da64d8d7a06401d91aded03ad4/src/lib.rs>
         //
         // In order to hash case-insensitively, we aggressively transform the
-        // input bytes.  We cause some collisions, but only in characters we
-        // don't expect to see in domain names.  We do this by mapping bytes
-        // from 'XX0X_XXXX' to 'XX1X_XXXX'.  A full list of effects:
+        // input bytes. We cause some collisions, but only in characters we
+        // don't expect to see in domain names. We do this by mapping bytes
+        // from 'XX0X_XXXX' to 'XX1X_XXXX'. A full list of effects:
         //
-        // - Control characters (0x00..0x20) become symbols and digits.  We
+        // - Control characters (0x00..0x20) become symbols and digits. We
         //   weren't expecting any control characters to appear anyway.
         //
         // - Uppercase ASCII characters become lowercased.
         //
-        // - '@[\]^_' become '`{|}~' and DEL.  Underscores can occur, but DEL
+        // - '@[\]^_' become '`{|}~' and DEL. Underscores can occur, but DEL
         //   is not expected, so the collision is not problematic.
         //
-        // - Half of the non-ASCII space gets folded.  Unicode sequences get
+        // - Half of the non-ASCII space gets folded. Unicode sequences get
         //   mapped into ASCII using Punycode, so the chance of a non-ASCII
         //   character here is very low.
 

@@ -14,7 +14,7 @@ use super::Label;
 /// An unparsed domain name in a DNS message.
 ///
 /// Within a DNS message, domain names are stored in conventional order (from
-/// innermost to the root label), and may end with a compression pointer.  An
+/// innermost to the root label), and may end with a compression pointer. An
 /// [`UnparsedName`] represents this incomplete domain name, exactly as stored
 /// in a message.
 #[derive(AsBytes)]
@@ -28,7 +28,7 @@ impl UnparsedName {
     ///
     /// A domain name can be 255 bytes at most, but an unparsed domain name
     /// could replace the last byte (representing the root label) with a
-    /// compression pointer to it.  Since compression pointers are 2 bytes,
+    /// compression pointer to it. Since compression pointers are 2 bytes,
     /// the total size becomes 256 bytes.
     pub const MAX_SIZE: usize = 256;
 
@@ -86,7 +86,7 @@ impl UnparsedName {
     /// The value of this compression pointer.
     ///
     /// This returns [`Some`] if the name contains no labels, and only has a
-    /// compression pointer.  The returned value is in the range 0..16384, as
+    /// compression pointer. The returned value is in the range 0..16384, as
     /// an offset from the start of the containing DNS message.
     pub const fn pointer_value(&self) -> Option<u16> {
         if let &[hi @ 0xC0..=0xFF, lo] = self.as_bytes() {

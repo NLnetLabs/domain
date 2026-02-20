@@ -9,7 +9,7 @@ pub trait BuildBytes {
     /// Serialize into a byte sequence.
     ///
     /// `self` is serialized into a byte sequence and written to the given
-    /// buffer.  If the buffer is large enough, the whole object is written
+    /// buffer. If the buffer is large enough, the whole object is written
     /// and the remaining (unmodified) part of the buffer is returned.
     ///
     /// If the buffer is too small, a [`TruncationError`] is returned (and
@@ -22,7 +22,7 @@ pub trait BuildBytes {
     /// The size of `self` when serialized into a byte sequence.
     ///
     /// This reports the exact number of bytes that will be written to the
-    /// buffer passed to [`Self::build_bytes()`].  Note that this is not the
+    /// buffer passed to [`Self::build_bytes()`]. Note that this is not the
     /// cheapest operation; it may have to traverse all the fields in `self`.
     fn built_bytes_size(&self) -> usize;
 }
@@ -141,9 +141,9 @@ impl<T: BuildBytes, const N: usize> BuildBytes for [T; N] {
 
 /// Deriving [`BuildBytes`] automatically.
 ///
-/// [`BuildBytes`] can be derived on `struct`s (not `enum`s or `union`s).  The
+/// [`BuildBytes`] can be derived on `struct`s (not `enum`s or `union`s). The
 /// generated implementation will call [`build_bytes()`] with each field, in
-/// the order they are declared.  The trait implementation will be bounded by
+/// the order they are declared. The trait implementation will be bounded by
 /// the type of every field implementing [`BuildBytes`].
 ///
 /// [`build_bytes()`]: BuildBytes::build_bytes()
@@ -221,7 +221,7 @@ unsafe impl<T: AsBytes, const N: usize> AsBytes for [T; N] {}
 /// Deriving [`AsBytes`] automatically.
 ///
 /// [`AsBytes`] can be derived on `struct`s (not `enum`s or `union`s), where a
-/// fixed memory layout (`repr(C)` or `repr(transparent)`) is used.  Every
+/// fixed memory layout (`repr(C)` or `repr(transparent)`) is used. Every
 /// field must implement [`AsBytes`].
 ///
 /// Here's a simple example:

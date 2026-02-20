@@ -1,10 +1,10 @@
 //! Building DNS messages in the wire format.
 //!
 //! The [`wire`](super::wire) module provides basic serialization capability,
-//! but it is not specialized to DNS messages.  This module provides that
+//! but it is not specialized to DNS messages. This module provides that
 //! specialization within an ergonomic interface.
 //!
-//! The core of the high-level interface is [`MessageBuilder`].  It provides
+//! The core of the high-level interface is [`MessageBuilder`]. It provides
 //! the most intuitive methods for appending whole questions and records.
 //!
 //! ```
@@ -77,9 +77,9 @@ pub trait BuildInMessage {
     ///
     /// ## Errors
     ///
-    /// Fails if the message buffer is too small to fit the object.  Parts of
+    /// Fails if the message buffer is too small to fit the object. Parts of
     /// the message buffer (anything after `start`) may have been modified,
-    /// but should not be considered part of the initialized message.  The
+    /// but should not be considered part of the initialized message. The
     /// caller should explicitly reset the name compressor to `start` to undo
     /// the effects of this function.
     fn build_in_message(
@@ -133,7 +133,7 @@ impl<T: BuildInMessage> BuildInMessage for [T] {
     /// Write a sequence of elements to a DNS message.
     ///
     /// If an element cannot be written due to a truncation error, the whole
-    /// sequence is considered to have failed.  For more nuanced behaviour on
+    /// sequence is considered to have failed. For more nuanced behaviour on
     /// truncation, build each element manually.
     fn build_in_message(
         &self,

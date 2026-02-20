@@ -3,34 +3,34 @@
 //! ## Containers for record data
 //!
 //! When you need data for a particular record type, you can use the matching
-//! concrete type for it.  Otherwise, the record data can be held in one of
+//! concrete type for it. Otherwise, the record data can be held in one of
 //! the following types:
 //!
 //! - [`RecordData`] is useful for short-term usage, e.g. when manipulating a
-//!   DNS message or parsing into a custom representation.  It can be parsed
+//!   DNS message or parsing into a custom representation. It can be parsed
 //!   from the wire format very efficiently.
 //!
 #![cfg_attr(feature = "alloc", doc = " - [`BoxedRecordData`] ")]
 #![cfg_attr(not(feature = "alloc"), doc = " - `BoxedRecordData` ")]
-//!   is useful for long-term storage.  For long-term storage of a whole DNS
+//!   is useful for long-term storage. For long-term storage of a whole DNS
 //!   zone, it's more advisable to use the "zone tree" types provided by this
 //!   crate.
 //!
 //! - [`UnparsedRecordData`] is a niche type, useful for low-level
-//!   manipulation of the DNS wire format.  Beware that it can contain
+//!   manipulation of the DNS wire format. Beware that it can contain
 //!   unresolved name compression pointers.
 //!
 //! - [`UnknownRecordData`] can be used to represent data types that aren't
-//!   supported yet.  It functions similarly to [`UnparsedRecordData`], but
+//!   supported yet. It functions similarly to [`UnparsedRecordData`], but
 //!   it can't be used for many "basic" record data types, like [`Soa`] and
-//!   [`Mx`].  These types come with many special cases that
+//!   [`Mx`]. These types come with many special cases that
 //!   [`UnknownRecordData`] doesn't try to account for.
 //!
 //! [`UnparsedRecordData`]: crate::new::base::UnparsedRecordData
 //!
 //! ## Supported data types
 //!
-//! The following record data types are supported.  They are enumerated by
+//! The following record data types are supported. They are enumerated by
 //! [`RecordData`], which can store any one of them at a time.
 //!
 //! Basic record types (RFC 1035):
@@ -469,22 +469,22 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
 
 /// A heap-allocated container for [`RecordData`].
 ///
-/// This is an efficient heap-allocated container for DNS record data.  While
+/// This is an efficient heap-allocated container for DNS record data. While
 /// it does not directly provide much functionality, it has getters to access
 /// the [`RecordData`] within.
 ///
 /// ## Performance
 ///
-/// On 64-bit machines, [`BoxedRecordData`] has a size of 16 bytes.  This is
+/// On 64-bit machines, [`BoxedRecordData`] has a size of 16 bytes. This is
 /// significantly better than [`RecordData`], which is usually 64 bytes in
-/// size.  Since [`BoxedRecordData`] is intended for long-term storage and
+/// size. Since [`BoxedRecordData`] is intended for long-term storage and
 /// use, it trades off ergonomics for lower memory usage.
 #[cfg(feature = "alloc")]
 pub struct BoxedRecordData {
     /// A pointer to the record data.
     ///
     /// This is the raw pointer backing a `Box<[u8]>` (its size is stored in
-    /// the `size` field).  It is owned by this type.
+    /// the `size` field). It is owned by this type.
     data: *mut u8,
 
     /// The record data type.
@@ -511,11 +511,11 @@ impl BoxedRecordData {
         // SAFETY:
         //
         // As documented on 'BoxedRecordData', 'data' and 'size' form the
-        // pointer and length of a 'Box<[u8]>'.  This pointer is identical to
+        // pointer and length of a 'Box<[u8]>'. This pointer is identical to
         // the pointer returned by 'Box::deref()', so we use it directly.
         //
         // The lifetime of the returned slice is within the lifetime of 'self'
-        // which is a shared borrow of the 'BoxedRecordData'.  As such, the
+        // which is a shared borrow of the 'BoxedRecordData'. As such, the
         // underlying 'Box<[u8]>' outlives the returned slice.
         unsafe { core::slice::from_raw_parts(self.data, self.size as usize) }
     }
@@ -525,7 +525,7 @@ impl BoxedRecordData {
         let (rtype, bytes) = (self.rtype, self.bytes());
         // SAFETY: As documented on 'BoxedRecordData', the referenced bytes
         // are known to be a valid instance of the record data type (for all
-        // known record data types).  As such, this function will succeed.
+        // known record data types). As such, this function will succeed.
         unsafe {
             RecordData::parse_record_data_bytes(bytes, rtype)
                 .unwrap_unchecked()
@@ -589,7 +589,7 @@ impl Drop for BoxedRecordData {
         );
 
         // SAFETY: As documented on 'BoxedRecordData', 'data' and 'size' form
-        // the pointer and length of a 'Box<[u8]>'.  Reconstructing the 'Box'
+        // the pointer and length of a 'Box<[u8]>'. Reconstructing the 'Box'
         // moves out of 'self', but this is sound because 'self' is dropped.
         let _ = unsafe { Box::from_raw(slice) };
     }
@@ -598,12 +598,12 @@ impl Drop for BoxedRecordData {
 //--- Send and Sync
 
 // SAFETY: 'BoxedRecordData' is equivalent to '(RType, Box<[u8]>)' with a
-// custom representation.  It cannot cause data races.
+// custom representation. It cannot cause data races.
 #[cfg(feature = "alloc")]
 unsafe impl Send for BoxedRecordData {}
 
 // SAFETY: 'BoxedRecordData' is equivalent to '(RType, Box<[u8]>)' with a
-// custom representation.  It cannot cause data races.
+// custom representation. It cannot cause data races.
 #[cfg(feature = "alloc")]
 unsafe impl Sync for BoxedRecordData {}
 
@@ -619,7 +619,7 @@ impl<N: BuildBytes> From<RecordData<'_, N>> for BoxedRecordData {
     /// serialized bytes cannot be parsed back into `RecordData<'_, &Name>`.
     fn from(value: RecordData<'_, N>) -> Self {
         // TODO: Determine the size of the record data upfront, and only
-        // allocate that much.  Maybe as a new method on 'BuildBytes'...
+        // allocate that much. Maybe as a new method on 'BuildBytes'...
         let mut buffer = vec![0u8; 65535];
         let rest_len = value
             .build_bytes(&mut buffer)
@@ -736,7 +736,7 @@ impl BuildBytes for BoxedRecordData {
 /// Data for an unknown DNS record type.
 ///
 /// This is a fallback type, used for record types not known to the current
-/// implementation.  It must not be used for well-known record types, because
+/// implementation. It must not be used for well-known record types, because
 /// some of them have special rules that this type does not follow.
 #[derive(
     Debug, PartialEq, Eq, Hash, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,

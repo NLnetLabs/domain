@@ -11,10 +11,10 @@ use crate::utils::dst::UnsizedCopy;
 pub trait ParseBytes<'a>: Sized {
     /// Parse a value of [`Self`] from the given byte sequence.
     ///
-    /// The returned value may borrow from the byte sequence.  This allows it
+    /// The returned value may borrow from the byte sequence. This allows it
     /// to avoid copying data unnecessarily.
     ///
-    /// The entirety of the input must be used.  If some input bytes would be
+    /// The entirety of the input must be used. If some input bytes would be
     /// left over, [`ParseError`] should be returned.
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError>;
 }
@@ -67,7 +67,7 @@ impl<'a> ParseBytes<'a> for alloc::string::String {
 
 /// Deriving [`ParseBytes`] automatically.
 ///
-/// [`ParseBytes`] can be derived on `struct`s (not `enum`s or `union`s).  All
+/// [`ParseBytes`] can be derived on `struct`s (not `enum`s or `union`s). All
 /// fields except the last must implement [`SplitBytes`], while the last field
 /// only needs to implement [`ParseBytes`].
 ///
@@ -106,12 +106,12 @@ pub trait SplitBytes<'a>: Sized + ParseBytes<'a> {
     /// Parse a value of [`Self`] from the start of the byte sequence.
     ///
     /// If parsing is successful, the parsed value and the rest of the input
-    /// (the part that was not parsed) are returned.  On failure, a
+    /// (the part that was not parsed) are returned. On failure, a
     /// [`ParseError`] is returned.
     ///
     /// ## Non-Greedy Parsing
     ///
-    /// This function is _non-greedy_.  This can be interpreted in several
+    /// This function is _non-greedy_. This can be interpreted in several
     /// equivalent ways:
     ///
     /// - If `split_bytes()` returns successfully for some input sequence, it
@@ -196,7 +196,7 @@ impl<'a, T: SplitBytes<'a>> SplitBytes<'a> for alloc::boxed::Box<T> {
 
 /// Deriving [`SplitBytes`] automatically.
 ///
-/// [`SplitBytes`] can be derived on `struct`s (not `enum`s or `union`s).  All
+/// [`SplitBytes`] can be derived on `struct`s (not `enum`s or `union`s). All
 /// fields must implement [`SplitBytes`].
 ///
 /// Here's a simple example:
@@ -235,13 +235,13 @@ pub use domain_macros::SplitBytes;
 /// # Safety
 ///
 /// Every implementation of [`ParseBytesZC`] must satisfy the invariants
-/// documented on [`parse_bytes_by_ref()`].  An incorrect implementation is
+/// documented on [`parse_bytes_by_ref()`]. An incorrect implementation is
 /// considered to cause undefined behaviour.
 ///
 /// [`parse_bytes_by_ref()`]: Self::parse_bytes_by_ref()
 ///
 /// Implementing types must also have no alignment (i.e. a valid instance of
-/// [`Self`] can occur at any address).  This eliminates the possibility of
+/// [`Self`] can occur at any address). This eliminates the possibility of
 /// padding bytes when [`Self`] is part of a larger aggregate type.
 pub unsafe trait ParseBytesZC: UnsizedCopy + 'static {
     /// Interpret a byte sequence as an instance of [`Self`].
@@ -250,7 +250,7 @@ pub unsafe trait ParseBytesZC: UnsizedCopy + 'static {
     /// a different container type, use [`Self::parse_bytes_in()`].
     ///
     /// This will return successfully if and only if the entirety of the given
-    /// byte sequence can be interpreted as an instance of [`Self`].  It will
+    /// byte sequence can be interpreted as an instance of [`Self`]. It will
     /// transmute the bytes reference into a reference to [`Self`] and return
     /// it.
     ///
@@ -266,7 +266,7 @@ pub unsafe trait ParseBytesZC: UnsizedCopy + 'static {
     /// Parse bytes within the given container.
     ///
     /// Given a container of a byte sequence, this function tries to parse the
-    /// bytes as a valid instance of `Self`.  If this succeeds, the container
+    /// bytes as a valid instance of `Self`. If this succeeds, the container
     /// as a whole is converted (in place) to hold `Self`.
     ///
     /// This is a convenience method for calling
@@ -352,13 +352,13 @@ pub use domain_macros::ParseBytesZC;
 /// Zero-copy parsing from the start of a byte sequence.
 ///
 /// This is an extension of [`ParseBytesZC`] for types which can determine
-/// their own length when parsing.  It is usually implemented by [`Sized`]
+/// their own length when parsing. It is usually implemented by [`Sized`]
 /// types (where the length is just the size of the type), although it can be
 /// sometimes implemented by unsized types.
 ///
 /// # Non-Greedy Parsing
 ///
-/// This parsing functions provided by this trait are _non-greedy_.  This can
+/// This parsing functions provided by this trait are _non-greedy_. This can
 /// be interpreted in several equivalent ways:
 ///
 /// - If `split_bytes_by_ref()` returns successfully for some input sequence, it
@@ -375,7 +375,7 @@ pub use domain_macros::ParseBytesZC;
 /// # Safety
 ///
 /// Every implementation of [`SplitBytesZC`] must satisfy the invariants
-/// documented on [`split_bytes_by_ref()`].  An incorrect implementation is
+/// documented on [`split_bytes_by_ref()`]. An incorrect implementation is
 /// considered to cause undefined behaviour.
 ///
 /// [`split_bytes_by_ref()`]: Self::split_bytes_by_ref()
@@ -386,9 +386,9 @@ pub unsafe trait SplitBytesZC: ParseBytesZC {
     /// Interpret the start of a byte sequence as an instance of [`Self`].
     ///
     /// The byte sequence will be validated and re-interpreted as a reference
-    /// to [`Self`].  The length of [`Self`] will be determined, possibly
+    /// to [`Self`]. The length of [`Self`] will be determined, possibly
     /// based on the contents (but not the length!) of the input, and the
-    /// remaining bytes will be returned.  If the input does not begin with a
+    /// remaining bytes will be returned. If the input does not begin with a
     /// valid instance of [`Self`], a [`ParseError`] is returned.
     ///
     /// ## Invariants
@@ -472,7 +472,7 @@ pub use domain_macros::SplitBytesZC;
 /// Parsing from a byte sequence within an container.
 ///
 /// This trait allows various "container types", like [`Box`] and [`Vec`], to
-/// parse a stored byte sequence into a different type in place.  The target
+/// parse a stored byte sequence into a different type in place. The target
 /// type has to implement [`ParseBytesZC`].
 ///
 /// [`Box`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
@@ -509,7 +509,7 @@ impl<'a> ParseBytesInPlace for &'a mut [u8] {
         };
 
         // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
-        // same address and layout as '*self'.  Thus, it is safe to use it to
+        // same address and layout as '*self'. Thus, it is safe to use it to
         // reconstitute the reference.
         Ok(unsafe { &mut *parsed.cast_mut() })
     }
@@ -528,7 +528,7 @@ impl ParseBytesInPlace for alloc::boxed::Box<[u8]> {
         };
 
         // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has
-        // the same address and layout as '*self'.  Thus, it is safe to use it
+        // the same address and layout as '*self'. Thus, it is safe to use it
         // to reconstitute the 'Box'.
         let _ = alloc::boxed::Box::into_raw(self);
         Ok(unsafe { alloc::boxed::Box::from_raw(parsed.cast_mut()) })
@@ -548,7 +548,7 @@ impl ParseBytesInPlace for alloc::rc::Rc<[u8]> {
         };
 
         // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
-        // same address and layout as '*self'.  Thus, it is safe to use it to
+        // same address and layout as '*self'. Thus, it is safe to use it to
         // reconstitute the 'Rc'.
         let _ = alloc::rc::Rc::into_raw(self);
         Ok(unsafe { alloc::rc::Rc::from_raw(parsed) })
@@ -568,7 +568,7 @@ impl ParseBytesInPlace for alloc::sync::Arc<[u8]> {
         };
 
         // SAFETY: By the invariants of 'parse_bytes_by_ref()', '*parsed' has the
-        // same address and layout as '*self'.  Thus, it is safe to use it to
+        // same address and layout as '*self'. Thus, it is safe to use it to
         // reconstitute the 'Arc'.
         let _ = alloc::sync::Arc::into_raw(self);
         Ok(unsafe { alloc::sync::Arc::from_raw(parsed) })

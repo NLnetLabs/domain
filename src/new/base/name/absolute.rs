@@ -203,7 +203,7 @@ impl Clone for alloc::boxed::Box<Name> {
 
 impl PartialEq for Name {
     fn eq(&self, other: &Self) -> bool {
-        // Instead of iterating labels, blindly iterate bytes.  The locations
+        // Instead of iterating labels, blindly iterate bytes. The locations
         // of labels don't matter since we're testing everything for equality.
 
         // NOTE: Label lengths (which are less than 64) aren't affected by
@@ -230,21 +230,21 @@ impl Ord for Name {
     fn cmp(&self, that: &Self) -> Ordering {
         // We wish to compare the labels in these names in reverse order.
         // Unfortunately, labels in absolute names cannot be traversed
-        // backwards efficiently.  We need to try harder.
+        // backwards efficiently. We need to try harder.
         //
-        // Consider two names that are not equal.  This means that one name is
+        // Consider two names that are not equal. This means that one name is
         // a strict suffix of the other, or that the two had different labels
-        // at some position.  Following this mismatched label is a suffix of
+        // at some position. Following this mismatched label is a suffix of
         // labels that both names do agree on.
         //
         // We traverse the bytes in the names in reverse order and find the
-        // length of their shared suffix.  The actual shared suffix, in units
+        // length of their shared suffix. The actual shared suffix, in units
         // of labels, may be shorter than this (because the last bytes of the
         // mismatched labels could be the same).
         //
         // Then, we traverse the labels of both names in forward order, until
-        // we hit the shared suffix territory.  We try to match up the names
-        // in order to discover the real shared suffix.  Once the suffix is
+        // we hit the shared suffix territory. We try to match up the names
+        // in order to discover the real shared suffix. Once the suffix is
         // found, the immediately preceding label (if there is one) contains
         // the inequality, and can be compared as usual.
 
@@ -256,7 +256,7 @@ impl Ord for Name {
 
         let Some(suffix_len) = suffix_len else {
             // 'iter::zip()' simply ignores unequal iterators, stopping when
-            // either iterator finishes.  Even though the two names had no
+            // either iterator finishes. Even though the two names had no
             // mismatching bytes, one could be longer than the other.
             return self.len().cmp(&that.len());
         };
@@ -274,7 +274,7 @@ impl Ord for Name {
             let (llen, rlen) = (lhs.remaining().len(), rhs.remaining().len());
             if llen == rlen && llen <= suffix_len {
                 // We're in shared suffix territory, and 'lhs' and 'rhs' have
-                // the same length.  Thus, they must be identical, and we have
+                // the same length. Thus, they must be identical, and we have
                 // found the shared suffix.
                 break prev.0.cmp(prev.1);
             } else if llen > rlen {
@@ -400,11 +400,11 @@ impl<'a> SplitMessageBytes<'a> for NameBuf {
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        // NOTE: The input may be controlled by an attacker.  Compression
+        // NOTE: The input may be controlled by an attacker. Compression
         // pointers can be arranged to cause loops or to access every byte in
-        // the message in random order.  Instead of performing complex loop
+        // the message in random order. Instead of performing complex loop
         // detection, which would probably perform allocations, we simply
-        // disallow a name to point to data _after_ it.  Standard name
+        // disallow a name to point to data _after_ it. Standard name
         // compressors will never generate such pointers.
 
         let mut buffer = Self::empty();
@@ -443,7 +443,7 @@ impl<'a> ParseMessageBytes<'a> for NameBuf {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        // See 'split_from_message()' for details.  The only differences are
+        // See 'split_from_message()' for details. The only differences are
         // in the range of the first iteration, and the check that the first
         // iteration exactly covers the input range.
 
@@ -831,7 +831,7 @@ impl<'a> serde::Deserialize<'a> for std::boxed::Box<Name> {
 
 /// An error in parsing a [`Name`] from a string.
 ///
-/// This can be returned by [`NameBuf::from_str()`].  It is not used when
+/// This can be returned by [`NameBuf::from_str()`]. It is not used when
 /// parsing names from the zonefile format, which uses a different mechanism.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NameParseError {

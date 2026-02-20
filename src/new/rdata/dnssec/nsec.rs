@@ -150,7 +150,7 @@ impl TypeBitmaps {
         };
 
         // At most 32 bytes are necessary, to cover the 256 types that could
-        // be stored in this window.  And empty windows are not allowed.
+        // be stored in this window. And empty windows are not allowed.
         if !(1..=32).contains(&len) || rest.len() < len as usize {
             return Err(ParseError);
         }

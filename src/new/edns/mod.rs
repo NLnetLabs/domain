@@ -30,8 +30,8 @@ pub use ext_err::{ExtError, ExtErrorCode};
 
 /// An Extended DNS record.
 ///
-/// This is generic over the record data type.  It will often be [`&Opt`], but
-/// it can also be [`Box<Opt>`] or an array/slice of [`EdnsOption`]s.  While
+/// This is generic over the record data type. It will often be [`&Opt`], but
+/// it can also be [`Box<Opt>`] or an array/slice of [`EdnsOption`]s. While
 /// [`&Opt`] can be used for parsing, all of them can be used for serializing
 /// into the wire format.
 ///

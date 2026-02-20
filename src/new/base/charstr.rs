@@ -22,7 +22,7 @@ use super::{
 pub struct CharStr {
     /// The underlying octets.
     ///
-    /// This is at most 255 bytes.  It does not include the length octet that
+    /// This is at most 255 bytes. It does not include the length octet that
     /// precedes the character string when serialized in the wire format.
     pub octets: [u8],
 }
@@ -273,7 +273,7 @@ impl CharStrBuf {
     pub fn wire_bytes(&self) -> &[u8] {
         let ptr = self as *const _ as *const u8;
         let len = self.len() + 1;
-        // SAFETY: 'Self' is 'repr(C)' and contains no padding.  It can be
+        // SAFETY: 'Self' is 'repr(C)' and contains no padding. It can be
         // interpreted as a 256-byte array.
         unsafe { core::slice::from_raw_parts(ptr, len) }
     }
@@ -430,7 +430,7 @@ impl fmt::Debug for CharStrBuf {
 
 /// An error in parsing a [`CharStr`] from a string.
 ///
-/// This can be returned by [`CharStrBuf::from_str()`].  It is not used when
+/// This can be returned by [`CharStrBuf::from_str()`]. It is not used when
 /// parsing character strings from the zonefile format, which uses a different
 /// mechanism.
 #[derive(Clone, Debug, PartialEq, Eq)]

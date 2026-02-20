@@ -86,7 +86,7 @@ impl MessageBuilder<'_, '_> {
     /// The message built thus far, mutably.
     ///
     /// Compressed names in the message must not be modified here, as the name
-    /// compressor relies on them.  Modifying them will break name compression
+    /// compressor relies on them. Modifying them will break name compression
     /// and result in misformatted messages.
     #[must_use]
     pub fn message_mut(&mut self) -> &mut Message {
@@ -123,7 +123,7 @@ impl<'b> MessageBuilder<'b, '_> {
     ///
     /// The message will not be allowed to exceed the given size, in bytes.
     /// Only the message header and contents are counted; the enclosing UDP
-    /// or TCP packet size is not considered.  If the message already exceeds
+    /// or TCP packet size is not considered. If the message already exceeds
     /// this size, a [`TruncationError`] is returned.
     pub fn limit_to(&mut self, size: usize) -> Result<(), TruncationError> {
         if 12 + self.offset <= size {
@@ -154,7 +154,7 @@ impl<'b> MessageBuilder<'b, '_> {
     /// ## Errors
     ///
     /// If the item cannot be appended (because it needs to come before items
-    /// already in the message), [`Misplaced`] is returned.  If the item does
+    /// already in the message), [`Misplaced`] is returned. If the item does
     /// not fit in the message buffer, [`Truncated`] is returned.
     ///
     /// [`Misplaced`]: MessageBuildError::Misplaced
@@ -203,7 +203,7 @@ impl<'b> MessageBuilder<'b, '_> {
     /// ## Errors
     ///
     /// If the item cannot be appended (because it needs to come before items
-    /// already in the message), [`Misplaced`] is returned.  If the item does
+    /// already in the message), [`Misplaced`] is returned. If the item does
     /// not fit in the message buffer, [`Truncated`] is returned.
     ///
     /// [`Misplaced`]: MessageBuildError::Misplaced
@@ -221,7 +221,7 @@ impl<'b> MessageBuilder<'b, '_> {
     /// ## Errors
     ///
     /// If the item cannot be appended (because it needs to come before items
-    /// already in the message), [`Misplaced`] is returned.  If the item does
+    /// already in the message), [`Misplaced`] is returned. If the item does
     /// not fit in the message buffer, [`Truncated`] is returned.
     ///
     /// [`Misplaced`]: MessageBuildError::Misplaced
@@ -239,7 +239,7 @@ impl<'b> MessageBuilder<'b, '_> {
     /// ## Errors
     ///
     /// If the item cannot be appended (because it needs to come before items
-    /// already in the message), [`Misplaced`] is returned.  If the item does
+    /// already in the message), [`Misplaced`] is returned. If the item does
     /// not fit in the message buffer, [`Truncated`] is returned.
     ///
     /// [`Misplaced`]: MessageBuildError::Misplaced

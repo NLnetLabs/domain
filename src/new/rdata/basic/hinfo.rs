@@ -19,7 +19,7 @@ use crate::new::base::{
 /// Information about the host computer.
 ///
 /// [`HInfo`] describes the hardware and software of the server associated
-/// with the domain name.  It is not commonly used for its original purpose,
+/// with the domain name. It is not commonly used for its original purpose,
 /// given several issues:
 ///
 /// 1. A domain name can be associated with multiple servers (due to having
@@ -29,15 +29,15 @@ use crate::new::base::{
 ///
 /// 2. The CPU and OS name are expected to be standardized, but given the
 ///    massive (and growing) number of both, it would be impossible to cover
-///    every possibility.  [RFC 1010] listed the initial set of names, and it
+///    every possibility. [RFC 1010] listed the initial set of names, and it
 ///    has evolved into the online lists of [operating system names] (last
 ///    updated in 2010) and [machine names] (last updated in 2001).
 ///
 /// 3. As documented by [RFC 1035], the "main use" for [`HInfo`] records was
 ///    "for protocols such as FTP that can use special procedures when talking
-///    between machines or operating systems of the same type".  But given the
+///    between machines or operating systems of the same type". But given the
 ///    portabilitiy of most protocols across machines and operating systems,
-///    [`HInfo`] is not very informative.  Protocols typically provide
+///    [`HInfo`] is not very informative. Protocols typically provide
 ///    extension mechanisms in-band instead of relying on out-of-band DNS
 ///    information.
 ///
@@ -52,7 +52,7 @@ use crate::new::base::{
 /// [machine names]: https://www.iana.org/assignments/machine-names/machine-names.xhtml
 ///
 /// Recently, [`HInfo`] has gained new use, as a potential fallback response
-/// for [`QType::ANY`] queries.  [RFC 8482] specifies that name servers
+/// for [`QType::ANY`] queries. [RFC 8482] specifies that name servers
 /// wishing to avoid answering [`QType::ANY`] queries (which are expensive
 /// to look up, have an amplifying network effect, and can be abused for DoS
 /// attacks) can respond with a synthesized [`HInfo`] record instead.
@@ -60,7 +60,7 @@ use crate::new::base::{
 /// [`QType::ANY`]: crate::new::base::QType::ANY
 /// [RFC 8482]: https://datatracker.ietf.org/doc/html/rfc8482
 ///
-/// [`HInfo`] is specified by [RFC 1035, section 3.3.2].  Its use as an
+/// [`HInfo`] is specified by [RFC 1035, section 3.3.2]. Its use as an
 /// alternative response to [`QType::ANY`] queries is documented by [RFC 8482,
 /// section 4.2].
 ///
@@ -70,14 +70,14 @@ use crate::new::base::{
 /// ## Wire Format
 ///
 /// The wire format of an [`HInfo`] record is the concatenation of two
-/// "character strings" (see [`CharStr`]).  The first specifies the "machine
+/// "character strings" (see [`CharStr`]). The first specifies the "machine
 /// name" of the host computer, and the second specifies the name of the
 /// operating system it is running.
 ///
 /// ## Usage
 ///
 /// Because [`HInfo`] is a record data type, it is usually handled within an
-/// enum like [`RecordData`].  This section describes how to use it
+/// enum like [`RecordData`]. This section describes how to use it
 /// independently (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
@@ -106,8 +106,8 @@ use crate::new::base::{
 /// ```
 ///
 /// Since [`HInfo`] is a sized type, and it implements [`Copy`] and [`Clone`],
-/// it's straightforward to handle and move around.  However, it is bound by
-/// the lifetime of the borrowed character strings.  At the moment, there is
+/// it's straightforward to handle and move around. However, it is bound by
+/// the lifetime of the borrowed character strings. At the moment, there is
 /// no perfect way to own an [`HInfo`] without a lifetime restriction (largely
 /// because it is not commonly used), however:
 ///
@@ -119,7 +119,7 @@ use crate::new::base::{
 /// - If [`bumpalo`] is being used,
 #[cfg_attr(feature = "bumpalo", doc = "   [`HInfo::clone_to_bump()`]")]
 #[cfg_attr(not(feature = "bumpalo"), doc = "   `HInfo::clone_to_bump()`")]
-///   can clone an [`HInfo`] over to a bump allocator.  This may extend its
+///   can clone an [`HInfo`] over to a bump allocator. This may extend its
 ///   lifetime sufficiently for some use cases.
 ///
 #[cfg_attr(
@@ -135,7 +135,7 @@ use crate::new::base::{
 ///
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
-/// To serialize an [`HInfo`] in the wire format, use [`BuildBytes`].  It also
+/// To serialize an [`HInfo`] in the wire format, use [`BuildBytes`]. It also
 /// supports [`BuildInMessage`].
 #[derive(
     Copy,

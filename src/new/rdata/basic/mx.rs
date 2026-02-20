@@ -16,7 +16,7 @@ use crate::new::base::{
 ///
 /// An [`Mx`] record indicates that a domain name can receive e-mail, and it
 /// specifies (the domain name of) the mail server that e-mail for that domain
-/// should be sent to.  A domain name can be associated with multiple mail
+/// should be sent to. A domain name can be associated with multiple mail
 /// servers (using multiple [`Mx`] records); each one is assigned a priority
 /// for load balancing.
 ///
@@ -30,27 +30,27 @@ use crate::new::base::{
 /// ## Wire Format
 ///
 /// The wire format of an [`Mx`] record is the 16-bit preference number (as a
-/// big-endian integer) followed by the domain name of the mail server.  This
+/// big-endian integer) followed by the domain name of the mail server. This
 /// domain name may be compressed in DNS messages.
 ///
 /// ## Usage
 ///
 /// Because [`Mx`] is a record data type, it is usually handled within an enum
-/// like [`RecordData`].  This section describes how to use it independently
+/// like [`RecordData`]. This section describes how to use it independently
 /// (or when building new record data from scratch).
 ///
 /// [`RecordData`]: crate::new::rdata::RecordData
 ///
 /// In order to build an [`Mx`], it's first important to choose a domain name
-/// type.  For short-term usage (where the [`Mx`] is a local variable), it is
-/// common to pick [`RevNameBuf`].  If the [`Mx`] will be placed on the heap,
+/// type. For short-term usage (where the [`Mx`] is a local variable), it is
+/// common to pick [`RevNameBuf`]. If the [`Mx`] will be placed on the heap,
 /// <code>Box&lt;[`RevName`]&gt;</code> will be more efficient.
 ///
 /// [`RevName`]: crate::new::base::name::RevName
 /// [`RevNameBuf`]: crate::new::base::name::RevNameBuf
 ///
 /// The primary way to build a new [`Mx`] is to construct each field manually.
-/// To parse an [`Mx`] from a DNS message, use [`ParseMessageBytes`].  In case
+/// To parse an [`Mx`] from a DNS message, use [`ParseMessageBytes`]. In case
 /// the input bytes don't use name compression, [`ParseBytes`] can be used.
 ///
 /// ```
@@ -77,8 +77,8 @@ use crate::new::base::{
 /// ```
 ///
 /// Since [`Mx`] is a sized type, and it implements [`Copy`] and [`Clone`],
-/// it's straightforward to handle and move around.  However, this depends on
-/// the domain name type.  It can be changed using [`Mx::map_name()`] and
+/// it's straightforward to handle and move around. However, this depends on
+/// the domain name type. It can be changed using [`Mx::map_name()`] and
 /// [`Mx::map_name_by_ref()`].
 ///
 /// For debugging, [`Mx`] can be formatted using [`fmt::Debug`].
@@ -86,7 +86,7 @@ use crate::new::base::{
 /// [`fmt::Debug`]: core::fmt::Debug
 ///
 /// To serialize an [`Mx`] in the wire format, use [`BuildInMessage`] (which
-/// supports name compression).  If name compression is not desired, use
+/// supports name compression). If name compression is not desired, use
 /// [`BuildBytes`].
 #[derive(
     Copy,
