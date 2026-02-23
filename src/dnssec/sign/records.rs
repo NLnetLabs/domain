@@ -389,11 +389,11 @@ impl<'a, N, D> OwnerRrs<'a, N, D> {
     }
 
     pub fn owner(&self) -> &N {
-        self.slice.first_unchecked().owner()
+        self.slice.first().expect("should exist").owner()
     }
 
     pub fn class(&self) -> Class {
-        self.slice.first_unchecked().class()
+        self.slice.first().expect("should exist").class()
     }
 
     pub fn rrsets(&self) -> OwnerRrsIter<'a, N, D> {
@@ -465,26 +465,26 @@ impl<'a, N, D> Rrset<'a, N, D> {
     }
 
     pub fn owner(&self) -> &N {
-        self.slice.first_unchecked().owner()
+        self.slice.first().expect("should exist").owner()
     }
 
     pub fn class(&self) -> Class {
-        self.slice.first_unchecked().class()
+        self.slice.first().expect("should exist").class()
     }
 
     pub fn rtype(&self) -> Rtype
     where
         D: RecordData,
     {
-        self.slice.first_unchecked().rtype()
+        self.slice.first().expect("should exist").rtype()
     }
 
     pub fn ttl(&self) -> Ttl {
-        self.slice.first_unchecked().ttl()
+        self.slice.first().expect("should exist").ttl()
     }
 
     pub fn first(&self) -> &Record<N, D> {
-        self.slice.first_unchecked()
+        self.slice.first().expect("should exist")
     }
 
     pub fn iter(&self) -> SliceRefsOrOwnedIterator<'a, Record<N, D>> {
@@ -527,7 +527,7 @@ impl<'a, N, D> RecordsIter<'a, N, D> {
     }
 
     pub fn first(&'a self) -> &'a Record<N, D> {
-        self.slice.first_unchecked()
+        self.slice.first().expect("should exist")
     }
 
     pub fn skip_before(&mut self, apex: &N)
@@ -668,13 +668,6 @@ impl<'a, T> SliceRefsOrOwned<'a, T> {
         match self {
             SliceRefsOrOwned::Refs(slice) => slice.first().copied(),
             SliceRefsOrOwned::Owned(slice) => slice.first(),
-        }
-    }
-
-    fn first_unchecked(&self) -> &T {
-        match self {
-            SliceRefsOrOwned::Refs(slice) => slice[0],
-            SliceRefsOrOwned::Owned(slice) => &slice[0],
         }
     }
 
