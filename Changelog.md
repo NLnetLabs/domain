@@ -36,6 +36,8 @@ Unstable features
 
 * `unstable-crypto-sign`
   * Add support for RSA/SHA-512 to openssl signer. ([#550])
+  * generate now takes &GenerateParams. This breaks existing uses of
+    generate ([#608])
 * `unstable-server-transport`
   * Return an error response when a `Service` returns a `ServiceError`.
     ([#390])
@@ -62,6 +64,9 @@ Unstable features
      * Add more actions
      * Allow loading public keys only. ([#594])
      * Add support for decoupled keys. ([#594])
+   * RecordsIter::new has been replaced with RecordsIter::new_from_owned.
+     There is a new RecordsIter::new_from_refs that takes a &[&Record]].
+     This breaks existing uses of RecordsIter and related types. ([#614])
 * `unstable-xfr`
   * Various fixes and improvements. ([#507])
 
@@ -84,6 +89,7 @@ Other changes
 [#599]: https://github.com/NLnetLabs/domain/pull/599
 [#601]: https://github.com/NLnetLabs/domain/pull/601
 [#608]: https://github.com/NLnetLabs/domain/pull/608
+[#614]: https://github.com/NLnetLabs/domain/pull/614
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
