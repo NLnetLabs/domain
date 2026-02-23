@@ -237,10 +237,10 @@ where
     Inner: Debug + SignRaw,
     Octs: AsRef<[u8]> + Clone + Debug + OctetsFrom<Vec<u8>>,
 {
-    let mut records = rrset.as_slice().to_vec();
+    let mut records: Vec<_> = rrset.iter().collect();
     records
         .sort_by(|a, b| a.as_ref().data().canonical_cmp(b.as_ref().data()));
-    let rrset = Rrset::new(&records)
+    let rrset = Rrset::new_from_refs(&records)
         .expect("records is not empty so new should not fail");
 
     sign_sorted_rrset_in(key, &rrset, inception, expiration, &mut vec![])
@@ -395,7 +395,8 @@ mod tests {
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_a_rr("www.example.com.")).unwrap();
-        let rrset = Rrset::new(&records).expect("records is not empty");
+        let rrset =
+            Rrset::new_from_owned(&records).expect("records is not empty");
 
         let rrsig_rr =
             sign_rrset(&key, &rrset, inception, expiration).unwrap();
@@ -456,7 +457,8 @@ mod tests {
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_a_rr("*.example.com.")).unwrap();
-        let rrset = Rrset::new(&records).expect("records is not empty");
+        let rrset =
+            Rrset::new_from_owned(&records).expect("records is not empty");
 
         let rrsig_rr =
             sign_rrset(&key, &rrset, inception, expiration).unwrap();
@@ -483,7 +485,8 @@ mod tests {
         records
             .insert(mk_rrsig_rr("any.", Rtype::A, 1, ".", &dnskey))
             .unwrap();
-        let rrset = Rrset::new(&records).expect("records is not empty");
+        let rrset =
+            Rrset::new_from_owned(&records).expect("records is not empty");
 
         let res = sign_rrset(&key, &rrset, inception, expiration);
         assert!(matches!(res, Err(SigningError::RrsigRrsMustNotBeSigned)));
@@ -514,7 +517,8 @@ mod tests {
         let mut records =
             SortedRecords::<StoredName, StoredRecordData>::default();
         records.insert(mk_a_rr("any.")).unwrap();
-        let rrset = Rrset::new(&records).expect("records is not empty");
+        let rrset =
+            Rrset::new_from_owned(&records).expect("records is not empty");
 
         fn calc_timestamps(
             start: u32,
@@ -614,7 +618,7 @@ mod tests {
 
         sign_sorted_zone_records(
             &apex,
-            RecordsIter::new(&records),
+            RecordsIter::new_from_owned(&records),
             &no_keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
@@ -633,7 +637,7 @@ mod tests {
 
         let rrsigs = sign_sorted_zone_records(
             &apex,
-            RecordsIter::new(&records),
+            RecordsIter::new_from_owned(&records),
             &no_keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
@@ -674,7 +678,7 @@ mod tests {
         // entire zone complete with SOA.
         let generated_records = sign_sorted_zone_records(
             &apex,
-            RecordsIter::new(&records),
+            RecordsIter::new_from_owned(&records),
             &keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
@@ -714,7 +718,7 @@ mod tests {
 
         let generated_records = sign_sorted_zone_records(
             &apex,
-            RecordsIter::new(&records),
+            RecordsIter::new_from_owned(&records),
             &keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
@@ -758,7 +762,7 @@ mod tests {
 
         let generated_records = sign_sorted_zone_records(
             &apex,
-            RecordsIter::new(&records),
+            RecordsIter::new_from_owned(&records),
             &keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
@@ -822,7 +826,7 @@ mod tests {
         // Generate DNSKEYs and RRSIGs.
         let generated_records = sign_sorted_zone_records(
             &apex,
-            RecordsIter::new(&records),
+            RecordsIter::new_from_owned(&records),
             keys,
             cfg,
         )?;
@@ -1021,7 +1025,7 @@ mod tests {
 
         let generated_records = sign_sorted_zone_records(
             &apex_owner,
-            RecordsIter::new(&records),
+            RecordsIter::new_from_owned(&records),
             &keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
@@ -1090,7 +1094,7 @@ mod tests {
 
         let generated_records = sign_sorted_zone_records(
             &apex,
-            RecordsIter::new(&records),
+            RecordsIter::new_from_owned(&records),
             &keys,
             &GenerateRrsigConfig::new(
                 TEST_INCEPTION.into(),
