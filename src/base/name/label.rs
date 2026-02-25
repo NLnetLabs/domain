@@ -51,7 +51,7 @@ impl Label {
     /// # Safety
     ///
     /// The `slice` must be at most 63 octets long.
-    pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+    pub(super) const unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Label has repr(transparent)
         mem::transmute(slice)
     }
@@ -110,7 +110,7 @@ impl Label {
     ///
     /// On success, the function returns a label and the remainder of
     /// the slice.
-    pub fn split_from(
+    pub const fn split_from(
         slice: &[u8],
     ) -> Result<(&Self, &[u8]), SplitLabelError> {
         let head = match slice.first() {
@@ -125,11 +125,11 @@ impl Label {
                 ))
             }
             0xC0..=0xFF => {
-                let res = match slice.get(1) {
-                    Some(ch) => u16::from(*ch),
-                    None => return Err(SplitLabelError::ShortInput),
-                };
-                let res = res | ((u16::from(head) & 0x3F) << 8);
+                if slice.len() < 2 {
+                    return Err(SplitLabelError::ShortInput);
+                }
+                let res = slice[1] as u16;
+                let res = res | (((head as u16) & 0x3F) << 8);
                 return Err(SplitLabelError::Pointer(res));
             }
             _ => {
@@ -141,10 +141,10 @@ impl Label {
         if slice.len() < end {
             return Err(SplitLabelError::ShortInput);
         }
-        Ok((
-            unsafe { Self::from_slice_unchecked(&slice[1..end]) },
-            &slice[end..],
-        ))
+
+        let (left, right) = slice.split_at(end);
+        let (_, label_data) = left.split_at(1);
+        Ok((unsafe { Self::from_slice_unchecked(label_data) }, right))
     }
 
     /// Splits a mutable label from the beginning of an octets slice.
@@ -211,7 +211,7 @@ impl Label {
 
     /// Returns a reference to the underlying octets slice.
     #[must_use]
-    pub fn as_slice(&self) -> &[u8] {
+    pub const fn as_slice(&self) -> &[u8] {
         &self.0
     }
 
@@ -320,13 +320,13 @@ impl Label {
 
     /// Returns whether this is the empty label.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.as_slice().is_empty()
     }
 
     /// Returns whether the label is the root label.
     #[must_use]
-    pub fn is_root(&self) -> bool {
+    pub const fn is_root(&self) -> bool {
         self.is_empty()
     }
 
