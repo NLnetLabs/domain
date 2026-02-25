@@ -97,32 +97,34 @@
 //!
 //! Given some data compute a message digest.
 //!
-//! ```
-//! use domain::crypto::common::{DigestBuilder, DigestType};
-//!
-//! let input = "Hello World!";
-//! let mut ctx = DigestBuilder::new(DigestType::Sha256);
-//! ctx.update(input.as_bytes());
-//! ctx.finish().as_ref();
-//! ```
+#![cfg_attr(any(feature = "ring", feature = "openssl"), doc = r#"
+```
+use domain::crypto::common::{DigestBuilder, DigestType};
+let input = "Hello World!";
+let mut ctx = DigestBuilder::new(DigestType::Sha256);
+ctx.update(input.as_bytes());
+ctx.finish().as_ref();
+```
+"#)]
 //!
 //! # Signature verification
 //!
 //! Given some data, a signature, and a DNSKEY, the signature can be verified.
 //!
-//! ```no_run
-//! use domain::rdata::Dnskey;
-//! use domain::crypto::common::PublicKey;
-//! use domain::base::iana::SecurityAlgorithm;
-//!
-//! let keyraw = [0u8; 16];
-//! let input = "Hello World!";
-//! let bad_sig = [0u8; 16];
-//! let dnskey = Dnskey::new(256, 3, SecurityAlgorithm::ED25519, keyraw).unwrap();
-//! let public_key = PublicKey::from_dnskey(&dnskey).unwrap();
-//! let res = public_key.verify(input.as_bytes(), &bad_sig);
-//! println!("verify result: {res:?}");
-//! ```
+#![cfg_attr(any(feature = "ring", feature = "openssl"), doc = r#"
+```no_run
+#![cfg(any(feature = "ring", feature = "openssl"))]
+use domain::rdata::Dnskey;
+use domain::crypto::common::PublicKey;
+use domain::base::iana::SecurityAlgorithm;
+let keyraw = [0u8; 16];
+let input = "Hello World!";
+let bad_sig = [0u8; 16];
+let dnskey = Dnskey::new(256, 3, SecurityAlgorithm::ED25519, keyraw).unwrap();
+let public_key = PublicKey::from_dnskey(&dnskey).unwrap();
+let res = public_key.verify(input.as_bytes(), &bad_sig);
+println!("verify result: {res:?}");
+```"#)]
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
