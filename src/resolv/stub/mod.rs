@@ -94,7 +94,6 @@ impl StubResolver {
         StubResolver {
             transport: None.into(),
             options: conf.options,
-
             servers: conf.servers,
         }
     }
@@ -230,22 +229,22 @@ impl StubResolver {
     pub async fn lookup_addr(
         &self,
         addr: IpAddr,
-    ) -> Result<FoundAddrs<&Self>, io::Error> {
-        lookup_addr(&self, addr).await
+    ) -> Result<FoundAddrs<Self>, io::Error> {
+        lookup_addr(self, addr).await
     }
 
     pub async fn lookup_host(
         &self,
         qname: impl ToName,
-    ) -> Result<FoundHosts<&Self>, io::Error> {
-        lookup_host(&self, qname).await
+    ) -> Result<FoundHosts<Self>, io::Error> {
+        lookup_host(self, qname).await
     }
 
     pub async fn search_host(
         &self,
         qname: impl ToRelativeName,
-    ) -> Result<FoundHosts<&Self>, io::Error> {
-        search_host(&self, qname).await
+    ) -> Result<FoundHosts<Self>, io::Error> {
+        search_host(self, qname).await
     }
 
     /// Performs an SRV lookup using this resolver.
@@ -257,7 +256,7 @@ impl StubResolver {
         name: impl ToName,
         fallback_port: u16,
     ) -> Result<Option<FoundSrvs>, SrvError> {
-        lookup_srv(&self, service, name, fallback_port).await
+        lookup_srv(self, service, name, fallback_port).await
     }
 }
 
@@ -309,13 +308,13 @@ impl Default for StubResolver {
     }
 }
 
-impl<'a> Resolver for &'a StubResolver {
+impl Resolver for StubResolver {
     type Octets = Bytes;
     type Answer = Answer;
-    type Query =
+    type Query<'a> =
         Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + Send + 'a>>;
 
-    fn query<N, Q>(&self, question: Q) -> Self::Query
+    fn query<'a, N, Q>(&'a self, question: Q) -> Self::Query<'a>
     where
         N: ToName,
         Q: Into<Question<N>>,
@@ -325,11 +324,11 @@ impl<'a> Resolver for &'a StubResolver {
     }
 }
 
-impl<'a> SearchNames for &'a StubResolver {
+impl SearchNames for StubResolver {
     type Name = SearchSuffix;
-    type Iter = SearchIter<'a>;
+    type Iter<'a> = SearchIter<'a>;
 
-    fn search_iter(&self) -> Self::Iter {
+    fn search_iter<'a>(&'a self) -> Self::Iter<'a> {
         SearchIter {
             resolver: self,
             pos: 0,
@@ -420,7 +419,7 @@ impl<'a> Query<'a> {
             .map_err(|e| io::Error::other(e.to_string()))?;
         let mut gr_fut = transport.send_request(request_msg);
         let reply =
-            timeout(self.resolver.options.timeout, gr_fut.get_response())
+            timeout(self.resolver.options().timeout, gr_fut.get_response())
                 .await?
                 .map_err(|e| io::Error::other(e.to_string()))?;
         Ok(Answer { message: reply })
