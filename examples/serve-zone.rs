@@ -26,6 +26,7 @@ use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use domain::rdata::{Soa, ZoneRecordData};
 use octseq::Octets;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -106,6 +107,43 @@ async fn main() {
         }
         exit(1);
     });
+
+    // Reduce the SOA REFRESH timer to a value low enough that XFR recipients
+    // of the zone will attempt to refresh the zone quick enough to see the
+    // mutations that we make to it below.
+    let new_refresh_ttl = Ttl::from_secs(15);
+    let mut writable_zone = zone.write().await;
+    let writable_zone_node = writable_zone.open(false).await.unwrap();
+    let Some(soa_rrset) =
+        writable_zone_node.get_rrset(Rtype::SOA).await.unwrap()
+    else {
+        panic!("Loaded zone has no SOA RRSET at the apex!");
+    };
+    let soa_rr = soa_rrset.first().unwrap();
+    let soa_rdata = soa_rr.data();
+    let ZoneRecordData::Soa(soa_rdata) = soa_rdata else {
+        unreachable!();
+    };
+    let new_soa_rdata = Soa::new(
+        soa_rdata.mname().clone(),
+        soa_rdata.rname().clone(),
+        soa_rdata.serial(),
+        new_refresh_ttl,
+        soa_rdata.retry(),
+        soa_rdata.expire(),
+        soa_rdata.minimum(),
+    );
+    let mut new_soa_rrset = Rrset::new(Rtype::SOA, soa_rrset.ttl());
+    new_soa_rrset.push_data(ZoneRecordData::Soa(new_soa_rdata));
+    writable_zone_node
+        .update_rrset(new_soa_rrset.into_shared())
+        .await
+        .unwrap();
+    drop(writable_zone_node);
+    writable_zone.commit(false).await.unwrap();
+    drop(writable_zone);
+
+    // Store the modified zone.
     zones.insert_zone(zone).unwrap();
     let zones = Arc::new(zones);
 
