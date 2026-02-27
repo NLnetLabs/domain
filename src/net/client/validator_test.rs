@@ -92,7 +92,7 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                             std::vec::IntoIter<std::string::String>,
                             Vec<u8>,
                         >;
-                        let mut scanner = TestScanner::new(time.into_iter());
+                        let mut scanner = TestScanner::new(time);
                         let ts = Timestamp::scan(&mut scanner).unwrap();
                         MockClock::set_system_time(Duration::from_secs(
                             ts.into_int() as u64,
