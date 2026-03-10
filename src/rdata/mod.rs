@@ -55,6 +55,7 @@ pub mod naptr;
 pub mod nsec3;
 pub mod openpgpkey;
 pub mod rfc1035;
+pub mod rp;
 pub mod srv;
 pub mod sshfp;
 pub mod svcb;
@@ -146,6 +147,11 @@ rdata_types! {
     openpgpkey::{
         zone {
             Openpgpkey<O>,
+        }
+    }
+    rp::{
+        zone {
+            Rp<N>,
         }
     }
     srv::{
