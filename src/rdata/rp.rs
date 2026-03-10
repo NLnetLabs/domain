@@ -261,7 +261,6 @@ mod test {
     use std::vec::Vec;
 
     type Octets512 = Array<512>;
-    type Dname512 = Name<Array<512>>;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
