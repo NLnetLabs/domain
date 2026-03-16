@@ -33,34 +33,36 @@
 //! The following record data types are supported. They are enumerated by
 //! [`RecordData`], which can store any one of them at a time.
 //!
-//! Basic record types (RFC 1035):
-//! - [`A`]
-//! - [`Ns`]
-//! - [`CName`]
+//! Core types:
 //! - [`Soa`]
-//! - [`Ptr`]
-//! - [`HInfo`]
+//! - [`Ns`]
+//!
+//! Basic data types:
+//! - [`A`]
+//! - [`Aaaa`]
 //! - [`Mx`]
 //! - [`Txt`]
+//! - [`Rp`]
 //!
-//! IPv6 support (RFC 3596):
-//! - [`Aaaa`]
-//!
-//! DNAME support (RFC 6672):
+//! Indirection types:
+//! - [`CName`]
+//! - [`Ptr`]
 //! - [`DName`]
 //!
-//! EDNS support (RFC 6891):
-//! - [`Opt`]
-//!
-//! DNSSEC support (RFC 4034, RFC 5155):
+//! Security related types:
 //! - [`DNSKey`]
 //! - [`RRSig`]
 //! - [`NSec`]
 //! - [`NSec3`]
+//! - [`NSec3Param`]
 //! - [`Ds`]
-//!
-//! ZONEMD support (RFC 8976):
 //! - [`ZoneMD`]
+//!
+//! Miscellaneous types:
+//! - [`HInfo`]
+//!
+//! "Pseudo-RR" types:
+//! - [`Opt`]
 
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
@@ -106,6 +108,9 @@ pub use ipv6::Aaaa;
 
 mod edns;
 pub use edns::{EdnsOptionsIter, Opt};
+
+mod rp;
+pub use rp::Rp;
 
 mod dnssec;
 pub use dnssec::{
@@ -269,6 +274,9 @@ define_record_data! {
         /// Free-form text strings about this domain.
         Txt(&'a Txt) = TXT,
 
+        /// Identification of the person/party responsible for this domain.
+        Rp(Rp<N>) = RP,
+
         /// The IPv6 address of a host responsible for this domain.
         Aaaa(Aaaa) = AAAA,
 
@@ -318,6 +326,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::HInfo(r) => RecordData::HInfo(r),
             Self::Mx(r) => RecordData::Mx(r.map_name(f)),
             Self::Txt(r) => RecordData::Txt(r),
+            Self::Rp(r) => RecordData::Rp(r.map_names(f)),
             Self::Aaaa(r) => RecordData::Aaaa(r),
             Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
@@ -346,6 +355,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::HInfo(r) => RecordData::HInfo(*r),
             Self::Mx(r) => RecordData::Mx(r.map_name_by_ref(f)),
             Self::Txt(r) => RecordData::Txt(r),
+            Self::Rp(r) => RecordData::Rp(r.map_names_by_ref(f)),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
             Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
@@ -380,6 +390,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::HInfo(r) => RecordData::HInfo(r.clone_to_bump(bump)),
             Self::Mx(r) => RecordData::Mx(r.clone()),
             Self::Txt(r) => RecordData::Txt(copy_to_bump(*r, bump)),
+            Self::Rp(r) => RecordData::Rp(r.clone()),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
             Self::DName(r) => RecordData::DName(copy_to_bump(*r, bump)),
             Self::Opt(r) => RecordData::Opt(copy_to_bump(*r, bump)),
@@ -429,6 +440,9 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             }
             RType::TXT => {
                 <&Txt>::parse_bytes(&contents[start..]).map(Self::Txt)
+            }
+            RType::RP => {
+                Rp::parse_message_bytes(contents, start).map(Self::Rp)
             }
             RType::AAAA => {
                 Aaaa::parse_bytes(&contents[start..]).map(Self::Aaaa)
