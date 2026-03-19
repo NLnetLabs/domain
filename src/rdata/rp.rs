@@ -39,6 +39,11 @@ pub struct Rp<N> {
     txt: N,
 }
 
+impl Rp<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::RP;
+}
+
 impl<N> Rp<N> {
     pub fn new(mbox: N, txt: N) -> Self {
         Self { mbox, txt }
@@ -89,10 +94,6 @@ impl<Octs> Rp<ParsedName<Octs>> {
             ParsedName::parse(parser)?,
         ))
     }
-}
-
-impl Rp<()> {
-    pub(crate) const RTYPE: Rtype = Rtype::RP;
 }
 
 //--- OctetsFrom and FlattenInto
