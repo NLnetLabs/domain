@@ -26,16 +26,18 @@ use crate::base::{
 /// The Responsible Person Resource Record identifies responsible persons for
 /// any name in the DNS.
 ///
-/// The RP record type is defined in [RFC 1183, section 2.2](https://datatracker.ietf.org/doc/html/rfc1183#section-2.2).
+/// The RP record type is defined in [RFC 1183, section
+/// 2.2](https://datatracker.ietf.org/doc/html/rfc1183#section-2.2).
 #[derive(Clone, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rp<N> {
-    /// The mailbox for the responsible person in domain name format (identical
-    /// to that used for the RNAME mailbox field in the SOA RR).
+    /// The mailbox for the responsible person in domain name format
+    /// (identical to that used for the RNAME mailbox field in the SOA RR).
     mbox: N,
 
-    /// The domain name of one or more TXT records holding human-readable information
-    /// about the responsible person, or `.` to specify that no associated TXT records exist.
+    /// The domain name of one or more TXT records holding human-readable
+    /// information about the responsible person, or `.` to specify that no
+    /// associated TXT records exist.
     txt: N,
 }
 
