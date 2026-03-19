@@ -18,6 +18,7 @@ New
 * Add support for the `CAA` record type. ([#434] by [@weilence])
 * Added `FreezeBuilder` to the message compressors. ([#601] by
   [@rossmacarthur])
+* Add support for the `RP` record type. ([#620])
 
 Improvements
 
@@ -90,6 +91,7 @@ Other changes
 [#601]: https://github.com/NLnetLabs/domain/pull/601
 [#608]: https://github.com/NLnetLabs/domain/pull/608
 [#614]: https://github.com/NLnetLabs/domain/pull/614
+[#620]: https://github.com/NLnetLabs/domain/pull/620
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
