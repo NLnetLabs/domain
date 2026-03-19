@@ -47,14 +47,19 @@ impl Rp<()> {
 }
 
 impl<N> Rp<N> {
+    /// Creates new RP record data from content.
     pub fn new(mbox: N, txt: N) -> Self {
         Self { mbox, txt }
     }
 
+    /// The mailbox for the person responsible for this zone.
     pub fn mbox(&self) -> &N {
         &self.mbox
     }
 
+    /// The domain name of one or more TXT records holding human-readable
+    /// information about the responsible person, or `.` to specify that no
+    /// associated TXT records exist.
     pub fn txt(&self) -> &N {
         &self.txt
     }
