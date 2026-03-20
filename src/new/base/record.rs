@@ -303,8 +303,17 @@ impl RType {
     /// The type of an [`NSec3Param`](crate::new::rdata::NSec3Param) record.
     pub const NSEC3PARAM: Self = Self::new(51);
 
+    /// The type of a `Cds` record.
+    pub const CDS: Self = Self::new(59);
+
+    /// The type of a `CDNSKey` record.
+    pub const CDNSKEY: Self = Self::new(60);
+
     /// The type of a [`ZoneMD`](crate::new::rdata::ZoneMD) record.
     pub const ZONEMD: Self = Self::new(63);
+
+    /// The type of a `TSig` record.
+    pub const TSIG: Self = Self::new(250);
 }
 
 //--- Interaction
@@ -397,7 +406,10 @@ impl fmt::Debug for RType {
             Self::DNSKEY => "RType::DNSKEY",
             Self::NSEC3 => "RType::NSEC3",
             Self::NSEC3PARAM => "RType::NSEC3PARAM",
+            Self::CDS => "RType::CDS",
+            Self::CDNSKEY => "RType::CDNSKEY",
             Self::ZONEMD => "RType::ZONEMD",
+            Self::TSIG => "RType::TSIG",
             _ => return write!(f, "RType({})", self.code),
         })
     }
