@@ -182,11 +182,72 @@ impl QType {
     /// The type of queries for [`Txt`](crate::new::rdata::Txt) records.
     pub const TXT: Self = Self::new(16);
 
+    /// The type of queries for [`Rp`](crate::new::rdata::Rp) records.
+    pub const RP: Self = Self::new(17);
+
     /// The type of queries for [`Aaaa`](crate::new::rdata::Aaaa) records.
     pub const AAAA: Self = Self::new(28);
 
+    /// The type of queries for [`DName`](crate::new::rdata::DName) records.
+    pub const DNAME: Self = Self::new(39);
+
+    /// The type of queries for [`Opt`](crate::new::rdata::Opt) records.
+    pub const OPT: Self = Self::new(41);
+
+    /// The type of queries for [`Ds`](crate::new::rdata::Ds) records.
+    pub const DS: Self = Self::new(43);
+
+    /// The type of queries for [`RRSig`](crate::new::rdata::RRSig) records.
+    pub const RRSIG: Self = Self::new(46);
+
+    /// The type of queries for [`NSec`](crate::new::rdata::NSec) records.
+    pub const NSEC: Self = Self::new(47);
+
+    /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.
+    pub const DNSKEY: Self = Self::new(48);
+
+    /// The type of queries for [`NSec3`](crate::new::rdata::NSec3) records.
+    pub const NSEC3: Self = Self::new(50);
+
+    /// The type of queries for [`NSec3Param`](crate::new::rdata::NSec3Param) records.
+    pub const NSEC3PARAM: Self = Self::new(51);
+
+    /// The type of querios for `Cds` records.
+    pub const CDS: Self = Self::new(59);
+
+    /// The type of querios for `CDNSKey` records.
+    pub const CDNSKEY: Self = Self::new(60);
+
+    /// The type of querios for [`ZoneMD`](crate::new::rdata::ZoneMD) records.
+    pub const ZONEMD: Self = Self::new(63);
+
+    /// The type of querios for `TSig` records.
+    pub const TSIG: Self = Self::new(250);
+
+    /// The type of requests for incremental zone transfers (IXFRs).
+    pub const IXFR: Self = Self::new(251);
+
+    /// The type of requests for authoritative zone transfers (AXFRs).
+    pub const AXFR: Self = Self::new(252);
+
     /// The type of queries for all available records.
     pub const ANY: Self = Self::new(255);
+}
+
+//--- Conversion to and from 'u16'
+
+impl From<u16> for QType {
+    fn from(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+}
+
+impl From<QType> for u16 {
+    fn from(value: QType) -> Self {
+        value.code.get()
+    }
 }
 
 //--- Formatting
@@ -202,7 +263,22 @@ impl fmt::Debug for QType {
             Self::HINFO => "QType::HINFO",
             Self::MX => "QType::MX",
             Self::TXT => "QType::TXT",
+            Self::RP => "QType::RP",
             Self::AAAA => "QType::AAAA",
+            Self::DNAME => "QType::DNAME",
+            Self::OPT => "QType::OPT",
+            Self::DS => "QType::DS",
+            Self::RRSIG => "QType::RRSIG",
+            Self::NSEC => "QType::NSEC",
+            Self::DNSKEY => "QType::DNSKEY",
+            Self::NSEC3 => "QType::NSEC3",
+            Self::NSEC3PARAM => "QType::NSEC3PARAM",
+            Self::CDS => "QType::CDS",
+            Self::CDNSKEY => "QType::CDNSKEY",
+            Self::ZONEMD => "QType::ZONEMD",
+            Self::TSIG => "QType::TSIG",
+            Self::IXFR => "QType::IXFR",
+            Self::AXFR => "QType::AXFR",
             Self::ANY => "QType::ANY",
             _ => return write!(f, "QType({})", self.code),
         })
