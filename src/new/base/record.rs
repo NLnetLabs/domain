@@ -411,33 +411,46 @@ impl Scan<'_> for RType {
         _alloc: &'_ bumpalo::Bump,
         _buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
-        match scanner.scan_plain_token()? {
-            "A" => Ok(Self::A),
-            "NS" => Ok(Self::NS),
-            "CNAME" => Ok(Self::CNAME),
-            "SOA" => Ok(Self::SOA),
-            "PTR" => Ok(Self::PTR),
-            "HINFO" => Ok(Self::HINFO),
-            "MX" => Ok(Self::MX),
-            "TXT" => Ok(Self::TXT),
-            "AAAA" => Ok(Self::AAAA),
-            "SRV" => Ok(Self::SRV),
-            "DNAME" => Ok(Self::DNAME),
-            "OPT" => Ok(Self::OPT),
-            "DS" => Ok(Self::DS),
-            "RRSIG" => Ok(Self::RRSIG),
-            "NSEC" => Ok(Self::NSEC),
-            "DNSKEY" => Ok(Self::DNSKEY),
-            "NSEC3" => Ok(Self::NSEC3),
-            "NSEC3PARAM" => Ok(Self::NSEC3PARAM),
+        let types = [
+            ("A", Self::A),
+            ("NS", Self::NS),
+            ("CNAME", Self::CNAME),
+            ("SOA", Self::SOA),
+            ("PTR", Self::PTR),
+            ("HINFO", Self::HINFO),
+            ("MX", Self::MX),
+            ("TXT", Self::TXT),
+            ("AAAA", Self::AAAA),
+            ("SRV", Self::SRV),
+            ("DNAME", Self::DNAME),
+            ("OPT", Self::OPT),
+            ("DS", Self::DS),
+            ("RRSIG", Self::RRSIG),
+            ("NSEC", Self::NSEC),
+            ("DNSKEY", Self::DNSKEY),
+            ("NSEC3", Self::NSEC3),
+            ("NSEC3PARAM", Self::NSEC3PARAM),
+        ];
 
-            rtype if rtype.starts_with("TYPE") => rtype[4..]
+        let token = scanner.scan_plain_token()?;
+
+        for candidate in types {
+            if token.eq_ignore_ascii_case(candidate.0) {
+                return Ok(candidate.1);
+            }
+        }
+
+        if token
+            .get(..4)
+            .is_some_and(|t| t.eq_ignore_ascii_case("TYPE"))
+        {
+            return token[4..]
                 .parse::<u16>()
                 .map_err(|_| ScanError::Custom("invalid record type value"))
-                .map(Self::from),
-
-            _ => Err(ScanError::Custom("unrecognized record type")),
+                .map(Self::from);
         }
+
+        Err(ScanError::Custom("unrecognized record type"))
     }
 }
 
@@ -504,17 +517,27 @@ impl Scan<'_> for RClass {
         _alloc: &'_ bumpalo::Bump,
         _buffer: &mut std::vec::Vec<u8>,
     ) -> Result<Self, ScanError> {
-        match scanner.scan_plain_token()? {
-            "IN" => Ok(Self::IN),
-            "CH" => Ok(Self::CH),
+        let classes = [("IN", Self::IN), ("CH", Self::CH)];
 
-            class if class.starts_with("CLASS") => class[5..]
+        let token = scanner.scan_plain_token()?;
+
+        for candidate in classes {
+            if token.eq_ignore_ascii_case(candidate.0) {
+                return Ok(candidate.1);
+            }
+        }
+
+        if token
+            .get(..5)
+            .is_some_and(|t| t.eq_ignore_ascii_case("CLASS"))
+        {
+            return token[5..]
                 .parse::<u16>()
                 .map_err(|_| ScanError::Custom("invalid record class value"))
-                .map(Self::new),
-
-            _ => Err(ScanError::Custom("unrecognized record class")),
+                .map(Self::new);
         }
+
+        Err(ScanError::Custom("unrecognized record class"))
     }
 }
 
