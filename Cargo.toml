@@ -27,7 +27,7 @@ bumpalo        = { version = "3.12", optional = true }
 constant_time_eq = { version = "0.4.2", optional = true }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
-rand           = { version = "0.8", optional = true }
+rand           = { version = "0.9", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
 bytes          = { version = "1.2", optional = true, default-features = false }
 chrono         = { version = "0.4.35", optional = true, default-features = false } # 0.4.35 deprecates Duration::seconds()
