@@ -141,24 +141,18 @@ impl FoundSrvs {
     ///
     /// Reorders merged results as if they were from a single query.
     pub fn merge(&mut self, other: &Self) {
-        if self.items.is_err() {
-            let one =
-                mem::replace(&mut self.items, Ok(Vec::new())).unwrap_err();
+        let mut items = match mem::replace(&mut self.items, Ok(Vec::new())) {
+            Ok(items) => items,
+            Err(one) => vec![one],
+        };
 
-            // False positive. -- XXX This whole thing should be re-written.
-            #[allow(clippy::panicking_unwrap)]
-            self.items.as_mut().unwrap().push(one);
+        match other.items {
+            Ok(ref vec) => items.extend_from_slice(vec),
+            Err(ref one) => items.push(one.clone()),
         }
-        match self.items {
-            Ok(ref mut items) => {
-                match other.items {
-                    Ok(ref vec) => items.extend_from_slice(vec),
-                    Err(ref one) => items.push(one.clone()),
-                }
-                Self::reorder_items(items);
-            }
-            Err(_) => unreachable!(),
-        }
+
+        Self::reorder_items(&mut items);
+        self.items = Ok(items);
     }
 }
 
