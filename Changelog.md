@@ -5,8 +5,6 @@
 Breaking changes
 
 * Add new `LimitExceeded` variant to `MessageBuilder`'s `PushError`. ([#349])
-* `StubResolver` now keeps its state in an `Arc` and can be cloned cheaply.
-  ([#393])
 
 New
 
@@ -24,6 +22,8 @@ Improvements
 
 * Exclude `moka` dependency from the `resolv` feature, reducing the number of
   dependencies and compile time significantly. ([#575] by [@WhyNotHugo])
+* Made various methods in `RelativeName` into const fns. ([#576] by
+  [@WhyNotHugo])
 
 Bug fixes
 
@@ -85,6 +85,8 @@ Other changes
 [#551]: https://github.com/NLnetLabs/domain/pull/551
 [#569]: https://github.com/NLnetLabs/domain/pull/569
 [#570]: https://github.com/NLnetLabs/domain/pull/570
+[#575]: https://github.com/NLnetLabs/domain/pull/575
+[#576]: https://github.com/NLnetLabs/domain/pull/576
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [#594]: https://github.com/NLnetLabs/domain/pull/594
 [#599]: https://github.com/NLnetLabs/domain/pull/599
