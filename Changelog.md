@@ -5,6 +5,9 @@
 Breaking changes
 
 * Add new `LimitExceeded` variant to `MessageBuilder`'s `PushError`. ([#349])
+* Changed the `Resolver` and `SearchNames` traits of the stub resolver to
+  use lifetimes for their some associated types. This makes it easier to
+  keep the stub resolver behind an arc or other smart pointer. ([#596])
 
 New
 
@@ -85,10 +88,10 @@ Other changes
 [#551]: https://github.com/NLnetLabs/domain/pull/551
 [#569]: https://github.com/NLnetLabs/domain/pull/569
 [#570]: https://github.com/NLnetLabs/domain/pull/570
-[#575]: https://github.com/NLnetLabs/domain/pull/575
 [#576]: https://github.com/NLnetLabs/domain/pull/576
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [#594]: https://github.com/NLnetLabs/domain/pull/594
+[#596]: https://github.com/NLnetLabs/domain/pull/596
 [#599]: https://github.com/NLnetLabs/domain/pull/599
 [#601]: https://github.com/NLnetLabs/domain/pull/601
 [#608]: https://github.com/NLnetLabs/domain/pull/608
