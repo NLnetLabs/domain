@@ -298,10 +298,9 @@ jobs:
 
     # For minimal Rust version: delete Cargo.lock to get the right
     # dependencies.
-    - name: Lock dependencies to minimal versions
+    - name: Delete Cargo.lock for MSRV rust.
       if: matrix.rust == ${{ needs.determine-msrv.outputs.msrv }}
-      #run: rm Cargo.lock
-      run: echo "Deleting Cargo.lock will happen here."
+      run: rm Cargo.lock
 
     # Build and run the test suite.
     - name: Test
