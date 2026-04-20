@@ -471,7 +471,10 @@ impl Mandatory<[u8]> {
     /// Checks that a slice contains a properly encoded mandatory value.
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         LongSvcParam::check_len(slice.len())?;
-        if !slice.len().is_multiple_of(usize::from(SvcParamKey::COMPOSE_LEN)) {
+        if !slice
+            .len()
+            .is_multiple_of(usize::from(SvcParamKey::COMPOSE_LEN))
+        {
             return Err(ParseError::form_error(
                 "invalid mandatory parameter",
             ));
@@ -1325,7 +1328,10 @@ impl Ipv4Hint<[u8]> {
     /// 65,535 octets.
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         LongSvcParam::check_len(slice.len())?;
-        if !slice.len().is_multiple_of(usize::from(Ipv4Addr::COMPOSE_LEN)) {
+        if !slice
+            .len()
+            .is_multiple_of(usize::from(Ipv4Addr::COMPOSE_LEN))
+        {
             return Err(ParseError::form_error("invalid ipv4hint parameter"));
         }
         Ok(())
@@ -1514,7 +1520,10 @@ impl Ipv6Hint<[u8]> {
     /// 65,535 octets.
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         LongSvcParam::check_len(slice.len())?;
-        if !slice.len().is_multiple_of(usize::from(Ipv6Addr::COMPOSE_LEN)) {
+        if !slice
+            .len()
+            .is_multiple_of(usize::from(Ipv6Addr::COMPOSE_LEN))
+        {
             return Err(ParseError::form_error("invalid ipv6hint parameter"));
         }
         Ok(())
