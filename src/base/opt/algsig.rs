@@ -159,7 +159,7 @@ impl<Variant> Understood<Variant, [u8]> {
     /// Checks that a slice contains a correctly encoded value.
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         LongOptData::check_len(slice.len())?;
-        if slice.len() % usize::from(u16::COMPOSE_LEN) != 0 {
+        if !slice.len().is_multiple_of(usize::from(u16::COMPOSE_LEN)) {
             return Err(ParseError::form_error("invalid understood data"));
         }
         Ok(())
