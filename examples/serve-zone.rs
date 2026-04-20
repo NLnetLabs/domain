@@ -28,8 +28,8 @@ use std::time::Duration;
 
 use domain::rdata::{Soa, ZoneRecordData};
 use octseq::Octets;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
+use rand::distr::Alphanumeric;
+use rand::RngExt;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
@@ -244,7 +244,7 @@ async fn main() {
                     node.remove_rrset(Rtype::A).await.unwrap();
                 }
 
-                let random_string: String = rand::thread_rng()
+                let random_string: String = rand::rng()
                     .sample_iter(&Alphanumeric)
                     .take(7)
                     .map(char::from)
