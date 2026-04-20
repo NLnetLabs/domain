@@ -240,7 +240,7 @@ dependencies = [
  "constant_time_eq",
  "domain-macros",
  "futures-util",
- "hashbrown 0.16.0",
+ "hashbrown 0.17.0",
  "heapless",
  "itertools",
  "lazy_static",
@@ -507,6 +507,12 @@ name = "hashbrown"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
+
+[[package]]
+name = "hashbrown"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
 dependencies = [
  "allocator-api2",
 ]
