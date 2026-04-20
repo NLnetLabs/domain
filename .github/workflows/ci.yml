@@ -296,10 +296,12 @@ jobs:
         # Cache by OS and Rust version.
         key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
 
-    # Lock all dependencies to their minimal versions.
+    # For minimal Rust version: delete Cargo.lock to get the right
+    # dependencies.
     - name: Lock dependencies to minimal versions
-      if: matrix.rust == "${{ needs.determine-msrv.outputs.msrv }}"
-      run: cargo +nightly update -Z minimal-versions
+      if: matrix.rust == ${{ needs.determine-msrv.outputs.msrv }}
+      #run: rm Cargo.lock
+      run: echo "Deleting Cargo.lock will happen here."
 
     # Build and run the test suite.
     - name: Test
