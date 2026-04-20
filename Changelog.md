@@ -77,7 +77,9 @@ Unstable features
 Other changes
 
 * Dependency upgrades:
-  * [heapless] to 0.17, ([#633])
+  * [hashbrown] to 0.17, ([#633])
+  * [heapless] to 0.9, ([#634])
+  * [octseq] to 0.6, ([#634])
   * [rand] to 0.10. ([#631])
 
 
@@ -104,10 +106,14 @@ Other changes
 [#620]: https://github.com/NLnetLabs/domain/pull/620
 [#631]: https://github.com/NLnetLabs/domain/pull/631
 [#633]: https://github.com/NLnetLabs/domain/pull/633
+[#634]: https://github.com/NLnetLabs/domain/pull/634
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 [@rossmacarthur]: https://github.com/rossmacarthur
+[hashbrown]: https://crates.io/crates/hashbrown
+[heapless]: https://crates.io/crates/heapless
+[octseq]: https://crates.io/crates/octseq
 [rand]: https://crates.io/crates/rand
 
 
