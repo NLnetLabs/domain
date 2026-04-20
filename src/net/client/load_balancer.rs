@@ -641,7 +641,7 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
         // is non-zero then the upstream recently got work and does not need
         // to be probed.
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
-            let index = random_range(1..conn_rt_len);
+            let index = random_range(1..=conn_rt_len - 1);
 
             if conn_rt[index].queue_length == 0 {
                 // Give the probe some head start. We may need a separate
