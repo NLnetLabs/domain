@@ -12,6 +12,9 @@ use crate::new::base::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
 };
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- CName ----------------------------------------------------------
 
 /// The canonical name for this domain.
@@ -194,6 +197,67 @@ impl<'a, N: ParseBytes<'a>> ParseRecordDataBytes<'a> for CName<N> {
         match rtype {
             RType::CNAME => Self::parse_bytes(bytes),
             _ => Err(ParseError),
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl<'a, N: Scan<'a>> Scan<'a> for CName<N> {
+    /// Scan the data for a CNAME record.
+    ///
+    /// This parses the following syntax:
+    ///
+    /// ```text
+    /// rdata-cname = name ws*
+    /// ```
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        alloc: &'a bumpalo::Bump,
+        buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let name = N::scan(scanner, alloc, buffer)?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self { name })
+        } else {
+            Err(ScanError::Custom("unexpected data at end of CNAME record"))
+        }
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan() {
+        use crate::new::base::name::RevNameBuf;
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        use super::CName;
+
+        let cases = [
+            (
+                b"example.org." as &[u8],
+                Ok(b"\x00\x03org\x07example" as &[u8]),
+            ),
+            (b"", Err(ScanError::Incomplete)),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            let mut tmp = None;
+            assert_eq!(
+                <CName<RevNameBuf>>::scan(&mut scanner, &alloc, &mut buffer)
+                    .map(|s| tmp.insert(s.name).as_bytes()),
+                expected
+            );
         }
     }
 }

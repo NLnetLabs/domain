@@ -1,12 +1,11 @@
 //! Reads a zone file.
 
-use std::env;
 use std::fs::File;
 use std::process::exit;
 use std::time::SystemTime;
+use std::{env, io::BufReader};
 
-use domain::zonefile::inplace::Entry;
-use domain::zonefile::inplace::Zonefile;
+use domain::new::zonefile::simple::ZonefileScanner;
 
 fn main() {
     let mut args = env::args();
@@ -21,40 +20,17 @@ fn main() {
     for zone_file in zone_files {
         print!("Processing {zone_file}: ");
         let start = SystemTime::now();
-        let mut reader =
-            Zonefile::load(&mut File::open(&zone_file).unwrap()).unwrap();
-        println!(
-            "Data loaded ({:.03}s).",
-            start.elapsed().unwrap().as_secs_f32()
-        );
+        let file = BufReader::new(File::open(&zone_file).unwrap());
+        let mut scanner = ZonefileScanner::new(file, None);
 
         let mut i = 0;
-        let mut last_entry = None;
-        loop {
-            match reader.next_entry() {
-                Ok(entry) if entry.is_some() => {
-                    last_entry = entry;
-                }
-                Ok(_) => break, // EOF
-                Err(err) => {
-                    eprintln!(
-                        "\nAn error occurred while reading {zone_file}:"
-                    );
-                    eprintln!("  Error: {err}");
-                    if let Some(entry) = &last_entry {
-                        if let Entry::Record(record) = &entry {
-                            eprintln!(
-                                "\nThe last record read was:\n{record}."
-                            );
-                        } else {
-                            eprintln!("\nThe last record read was:\n{last_entry:#?}.");
-                        }
-                        eprintln!("\nTry commenting out the line after that record with a leading ; (semi-colon) character.")
-                    }
-                    exit(1);
-                }
-            }
+        while let Some(entry) = scanner.scan().transpose() {
             i += 1;
+            if let Err(err) = entry {
+                eprintln!("Could not parse {zone_file}: {err}");
+                exit(1);
+            }
+
             if i % 100_000_000 == 0 {
                 println!(
                     "Processed {}M records ({:.03}s)",

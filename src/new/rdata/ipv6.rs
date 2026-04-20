@@ -20,6 +20,9 @@ use crate::new::base::{
 };
 use crate::utils::dst::UnsizedCopy;
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 //----------- Aaaa -----------------------------------------------------------
 
 /// The IPv6 address of a host responsible for this domain.
@@ -222,6 +225,30 @@ impl<'a> ParseRecordDataBytes<'a> for &'a Aaaa {
         match rtype {
             RType::AAAA => Self::parse_bytes(bytes),
             _ => Err(ParseError),
+        }
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for Aaaa {
+    /// Scan the data for an AAAA record.
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let addr = scanner
+            .scan_plain_token()?
+            .parse::<Ipv6Addr>()
+            .map_err(|_| ScanError::Custom("invalid IPv6 address"))?;
+
+        scanner.skip_ws();
+        if scanner.is_empty() {
+            Ok(Self::from(addr))
+        } else {
+            Err(ScanError::Custom("unexpected data at end of AAAA record"))
         }
     }
 }
