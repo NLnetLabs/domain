@@ -24,7 +24,7 @@ domain-macros  = { path = "./macros", version = "=0.11.1" }
 
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 bumpalo        = { version = "3.12", optional = true }
-constant_time_eq = { version = "0.4.2", optional = true }
+constant_time_eq = { version = "0.5.0", optional = true }
 octseq         = { version = "0.6.0", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.10.1", optional = true }
@@ -93,7 +93,7 @@ unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std
 arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
-itertools         = "0.13.0"
+itertools         = "0.14.0"
 lazy_static       = { version = "1.4.0" }
 pretty_assertions = "1.4.1"
 rstest             = "0.26.1"
@@ -101,18 +101,18 @@ rustls-pemfile    = { version = "2.1.2" }
 serde_test        = "1.0.130"
 serde_json        = "1.0.113"
 yaml_serde        = "0.10.3"
-socket2           = { version = "0.5.5" }
+socket2           = { version = "0.6.3" }
 tokio             = { version = "1.37", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
 tokio-rustls      = { version = "0.26", default-features = false, features = [ "ring", "logging", "tls12" ] }
 tokio-test        = "0.4"
-tokio-tfo         = { version = "0.2.0" }
-webpki-roots      = { version = "0.26" }
+tokio-tfo         = { version = "0.4.3" }
+webpki-roots      = { version = "1.0.7" }
 
 # For the "mysql-zone" example
 #sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
 
 # For testing in integration tests:
-mock_instant = { version = "0.5.1" }
+mock_instant = { version = "0.6.0" }
 
 [package.metadata.docs.rs]
 all-features = true
