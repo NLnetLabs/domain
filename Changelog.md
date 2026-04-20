@@ -76,7 +76,9 @@ Unstable features
 
 Other changes
 
-* Upgraded [rand] to 0.10. (#631)
+* Dependency upgrades:
+  * [heapless] to 0.17, ([#633])
+  * [rand] to 0.10. ([#631])
 
 
 [#349]: https://github.com/NLnetLabs/domain/pull/349
@@ -101,6 +103,7 @@ Other changes
 [#614]: https://github.com/NLnetLabs/domain/pull/614
 [#620]: https://github.com/NLnetLabs/domain/pull/620
 [#631]: https://github.com/NLnetLabs/domain/pull/631
+[#633]: https://github.com/NLnetLabs/domain/pull/633
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
