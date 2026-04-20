@@ -285,6 +285,12 @@ jobs:
         toolchain: ${{ matrix.rust }}
         cache: false
 
+    # For minimal Rust version: delete Cargo.lock to get the right
+    # dependencies.
+    - name: Delete Cargo.lock for MSRV rust.
+      if: matrix.rust == needs.determine-msrv.outputs.msrv
+      run: rm Cargo.lock
+
     # Restore a cache of dependencies and 'target'.
     - name: Restore from cache
       id: cache-restore
@@ -295,12 +301,6 @@ jobs:
           target/
         # Cache by OS and Rust version.
         key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
-
-    # For minimal Rust version: delete Cargo.lock to get the right
-    # dependencies.
-    - name: Delete Cargo.lock for MSRV rust.
-      if: matrix.rust == needs.determine-msrv.outputs.msrv
-      run: rm Cargo.lock
 
     # Build and run the test suite.
     - name: Test
