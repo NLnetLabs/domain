@@ -296,6 +296,11 @@ jobs:
         # Cache by OS and Rust version.
         key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
 
+    # Lock all dependencies to their minimal versions.
+    - name: Lock dependencies to minimal versions
+      if: matrix.rust == "${{ needs.determine-msrv.outputs.msrv }}"
+      run: cargo +nightly update -Z minimal-versions
+
     # Build and run the test suite.
     - name: Test
       run: cargo test --all-targets $DOMAIN_FEATURES
