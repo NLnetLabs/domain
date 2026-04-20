@@ -1096,15 +1096,10 @@ impl<'a, Octs: Octets + ?Sized> Iterator for MessageIter<'a, Octs> {
     type Item = Result<(ParsedRecord<'a, Octs>, Section), ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Try to get next record from current section
-        match self.inner {
-            Some(ref mut inner) => {
-                let item = inner.next();
-                if let Some(item) = item {
-                    return Some(item.map(|item| (item, inner.section)));
-                }
-            }
-            None => return None,
+        // Try to get the next record from current section
+        let inner = self.inner.as_mut()?;
+        if let Some(item) = inner.next() {
+            return Some(item.map(|item| (item, inner.section)));
         }
 
         // Advance to next section if possible, and retry

@@ -237,12 +237,8 @@ impl<'a> NodesIter<'a> {
             return Some(node);
         }
         loop {
-            if let Some(iter) = self.stack.last_mut() {
-                if let Some(node) = iter.next() {
-                    return Some(node);
-                }
-            } else {
-                return None;
+            if let Some(node) = self.stack.last_mut()?.next() {
+                return Some(node);
             }
             let _ = self.stack.pop();
         }

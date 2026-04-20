@@ -628,10 +628,7 @@ impl<'a, Octs: Octets + ?Sized> Iterator for ParsedSuffixIter<'a, Octs> {
     type Item = ParsedName<Octs::Range<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let name = match self.name {
-            Some(ref mut name) => name,
-            None => return None,
-        };
+        let name = self.name.as_mut()?;
         let res = name.deref_octets();
         if !name.parent() {
             self.name = None
