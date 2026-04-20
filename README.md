@@ -51,7 +51,7 @@ We will bump the MSRV when a dependency requires it (and we cannot support an
 older version of the dependency) or when we require new language features.  In
 either case, commits bumping the MSRV will document why it occurred.
 
-### Minimum version: 1.79.0
+### Minimum version: 1.87.0
 
 The `rust-version` given in `Cargo.toml` is the oldest version that can
 be used to compile the crate with the minimal versions of all dependencies
@@ -60,7 +60,7 @@ selected.
 You can run `cargo +nightly update -Z minimal-versions` to ask Cargo to
 select these minimal versions for all dependencies.
 
-### Current version: 1.82.0
+### Current version: 1.95.0
 
 This is the minimum Rust version required to build with latest version of
 all dependencies at time of release. `Cargo.lock` contains these versions
