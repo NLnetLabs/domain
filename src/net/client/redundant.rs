@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 
 use octseq::Octets;
 
-use rand::random;
+use rand::{random, random_range};
 
 use std::boxed::Box;
 use std::cmp::Ordering;
@@ -411,7 +411,7 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
 
         // Do we want to probe a less performant upstream?
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
-            let index: usize = 1 + random::<usize>() % (conn_rt_len - 1);
+            let index = random_range(1..=conn_rt_len - 1);
 
             // Give the probe some head start. We may need a separate
             // configuration parameter. A multiple of min_rt. Just use

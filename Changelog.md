@@ -76,6 +76,9 @@ Unstable features
 
 Other changes
 
+* Upgraded [rand] to 0.10. (#631)
+
+
 [#349]: https://github.com/NLnetLabs/domain/pull/349
 [#390]: https://github.com/NLnetLabs/domain/pull/390
 [#393]: https://github.com/NLnetLabs/domain/pull/393
@@ -97,10 +100,12 @@ Other changes
 [#608]: https://github.com/NLnetLabs/domain/pull/608
 [#614]: https://github.com/NLnetLabs/domain/pull/614
 [#620]: https://github.com/NLnetLabs/domain/pull/620
+[#631]: https://github.com/NLnetLabs/domain/pull/631
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 [@rossmacarthur]: https://github.com/rossmacarthur
+[rand]: https://crates.io/crates/rand
 
 
 ## 0.11.1

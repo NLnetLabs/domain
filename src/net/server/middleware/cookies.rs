@@ -7,7 +7,7 @@ use std::vec::Vec;
 
 use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
-use rand::RngCore;
+use rand::Rng;
 use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::{OptRcode, Rcode};
@@ -96,7 +96,7 @@ where
 
     pub fn with_random_secret(next_svc: NextSvc) -> Self {
         let mut server_secret = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut server_secret);
+        rand::rng().fill_bytes(&mut server_secret);
         Self::new(next_svc, server_secret)
     }
 
