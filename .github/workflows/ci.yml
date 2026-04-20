@@ -135,10 +135,11 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
 
     # Do the actual feature flag checks.
     #
@@ -233,10 +234,11 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
 
     # Do the actually Clippy run.
     - name: Check Clippy
@@ -285,22 +287,23 @@ jobs:
         toolchain: ${{ matrix.rust }}
         cache: false
 
-    # For minimal Rust version: delete Cargo.lock to get the right
-    # dependencies.
-    - name: Delete Cargo.lock for MSRV rust.
-      if: matrix.rust == needs.determine-msrv.outputs.msrv
-      run: rm Cargo.lock
-
     # Restore a cache of dependencies and 'target'.
     - name: Restore from cache
       id: cache-restore
       uses: actions/cache/restore@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
+
+    # For MSRV builds, use the cached 'Cargo.lock'.
+    - name: Use the cached Cargo lockfile
+      if: matrix.rust == needs.determine-msrv.outputs.msrv
+      # Remove 'Cargo.lock' even if a cached lockfile is unavailable.
+      run: mv Cargo.cached.lock Cargo.lock || rm Cargo.lock
 
     # Build and run the test suite.
     - name: Test
@@ -358,23 +361,41 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
+
+    # For MSRV builds, use the cached 'Cargo.lock'.
+    - name: Use the cached Cargo lockfile
+      if: matrix.rust == needs.determine-msrv.outputs.msrv
+      # Remove 'Cargo.lock' even if a cached lockfile is unavailable.
+      run: mv Cargo.cached.lock Cargo.lock || rm Cargo.lock
 
     # Build all of 'domain'.
     - name: Build
       run: cargo build --all-targets $DOMAIN_FEATURES
+
+    # Copy to the Cargo lockfile for optional caching.
+    - name: Copy the Cargo lockfile for optional caching
+      run: cp Cargo.lock Cargo.cached.lock
 
     # Save to the cache.
     - name: Save to the cache
       uses: actions/cache/save@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        #
+        # GitHub treats cache entries as immutable (although it _does_ allow
+        # explicitly removing and re-adding them). We include the run ID so
+        # the cache key is unique every time; when restoring from the cache,
+        # we don't specify the run ID, and GitHub will automatically find the
+        # most recent cache entry using the key as a prefix.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-${{ github.run_id }}
 
 # TODO: Use 'cargo-semver-checks' on releases.
