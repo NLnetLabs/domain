@@ -2,22 +2,32 @@
 resolver = "3"
 members = [".", "./macros"]
 
-[package]
-name = "domain"
+[workspace.package]
 version = "0.11.1"
+edition = "2021"
+authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
+homepage = "https://nlnetlabs.nl/projects/domain/"
+repository = "https://github.com/nlnetlabs/domain/"
+keywords = ["DNS", "domain"]
+license = "BSD-3-Clause"
 
 # The MSRV is at least 4 versions behind stable (about half a year).
 rust-version = "1.87.0"
 
-edition = "2021"
-authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
+[package]
+name = "domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+license.workspace = true
+
 description = "A DNS library for Rust."
 documentation = "https://docs.rs/domain"
-homepage = "https://nlnetlabs.nl/projects/domain/"
-repository = "https://github.com/nlnetlabs/domain/"
 readme = "README.md"
-keywords = ["DNS", "domain"]
-license = "BSD-3-Clause"
 
 [dependencies]
 domain-macros  = { path = "./macros", version = "=0.11.1" }
