@@ -2681,10 +2681,10 @@ mod tests {
     use crate::dnssec::sign::keys::keyset::{
         Action, Available, KeySet, KeyType, RollType, UnixTime,
     };
-    use crate::std::string::ToString;
     use mock_instant::global::MockClock;
     use std::str::FromStr;
     use std::string::String;
+    use std::string::ToString;
     use std::time::Duration;
     use std::vec::Vec;
 

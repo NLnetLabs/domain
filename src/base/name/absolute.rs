@@ -1217,8 +1217,7 @@ impl fmt::Display for NameError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for NameError {}
+impl core::error::Error for NameError {}
 
 //============ Testing =======================================================
 //

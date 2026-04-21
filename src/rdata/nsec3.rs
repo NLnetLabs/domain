@@ -1273,8 +1273,7 @@ impl fmt::Display for Nsec3SaltFromStrError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Nsec3SaltFromStrError {}
+impl core::error::Error for Nsec3SaltFromStrError {}
 
 //------------ OwnerHash -----------------------------------------------------
 
@@ -1647,8 +1646,7 @@ impl fmt::Display for Nsec3SaltError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Nsec3SaltError {}
+impl core::error::Error for Nsec3SaltError {}
 
 //------------ OwnerHashError ------------------------------------------------
 
@@ -1664,8 +1662,7 @@ impl fmt::Display for OwnerHashError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for OwnerHashError {}
+impl core::error::Error for OwnerHashError {}
 
 //============ Testing ======================================================
 

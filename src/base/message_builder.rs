@@ -2693,8 +2693,7 @@ impl fmt::Display for PushError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for PushError {}
+impl core::error::Error for PushError {}
 
 //============ Testing =======================================================
 

@@ -1698,8 +1698,7 @@ impl fmt::Display for EntryError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for EntryError {}
+impl core::error::Error for EntryError {}
 
 //------------ Error ---------------------------------------------------------
 
@@ -1716,8 +1715,7 @@ impl fmt::Display for Error {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
+impl core::error::Error for Error {}
 
 //============ Tests =========================================================
 

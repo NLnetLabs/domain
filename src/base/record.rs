@@ -1068,11 +1068,10 @@ where
     }
 }
 
-#[cfg(feature = "std")]
-impl<N, D> std::error::Error for RecordParseError<N, D>
+impl<N, D> core::error::Error for RecordParseError<N, D>
 where
-    N: std::error::Error,
-    D: std::error::Error,
+    N: core::error::Error,
+    D: core::error::Error,
 {
 }
 

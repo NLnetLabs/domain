@@ -562,8 +562,7 @@ impl fmt::Display for PushError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for PushError {}
+impl core::error::Error for PushError {}
 
 //------------ PushNameError -------------------------------------------------
 
@@ -596,8 +595,7 @@ impl fmt::Display for PushNameError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for PushNameError {}
+impl core::error::Error for PushNameError {}
 
 //------------ LabelFromStrError ---------------------------------------------
 
@@ -655,8 +653,7 @@ impl fmt::Display for LabelFromStrError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for LabelFromStrError {}
+impl core::error::Error for LabelFromStrError {}
 
 //------------ FromStrError --------------------------------------------------
 
@@ -713,8 +710,7 @@ impl fmt::Display for FromStrError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for FromStrError {}
+impl core::error::Error for FromStrError {}
 
 //------------ PresentationError ---------------------------------------------
 
@@ -761,8 +757,7 @@ impl fmt::Display for PresentationError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for PresentationError {}
+impl core::error::Error for PresentationError {}
 
 //============ Testing =======================================================
 

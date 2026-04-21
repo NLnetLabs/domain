@@ -17,7 +17,7 @@ use crate::dep::octseq::{
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Dnskey, Nsec3param};
 
-use std::error;
+use core::error;
 use std::fmt;
 use std::str::FromStr;
 

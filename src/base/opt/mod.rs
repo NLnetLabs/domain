@@ -1103,8 +1103,7 @@ impl fmt::Display for LongOptData {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for LongOptData {}
+impl core::error::Error for LongOptData {}
 
 //------------ BuildDataError ------------------------------------------------
 
@@ -1155,8 +1154,7 @@ impl fmt::Display for BuildDataError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for BuildDataError {}
+impl core::error::Error for BuildDataError {}
 
 //============ Tests =========================================================
 

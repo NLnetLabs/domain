@@ -2271,8 +2271,7 @@ impl fmt::Display for BuildValueError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for BuildValueError {}
+impl core::error::Error for BuildValueError {}
 
 //------------ PushValueError ------------------------------------------------
 
@@ -2331,8 +2330,7 @@ impl fmt::Display for PushValueError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for PushValueError {}
+impl core::error::Error for PushValueError {}
 
 //------------ BuildAlpnError ------------------------------------------------
 
@@ -2369,8 +2367,7 @@ impl fmt::Display for BuildAlpnError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for BuildAlpnError {}
+impl core::error::Error for BuildAlpnError {}
 
 //------------ PushAlpnError -------------------------------------------------
 
@@ -2429,8 +2426,7 @@ impl fmt::Display for PushAlpnError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for PushAlpnError {}
+impl core::error::Error for PushAlpnError {}
 
 //============ Tests =========================================================
 

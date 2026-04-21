@@ -535,8 +535,7 @@ impl fmt::Display for LongRecordData {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for LongRecordData {}
+impl core::error::Error for LongRecordData {}
 
 //============ Testing ======================================================
 

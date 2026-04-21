@@ -938,8 +938,7 @@ impl fmt::Display for FlagsFromStrError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for FlagsFromStrError {}
+impl core::error::Error for FlagsFromStrError {}
 
 //------------ CountOverflow -------------------------------------------------
 
@@ -953,8 +952,7 @@ impl fmt::Display for CountOverflow {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for CountOverflow {}
+impl core::error::Error for CountOverflow {}
 
 //============ Testing ======================================================
 

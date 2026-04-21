@@ -1043,8 +1043,7 @@ impl fmt::Display for RelativeNameError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for RelativeNameError {}
+impl core::error::Error for RelativeNameError {}
 
 //------------ RelativeFromStrError ------------------------------------------
 
@@ -1079,8 +1078,7 @@ impl fmt::Display for RelativeFromStrError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for RelativeFromStrError {}
+impl core::error::Error for RelativeFromStrError {}
 
 //------------ StripSuffixError ----------------------------------------------
 
@@ -1096,8 +1094,7 @@ impl fmt::Display for StripSuffixError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for StripSuffixError {}
+impl core::error::Error for StripSuffixError {}
 
 //============ Testing =======================================================
 

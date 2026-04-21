@@ -227,8 +227,7 @@ impl fmt::Display for FromDurationError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for FromDurationError {}
+impl core::error::Error for FromDurationError {}
 
 //============ Testing =======================================================
 

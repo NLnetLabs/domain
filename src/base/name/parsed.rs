@@ -707,8 +707,7 @@ impl fmt::Display for ParsedDnameError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ParsedDnameError {}
+impl core::error::Error for ParsedDnameError {}
 
 impl From<LabelTypeError> for ParsedDnameError {
     fn from(err: LabelTypeError) -> Self {

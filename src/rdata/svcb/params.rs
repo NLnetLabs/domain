@@ -1122,8 +1122,7 @@ impl fmt::Display for LongSvcParam {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for LongSvcParam {}
+impl core::error::Error for LongSvcParam {}
 
 //------------ PushError -----------------------------------------------------
 
@@ -1153,8 +1152,7 @@ impl fmt::Display for PushError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for PushError {}
+impl core::error::Error for PushError {}
 
 //============ Tests =========================================================
 
