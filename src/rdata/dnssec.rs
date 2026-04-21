@@ -30,7 +30,6 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "std")]
 use std::vec::Vec;
-use time::{Date, Month, PrimitiveDateTime, Time};
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -651,54 +650,30 @@ impl Timestamp {
     ///
     /// [RRSIG]: Rrsig
     pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
-        let mut pos = 0;
-        let mut buf = [0u8; 14];
-        scanner.scan_symbols(|symbol| {
-            if pos >= 14 {
-                return Err(S::Error::custom("illegal signature time"));
-            }
-            buf[pos] = symbol
-                .into_digit(10)
-                .map_err(|_| S::Error::custom("illegal signature time"))?
-                as u8;
-            pos += 1;
-            Ok(())
-        })?;
-        if pos <= 10 {
-            // We have an integer. We generate it into a u64 to deal
-            // with possible overflows.
-            let mut res = 0u64;
-            for ch in &buf[..pos] {
-                res = res * 10 + (u64::from(*ch));
-            }
-            if res > u64::from(u32::MAX) {
-                Err(S::Error::custom("illegal signature time"))
-            } else {
-                Ok(Self(Serial(res as u32)))
-            }
-        } else if pos == 14 {
-            let year = u32_from_buf(&buf[0..4]) as i32;
-            let month = Month::try_from(u8_from_buf(&buf[4..6]))
-                .map_err(|_| S::Error::custom("illegal signature time"))?;
-            let day = u8_from_buf(&buf[6..8]);
-            let hour = u8_from_buf(&buf[8..10]);
-            let minute = u8_from_buf(&buf[10..12]);
-            let second = u8_from_buf(&buf[12..14]);
-            Ok(Self(Serial(
-                PrimitiveDateTime::new(
-                    Date::from_calendar_date(year, month, day).map_err(
-                        |_| S::Error::custom("illegal signature time"),
-                    )?,
-                    Time::from_hms(hour, minute, second).map_err(|_| {
+        scanner.scan_ascii_str(|token| {
+            if token.len() <= 10 {
+                let time = token.parse::<u32>().map_err(|_| {
+                    S::Error::custom("illegal signature time")
+                })?;
+
+                Ok(Self(Serial(time)))
+            } else if token.len() == 14 {
+                let time = jiff::fmt::strtime::parse("%Y%m%d%H%M%S", token)
+                    .and_then(|mut time| {
+                        // The timestamp did not explicitly state a time zone, so
+                        // we have to manually mark it as UTC.
+                        time.set_offset(Some(jiff::tz::Offset::UTC));
+                        time.to_timestamp()
+                    })
+                    .map_err(|_| {
                         S::Error::custom("illegal signature time")
-                    })?,
-                )
-                .assume_utc()
-                .unix_timestamp() as u32,
-            )))
-        } else {
-            Err(S::Error::custom("illegal signature time"))
-        }
+                    })?;
+
+                Ok(Self(Serial(time.as_second() as u32)))
+            } else {
+                Err(S::Error::custom("illegal signature time"))
+            }
+        })
     }
 
     /// Returns the timestamp as a raw integer.
@@ -792,32 +767,16 @@ impl str::FromStr for Timestamp {
             return Err(IllegalSignatureTime(()));
         }
         if src.len() == 14 {
-            let year = u32::from_str(&src[0..4])
-                .map_err(|_| IllegalSignatureTime(()))?
-                as i32;
-            let month = Month::try_from(
-                u8::from_str(&src[4..6])
-                    .map_err(|_| IllegalSignatureTime(()))?,
-            )
-            .map_err(|_| IllegalSignatureTime(()))?;
-            let day = u8::from_str(&src[6..8])
+            let time = jiff::fmt::strtime::parse("%Y%m%d%H%M%S", src)
+                .and_then(|mut time| {
+                    // The timestamp did not explicitly state a time zone, so
+                    // we have to manually mark it as UTC.
+                    time.set_offset(Some(jiff::tz::Offset::UTC));
+                    time.to_timestamp()
+                })
                 .map_err(|_| IllegalSignatureTime(()))?;
-            let hour = u8::from_str(&src[8..10])
-                .map_err(|_| IllegalSignatureTime(()))?;
-            let minute = u8::from_str(&src[10..12])
-                .map_err(|_| IllegalSignatureTime(()))?;
-            let second = u8::from_str(&src[12..14])
-                .map_err(|_| IllegalSignatureTime(()))?;
-            Ok(Timestamp(Serial(
-                PrimitiveDateTime::new(
-                    Date::from_calendar_date(year, month, day)
-                        .map_err(|_| IllegalSignatureTime(()))?,
-                    Time::from_hms(hour, minute, second)
-                        .map_err(|_| IllegalSignatureTime(()))?,
-                )
-                .assume_utc()
-                .unix_timestamp() as u32,
-            )))
+
+            Ok(Self(Serial(time.as_second() as u32)))
         } else {
             Serial::from_str(src)
                 .map(Timestamp)
@@ -854,24 +813,6 @@ impl CanonicalOrd for Timestamp {
     fn canonical_cmp(&self, other: &Self) -> cmp::Ordering {
         self.0.canonical_cmp(&other.0)
     }
-}
-
-//------------ Helper Functions ----------------------------------------------
-
-fn u8_from_buf(buf: &[u8]) -> u8 {
-    let mut res = 0;
-    for ch in buf {
-        res = res * 10 + *ch;
-    }
-    res
-}
-
-fn u32_from_buf(buf: &[u8]) -> u32 {
-    let mut res = 0;
-    for ch in buf {
-        res = res * 10 + (u32::from(*ch));
-    }
-    res
 }
 
 //------------ Rrsig ---------------------------------------------------------

@@ -69,8 +69,6 @@ use std::str::FromStr;
 use std::string::{String, ToString};
 use std::time::Duration;
 use std::vec::Vec;
-use time::format_description;
-use time::OffsetDateTime;
 
 #[cfg(test)]
 use mock_instant::global::{SystemTime, UNIX_EPOCH};
@@ -1426,16 +1424,10 @@ impl Add<Duration> for UnixTime {
 
 impl Display for UnixTime {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-        let nanos = self.0.as_nanos();
-        let dt = OffsetDateTime::from_unix_timestamp_nanos(
-            nanos.try_into().expect("bad time value"),
-        )
-        .expect("bad time value");
-        let format = format_description::parse(
-            "[year]-[month]-[day]T[hour]:[minute]:[second]Z",
-        )
-        .expect("");
-        write!(f, "{}", dt.format(&format).expect(""))
+        // 'impl Display for jiff::Timestamp' formats per RFC3339.
+        //
+        // '{:.0}' explicitly disables sub-second precision.
+        write!(f, "{:.0}", jiff::Timestamp::UNIX_EPOCH + self.0)
     }
 }
 
