@@ -32,6 +32,11 @@ readme = "README.md"
 [dependencies]
 domain-macros  = { path = "./macros", version = "=0.11.1" }
 
+# TODO: This _should_ be optional, but it is used by some record-type-specific
+# zonefile scanning code that is not gated behind a feature flag.
+jiff           = { version = "0.2.1", default-features = false }
+
+# Optional dependencies:
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 bumpalo        = { version = "3.12", optional = true }
 constant_time_eq = { version = "0.4.2", optional = true }
@@ -60,13 +65,6 @@ tokio-rustls   = { version = "0.26", optional = true, default-features = false }
 tokio-stream   = { version = "0.1.17", optional = true }
 tracing        = { version = "0.1.40", optional = true, features = ["log"] }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
-
-# TODO: This _should_ be optional, but it is used by some record-type-specific
-# zonefile scanning code that is not gated behind a feature flag.
-[dependencies.jiff]
-version = "0.2.1"
-default-features = false
-features = []
 
 [features]
 default     = ["std", "rand"]
