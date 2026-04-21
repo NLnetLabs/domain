@@ -3,9 +3,50 @@
 //! This backend supports all the algorithms supported by Ring and OpenSSL,
 //! depending on whether the respective crate features are enabled.  See the
 //! documentation for each backend for more information.
+//!
+//! # Message digests
+//!
+//! Given some data compute a message digest.
+//!
+//! ```
+//! use domain::crypto::common::{DigestBuilder, DigestType};
+//!
+//! let input = "Hello World!";
+//! let mut ctx = DigestBuilder::new(DigestType::Sha256);
+//! ctx.update(input.as_bytes());
+//! ctx.finish().as_ref();
+//! ```
+//!
+//! # Signature verification
+//!
+//! Given some data, a signature, and a DNSKEY, the signature can be verified.
+//!
+//! ```no_run
+//! use domain::rdata::Dnskey;
+//! use domain::crypto::common::PublicKey;
+//! use domain::base::iana::SecurityAlgorithm;
+//!
+//! let keyraw = [0u8; 16];
+//! let input = "Hello World!";
+//! let bad_sig = [0u8; 16];
+//! let dnskey = Dnskey::new(256, 3, SecurityAlgorithm::ED25519, keyraw).unwrap();
+//! let public_key = PublicKey::from_dnskey(&dnskey).unwrap();
+//! let res = public_key.verify(input.as_bytes(), &bad_sig);
+//! println!("verify result: {res:?}");
+//! ```
 
-#![cfg(any(feature = "ring", feature = "openssl"))]
+#![cfg(feature = "unstable-crypto-backend")]
+// NOTE: Users should not interact with the `unstable-crypto-backend` feature
+// directly, we deliberately show them the features they should use instead.
 #![cfg_attr(docsrs, doc(cfg(any(feature = "ring", feature = "openssl"))))]
+
+// Fail if 'ring' or 'openssl' is not enabled.
+const _: () = {
+    assert!(
+        cfg!(any(feature = "ring", feature = "openssl")),
+        "Do not enable the 'unstable-crypto-backend' feature directly, enable 'ring' or 'openssl' instead",
+    );
+};
 
 use core::fmt;
 use std::error;
