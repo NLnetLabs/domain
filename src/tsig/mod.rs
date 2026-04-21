@@ -62,8 +62,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
+use constant_time_eq::constant_time_eq;
 use octseq::octets::Octets;
-use ring::{constant_time, hkdf::KeyType, hmac, rand};
+use ring::{hkdf::KeyType, hmac, rand};
 
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
@@ -360,8 +361,10 @@ impl Key {
         } else {
             expected.as_ref()
         };
-        constant_time::verify_slices_are_equal(expected, provided)
-            .map_err(|_| ValidationError::BadSig)
+        if !constant_time_eq(expected, provided) {
+            return Err(ValidationError::BadSig);
+        }
+        Ok(())
     }
 
     /// Completes a message by adding a TSIG record.

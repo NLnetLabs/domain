@@ -244,7 +244,6 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-#[cfg(feature = "unstable-client-cache")]
 pub mod cache;
 pub mod dgram;
 pub mod dgram_stream;

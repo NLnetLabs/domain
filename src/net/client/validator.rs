@@ -39,6 +39,11 @@
 //! twice. One solution to that is to create a new type of cache that only
 //! caches DS and DNSKEY records and insert that upstream of the validator.
 
+#![cfg(all(
+    feature = "unstable-validator",
+    any(feature = "ring", feature = "openssl")
+))]
+
 //! # Example
 //! ```rust,no_run
 //! # use domain::base::{MessageBuilder, Name, Rtype};

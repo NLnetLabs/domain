@@ -12,12 +12,19 @@ use core::net::IpAddr;
 #[cfg(feature = "siphasher")]
 use core::ops::Range;
 
-use domain_macros::*;
-
-use crate::new::base::Serial;
+use crate::{
+    new::base::{
+        wire::{
+            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes,
+            SplitBytesZC,
+        },
+        Serial,
+    },
+    utils::dst::UnsizedCopy,
+};
 
 #[cfg(feature = "siphasher")]
-use crate::new::base::wire::{AsBytes, TruncationError};
+use crate::new::base::wire::TruncationError;
 
 //----------- ClientCookie ---------------------------------------------------
 
@@ -226,6 +233,15 @@ impl Cookie {
         } else {
             Err(CookieError)
         }
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<Cookie> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }
 

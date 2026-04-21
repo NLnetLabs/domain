@@ -26,9 +26,10 @@ use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use domain::rdata::{Soa, ZoneRecordData};
 use octseq::Octets;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
+use rand::distr::Alphanumeric;
+use rand::RngExt;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
@@ -106,6 +107,43 @@ async fn main() {
         }
         exit(1);
     });
+
+    // Reduce the SOA REFRESH timer to a value low enough that XFR recipients
+    // of the zone will attempt to refresh the zone quick enough to see the
+    // mutations that we make to it below.
+    let new_refresh_ttl = Ttl::from_secs(15);
+    let mut writable_zone = zone.write().await;
+    let writable_zone_node = writable_zone.open(false).await.unwrap();
+    let Some(soa_rrset) =
+        writable_zone_node.get_rrset(Rtype::SOA).await.unwrap()
+    else {
+        panic!("Loaded zone has no SOA RRSET at the apex!");
+    };
+    let soa_rr = soa_rrset.first().unwrap();
+    let soa_rdata = soa_rr.data();
+    let ZoneRecordData::Soa(soa_rdata) = soa_rdata else {
+        unreachable!();
+    };
+    let new_soa_rdata = Soa::new(
+        soa_rdata.mname().clone(),
+        soa_rdata.rname().clone(),
+        soa_rdata.serial(),
+        new_refresh_ttl,
+        soa_rdata.retry(),
+        soa_rdata.expire(),
+        soa_rdata.minimum(),
+    );
+    let mut new_soa_rrset = Rrset::new(Rtype::SOA, soa_rrset.ttl());
+    new_soa_rrset.push_data(ZoneRecordData::Soa(new_soa_rdata));
+    writable_zone_node
+        .update_rrset(new_soa_rrset.into_shared())
+        .await
+        .unwrap();
+    drop(writable_zone_node);
+    writable_zone.commit(false).await.unwrap();
+    drop(writable_zone);
+
+    // Store the modified zone.
     zones.insert_zone(zone).unwrap();
     let zones = Arc::new(zones);
 
@@ -118,16 +156,12 @@ async fn main() {
     let svc = service_fn(my_service, zones.clone());
 
     #[cfg(feature = "siphasher")]
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, _>::new(
-        svc,
-        zones_and_diffs.clone(),
-        1,
-    );
+    let svc = XfrMiddlewareSvc::new(svc, zones_and_diffs.clone(), 1);
     let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = CookiesMiddlewareSvc::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::new(svc);
     let svc = TsigMiddlewareSvc::new(svc, key_store);
+    let svc = MandatoryMiddlewareSvc::new(svc);
     let svc = Arc::new(svc);
 
     let sock = UdpSocket::bind(&addr).await.unwrap();
@@ -210,7 +244,7 @@ async fn main() {
                     node.remove_rrset(Rtype::A).await.unwrap();
                 }
 
-                let random_string: String = rand::thread_rng()
+                let random_string: String = rand::rng()
                     .sample_iter(&Alphanumeric)
                     .take(7)
                     .map(char::from)
@@ -240,8 +274,8 @@ async fn main() {
 }
 
 #[allow(clippy::type_complexity)]
-fn my_service(
-    request: Request<Vec<u8>>,
+fn my_service<RequestMeta>(
+    request: Request<Vec<u8>, RequestMeta>,
     zones: Arc<ZoneTree>,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
@@ -270,11 +304,12 @@ impl Notifiable for DemoNotifyTarget {
         &self,
         class: Class,
         apex_name: &StoredName,
+        serial: Option<Serial>,
         source: IpAddr,
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
     > {
-        eprintln!("Notify received from {source} of change to zone {apex_name} in class {class}");
+        eprintln!("Notify received from {source} of change to zone {apex_name} in class {class} with serial {serial:?}");
 
         let res = match apex_name.to_string().to_lowercase().as_str() {
             "example.com" => Ok(()),
@@ -339,7 +374,7 @@ impl XfrDataProvider<Option<Key>> for ZoneTreeWithDiffs {
         Octs: Octets + Send + Sync,
     {
         if req.metadata().is_none() {
-            eprintln!("Rejecting");
+            eprintln!("Rejecting request due to missing TSIG key");
             return Box::pin(ready(Err(XfrDataProviderError::Refused)));
         }
         let res = req

@@ -190,6 +190,15 @@ impl BuildInMessage for Name {
     }
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<Name> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
 //--- Equality
 
 impl PartialEq for Name {
@@ -390,13 +399,14 @@ impl<'a> SplitMessageBytes<'a> for NameBuf {
         // Traverse compression pointers.
         let mut old_start = start;
         while let Some(start) = pointer.map(usize::from) {
+            let start = start.checked_sub(12).ok_or(ParseError)?;
+
             // Ensure the referenced position comes earlier.
             if start >= old_start {
                 return Err(ParseError);
             }
 
             // Keep going, from the referenced position.
-            let start = start.checked_sub(12).ok_or(ParseError)?;
             let bytes = contents.get(start..).ok_or(ParseError)?;
             (pointer, _) = parse_segment(bytes, &mut buffer)?;
             old_start = start;
@@ -433,13 +443,14 @@ impl<'a> ParseMessageBytes<'a> for NameBuf {
         // Traverse compression pointers.
         let mut old_start = start;
         while let Some(start) = pointer.map(usize::from) {
+            let start = start.checked_sub(12).ok_or(ParseError)?;
+
             // Ensure the referenced position comes earlier.
             if start >= old_start {
                 return Err(ParseError);
             }
 
             // Keep going, from the referenced position.
-            let start = start.checked_sub(12).ok_or(ParseError)?;
             let bytes = contents.get(start..).ok_or(ParseError)?;
             (pointer, _) = parse_segment(bytes, &mut buffer)?;
             old_start = start;

@@ -128,6 +128,12 @@ impl From<Serial> for u32 {
     }
 }
 
+impl From<jiff::Timestamp> for Serial {
+    fn from(value: jiff::Timestamp) -> Self {
+        Self(value.as_second() as u32)
+    }
+}
+
 #[cfg(feature = "chrono")]
 #[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
 impl<T: TimeZone> From<DateTime<T>> for Serial {

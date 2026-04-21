@@ -1,21 +1,163 @@
 # Change Log
 
-
 ## Unreleased next version
 
 Breaking changes
 
+* Add new `LimitExceeded` variant to `MessageBuilder`'s `PushError`. ([#349])
+* Changed the `Resolver` and `SearchNames` traits of the stub resolver to
+  use lifetimes for their some associated types. This makes it easier to
+  keep the stub resolver behind an arc or other smart pointer. ([#596])
+
 New
+
+* Add `rdata::dnssec::Timestamp::to_system_time` to help sorting timestamps.
+ ([#548])
+* Added support for the `TLSA`, `OPENPGPKEY`, `SSHFP`, and `IPSECKEY`
+  record types and added presentation format support for the `SVCB`/`HTTPS`
+  record types. ([#569])
+* Add support for the `CAA` record type. ([#434] by [@weilence])
+* Added `FreezeBuilder` to the message compressors. ([#601] by
+  [@rossmacarthur])
+* Add support for the `RP` record type. ([#620])
+
+Improvements
+
+* Exclude `moka` dependency from the `resolv` feature, reducing the number of
+  dependencies and compile time significantly. ([#575] by [@WhyNotHugo])
+* Made various methods in `RelativeName` into const fns. ([#576] by
+  [@WhyNotHugo])
 
 Bug fixes
 
-* In-place zone parser yields incorrect TTLs. ([538])
-* Generalize ZoneUpdater to support any Record type, not just ParsedRecord. ([#535])
+* When parsing a Bind-style public key file, allow an optional TTL field.
+  ([#593])
+* XfrMiddlewareService should always support at least one concurrent XFR.
+  ([#599])
+* Fix generating an ED448 keypair ([#608])
+
+Unstable features
+
+* `unstable-crypto-sign`
+  * Add support for RSA/SHA-512 to openssl signer. ([#550])
+  * generate now takes &GenerateParams. This breaks existing uses of
+    generate ([#608])
+* `unstable-server-transport`
+  * Return an error response when a `Service` returns a `ServiceError`.
+    ([#390])
+  * Implement `std::error::Error` for `ServiceError`. ([#570] by
+    [@rossmacarthur])
+  * Be more lenient when timing out connections while they are in a
+    transaction. ([#399])
+  * Removed defaults for type arguments to prevent intermediate types that
+    impl the trait from not allowing the defaults to be overridden.
+    ([#484])
+  * Added commonly required bounds to the `Service` trait rather than
+    leaving them to the impl. ([#484])
+  * Removed unnecessary `?Sized` bound on `impl Service for U where U: Deref`.
+    ([#484])
+* `unstable-sign`
+   * keyset improvements ([#551])
+     * Store the algorithm and key tag of a key to be able to reject duplicate
+       key tags and accidental algorithm rolls.
+     * Store whether a key is considered available for a key roll. Rolls with
+       new keys that are not available are rejected.
+     * Add two alternative key rolls for KSK and ZSK key rolls.
+     * Add an algorithm roll.
+     * Add more operations on UnixTime.
+     * Add more actions
+     * Allow loading public keys only. ([#594])
+     * Add support for decoupled keys. ([#594])
+   * RecordsIter::new has been replaced with RecordsIter::new_from_owned.
+     There is a new RecordsIter::new_from_refs that takes a &[&Record]].
+     This breaks existing uses of RecordsIter and related types. ([#614])
+* `unstable-xfr`
+  * Various fixes and improvements. ([#507])
 
 Other changes
 
+* Dependency upgrades:
+  * [hashbrown] to 0.17, ([#633])
+  * [heapless] to 0.9, ([#634])
+  * [octseq] to 0.6, ([#634])
+  * [rand] to 0.10. ([#631])
+
+
+[#349]: https://github.com/NLnetLabs/domain/pull/349
+[#390]: https://github.com/NLnetLabs/domain/pull/390
+[#393]: https://github.com/NLnetLabs/domain/pull/393
+[#399]: https://github.com/NLnetLabs/domain/pull/399
+[#434]: https://github.com/NLnetLabs/domain/pull/434
+[#484]: https://github.com/NLnetLabs/domain/pull/484
+[#507]: https://github.com/NLnetLabs/domain/pull/507
+[#548]: https://github.com/NLnetLabs/domain/pull/548
+[#550]: https://github.com/NLnetLabs/domain/pull/550
+[#551]: https://github.com/NLnetLabs/domain/pull/551
+[#569]: https://github.com/NLnetLabs/domain/pull/569
+[#570]: https://github.com/NLnetLabs/domain/pull/570
+[#576]: https://github.com/NLnetLabs/domain/pull/576
+[#593]: https://github.com/NLnetLabs/domain/pull/593
+[#594]: https://github.com/NLnetLabs/domain/pull/594
+[#596]: https://github.com/NLnetLabs/domain/pull/596
+[#599]: https://github.com/NLnetLabs/domain/pull/599
+[#601]: https://github.com/NLnetLabs/domain/pull/601
+[#608]: https://github.com/NLnetLabs/domain/pull/608
+[#614]: https://github.com/NLnetLabs/domain/pull/614
+[#620]: https://github.com/NLnetLabs/domain/pull/620
+[#631]: https://github.com/NLnetLabs/domain/pull/631
+[#633]: https://github.com/NLnetLabs/domain/pull/633
+[#634]: https://github.com/NLnetLabs/domain/pull/634
+[@rossmacarthur]: https://github.com/rossmacarthur
+[@weilence]: https://github.com/weilence
+[@WhyNotHugo]: https://github.com/WhyNotHugo
+[@rossmacarthur]: https://github.com/rossmacarthur
+[hashbrown]: https://crates.io/crates/hashbrown
+[heapless]: https://crates.io/crates/heapless
+[octseq]: https://crates.io/crates/octseq
+[rand]: https://crates.io/crates/rand
+
+
+## 0.11.1
+
+Released 2025-10-22.
+
+Bug fixes
+
+* Fix handling of tabs when formatting RDATA using `DisplayKind::Tabbed`.
+  ([#516])
+* Fix for in-place zone parser yielding incorrect TTLs. ([#538])
+* Generalize `ZoneUpdater` to support any `Record` type, not just
+  `ParsedRecord`. ([#535])
+* Trim leading modulus and public exponent zeroes per RFC 3110 section 2.
+  ([#541])
+* Fix panic in zonetree from in-place zonefile after encountering a malformed
+  record. ([#573])
+
+Unstable features
+
+* `unstable-server-transport`:
+  * Don't discard the NOTIFY SOA serial, if one is received. Existing users
+    of the `Notifiable` trait will need to update their code as this change
+    adds an argument to `Notifiable::notify_zone_changed()`. [#562])
+* `unstable-client-transport`:
+  * Fix an issue in Stream::Transport when a reply arrives early.
+    ([#568] by [@TheJokr])
+
+Other changes
+
+* Fix docs on `XfrResponseInterpreter`. ([#510])
+
+
+[#510]: https://github.com/NLnetLabs/domain/pull/510
+[#516]: https://github.com/NLnetLabs/domain/pull/516
 [#535]: https://github.com/NLnetLabs/domain/pull/535
 [#538]: https://github.com/NLnetLabs/domain/pull/538
+[#541]: https://github.com/NLnetLabs/domain/pull/541
+[#562]: https://github.com/NLnetLabs/domain/pull/562
+[#568]: https://github.com/NLnetLabs/domain/pull/568
+[#573]: https://github.com/NLnetLabs/domain/pull/573
+[@TheJokr]: https://github.com/TheJokr
+
 
 ## 0.11.0
 

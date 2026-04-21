@@ -62,22 +62,26 @@
 use core::cmp::Ordering;
 
 #[cfg(feature = "alloc")]
-use core::fmt;
+use core::{
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
 
-use domain_macros::*;
-
-use crate::new::base::{
-    build::{BuildInMessage, NameCompressor},
-    name::CanonicalName,
-    parse::{ParseMessageBytes, SplitMessageBytes},
-    wire::{
-        AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
-        TruncationError,
+use crate::{
+    new::base::{
+        build::{BuildInMessage, NameCompressor},
+        name::CanonicalName,
+        parse::{ParseMessageBytes, SplitMessageBytes},
+        wire::{
+            AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
+            TruncationError,
+        },
+        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
     },
-    CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
+    utils::dst::UnsizedCopy,
 };
 
 #[cfg(feature = "alloc")]
@@ -99,6 +103,8 @@ pub use dnssec::{
     DNSKey, DNSKeyFlags, DigestType, Ds, NSec, NSec3, NSec3Flags,
     NSec3HashAlg, NSec3Param, RRSig, SecAlg, TypeBitmaps,
 };
+
+use super::base::wire::ParseBytesZC;
 
 //----------- RecordData -----------------------------------------------------
 
@@ -224,7 +230,7 @@ macro_rules! define_record_data {
 
 define_record_data! {
     /// DNS record data.
-    #[derive(Clone, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     #[non_exhaustive]
     pub enum RecordData<'a, N> {
         /// The IPv4 address of a host responsible for this domain.
@@ -520,6 +526,15 @@ impl PartialEq for BoxedRecordData {
 #[cfg(feature = "alloc")]
 impl Eq for BoxedRecordData {}
 
+//--- Hashing
+
+#[cfg(feature = "alloc")]
+impl Hash for BoxedRecordData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.get().hash(state)
+    }
+}
+
 //--- Clone
 
 #[cfg(feature = "alloc")]
@@ -694,7 +709,7 @@ impl BuildBytes for BoxedRecordData {
 /// implementation.  It must not be used for well-known record types, because
 /// some of them have special rules that this type does not follow.
 #[derive(
-    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
+    Debug, PartialEq, Eq, Hash, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
 )]
 #[repr(transparent)]
 pub struct UnknownRecordData {
@@ -742,5 +757,14 @@ impl BuildInMessage for UnknownRecordData {
             .ok_or(TruncationError)?
             .copy_from_slice(&self.octets);
         Ok(end)
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<UnknownRecordData> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }

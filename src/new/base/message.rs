@@ -2,13 +2,15 @@
 
 use core::fmt;
 
-use domain_macros::*;
-
 use crate::new::edns::EdnsRecord;
+use crate::utils::dst::UnsizedCopy;
 
 use super::build::{BuildInMessage, NameCompressor};
 use super::parse::MessageParser;
-use super::wire::{AsBytes, BuildBytes, ParseBytesZC, TruncationError, U16};
+use super::wire::{
+    AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes, SplitBytesZC,
+    TruncationError, U16,
+};
 use super::{Question, Record};
 
 //----------- Message --------------------------------------------------------
@@ -98,6 +100,15 @@ impl Message {
         debug_assert!(size <= len);
         core::ptr::slice_from_raw_parts_mut(this.cast::<u8>(), size)
             as *mut Self
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<Message> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }
 

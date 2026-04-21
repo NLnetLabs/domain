@@ -46,14 +46,20 @@
 mod macros;
 
 pub mod aaaa;
+pub mod caa;
 pub mod cds;
 pub mod dname;
 pub mod dnssec;
+pub mod ipseckey;
 pub mod naptr;
 pub mod nsec3;
+pub mod openpgpkey;
 pub mod rfc1035;
+pub mod rp;
 pub mod srv;
+pub mod sshfp;
 pub mod svcb;
+pub mod tlsa;
 pub mod tsig;
 pub mod zonemd;
 
@@ -98,6 +104,11 @@ rdata_types! {
             Aaaa,
         }
     }
+    caa::{
+        zone {
+            Caa<O>,
+        }
+    }
     cds::{
         zone {
             Cdnskey<O>,
@@ -117,6 +128,11 @@ rdata_types! {
             Ds<O>,
         }
     }
+    ipseckey::{
+        zone {
+            Ipseckey<O, N>,
+        }
+    }
     naptr::{
         zone {
             Naptr<O, N>,
@@ -128,15 +144,35 @@ rdata_types! {
             Nsec3param<O>,
         }
     }
+    openpgpkey::{
+        zone {
+            Openpgpkey<O>,
+        }
+    }
+    rp::{
+        zone {
+            Rp<N>,
+        }
+    }
     srv::{
         zone {
             Srv<N>,
         }
     }
+    sshfp::{
+        zone {
+            Sshfp<O>,
+        }
+    }
     svcb::{
-        pseudo {
+        zone {
             Svcb<O, N>,
             Https<O, N>,
+        }
+    }
+    tlsa::{
+        zone {
+            Tlsa<O>,
         }
     }
     tsig::{

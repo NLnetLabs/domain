@@ -50,7 +50,7 @@ use domain::rdata::{Soa, A};
 
 // Helper fn to create a dummy response to send back to the client
 fn mk_answer<Target>(
-    msg: &Request<Vec<u8>>,
+    msg: &Request<Vec<u8>, ()>,
     builder: MessageBuilder<StreamTarget<Target>>,
 ) -> Result<AdditionalBuilder<StreamTarget<Target>>, PushError>
 where
@@ -69,7 +69,7 @@ where
 }
 
 fn mk_soa_answer<Target>(
-    msg: &Request<Vec<u8>>,
+    msg: &Request<Vec<u8>, ()>,
     builder: MessageBuilder<StreamTarget<Target>>,
 ) -> Result<AdditionalBuilder<StreamTarget<Target>>, PushError>
 where
@@ -100,6 +100,7 @@ where
 
 //--- MySingleResultService
 
+#[derive(Clone)]
 struct MySingleResultService;
 
 /// This example shows how to implement the [`Service`] trait directly.
@@ -116,12 +117,12 @@ struct MySingleResultService;
 ///
 /// See [`query`] and [`name_to_ip`] for ways of implementing the [`Service`]
 /// trait for a function instead of a struct.
-impl Service<Vec<u8>> for MySingleResultService {
+impl Service<Vec<u8>, ()> for MySingleResultService {
     type Target = Vec<u8>;
     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
     type Future = Ready<Self::Stream>;
 
-    fn call(&self, request: Request<Vec<u8>>) -> Self::Future {
+    fn call(&self, request: Request<Vec<u8>, ()>) -> Self::Future {
         let builder = mk_builder_for_target();
         let additional = mk_answer(&request, builder).unwrap();
         let item = Ok(CallResult::new(additional));
@@ -131,6 +132,7 @@ impl Service<Vec<u8>> for MySingleResultService {
 
 //--- MyAsyncStreamingService
 
+#[derive(Clone)]
 struct MyAsyncStreamingService;
 
 /// This example also shows how to implement the [`Service`] trait directly.
@@ -147,13 +149,13 @@ struct MyAsyncStreamingService;
 /// and/or Stream implementations that actually wait and/or stream, e.g.
 /// making the Stream type be UnboundedReceiver instead of Pin<Box<dyn
 /// Stream...>>.
-impl Service<Vec<u8>> for MyAsyncStreamingService {
+impl Service<Vec<u8>, ()> for MyAsyncStreamingService {
     type Target = Vec<u8>;
     type Stream =
         Pin<Box<dyn Stream<Item = ServiceResult<Self::Target>> + Send>>;
     type Future = Pin<Box<dyn Future<Output = Self::Stream> + Send>>;
 
-    fn call(&self, request: Request<Vec<u8>>) -> Self::Future {
+    fn call(&self, request: Request<Vec<u8>, ()>) -> Self::Future {
         Box::pin(async move {
             if !matches!(
                 request
@@ -209,7 +211,10 @@ impl Service<Vec<u8>> for MyAsyncStreamingService {
 /// The function signature is slightly more complex than when using
 /// [`service_fn`] (see the [`query`] example below).
 #[allow(clippy::type_complexity)]
-fn name_to_ip(request: Request<Vec<u8>>, _: ()) -> ServiceResult<Vec<u8>> {
+fn name_to_ip(
+    request: Request<Vec<u8>, ()>,
+    _: (),
+) -> ServiceResult<Vec<u8>> {
     let mut out_answer = None;
     if let Ok(question) = request.message().sole_question() {
         let qname = question.qname();
@@ -257,7 +262,7 @@ fn name_to_ip(request: Request<Vec<u8>>, _: ()) -> ServiceResult<Vec<u8>> {
 /// [`service_fn`] and supports passing in meta data without any extra
 /// boilerplate.
 fn query(
-    request: Request<Vec<u8>>,
+    request: Request<Vec<u8>, ()>,
     count: Arc<AtomicU8>,
 ) -> ServiceResult<Vec<u8>> {
     let cnt = count
@@ -455,6 +460,7 @@ impl std::fmt::Display for Stats {
     }
 }
 
+#[derive(Clone)]
 pub struct StatsMiddlewareSvc<Svc> {
     svc: Svc,
     stats: Arc<RwLock<Stats>>,
@@ -467,7 +473,7 @@ impl<Svc> StatsMiddlewareSvc<Svc> {
         Self { svc, stats }
     }
 
-    fn preprocess<RequestOctets>(&self, request: &Request<RequestOctets>)
+    fn preprocess<RequestOctets>(&self, request: &Request<RequestOctets, ()>)
     where
         RequestOctets: Octets + Send + Sync + Unpin,
     {
@@ -488,12 +494,12 @@ impl<Svc> StatsMiddlewareSvc<Svc> {
     }
 
     fn postprocess<RequestOctets>(
-        request: &Request<RequestOctets>,
+        request: &Request<RequestOctets, ()>,
         response: &AdditionalBuilder<StreamTarget<Svc::Target>>,
         stats: &RwLock<Stats>,
     ) where
         RequestOctets: Octets + Send + Sync + Unpin,
-        Svc: Service<RequestOctets>,
+        Svc: Service<RequestOctets, ()>,
         Svc::Target: AsRef<[u8]>,
     {
         let duration = Instant::now().duration_since(request.received_at());
@@ -510,13 +516,13 @@ impl<Svc> StatsMiddlewareSvc<Svc> {
     }
 
     fn map_stream_item<RequestOctets>(
-        request: Request<RequestOctets>,
+        request: Request<RequestOctets, ()>,
         stream_item: ServiceResult<Svc::Target>,
         stats: &mut Arc<RwLock<Stats>>,
     ) -> ServiceResult<Svc::Target>
     where
         RequestOctets: Octets + Send + Sync + Unpin,
-        Svc: Service<RequestOctets>,
+        Svc: Service<RequestOctets, ()>,
         Svc::Target: AsRef<[u8]>,
     {
         if let Ok(cr) = &stream_item {
@@ -528,10 +534,11 @@ impl<Svc> StatsMiddlewareSvc<Svc> {
     }
 }
 
-impl<RequestOctets, Svc> Service<RequestOctets> for StatsMiddlewareSvc<Svc>
+impl<RequestOctets, Svc> Service<RequestOctets, ()>
+    for StatsMiddlewareSvc<Svc>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
-    Svc: Service<RequestOctets>,
+    Svc: Service<RequestOctets, ()>,
     Svc::Target: AsRef<[u8]>,
     Svc::Future: Unpin,
 {
@@ -551,7 +558,7 @@ where
     >;
     type Future = Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+    fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
         self.preprocess(&request);
         let svc_call_fut = self.svc.call(request.clone());
         let map = PostprocessingStream::new(
@@ -567,24 +574,19 @@ where
 //------------ build_middleware_chain() --------------------------------------
 
 #[allow(clippy::type_complexity)]
-fn build_middleware_chain<Svc>(
+fn build_middleware_chain<Svc, Octs>(
     svc: Svc,
     stats: Arc<RwLock<Stats>>,
-) -> StatsMiddlewareSvc<
-    MandatoryMiddlewareSvc<
-        Vec<u8>,
-        EdnsMiddlewareSvc<
-            Vec<u8>,
-            CookiesMiddlewareSvc<Vec<u8>, Svc, ()>,
-            (),
-        >,
-        (),
-    >,
-> {
+) -> impl Service<Octs, ()>
+where
+    Octs: Octets + Send + Sync + Clone + Unpin + 'static,
+    Svc: Service<Octs, ()>,
+    <Svc as Service<Octs, ()>>::Future: Unpin,
+{
     #[cfg(feature = "siphasher")]
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = CookiesMiddlewareSvc::<Octs, _, ()>::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::new(svc);
+    let svc = MandatoryMiddlewareSvc::new(svc);
     StatsMiddlewareSvc::new(svc, stats.clone())
 }
 

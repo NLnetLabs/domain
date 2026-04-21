@@ -11,11 +11,12 @@ use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
-use domain::net::client::request::RequestMessageMulti;
+use domain::net::client::request::{
+    GetResponse as _, RequestMessage, RequestMessageMulti,
+};
 use domain::net::client::stream;
 use std::fs::File;
-use std::net::IpAddr;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -150,5 +151,61 @@ fn tcp() {
         });
 
         do_client_simple(&stelline, &step_value, tcp).await;
+    });
+}
+
+/// Regression test: Ensure responses are not lost when a stream closes.
+#[test]
+fn stream_immediate_eof() {
+    use domain::base::{iana::Rcode, MessageBuilder, Name, Rtype};
+    use domain::rdata::A;
+    use futures_util::FutureExt as _;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    // Query and response for `a.b.c. IN A`
+    let domain_name: Name<Vec<u8>> = "a.b.c.".parse().unwrap();
+    let mut query = MessageBuilder::new_vec().question();
+    query.push((&domain_name, Rtype::A)).unwrap();
+
+    let mut response = MessageBuilder::new_stream_vec()
+        .start_answer(&query.as_message(), Rcode::NOERROR)
+        .unwrap();
+    response
+        .push((&domain_name, 3600, A::new(Ipv4Addr::LOCALHOST)))
+        .unwrap();
+
+    let response = response.finish().into_target();
+    let query = RequestMessage::new(query).unwrap();
+
+    tokio_test::block_on(async move {
+        let (client, mut server) = tokio::io::duplex(response.len());
+        tokio::spawn(async move {
+            // Read the entire query to avoid breaking the client's write half.
+            let len = server.read_u16().await.unwrap();
+            let _ = server.read_exact(&mut vec![0; len as usize]).await;
+
+            // Write the entire response in one shot. This is important so that
+            // we can be sure the client sees the response and EOF at the same time.
+            server
+                .write_all(&response)
+                .now_or_never()
+                .expect("write should not return pending")
+                .expect("client dead?");
+            drop(server);
+        });
+
+        let (conn, transport) = stream::Connection::<
+            _,
+            RequestMessageMulti<Vec<u8>>,
+        >::new(client);
+
+        tokio::spawn(async move {
+            transport.run().await;
+            println!("single stream run terminated");
+        });
+
+        let resp = conn.get_request(query).get_response().await;
+        let answer = resp.expect("request should yield a response");
+        assert!(answer.no_error());
     });
 }

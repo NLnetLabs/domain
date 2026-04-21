@@ -4,6 +4,7 @@ use core::{
     borrow::{Borrow, BorrowMut},
     cmp::Ordering,
     fmt,
+    hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
 };
 
@@ -164,6 +165,14 @@ impl<S, T: ?Sized + PartialOrd> PartialOrd for SizePrefixed<S, T> {
 impl<S, T: ?Sized + Ord> Ord for SizePrefixed<S, T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.data.cmp(&other.data)
+    }
+}
+
+//--- Hashing
+
+impl<S, T: ?Sized + Hash> Hash for SizePrefixed<S, T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state)
     }
 }
 

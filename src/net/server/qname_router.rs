@@ -22,21 +22,24 @@ use tracing::trace;
 
 /// A service that routes requests to other services based on the Qname in the
 /// request.
-pub struct QnameRouter<Octs, RequestOcts, CR> {
+pub struct QnameRouter<Octs, RequestOcts, RequestMeta, CR> {
     /// List of names and services for routing requests.
-    list: Vec<Element<Octs, RequestOcts, CR>>,
+    list: Vec<Element<Octs, RequestOcts, RequestMeta, CR>>,
 }
 
 /// Element in the name space for the Qname router.
-struct Element<NameOcts, RequestOcts, CR> {
+struct Element<NameOcts, RequestOcts, RequestMeta, CR> {
     /// Name to match for this element.
     name: Name<NameOcts>,
 
     /// Service to call for this element.
-    service: Box<dyn SingleService<RequestOcts, CR> + Send + Sync>,
+    service:
+        Box<dyn SingleService<RequestOcts, RequestMeta, CR> + Send + Sync>,
 }
 
-impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
+impl<Octs, RequestOcts, RequestMeta, CR>
+    QnameRouter<Octs, RequestOcts, RequestMeta, CR>
+{
     /// Create a new empty router.
     pub fn new() -> Self {
         Self { list: Vec::new() }
@@ -50,7 +53,10 @@ impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
             EmptyBuilder + OctetsBuilder<AppendError = Infallible>,
         TN: ToName,
         RequestOcts: Send + Sync,
-        SVC: SingleService<RequestOcts, CR> + Send + Sync + 'static,
+        SVC: SingleService<RequestOcts, RequestMeta, CR>
+            + Send
+            + Sync
+            + 'static,
     {
         let el = Element {
             name: name.to_name(),
@@ -60,22 +66,26 @@ impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
     }
 }
 
-impl<Octs, RequestOcts, CR> Default for QnameRouter<Octs, RequestOcts, CR> {
+impl<Octs, RequestOcts, RequestMeta, CR> Default
+    for QnameRouter<Octs, RequestOcts, RequestMeta, CR>
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Octs, RequestOcts, CR> SingleService<RequestOcts, CR>
-    for QnameRouter<Octs, RequestOcts, CR>
+impl<Octs, RequestOcts, RequestMeta, CR>
+    SingleService<RequestOcts, RequestMeta, CR>
+    for QnameRouter<Octs, RequestOcts, RequestMeta, CR>
 where
     Octs: AsRef<[u8]>,
+    RequestMeta: Clone,
     RequestOcts: Send + Sync,
     CR: ComposeReply + Send + Sync + 'static,
 {
     fn call(
         &self,
-        request: Request<RequestOcts>,
+        request: Request<RequestOcts, RequestMeta>,
     ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets,

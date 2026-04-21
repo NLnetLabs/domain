@@ -9,8 +9,8 @@
 
 name: CI
 
-# When the worflow runs
-# ---------------------
+# When the workflow runs
+# ----------------------
 on:
   # Execute when a pull request is (re-) opened or its head changes (e.g. new
   # commits are added or the commit history is rewritten) ... but only if
@@ -18,7 +18,8 @@ on:
   pull_request:
     paths:
       - '**.rs'
-      - 'Cargo.{toml,lock}'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/ci.yml'
 
   # If a pull request is merged, at least one commit is added to the target
@@ -34,7 +35,8 @@ on:
       - 'releases/**'
     paths:
       - '**.rs'
-      - 'Cargo.{toml,lock}'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/ci.yml'
 
   # Rebuild 'main' every week.  This will account for changes to dependencies
@@ -42,6 +44,10 @@ on:
   # every 6 weeks, on a Thursday; this event runs every Friday.
   schedule:
     - cron: '0 10 * * FRI'
+
+defaults:
+  run:
+    shell: bash
 
 # Jobs
 # ----------------------------------------------------------------------------
@@ -129,10 +135,11 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
 
     # Do the actual feature flag checks.
     #
@@ -175,7 +182,7 @@ jobs:
       id: setup-rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
-        toolchain: nightly
+        toolchain: nightly, stable
         cache: false
 
     # TODO: Cache minimal-version dependencies?
@@ -227,10 +234,11 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
 
     # Do the actually Clippy run.
     - name: Check Clippy
@@ -285,14 +293,25 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
-    
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
+
+    # For MSRV builds, use the cached 'Cargo.lock'.
+    - name: Use the cached Cargo lockfile
+      if: matrix.rust == needs.determine-msrv.outputs.msrv
+      # Remove 'Cargo.lock' even if a cached lockfile is unavailable.
+      run: mv Cargo.cached.lock Cargo.lock || rm Cargo.lock
+
     # Build and run the test suite.
     - name: Test
       run: cargo test --all-targets $DOMAIN_FEATURES
+
+    # Test docs.
+    - name: Test docs
+      run: cargo test --doc $DOMAIN_FEATURES
 
   # Build Cache
   # -----------
@@ -310,6 +329,8 @@ jobs:
     env:
       RUSTFLAGS: "-D warnings"
       DOMAIN_FEATURES: "--all-features"
+      # See <https://github.com/actions/runner-images/issues/12432>
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: "rust-lld"
     steps:
 
     # Load the repository.
@@ -326,9 +347,6 @@ jobs:
         features=`cargo metadata --no-deps --format-version 1 | jq -r '.packages[]|select(.name == "domain")|.features|keys|map(select(.!="openssl"))|join(",")'`
         # Overwrite the 'DOMAIN_FEATURES' environment variable.
         echo "DOMAIN_FEATURES=--features=$features" >> "$GITHUB_ENV"
-        # See <https://github.com/actions/runner-images/issues/12432>
-        mkdir -p .cargo
-        printf '[target.x86_64-pc-windows-msvc]\nlinker = "rust-lld"\n' >> .cargo/config.toml
 
     # Set up the Rust toolchain.
     - name: Set up Rust ${{ matrix.rust }}
@@ -343,23 +361,41 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-
+
+    # For MSRV builds, use the cached 'Cargo.lock'.
+    - name: Use the cached Cargo lockfile
+      if: matrix.rust == needs.determine-msrv.outputs.msrv
+      # Remove 'Cargo.lock' even if a cached lockfile is unavailable.
+      run: mv Cargo.cached.lock Cargo.lock || rm Cargo.lock
 
     # Build all of 'domain'.
     - name: Build
       run: cargo build --all-targets $DOMAIN_FEATURES
+
+    # Copy to the Cargo lockfile for optional caching.
+    - name: Copy the Cargo lockfile for optional caching
+      run: cp Cargo.lock Cargo.cached.lock
 
     # Save to the cache.
     - name: Save to the cache
       uses: actions/cache/save@v4
       with:
         path: |
+          Cargo.cached.lock
           ~/.cargo
           target/
         # Cache by OS and Rust version.
-        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}
+        #
+        # GitHub treats cache entries as immutable (although it _does_ allow
+        # explicitly removing and re-adding them). We include the run ID so
+        # the cache key is unique every time; when restoring from the cache,
+        # we don't specify the run ID, and GitHub will automatically find the
+        # most recent cache entry using the key as a prefix.
+        key: ${{ runner.os }}-${{ steps.setup-rust.outputs.cachekey }}-${{ github.run_id }}
 
 # TODO: Use 'cargo-semver-checks' on releases.

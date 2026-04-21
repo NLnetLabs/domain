@@ -22,13 +22,13 @@ use std::pin::Pin;
 use std::vec::Vec;
 
 /// Trait for a service that results in a single response.
-pub trait SingleService<RequestOcts: Send + Sync, CR> {
+pub trait SingleService<RequestOcts: Send + Sync, RequestMeta, CR> {
     /// Call the service with a request message.
     ///
     /// The service returns a boxed future.
     fn call(
         &self,
-        request: Request<RequestOcts>,
+        request: Request<RequestOcts, RequestMeta>,
     ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets;

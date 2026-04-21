@@ -21,8 +21,8 @@ use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 
 /// A label in a domain name.
 ///
-/// A label contains up to 63 bytes of arbitrary data, prefixed with its the
-/// number of those bytes.
+/// A label consists of 0 to 63 (inclusive) bytes of arbitrary data, prefixed
+/// by its own length (also between 0 and 63).
 #[derive(AsBytes, UnsizedCopy)]
 #[repr(transparent)]
 pub struct Label([u8]);
@@ -166,8 +166,17 @@ impl Label {
     }
 
     /// The bytes making up this label.
+    ///
+    /// This includes the leading length octet.
     pub const fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    /// The contents of the label.
+    ///
+    /// This does not include the leading length octet.
+    pub fn contents(&self) -> &[u8] {
+        &self.0[1..]
     }
 }
 
@@ -182,6 +191,15 @@ impl AsRef<[u8]> for Label {
 impl<'a> From<&'a Label> for &'a [u8] {
     fn from(value: &'a Label) -> Self {
         &value.0
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<Label> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }
 
@@ -259,7 +277,7 @@ impl fmt::Display for Label {
     /// three zero-padded decimal digits), and `.` and `\\` simply escaped by
     /// a backslash.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.as_bytes().iter().try_for_each(|&byte| {
+        self.contents().iter().try_for_each(|&byte| {
             if b".\\".contains(&byte) {
                 write!(f, "\\{}", byte as char)
             } else if byte.is_ascii_graphic() {

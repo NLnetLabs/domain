@@ -1,5 +1,6 @@
 //! The NSEC record data type.
 
+use core::hash::{Hash, Hasher};
 use core::{cmp::Ordering, fmt};
 
 use crate::new::base::build::BuildInMessage;
@@ -11,7 +12,7 @@ use crate::utils::dst::UnsizedCopy;
 //----------- NSec -----------------------------------------------------------
 
 /// An indication of the non-existence of a set of DNS records (version 1).
-#[derive(Clone, Debug, PartialEq, Eq, BuildBytes)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, BuildBytes)]
 pub struct NSec<'a> {
     /// The name of the next existing DNS record.
     pub next: &'a Name,
@@ -175,5 +176,22 @@ unsafe impl ParseBytesZC for TypeBitmaps {
         // SAFETY: 'TypeBitmaps' is 'repr(transparent)' to '[u8]', and so
         // references to '[u8]' can be transmuted to 'TypeBitmaps' soundly.
         unsafe { core::mem::transmute(bytes) }
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<TypeBitmaps> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
+//--- Hashing
+
+impl Hash for TypeBitmaps {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.octets)
     }
 }

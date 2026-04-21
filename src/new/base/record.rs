@@ -14,7 +14,7 @@ use super::wire::{
 //----------- Record ---------------------------------------------------------
 
 /// A DNS record.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Record<N, D> {
     /// The name of the record.
     pub rname: N,
@@ -546,6 +546,40 @@ pub trait CanonicalRecordData: BuildBytes {
     fn cmp_canonical(&self, other: &Self) -> Ordering;
 }
 
+/// Implement [`CanonicalRecordData`] for a [`Deref`]-based generic container.
+macro_rules! impl_canonical_record_data_for_deref {
+    {$(
+        $(#[$attr:meta])*
+        impl[$($args:tt)*] CanonicalRecordData for $subject:ty;
+    )*} => {$(
+        $(#[$attr])*
+        impl<$($args)*> CanonicalRecordData for $subject {
+            fn build_canonical_bytes<'b>(
+                &self,
+                bytes: &'b mut [u8],
+            ) -> Result<&'b mut [u8], TruncationError> {
+                (**self).build_canonical_bytes(bytes)
+            }
+
+            fn cmp_canonical(&self, other: &Self) -> Ordering {
+                (**self).cmp_canonical(&**other)
+            }
+        }
+    )*};
+}
+
+impl_canonical_record_data_for_deref! {
+    impl[T: ?Sized + CanonicalRecordData] CanonicalRecordData for &T;
+    impl[T: ?Sized + CanonicalRecordData] CanonicalRecordData for &mut T;
+
+    #[cfg(feature = "alloc")]
+    impl[T: ?Sized + CanonicalRecordData] CanonicalRecordData for alloc::boxed::Box<T>;
+    #[cfg(feature = "alloc")]
+    impl[T: ?Sized + CanonicalRecordData] CanonicalRecordData for alloc::rc::Rc<T>;
+    #[cfg(feature = "alloc")]
+    impl[T: ?Sized + CanonicalRecordData] CanonicalRecordData for alloc::sync::Arc<T>;
+}
+
 //----------- UnparsedRecordData ---------------------------------------------
 
 /// Unparsed DNS record data.
@@ -624,6 +658,15 @@ impl Borrow<[u8]> for UnparsedRecordData {
 impl AsRef<[u8]> for UnparsedRecordData {
     fn as_ref(&self) -> &[u8] {
         self
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<UnparsedRecordData> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
     }
 }
 

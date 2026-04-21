@@ -6,6 +6,7 @@
 #![deny(clippy::missing_docs_in_private_items)]
 
 use core::fmt;
+use core::hash::{Hash, Hasher};
 
 use crate::new::base::build::{BuildInMessage, NameCompressor};
 use crate::new::base::parse::{ParseMessageBytes, SplitMessageBytes};
@@ -352,7 +353,7 @@ impl fmt::Debug for EdnsFlags {
 //----------- EdnsOption -----------------------------------------------------
 
 /// An Extended DNS option.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum EdnsOption<'b> {
     /// A client's request for a DNS cookie.
@@ -549,18 +550,28 @@ pub struct UnknownOptionData {
     pub octets: [u8],
 }
 
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<UnknownOptionData> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
+//--- Hashing
+
+impl Hash for UnknownOptionData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.octets)
+    }
+}
+
 //----------- UnparsedEdnsOption ---------------------------------------------
 
 /// An unparsed EDNS option.
 #[derive(
-    Debug,
-    PartialEq,
-    Eq,
-    AsBytes,
-    BuildBytes,
-    ParseBytesZC,
-    SplitBytesZC,
-    UnsizedCopy,
+    Debug, AsBytes, BuildBytes, ParseBytesZC, SplitBytesZC, UnsizedCopy,
 )]
 #[repr(C)]
 pub struct UnparsedEdnsOption {
@@ -569,4 +580,32 @@ pub struct UnparsedEdnsOption {
 
     /// The option data.
     pub data: SizePrefixed<U16, [u8]>,
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<UnparsedEdnsOption> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
+//--- Equality
+
+impl PartialEq for UnparsedEdnsOption {
+    fn eq(&self, other: &Self) -> bool {
+        // All elements are compared bytewise.
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for UnparsedEdnsOption {}
+
+//--- Hashing
+
+impl Hash for UnparsedEdnsOption {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_bytes())
+    }
 }

@@ -1,14 +1,21 @@
 //! The NSEC3 and NSEC3PARAM record data types.
 
-use core::{cmp::Ordering, fmt};
+use core::{
+    cmp::Ordering,
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use domain_macros::*;
 
-use crate::new::base::{
-    build::BuildInMessage,
-    name::NameCompressor,
-    wire::{AsBytes, BuildBytes, SizePrefixed, TruncationError, U16},
-    CanonicalRecordData,
+use crate::{
+    new::base::{
+        build::BuildInMessage,
+        name::NameCompressor,
+        wire::{AsBytes, BuildBytes, SizePrefixed, TruncationError, U16},
+        CanonicalRecordData,
+    },
+    utils::dst::UnsizedCopy,
 };
 
 use super::TypeBitmaps;
@@ -16,7 +23,7 @@ use super::TypeBitmaps;
 //----------- NSec3 ----------------------------------------------------------
 
 /// An indication of the non-existence of a set of DNS records (version 3).
-#[derive(Clone, Debug, PartialEq, Eq, BuildBytes, ParseBytes)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, BuildBytes, ParseBytes)]
 pub struct NSec3<'a> {
     /// The algorithm used to hash names.
     pub algorithm: NSec3HashAlg,
@@ -103,14 +110,7 @@ impl BuildInMessage for NSec3<'_> {
 
 /// Parameters for computing [`NSec3`] records.
 #[derive(
-    Debug,
-    PartialEq,
-    Eq,
-    AsBytes,
-    BuildBytes,
-    ParseBytesZC,
-    SplitBytesZC,
-    UnsizedCopy,
+    Debug, AsBytes, BuildBytes, ParseBytesZC, SplitBytesZC, UnsizedCopy,
 )]
 #[repr(C)]
 pub struct NSec3Param {
@@ -149,6 +149,34 @@ impl BuildInMessage for NSec3Param {
             .ok_or(TruncationError)?
             .copy_from_slice(bytes);
         Ok(end)
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<NSec3Param> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
+//--- Equality
+
+impl PartialEq for NSec3Param {
+    fn eq(&self, other: &Self) -> bool {
+        // All elements are compared bytewise.
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for NSec3Param {}
+
+//--- Hashing
+
+impl Hash for NSec3Param {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_bytes())
     }
 }
 

@@ -10,7 +10,7 @@ use crate::resolv::resolver::Resolver;
 use core::fmt;
 use futures_util::stream::{self, Stream, StreamExt};
 use octseq::octets::Octets;
-use rand::distributions::{Distribution, Uniform};
+use rand::distr::{Distribution, Uniform};
 use std::net::{IpAddr, SocketAddr};
 use std::vec::Vec;
 use std::{io, mem, ops};
@@ -141,21 +141,18 @@ impl FoundSrvs {
     ///
     /// Reorders merged results as if they were from a single query.
     pub fn merge(&mut self, other: &Self) {
-        if self.items.is_err() {
-            let one =
-                mem::replace(&mut self.items, Ok(Vec::new())).unwrap_err();
-            self.items.as_mut().unwrap().push(one);
+        let mut items = match mem::replace(&mut self.items, Ok(Vec::new())) {
+            Ok(items) => items,
+            Err(one) => vec![one],
+        };
+
+        match other.items {
+            Ok(ref vec) => items.extend_from_slice(vec),
+            Err(ref one) => items.push(one.clone()),
         }
-        match self.items {
-            Ok(ref mut items) => {
-                match other.items {
-                    Ok(ref vec) => items.extend_from_slice(vec),
-                    Err(ref one) => items.push(one.clone()),
-                }
-                Self::reorder_items(items);
-            }
-            Err(_) => unreachable!(),
-        }
+
+        Self::reorder_items(&mut items);
+        self.items = Ok(items);
     }
 }
 
@@ -257,10 +254,11 @@ impl FoundSrvs {
 
     /// Reorders items in a priority level based on their weight
     fn reorder_by_weight(items: &mut [SrvItem], weight_sum: u32) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut weight_sum = weight_sum;
         for i in 0..items.len() {
-            let range = Uniform::new(0, weight_sum + 1);
+            #[allow(clippy::unwrap_used)]
+            let range = Uniform::new(0, weight_sum + 1).unwrap();
             let mut sum: u32 = 0;
             let pick = range.sample(&mut rng);
             for j in 0..items.len() {

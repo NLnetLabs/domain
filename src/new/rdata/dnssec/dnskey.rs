@@ -1,14 +1,22 @@
 //! The DNSKEY record data type.
 
-use core::{cmp::Ordering, fmt};
+use core::{
+    cmp::Ordering,
+    fmt,
+    hash::{Hash, Hasher},
+};
 
-use domain_macros::*;
-
-use crate::new::base::{
-    build::BuildInMessage,
-    name::NameCompressor,
-    wire::{AsBytes, TruncationError, U16},
-    CanonicalRecordData,
+use crate::{
+    new::base::{
+        build::BuildInMessage,
+        name::NameCompressor,
+        wire::{
+            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes,
+            SplitBytesZC, TruncationError, U16,
+        },
+        CanonicalRecordData,
+    },
+    utils::dst::UnsizedCopy,
 };
 
 use super::SecAlg;
@@ -16,9 +24,7 @@ use super::SecAlg;
 //----------- DNSKey ---------------------------------------------------------
 
 /// A cryptographic key for DNS security.
-#[derive(
-    Debug, PartialEq, Eq, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy,
-)]
+#[derive(Debug, AsBytes, BuildBytes, ParseBytesZC, UnsizedCopy)]
 #[repr(C)]
 pub struct DNSKey {
     /// Flags describing the usage of the key.
@@ -58,6 +64,34 @@ impl BuildInMessage for DNSKey {
             .ok_or(TruncationError)?
             .copy_from_slice(bytes);
         Ok(end)
+    }
+}
+
+//--- Cloning
+
+#[cfg(feature = "alloc")]
+impl Clone for alloc::boxed::Box<DNSKey> {
+    fn clone(&self) -> Self {
+        (*self).unsized_copy_into()
+    }
+}
+
+//--- Equality
+
+impl PartialEq for DNSKey {
+    fn eq(&self, other: &Self) -> bool {
+        // All elements are compared bytewise.
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for DNSKey {}
+
+//--- Hashing
+
+impl Hash for DNSKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_bytes())
     }
 }
 

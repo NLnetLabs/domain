@@ -27,8 +27,9 @@ use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(feature = "std")]
 use std::vec::Vec;
-use time::{Date, Month, PrimitiveDateTime, Time};
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -649,60 +650,81 @@ impl Timestamp {
     ///
     /// [RRSIG]: Rrsig
     pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
-        let mut pos = 0;
-        let mut buf = [0u8; 14];
-        scanner.scan_symbols(|symbol| {
-            if pos >= 14 {
-                return Err(S::Error::custom("illegal signature time"));
-            }
-            buf[pos] = symbol
-                .into_digit(10)
-                .map_err(|_| S::Error::custom("illegal signature time"))?
-                as u8;
-            pos += 1;
-            Ok(())
-        })?;
-        if pos <= 10 {
-            // We have an integer. We generate it into a u64 to deal
-            // with possible overflows.
-            let mut res = 0u64;
-            for ch in &buf[..pos] {
-                res = res * 10 + (u64::from(*ch));
-            }
-            if res > u64::from(u32::MAX) {
-                Err(S::Error::custom("illegal signature time"))
-            } else {
-                Ok(Self(Serial(res as u32)))
-            }
-        } else if pos == 14 {
-            let year = u32_from_buf(&buf[0..4]) as i32;
-            let month = Month::try_from(u8_from_buf(&buf[4..6]))
-                .map_err(|_| S::Error::custom("illegal signature time"))?;
-            let day = u8_from_buf(&buf[6..8]);
-            let hour = u8_from_buf(&buf[8..10]);
-            let minute = u8_from_buf(&buf[10..12]);
-            let second = u8_from_buf(&buf[12..14]);
-            Ok(Self(Serial(
-                PrimitiveDateTime::new(
-                    Date::from_calendar_date(year, month, day).map_err(
-                        |_| S::Error::custom("illegal signature time"),
-                    )?,
-                    Time::from_hms(hour, minute, second).map_err(|_| {
+        scanner.scan_ascii_str(|token| {
+            if token.len() <= 10 {
+                let time = token.parse::<u32>().map_err(|_| {
+                    S::Error::custom("illegal signature time")
+                })?;
+
+                Ok(Self(Serial(time)))
+            } else if token.len() == 14 {
+                let time = jiff::fmt::strtime::parse("%Y%m%d%H%M%S", token)
+                    .and_then(|mut time| {
+                        // The timestamp did not explicitly state a time zone, so
+                        // we have to manually mark it as UTC.
+                        time.set_offset(Some(jiff::tz::Offset::UTC));
+                        time.to_timestamp()
+                    })
+                    .map_err(|_| {
                         S::Error::custom("illegal signature time")
-                    })?,
-                )
-                .assume_utc()
-                .unix_timestamp() as u32,
-            )))
-        } else {
-            Err(S::Error::custom("illegal signature time"))
-        }
+                    })?;
+
+                Ok(Self(Serial(time.as_second() as u32)))
+            } else {
+                Err(S::Error::custom("illegal signature time"))
+            }
+        })
     }
 
     /// Returns the timestamp as a raw integer.
     #[must_use]
     pub fn into_int(self) -> u32 {
         self.0.into_int()
+    }
+
+    /// Returns a [`SytemTime`] close to a reference time.
+    ///
+    /// The returned [`SystemTime`] meets the following requirements:
+    ///
+    /// 1) The [`SystemTime`] value has a duration since `UNIX_EPOCH` that
+    ///    modulo `2**32` is equal to our [`Timestamp`] value.
+    /// 2) The time difference between the [`SystemTime`] value and the
+    ///    reference time fits in an [`i32`].
+    ///
+    /// This can be used to sort [`Timestamp`] values.
+    #[must_use]
+    #[cfg(feature = "std")]
+    pub fn to_system_time(self, reference: SystemTime) -> SystemTime {
+        // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
+        // the timestamp may be too far in the future. We may have to add
+        // n * 2**32 for some unknown value of n.
+        const POW_2_32: u64 = 0x1_0000_0000;
+        let ref_secs =
+            reference.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let k = ref_secs / POW_2_32;
+        let ref_secs_mod = ref_secs % POW_2_32;
+        let ts_secs = self.into_int() as u64;
+        let ts_secs = if ts_secs < ref_secs_mod {
+            if ref_secs_mod - ts_secs <= POW_2_32 / 2 {
+                // Close enough, use k.
+                ts_secs + k * POW_2_32
+            } else {
+                // ts_secs is really beyond ref_secs, use k+1.
+                ts_secs + (k + 1) * POW_2_32
+            }
+        } else {
+            // ts_secs >= ref_secs_mod
+            if ts_secs - ref_secs_mod < POW_2_32 / 2 {
+                // Close enough, use k.
+                ts_secs + k * POW_2_32
+            } else {
+                // ts_secs is really old than ref_secs. Try to use k-1
+                // but only if k is not zero.
+                let k = if k > 0 { k - 1 } else { k };
+                ts_secs + k * POW_2_32
+            }
+        };
+        UNIX_EPOCH + Duration::from_secs(ts_secs)
     }
 }
 
@@ -745,32 +767,16 @@ impl str::FromStr for Timestamp {
             return Err(IllegalSignatureTime(()));
         }
         if src.len() == 14 {
-            let year = u32::from_str(&src[0..4])
-                .map_err(|_| IllegalSignatureTime(()))?
-                as i32;
-            let month = Month::try_from(
-                u8::from_str(&src[4..6])
-                    .map_err(|_| IllegalSignatureTime(()))?,
-            )
-            .map_err(|_| IllegalSignatureTime(()))?;
-            let day = u8::from_str(&src[6..8])
+            let time = jiff::fmt::strtime::parse("%Y%m%d%H%M%S", src)
+                .and_then(|mut time| {
+                    // The timestamp did not explicitly state a time zone, so
+                    // we have to manually mark it as UTC.
+                    time.set_offset(Some(jiff::tz::Offset::UTC));
+                    time.to_timestamp()
+                })
                 .map_err(|_| IllegalSignatureTime(()))?;
-            let hour = u8::from_str(&src[8..10])
-                .map_err(|_| IllegalSignatureTime(()))?;
-            let minute = u8::from_str(&src[10..12])
-                .map_err(|_| IllegalSignatureTime(()))?;
-            let second = u8::from_str(&src[12..14])
-                .map_err(|_| IllegalSignatureTime(()))?;
-            Ok(Timestamp(Serial(
-                PrimitiveDateTime::new(
-                    Date::from_calendar_date(year, month, day)
-                        .map_err(|_| IllegalSignatureTime(()))?,
-                    Time::from_hms(hour, minute, second)
-                        .map_err(|_| IllegalSignatureTime(()))?,
-                )
-                .assume_utc()
-                .unix_timestamp() as u32,
-            )))
+
+            Ok(Self(Serial(time.as_second() as u32)))
         } else {
             Serial::from_str(src)
                 .map(Timestamp)
@@ -807,24 +813,6 @@ impl CanonicalOrd for Timestamp {
     fn canonical_cmp(&self, other: &Self) -> cmp::Ordering {
         self.0.canonical_cmp(&other.0)
     }
-}
-
-//------------ Helper Functions ----------------------------------------------
-
-fn u8_from_buf(buf: &[u8]) -> u8 {
-    let mut res = 0;
-    for ch in buf {
-        res = res * 10 + *ch;
-    }
-    res
-}
-
-fn u32_from_buf(buf: &[u8]) -> u32 {
-    let mut res = 0;
-    for ch in buf {
-        res = res * 10 + (u32::from(*ch));
-    }
-    res
 }
 
 //------------ Rrsig ---------------------------------------------------------
@@ -2990,5 +2978,122 @@ mod test {
         assert!(dnskey.is_zone_key());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn timestamp_to_system_time() {
+        struct Params {
+            ts: u32,
+            ref_ts: u64,
+            res: u64,
+        }
+        let tests = vec![
+            // Simple cases, ts and ref_ts mod 2**32 are within 2*31-1.
+            // First ts less than ref_ts mod 2**32.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x1_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x1_8000_0000,
+            },
+            // Then ts larger than ref_ts mod 2**32.
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_0000_0000,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x1_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_ffff_ffff,
+            },
+            // Next, cases where the difference between ts and ref_ts mod 2**32
+            // are at least 2**31+1.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_8000_0001,
+                res: 0x2_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_fffe,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x2_7fff_fffe,
+            },
+            Params {
+                ts: 0x8000_0001,
+                ref_ts: 0x1_0000_0000,
+                res: 0x0_8000_0001,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_7fff_fffe,
+                res: 0x0_ffff_ffff,
+            },
+            // Test cases where the difference is exactly 2**31.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_0000_0000,
+                res: 0x0_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x0_ffff_ffff,
+            },
+            // Special case: ERA 0. We don't want values before UNIX_EPOCH.
+            Params {
+                ts: 0x8000_0001,
+                ref_ts: 0x0_0000_0000,
+                res: 0x0_8000_0001,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x0_7fff_fffe,
+                res: 0x0_ffff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x0_0000_0000,
+                res: 0x0_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x0_7fff_ffff,
+                res: 0x0_ffff_ffff,
+            },
+        ];
+
+        for t in tests {
+            let ts = Timestamp(Serial(t.ts));
+            let ref_ts = UNIX_EPOCH + Duration::from_secs(t.ref_ts);
+            let res = ts.to_system_time(ref_ts);
+            let res = res.duration_since(UNIX_EPOCH).unwrap().as_secs();
+            assert_eq!(res, t.res);
+        }
     }
 }

@@ -211,6 +211,9 @@ impl Zonefile {
     /// This method is identical to the `next` method of the iterator
     /// implementation but has the return type transposed for easier use
     /// with the question mark operator.
+    ///
+    /// If this function returns an error, do not attempt to read any further
+    /// entries, as the scanner is in an invalid state at that point.
     pub fn next_entry(&mut self) -> Result<Option<Entry>, Error> {
         loop {
             match EntryScanner::new(self)?.scan_entry()? {
@@ -307,6 +310,9 @@ impl<'a> EntryScanner<'a> {
     }
 
     /// Scans a single entry from the zone file.
+    ///
+    /// If this function returns an error, do not attempt to read any further
+    /// entries, as the scanner is in an invalid state at that point.
     fn scan_entry(&mut self) -> Result<ScannedEntry, Error> {
         self._scan_entry()
             .map_err(|err| self.zonefile.buf.error(err))
@@ -656,6 +662,63 @@ impl Scanner for EntryScanner<'_> {
         // Done. `write` marks the end.
         self.zonefile.buf.next_item()?;
         Ok(self.zonefile.buf.split_to(write).freeze())
+    }
+
+    /// SVCB's SvcParams format can contain quoted SvcParamValues, therefore we need to concatenate
+    /// multiple tokens into a single octet sequence if they appear without whitespace, e.g.: `SVCB
+    /// 10 . key1="quoted value"` would normally parsed into the tokens `SVCB` `10` `.` `key1=` and
+    /// `quoted value`, we need the last token to be `key1=quoted value`.
+    fn scan_svcb_octets(&mut self) -> Result<Self::Octets, Self::Error> {
+        self.zonefile.buf.require_token()?;
+
+        // The result will never be longer than the encoded form, so we can
+        // trim off everything to the left already.
+        self.zonefile.buf.trim_to(self.zonefile.buf.start);
+
+        let mut write;
+        // Remember if we are inside a quoted value. If so the opening quote
+        // has already been skipped over, it is not part of the value.
+        let is_quoted = self.zonefile.buf.cat == ItemCat::Quoted;
+
+        // Skip over symbols that don’t need converting at the beginning.
+        while self.zonefile.buf.next_ascii_symbol()?.is_some() {}
+
+        if self.zonefile.buf.cat == ItemCat::None {
+            // The item has ended.  Remove the double quote.
+            let write = if is_quoted {
+                self.zonefile.buf.start - 1
+            } else {
+                self.zonefile.buf.start
+            };
+            self.zonefile.buf.next_item()?;
+            return Ok(self.zonefile.buf.split_to(write).freeze());
+        }
+
+        // If we aren’t done yet, we have escaped characters to replace.
+        write = self.zonefile.buf.start;
+
+        while let Some(sym) = self.zonefile.buf.next_symbol()? {
+            self.zonefile.buf.buf[write] = sym.into_octet()?;
+            write += 1;
+        }
+
+        // Done. `write` marks the end.
+        self.zonefile.buf.next_item()?;
+
+        // If the next token exists (i.e. is not None or LineFeed) and
+        // directly follows this token without whitespace in between, it is
+        // part of the current token/octet-string and we read further
+        if !self.has_space() && self.zonefile.buf.cat == ItemCat::Quoted {
+            while let Some(sym) = self.zonefile.buf.next_symbol()? {
+                self.zonefile.buf.buf[write] = sym.into_octet()?;
+                write += 1;
+            }
+            // Done. `write` marks the end.
+            self.zonefile.buf.next_item()?;
+        }
+
+        let x = self.zonefile.buf.split_to(write).freeze();
+        Ok(x)
     }
 
     fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
@@ -1735,7 +1798,7 @@ mod test {
 
     impl From<&str> for TestCase {
         fn from(yaml: &str) -> Self {
-            serde_yaml::from_str(yaml).unwrap()
+            yaml_serde::from_str(yaml).unwrap()
         }
     }
 

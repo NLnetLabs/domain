@@ -85,7 +85,7 @@ impl<Diff> XfrData<Diff> {
 //------------ XfrDataProvider ------------------------------------------------
 
 /// A provider of data needed for responding to XFR requests.
-pub trait XfrDataProvider<RequestMeta = ()> {
+pub trait XfrDataProvider<RequestMeta> {
     type Diff: ZoneDiff + Send + Sync;
 
     /// Request data needed to respond to an XFR request.

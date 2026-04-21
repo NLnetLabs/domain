@@ -166,36 +166,40 @@ pub trait CanonicalName: BuildBytes + Ord {
     }
 }
 
-impl<N: ?Sized + CanonicalName> CanonicalName for &N {
-    fn build_lowercased_bytes<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        (**self).build_lowercased_bytes(bytes)
-    }
+/// Implement [`CanonicalName`] for a [`Deref`]-based generic container.
+macro_rules! impl_canonical_name_for_deref {
+    {$(
+        $(#[$attr:meta])*
+        impl[$($args:tt)*] CanonicalName for $subject:ty;
+    )*} => {$(
+        $(#[$attr])*
+        impl<$($args)*> CanonicalName for $subject {
+            fn build_lowercased_bytes<'b>(
+                &self,
+                bytes: &'b mut [u8],
+            ) -> Result<&'b mut [u8], TruncationError> {
+                (**self).build_lowercased_bytes(bytes)
+            }
 
-    fn cmp_composed(&self, other: &Self) -> Ordering {
-        (**self).cmp_composed(*other)
-    }
+            fn cmp_composed(&self, other: &Self) -> Ordering {
+                (**self).cmp_composed(&**other)
+            }
 
-    fn cmp_lowercase_composed(&self, other: &Self) -> Ordering {
-        (**self).cmp_lowercase_composed(*other)
-    }
+            fn cmp_lowercase_composed(&self, other: &Self) -> Ordering {
+                (**self).cmp_lowercase_composed(&**other)
+            }
+        }
+    )*};
 }
 
-impl<N: ?Sized + CanonicalName> CanonicalName for &mut N {
-    fn build_lowercased_bytes<'b>(
-        &self,
-        bytes: &'b mut [u8],
-    ) -> Result<&'b mut [u8], TruncationError> {
-        (**self).build_lowercased_bytes(bytes)
-    }
+impl_canonical_name_for_deref! {
+    impl[N: ?Sized + CanonicalName] CanonicalName for &N;
+    impl[N: ?Sized + CanonicalName] CanonicalName for &mut N;
 
-    fn cmp_composed(&self, other: &Self) -> Ordering {
-        (**self).cmp_composed(*other)
-    }
-
-    fn cmp_lowercase_composed(&self, other: &Self) -> Ordering {
-        (**self).cmp_lowercase_composed(*other)
-    }
+    #[cfg(feature = "alloc")]
+    impl[N: ?Sized + CanonicalName] CanonicalName for alloc::boxed::Box<N>;
+    #[cfg(feature = "alloc")]
+    impl[N: ?Sized + CanonicalName] CanonicalName for alloc::rc::Rc<N>;
+    #[cfg(feature = "alloc")]
+    impl[N: ?Sized + CanonicalName] CanonicalName for alloc::sync::Arc<N>;
 }

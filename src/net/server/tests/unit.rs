@@ -329,6 +329,7 @@ impl futures_util::stream::Stream for MySingle {
 
 /// A mock service that returns MySingle whenever it receives a message.
 /// Just to show MySingle in action.
+#[derive(Clone)]
 struct MyService;
 
 impl MyService {
@@ -337,12 +338,15 @@ impl MyService {
     }
 }
 
-impl Service<Vec<u8>> for MyService {
+impl Service<Vec<u8>, ()> for MyService
+where
+    Self: Clone + Send + Sync + 'static,
+{
     type Target = Vec<u8>;
     type Stream = MySingle;
     type Future = Ready<Self::Stream>;
 
-    fn call(&self, request: Request<Vec<u8>>) -> Self::Future {
+    fn call(&self, request: Request<Vec<u8>, ()>) -> Self::Future {
         trace!("Processing request id {}", request.message().header().id());
         ready(MySingle::new())
     }
