@@ -362,6 +362,7 @@ mod tests {
     use bytes::Bytes;
     use core::str::FromStr;
     use pretty_assertions::assert_eq;
+    use rand::RngExt;
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::base::Serial;
@@ -375,7 +376,6 @@ mod tests {
 
     use super::*;
     use crate::zonetree::types::StoredRecordData;
-    use rand::Rng;
 
     const TEST_INCEPTION: u32 = 0;
     const TEST_EXPIRATION: u32 = 100;
@@ -1235,7 +1235,7 @@ mod tests {
 
     impl Default for TestKey {
         fn default() -> Self {
-            Self(rand::thread_rng().gen())
+            Self(rand::rng().random())
         }
     }
 }

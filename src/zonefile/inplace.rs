@@ -1798,7 +1798,7 @@ mod test {
 
     impl From<&str> for TestCase {
         fn from(yaml: &str) -> Self {
-            serde_yaml::from_str(yaml).unwrap()
+            yaml_serde::from_str(yaml).unwrap()
         }
     }
 

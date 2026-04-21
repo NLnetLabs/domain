@@ -1,23 +1,33 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [".", "./macros"]
+
+[workspace.package]
+version = "0.11.1"
+edition = "2021"
+authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
+homepage = "https://nlnetlabs.nl/projects/domain/"
+repository = "https://github.com/nlnetlabs/domain/"
+keywords = ["DNS", "domain"]
+license = "BSD-3-Clause"
+
+# The MSRV is at least 4 versions behind stable (about half a year).
+rust-version = "1.87.0"
 
 [package]
 name = "domain"
-version = "0.11.1"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+license.workspace = true
 
-# The MSRV is at least 4 versions behind stable (about half a year).
-rust-version = "1.85.0"
-
-edition = "2021"
-authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
 description = "A DNS library for Rust."
 documentation = "https://docs.rs/domain"
-homepage = "https://nlnetlabs.nl/projects/domain/"
-repository = "https://github.com/nlnetlabs/domain/"
 readme = "README.md"
-keywords = ["DNS", "domain"]
-license = "BSD-3-Clause"
 
 [dependencies]
 domain-macros  = { path = "./macros", version = "=0.11.1" }
@@ -25,14 +35,14 @@ domain-macros  = { path = "./macros", version = "=0.11.1" }
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 bumpalo        = { version = "3.12", optional = true }
 constant_time_eq = { version = "0.4.2", optional = true }
-octseq         = { version = "0.5.2", default-features = false }
-rand           = { version = "0.8", optional = true }
+octseq         = { version = "0.6.0", default-features = false }
+rand           = { version = "0.10.1", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
 bytes          = { version = "1.2", optional = true, default-features = false }
 chrono         = { version = "0.4.35", optional = true, default-features = false } # 0.4.35 deprecates Duration::seconds()
 futures-util   = { version = "0.3", optional = true }
-hashbrown      = { version = "0.16.0", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
-heapless       = { version = "0.8", optional = true }
+hashbrown      = { version = "0.17.0", optional = true, default-features = false, features = ["allocator-api2", "inline-more"] } # 0.14.2 introduces explicit hashing
+heapless       = { version = "0.9.2", optional = true }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
 log            = { version = "0.4.22", optional = true }
 parking_lot    = { version = "0.12", optional = true }
@@ -101,26 +111,26 @@ unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std
 arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
-itertools         = "0.13.0"
+itertools         = "0.14.0"
 lazy_static       = { version = "1.4.0" }
 pretty_assertions = "1.4.1"
 rstest             = "0.26.1"
 rustls-pemfile    = { version = "2.1.2" }
 serde_test        = "1.0.130"
 serde_json        = "1.0.113"
-serde_yaml        = "0.9"
-socket2           = { version = "0.5.5" }
+yaml_serde        = "0.10.3"
+socket2           = { version = "0.6.3" }
 tokio             = { version = "1.37", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
 tokio-rustls      = { version = "0.26", default-features = false, features = [ "ring", "logging", "tls12" ] }
 tokio-test        = "0.4"
-tokio-tfo         = { version = "0.2.0" }
-webpki-roots      = { version = "0.26" }
+tokio-tfo         = { version = "0.4.3" }
+webpki-roots      = { version = "1.0.7" }
 
 # For the "mysql-zone" example
 #sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
 
 # For testing in integration tests:
-mock_instant = { version = "0.5.1" }
+mock_instant = { version = "0.6.0" }
 
 [package.metadata.docs.rs]
 all-features = true

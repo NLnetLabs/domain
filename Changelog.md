@@ -5,8 +5,9 @@
 Breaking changes
 
 * Add new `LimitExceeded` variant to `MessageBuilder`'s `PushError`. ([#349])
-* `StubResolver` now keeps its state in an `Arc` and can be cloned cheaply.
-  ([#393])
+* Changed the `Resolver` and `SearchNames` traits of the stub resolver to
+  use lifetimes for their some associated types. This makes it easier to
+  keep the stub resolver behind an arc or other smart pointer. ([#596])
 
 New
 
@@ -18,11 +19,14 @@ New
 * Add support for the `CAA` record type. ([#434] by [@weilence])
 * Added `FreezeBuilder` to the message compressors. ([#601] by
   [@rossmacarthur])
+* Add support for the `RP` record type. ([#620])
 
 Improvements
 
 * Exclude `moka` dependency from the `resolv` feature, reducing the number of
   dependencies and compile time significantly. ([#575] by [@WhyNotHugo])
+* Made various methods in `RelativeName` into const fns. ([#576] by
+  [@WhyNotHugo])
 
 Bug fixes
 
@@ -36,6 +40,8 @@ Unstable features
 
 * `unstable-crypto-sign`
   * Add support for RSA/SHA-512 to openssl signer. ([#550])
+  * generate now takes &GenerateParams. This breaks existing uses of
+    generate ([#608])
 * `unstable-server-transport`
   * Return an error response when a `Service` returns a `ServiceError`.
     ([#390])
@@ -62,10 +68,20 @@ Unstable features
      * Add more actions
      * Allow loading public keys only. ([#594])
      * Add support for decoupled keys. ([#594])
+   * RecordsIter::new has been replaced with RecordsIter::new_from_owned.
+     There is a new RecordsIter::new_from_refs that takes a &[&Record]].
+     This breaks existing uses of RecordsIter and related types. ([#614])
 * `unstable-xfr`
   * Various fixes and improvements. ([#507])
 
 Other changes
+
+* Dependency upgrades:
+  * [hashbrown] to 0.17, ([#633])
+  * [heapless] to 0.9, ([#634])
+  * [octseq] to 0.6, ([#634])
+  * [rand] to 0.10. ([#631])
+
 
 [#349]: https://github.com/NLnetLabs/domain/pull/349
 [#390]: https://github.com/NLnetLabs/domain/pull/390
@@ -79,15 +95,26 @@ Other changes
 [#551]: https://github.com/NLnetLabs/domain/pull/551
 [#569]: https://github.com/NLnetLabs/domain/pull/569
 [#570]: https://github.com/NLnetLabs/domain/pull/570
+[#576]: https://github.com/NLnetLabs/domain/pull/576
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [#594]: https://github.com/NLnetLabs/domain/pull/594
+[#596]: https://github.com/NLnetLabs/domain/pull/596
 [#599]: https://github.com/NLnetLabs/domain/pull/599
 [#601]: https://github.com/NLnetLabs/domain/pull/601
 [#608]: https://github.com/NLnetLabs/domain/pull/608
+[#614]: https://github.com/NLnetLabs/domain/pull/614
+[#620]: https://github.com/NLnetLabs/domain/pull/620
+[#631]: https://github.com/NLnetLabs/domain/pull/631
+[#633]: https://github.com/NLnetLabs/domain/pull/633
+[#634]: https://github.com/NLnetLabs/domain/pull/634
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 [@rossmacarthur]: https://github.com/rossmacarthur
+[hashbrown]: https://crates.io/crates/hashbrown
+[heapless]: https://crates.io/crates/heapless
+[octseq]: https://crates.io/crates/octseq
+[rand]: https://crates.io/crates/rand
 
 
 ## 0.11.1

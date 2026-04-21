@@ -1,18 +1,16 @@
 [package]
 name = "domain-macros"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+license.workspace = true
 
-# Copied from 'domain'.
-version = "0.11.1"
-rust-version = "1.79.0"
-edition = "2021"
-
-authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
 description = "Procedural macros for the `domain` crate."
 documentation = "https://docs.rs/domain-macros"
-homepage = "https://github.com/nlnetlabs/domain/"
-repository = "https://github.com/nlnetlabs/domain/"
-keywords = ["DNS", "domain"]
-license = "BSD-3-Clause"
 
 [lib]
 proc-macro = true
