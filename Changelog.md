@@ -4,27 +4,30 @@
 
 Breaking changes
 
-* Add new `LimitExceeded` variant to `MessageBuilder`'s `PushError`. ([#349])
+* Added new `LimitExceeded` variant to `MessageBuilder`'s `PushError`.
+  ([#349])
 * Changed the `Resolver` and `SearchNames` traits of the stub resolver to
-  use lifetimes for their some associated types. This makes it easier to
-  keep the stub resolver behind an arc or other smart pointer. ([#596])
+  use lifetimes for associated types. This makes it easier to keep the stub
+  resolver behind an arc or other smart pointer. ([#596])
 
 New
 
-* Add `rdata::dnssec::Timestamp::to_system_time` to help sorting timestamps.
- ([#548])
+* Added `rdata::dnssec::Timestamp::to_system_time` to help sorting timestamps.
+  ([#548])
 * Added support for the `TLSA`, `OPENPGPKEY`, `SSHFP`, and `IPSECKEY`
   record types and added presentation format support for the `SVCB`/`HTTPS`
   record types. ([#569])
-* Add support for the `CAA` record type. ([#434] by [@weilence])
+* Added support for the `CAA` record type. ([#434] by [@weilence])
 * Added `FreezeBuilder` to the message compressors. ([#601] by
   [@rossmacarthur])
-* Add support for the `RP` record type. ([#620])
+* Added support for the `RP` record type. ([#620])
+* Added a position counter to the zonefile parser, available via
+  `Zonefile::current_offset`. ([#642])
 
 Improvements
 
-* Exclude `moka` dependency from the `resolv` feature, reducing the number of
-  dependencies and compile time significantly. ([#575] by [@WhyNotHugo])
+* Excluded `moka` dependency from the `resolv` feature, reducing the number
+  of dependencies and compile time significantly. ([#575] by [@WhyNotHugo])
 * Made various methods in `RelativeName` into const fns. ([#576] by
   [@WhyNotHugo])
 
@@ -32,20 +35,20 @@ Bug fixes
 
 * When parsing a Bind-style public key file, allow an optional TTL field.
   ([#593])
-* XfrMiddlewareService should always support at least one concurrent XFR.
+* `XfrMiddlewareService` should always support at least one concurrent XFR.
   ([#599])
-* Fix generating an ED448 keypair ([#608])
+* Fixed generating an ED448 keypair. ([#608])
 
 Unstable features
 
 * `unstable-crypto-sign`
-  * Add support for RSA/SHA-512 to openssl signer. ([#550])
-  * generate now takes &GenerateParams. This breaks existing uses of
-    generate ([#608])
+  * Added support for RSA/SHA-512 to openssl signer. ([#550])
+  * `generate` now takes `&GenerateParams`. This breaks existing uses of
+    `generate` ([#608])
 * `unstable-server-transport`
   * Return an error response when a `Service` returns a `ServiceError`.
     ([#390])
-  * Implement `std::error::Error` for `ServiceError`. ([#570] by
+  * Implemented `std::error::Error` for `ServiceError`. ([#570] by
     [@rossmacarthur])
   * Be more lenient when timing out connections while they are in a
     transaction. ([#399])
@@ -62,15 +65,15 @@ Unstable features
        key tags and accidental algorithm rolls.
      * Store whether a key is considered available for a key roll. Rolls with
        new keys that are not available are rejected.
-     * Add two alternative key rolls for KSK and ZSK key rolls.
-     * Add an algorithm roll.
-     * Add more operations on UnixTime.
-     * Add more actions
+     * Added two alternative key rolls for KSK and ZSK key rolls.
+     * Added an algorithm roll.
+     * Added more operations on UnixTime.
+     * Added more actions
      * Allow loading public keys only. ([#594])
-     * Add support for decoupled keys. ([#594])
-   * RecordsIter::new has been replaced with RecordsIter::new_from_owned.
-     There is a new RecordsIter::new_from_refs that takes a &[&Record]].
-     This breaks existing uses of RecordsIter and related types. ([#614])
+     * Added support for decoupled keys. ([#594])
+   * `RecordsIter::new` has been replaced with `RecordsIter::new_from_owned`.
+     There is a new `RecordsIter::new_from_refs` that takes a `&[&Record]]`.
+     This breaks existing uses of `RecordsIter? and related types. ([#614])
 * `unstable-xfr`
   * Various fixes and improvements. ([#507])
 
@@ -107,6 +110,7 @@ Other changes
 [#631]: https://github.com/NLnetLabs/domain/pull/631
 [#633]: https://github.com/NLnetLabs/domain/pull/633
 [#634]: https://github.com/NLnetLabs/domain/pull/634
+[#642]: https://github.com/NLnetLabs/domain/pull/642
 [@rossmacarthur]: https://github.com/rossmacarthur
 [@weilence]: https://github.com/weilence
 [@WhyNotHugo]: https://github.com/WhyNotHugo
