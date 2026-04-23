@@ -1,6 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.12.0
+
+Released 2026-04-23.
 
 Breaking changes
 
@@ -98,6 +100,7 @@ Other changes
 [#551]: https://github.com/NLnetLabs/domain/pull/551
 [#569]: https://github.com/NLnetLabs/domain/pull/569
 [#570]: https://github.com/NLnetLabs/domain/pull/570
+[#575]: https://github.com/NLnetLabs/domain/pull/575
 [#576]: https://github.com/NLnetLabs/domain/pull/576
 [#593]: https://github.com/NLnetLabs/domain/pull/593
 [#594]: https://github.com/NLnetLabs/domain/pull/594
