@@ -802,9 +802,7 @@ pub enum LabelParseError {
     InvalidEscape,
 }
 
-// TODO(1.81.0): Use 'core::error::Error' instead.
-#[cfg(feature = "std")]
-impl std::error::Error for LabelParseError {}
+impl core::error::Error for LabelParseError {}
 
 impl fmt::Display for LabelParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

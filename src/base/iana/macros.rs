@@ -520,8 +520,7 @@ macro_rules! from_str_error {
         #[derive(Clone, Debug)]
         pub struct FromStrError(());
 
-        #[cfg(feature = "std")]
-        impl std::error::Error for FromStrError {
+        impl core::error::Error for FromStrError {
             fn description(&self) -> &str {
                 $description
             }

@@ -25,6 +25,7 @@ use crate::base::charstr::{CharStr, CharStrBuilder};
 use crate::base::name::{Name, ToName};
 use crate::base::wire::{Compose, Composer};
 use core::convert::{TryFrom, TryInto};
+use core::error;
 use core::iter::Peekable;
 use core::marker::PhantomData;
 use core::{fmt, str};
@@ -33,8 +34,6 @@ use octseq::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
     Truncate,
 };
-#[cfg(feature = "std")]
-use std::error;
 
 use super::Ttl;
 
@@ -286,11 +285,7 @@ macro_rules! declare_error_trait {
     }
 }
 
-#[cfg(feature = "std")]
 declare_error_trait!(ScannerError: Sized + error::Error);
-
-#[cfg(not(feature = "std"))]
-declare_error_trait!(ScannerError: Sized + fmt::Debug + fmt::Display);
 
 #[cfg(feature = "std")]
 impl ScannerError for std::io::Error {
@@ -1083,8 +1078,7 @@ impl fmt::Display for SymbolCharsError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for SymbolCharsError {}
+impl core::error::Error for SymbolCharsError {}
 
 //------------ SymbolOctetsError ---------------------------------------------
 
@@ -1125,8 +1119,7 @@ impl fmt::Display for SymbolOctetsError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for SymbolOctetsError {}
+impl core::error::Error for SymbolOctetsError {}
 
 //------------ BadSymbol -----------------------------------------------------
 
@@ -1174,8 +1167,7 @@ impl fmt::Display for BadSymbol {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for BadSymbol {}
+impl core::error::Error for BadSymbol {}
 
 #[cfg(feature = "std")]
 impl From<BadSymbol> for std::io::Error {
@@ -1220,8 +1212,7 @@ impl fmt::Display for StrError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for StrError {}
+impl core::error::Error for StrError {}
 
 //============ Testing =======================================================
 

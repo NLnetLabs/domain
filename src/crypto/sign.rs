@@ -923,7 +923,7 @@ impl fmt::Display for FromBytesError {
 
 //--- Error
 
-impl std::error::Error for FromBytesError {}
+impl core::error::Error for FromBytesError {}
 
 //----------- GenerateError --------------------------------------------------
 
@@ -978,7 +978,7 @@ impl fmt::Display for GenerateError {
 
 //--- Error
 
-impl std::error::Error for GenerateError {}
+impl core::error::Error for GenerateError {}
 
 //----------- SignError ------------------------------------------------------
 
@@ -1050,7 +1050,7 @@ impl fmt::Display for SignError {
     }
 }
 
-impl std::error::Error for SignError {}
+impl core::error::Error for SignError {}
 
 //----------- BindFormatError ------------------------------------------------
 
@@ -1081,7 +1081,7 @@ impl fmt::Display for BindFormatError {
 
 //--- Error
 
-impl std::error::Error for BindFormatError {}
+impl core::error::Error for BindFormatError {}
 
 //============ Tests =========================================================
 

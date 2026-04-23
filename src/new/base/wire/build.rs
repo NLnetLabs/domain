@@ -250,8 +250,7 @@ pub use domain_macros::AsBytes;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TruncationError;
 
-#[cfg(feature = "std")]
-impl std::error::Error for TruncationError {}
+impl core::error::Error for TruncationError {}
 
 //--- Formatting
 

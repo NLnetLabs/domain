@@ -201,8 +201,7 @@ impl fmt::Display for IllegalSignatureTime {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for IllegalSignatureTime {}
+impl core::error::Error for IllegalSignatureTime {}
 
 //============ Testing =======================================================
 

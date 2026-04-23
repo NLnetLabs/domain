@@ -859,9 +859,7 @@ impl From<LabelParseError> for NameParseError {
     }
 }
 
-// TODO(1.81.0): Use 'core::error::Error' instead.
-#[cfg(feature = "std")]
-impl std::error::Error for NameParseError {}
+impl core::error::Error for NameParseError {}
 
 impl fmt::Display for NameParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

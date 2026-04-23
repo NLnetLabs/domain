@@ -911,8 +911,7 @@ impl fmt::Display for InvalidRcode {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for InvalidRcode {}
+impl core::error::Error for InvalidRcode {}
 
 //============ Tests =========================================================
 

@@ -1891,8 +1891,7 @@ impl<K> fmt::Display for ServerError<K> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<K> std::error::Error for ServerError<K> {}
+impl<K> core::error::Error for ServerError<K> {}
 
 //------------ NewKeyError ---------------------------------------------------
 
@@ -1918,8 +1917,7 @@ impl fmt::Display for NewKeyError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for NewKeyError {}
+impl core::error::Error for NewKeyError {}
 
 //------------ GenerateKeyError ----------------------------------------------
 
@@ -1966,8 +1964,7 @@ impl fmt::Display for GenerateKeyError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for GenerateKeyError {}
+impl core::error::Error for GenerateKeyError {}
 
 //------------ AlgorithmError ------------------------------------------------
 
@@ -1983,8 +1980,7 @@ impl fmt::Display for AlgorithmError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for AlgorithmError {}
+impl core::error::Error for AlgorithmError {}
 
 //------------ ValidationError -----------------------------------------------
 
@@ -2044,8 +2040,7 @@ impl fmt::Display for ValidationError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ValidationError {}
+impl core::error::Error for ValidationError {}
 
 //------------ TsigError -----------------------------------------------------
 

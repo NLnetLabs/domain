@@ -468,8 +468,7 @@ impl fmt::Display for DecodeError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for DecodeError {}
+impl core::error::Error for DecodeError {}
 
 //============ Constants =====================================================
 

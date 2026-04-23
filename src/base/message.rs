@@ -1306,8 +1306,7 @@ impl fmt::Display for ShortMessage {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ShortMessage {}
+impl core::error::Error for ShortMessage {}
 
 //------------ CopyRecordsError ----------------------------------------------
 
@@ -1346,8 +1345,7 @@ impl fmt::Display for CopyRecordsError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for CopyRecordsError {}
+impl core::error::Error for CopyRecordsError {}
 
 //============ Testing =======================================================
 

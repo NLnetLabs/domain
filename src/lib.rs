@@ -178,7 +178,7 @@
 //! of unstable features. These will follow proper Semver practice but may
 //! change significantly in releases with breaking changes.
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![allow(renamed_and_removed_lints)]
 #![allow(clippy::unknown_clippy_lints)]
 #![allow(clippy::uninlined_format_args)]
@@ -186,12 +186,9 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]
-extern crate alloc;
-
-#[cfg(feature = "std")]
 #[allow(unused_imports)] // Import macros even if unused.
 #[macro_use]
-extern crate std;
+extern crate alloc;
 
 // The 'domain-macros' crate introduces 'derive' macros which can be used by
 // users of the 'domain' crate, but also by the 'domain' crate itself.  Within

@@ -808,8 +808,7 @@ impl fmt::Display for LabelTypeError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for LabelTypeError {}
+impl core::error::Error for LabelTypeError {}
 
 //------------ LongLabelError ------------------------------------------------
 
@@ -825,8 +824,7 @@ impl fmt::Display for LongLabelError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for LongLabelError {}
+impl core::error::Error for LongLabelError {}
 
 //------------ SplitLabelError -----------------------------------------------
 
@@ -879,8 +877,7 @@ impl fmt::Display for SplitLabelError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for SplitLabelError {}
+impl core::error::Error for SplitLabelError {}
 
 //============ Testing =======================================================
 

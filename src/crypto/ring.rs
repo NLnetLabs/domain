@@ -57,7 +57,7 @@ impl fmt::Display for FromBytesError {
 
 //--- Error
 
-impl std::error::Error for FromBytesError {}
+impl core::error::Error for FromBytesError {}
 
 //----------- GenerateError --------------------------------------------------
 
@@ -94,7 +94,7 @@ impl fmt::Display for GenerateError {
 
 //--- Error
 
-impl std::error::Error for GenerateError {}
+impl core::error::Error for GenerateError {}
 
 //----------- DigestBuilder --------------------------------------------------
 

@@ -406,7 +406,7 @@ impl fmt::Display for SrvError {
     }
 }
 
-impl std::error::Error for SrvError {}
+impl core::error::Error for SrvError {}
 
 impl From<io::Error> for SrvError {
     fn from(err: io::Error) -> SrvError {

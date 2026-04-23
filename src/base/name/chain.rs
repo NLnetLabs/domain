@@ -373,8 +373,7 @@ impl fmt::Display for LongChainError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for LongChainError {}
+impl core::error::Error for LongChainError {}
 
 //============ Testing =======================================================
 

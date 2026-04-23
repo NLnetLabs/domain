@@ -48,8 +48,8 @@ const _: () = {
     );
 };
 
+use core::error;
 use core::fmt;
-use std::error;
 use std::vec::Vec;
 
 use crate::rdata::Dnskey;

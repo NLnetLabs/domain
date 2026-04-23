@@ -1112,8 +1112,7 @@ impl fmt::Display for CharStrError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for CharStrError {}
+impl core::error::Error for CharStrError {}
 
 //------------ FromStrError --------------------------------------------------
 
@@ -1152,8 +1151,7 @@ impl fmt::Display for FromStrError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for FromStrError {}
+impl core::error::Error for FromStrError {}
 
 //------------ PresentationError ---------------------------------------------
 
@@ -1208,8 +1206,7 @@ impl fmt::Display for PresentationError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for PresentationError {}
+impl core::error::Error for PresentationError {}
 
 //============ Testing =======================================================
 

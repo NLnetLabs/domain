@@ -637,8 +637,7 @@ impl fmt::Display for UncertainDnameError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for UncertainDnameError {}
+impl core::error::Error for UncertainDnameError {}
 
 //============ Testing =======================================================
 

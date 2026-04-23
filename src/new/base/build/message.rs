@@ -309,8 +309,7 @@ pub enum MessageBuildError {
     Truncated(TruncationError),
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for MessageBuildError {}
+impl core::error::Error for MessageBuildError {}
 
 impl From<TruncationError> for MessageBuildError {
     fn from(value: TruncationError) -> Self {
