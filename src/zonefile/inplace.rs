@@ -130,6 +130,13 @@ impl Zonefile {
         std::io::copy(read, &mut buf)?;
         Ok(buf.into_inner())
     }
+
+    /// Get the current offset into the zonefile
+    ///
+    /// In other words, return how many bytes have been read so far.
+    pub fn current_offset(&self) -> usize {
+        self.buf.current_offset
+    }
 }
 
 impl Default for Zonefile {
@@ -1092,6 +1099,9 @@ struct SourceBuf {
     /// manipulations.
     buf: BytesMut,
 
+    /// Total number of bytes read from this buffer
+    current_offset: usize,
+
     /// Where in `buf` is the next symbol to read.
     start: usize,
 
@@ -1122,6 +1132,7 @@ impl SourceBuf {
         buf.put_u8(0);
         SourceBuf {
             buf,
+            current_offset: 0,
             start: 1,
             cat: ItemCat::None,
             has_space: false,
@@ -1505,6 +1516,7 @@ impl SourceBuf {
     fn split_to(&mut self, at: usize) -> BytesMut {
         assert!(at <= self.start);
         let res = self.buf.split_to(at);
+        self.current_offset += at;
         self.start -= at;
         self.line_start -= at as isize;
         res
@@ -1518,6 +1530,7 @@ impl SourceBuf {
     fn trim_to(&mut self, at: usize) {
         assert!(at <= self.start);
         self.buf.advance(at);
+        self.current_offset += at;
         self.start -= at;
         self.line_start -= at as isize;
     }
