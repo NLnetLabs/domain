@@ -19,6 +19,7 @@ use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use octseq::str::Str;
 
+use crate::base::Ttl;
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Chain, Name, RelativeName, ToName};
@@ -27,7 +28,6 @@ use crate::base::scan::{
     BadSymbol, ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
     Symbol, SymbolOctetsError,
 };
-use crate::base::Ttl;
 use crate::rdata::ZoneRecordData;
 
 //------------ Type Aliases --------------------------------------------------
@@ -177,7 +177,7 @@ unsafe impl BufMut for Zonefile {
     }
 
     unsafe fn advance_mut(&mut self, cnt: usize) {
-        self.buf.buf.advance_mut(cnt);
+        unsafe { self.buf.buf.advance_mut(cnt) };
     }
 
     fn chunk_mut(&mut self) -> &mut UninitSlice {
@@ -342,7 +342,7 @@ impl<'a> EntryScanner<'a> {
                         match self.zonefile.last_owner.as_ref() {
                             Some(owner) => owner.clone(),
                             None => {
-                                return Err(EntryError::missing_last_owner())
+                                return Err(EntryError::missing_last_owner());
                             }
                         },
                         false,
@@ -1188,11 +1188,7 @@ impl SourceBuf {
                         Ok(None) | Err(_) => return None,
                     };
 
-                if sym.is_word_char() {
-                    Some(sym)
-                } else {
-                    None
-                }
+                if sym.is_word_char() { Some(sym) } else { None }
             }
             ItemCat::Quoted => {
                 let sym =

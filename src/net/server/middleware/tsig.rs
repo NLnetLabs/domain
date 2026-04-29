@@ -31,7 +31,7 @@
 //!   Time Signed value."_. This is not implemented.
 
 use core::convert::Infallible;
-use core::future::{ready, Ready};
+use core::future::{Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
@@ -53,8 +53,8 @@ use crate::rdata::tsig::Time48;
 use crate::tsig::{self, KeyStore, ServerSequence, ServerTransaction};
 
 use super::stream::{MiddlewareStream, PostprocessingStream};
-use futures_util::stream::{once, Once};
 use futures_util::Stream;
+use futures_util::stream::{Once, once};
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
@@ -245,7 +245,7 @@ where
                 signer.answer(response, Time48::now())
             }
 
-            Some(TsigSigner::Sequence(ref mut signer)) => {
+            Some(TsigSigner::Sequence(signer)) => {
                 // Use the multi-response signer to sign the response.
                 trace!(
                     "Signing response stream with TSIG key '{}'",
@@ -325,12 +325,16 @@ where
                     Time48::now(),
                 ) {
                     Ok(None) => {
-                        error!("Unable to create signer for truncated TSIG response: internal error: request is not signed but was expected to be");
+                        error!(
+                            "Unable to create signer for truncated TSIG response: internal error: request is not signed but was expected to be"
+                        );
                         Err(ServiceError::InternalError)
                     }
 
                     Err(err) => {
-                        error!("Unable to create signer for truncated TSIG response: {err}");
+                        error!(
+                            "Unable to create signer for truncated TSIG response: {err}"
+                        );
                         Err(ServiceError::InternalError)
                     }
 
@@ -338,7 +342,9 @@ where
                         if let Err(err) =
                             signer.answer(&mut additional, Time48::now())
                         {
-                            error!("Unable to sign truncated TSIG response: {err}");
+                            error!(
+                                "Unable to sign truncated TSIG response: {err}"
+                            );
                             Err(ServiceError::InternalError)
                         } else {
                             Ok(additional)

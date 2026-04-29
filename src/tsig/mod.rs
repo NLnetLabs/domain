@@ -319,14 +319,12 @@ impl Key {
             + 2; // Other Len
                  //+ 0; // Other Data (assume a successful response)
 
-        let rr_len = self.name().compose_len()
+        self.name().compose_len()
             + 2 // TYPE
             + 2 // CLASS
             + 4 // TTL
             + 2 // RDLENGTH
-            + rdata_len;
-
-        rr_len
+            + rdata_len
     }
 
     /// Checks whether the key in the record is this key.

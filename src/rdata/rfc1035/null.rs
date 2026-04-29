@@ -90,7 +90,7 @@ impl Null<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(data: &[u8]) -> &Self {
         // SAFETY: Null has repr(transparent)
-        mem::transmute(data)
+        unsafe { mem::transmute(data) }
     }
 
     /// Checks that a slice can be used for NULL record data.

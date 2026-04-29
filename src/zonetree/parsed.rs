@@ -399,7 +399,7 @@ impl Owners<Normal> {
             // Now see if A/AAAA records exists for the name in
             // this zone.
             for (_rtype, rrset) in
-                normal.records.iter().filter(|(&rtype, _)| rtype.is_glue())
+                normal.records.iter().filter(|(rtype, _)| rtype.is_glue())
             {
                 for rdata in rrset.data() {
                     let glue_record = StoredRecord::new(

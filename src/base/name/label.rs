@@ -6,7 +6,7 @@
 use super::super::scan::BadSymbol;
 use super::super::wire::{FormError, ParseError};
 use super::builder::{
-    parse_escape, LabelFromStrError, LabelFromStrErrorEnum,
+    LabelFromStrError, LabelFromStrErrorEnum, parse_escape,
 };
 use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, iter, mem, ops, slice};
@@ -53,7 +53,7 @@ impl Label {
     /// The `slice` must be at most 63 octets long.
     pub(super) const unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Label has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Creates a mutable label from the underlying slice without checking.
@@ -65,7 +65,7 @@ impl Label {
         slice: &mut [u8],
     ) -> &mut Self {
         // SAFETY: Label has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Returns a static reference to the root label.
@@ -122,7 +122,7 @@ impl Label {
             0x40..=0x7F => {
                 return Err(SplitLabelError::BadType(
                     LabelTypeError::Extended(head),
-                ))
+                ));
             }
             0xC0..=0xFF => {
                 if slice.len() < 2 {
@@ -135,7 +135,7 @@ impl Label {
             _ => {
                 return Err(SplitLabelError::BadType(
                     LabelTypeError::Undefined,
-                ))
+                ));
             }
         };
         if slice.len() < end {
@@ -163,7 +163,7 @@ impl Label {
             0x40..=0x7F => {
                 return Err(SplitLabelError::BadType(
                     LabelTypeError::Extended(head),
-                ))
+                ));
             }
             0xC0..=0xFF => {
                 let res = match slice.get(1) {
@@ -176,7 +176,7 @@ impl Label {
             _ => {
                 return Err(SplitLabelError::BadType(
                     LabelTypeError::Undefined,
-                ))
+                ));
             }
         };
         if slice.len() < end {
@@ -1016,7 +1016,7 @@ mod test {
     #[cfg(feature = "serde")]
     #[test]
     fn owned_label_ser_de() {
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         let label =
             OwnedLabel::from_label(Label::from_slice(b"fo.").unwrap());

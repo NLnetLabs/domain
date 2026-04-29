@@ -59,7 +59,7 @@ impl Name {
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'Name' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'Name' is sound.
-        core::mem::transmute(bytes)
+        unsafe { core::mem::transmute(bytes) }
     }
 
     /// Assume a mutable byte sequence is a valid [`Name`].
@@ -72,7 +72,7 @@ impl Name {
     pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'Name' is 'repr(transparent)' to '[u8]', so casting a
         // '[u8]' into a 'Name' is sound.
-        core::mem::transmute(bytes)
+        unsafe { core::mem::transmute(bytes) }
     }
 }
 

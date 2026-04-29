@@ -85,7 +85,7 @@ impl ReadZone {
         walk: WalkState,
     ) -> NodeAnswer {
         node.with_special(self.version, |special| match special {
-            Some(Special::Cut(ref cut)) => {
+            Some(Special::Cut(cut)) => {
                 if walk.enabled() {
                     walk.op(&cut.ns, true);
                     if let Some(ds) = &cut.ds {

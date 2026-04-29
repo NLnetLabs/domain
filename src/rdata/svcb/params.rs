@@ -23,10 +23,10 @@ use core::marker::PhantomData;
 #[cfg(feature = "std")]
 use core::str::FromStr;
 use core::{cmp, fmt, hash, mem};
+use octseq::FreezeBuilder;
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::{Parser, ShortInput};
-use octseq::FreezeBuilder;
 
 //------------ SvcParams -----------------------------------------------------
 
@@ -141,7 +141,7 @@ impl SvcParams<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: SvcParams has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Checks that a slice contains a correctly encoded parameters sequence.
@@ -308,7 +308,9 @@ impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
             if let AllValues::Mandatory(m) = &param_value {
                 for req in m.iter() {
                     if !key_map.contains_key(&req) {
-                        return Err(S::Error::custom("all SvcParamKeys listed in mandatory MUST appear in SvcParams"));
+                        return Err(S::Error::custom(
+                            "all SvcParamKeys listed in mandatory MUST appear in SvcParams",
+                        ));
                     }
                 }
             }
@@ -1398,8 +1400,10 @@ mod test {
         builder
             .push(&UnknownSvcParam::new(8.into(), b"225").unwrap())
             .unwrap();
-        assert!(builder
-            .push(&UnknownSvcParam::new(8.into(), b"224").unwrap())
-            .is_err());
+        assert!(
+            builder
+                .push(&UnknownSvcParam::new(8.into(), b"224").unwrap())
+                .is_err()
+        );
     }
 }

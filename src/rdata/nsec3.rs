@@ -928,7 +928,7 @@ impl Nsec3Salt<[u8]> {
     /// The passed slice must be no longer than [`Nsec3Salt::MAX_LEN`].
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Nsec3Salt has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 }
 
@@ -969,9 +969,7 @@ impl<Octs> Nsec3Salt<Octs> {
                 match self.0.as_mut() {
                     None => unreachable!(),
                     Some(None) => Err(Error::custom("illegal NSEC3 salt")),
-                    Some(Some(ref mut base16)) => {
-                        base16.process_symbol(symbol)
-                    }
+                    Some(Some(base16)) => base16.process_symbol(symbol),
                 }
             }
 
@@ -1397,7 +1395,7 @@ impl OwnerHash<[u8]> {
     /// The passed slice must be no longer than [`OwnerHash::MAX_LEN`].
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: OwnerHash has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 }
 

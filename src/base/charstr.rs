@@ -184,7 +184,7 @@ impl CharStr<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Charstr has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Creates a character string from a mutable slice without checking.
@@ -195,7 +195,7 @@ impl CharStr<[u8]> {
     /// long. Otherwise, the behaviour is undefined.
     unsafe fn from_slice_mut_unchecked(slice: &mut [u8]) -> &mut Self {
         // SAFETY: Charstr has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Checks whether an octets slice contains a correct character string.
@@ -1242,7 +1242,7 @@ mod test {
 
     #[test]
     fn from_str() {
-        use std::str::{from_utf8, FromStr};
+        use std::str::{FromStr, from_utf8};
 
         type Cs = CharStr<Vec<u8>>;
 
@@ -1350,7 +1350,7 @@ mod test {
     #[cfg(feature = "serde")]
     #[test]
     fn ser_de() {
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         assert_tokens(
             &CharStr::from_octets(Vec::from(b"fo\x12 bar".as_ref()))
