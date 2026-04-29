@@ -806,7 +806,8 @@ where
                 if curlen >= len {
                     if curlen > len {
                         panic!(
-                        "reader: got too much data {curlen}, expetect {len}");
+                            "reader: got too much data {curlen}, expetect {len}"
+                        );
                     }
 
                     // We got what we need
@@ -1136,7 +1137,7 @@ where
         XFRState::Error =>
         // Keep the stream open.
         {
-            return (false, xfr_state, false)
+            return (false, xfr_state, false);
         }
     }
 

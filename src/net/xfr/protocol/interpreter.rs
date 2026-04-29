@@ -7,9 +7,9 @@ use crate::base::{Message, ParsedName, Rtype};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::zonetree::types::ZoneUpdate;
 
+use super::IterationError;
 use super::iterator::XfrZoneUpdateIterator;
 use super::types::{Error, IxfrUpdateMode, ParsedRecord, XfrType};
-use super::IterationError;
 
 //------------ XfrResponseInterpreter -----------------------------------------
 

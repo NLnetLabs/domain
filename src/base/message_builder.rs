@@ -150,7 +150,7 @@ use octseq::builder::infallible;
 use octseq::builder::{FreezeBuilder, OctetsBuilder, ShortBuf, Truncate};
 use octseq::octets::Octets;
 #[cfg(feature = "std")]
-use std::collections::{hash_map::RandomState, HashMap};
+use std::collections::{HashMap, hash_map::RandomState};
 #[cfg(feature = "std")]
 use std::hash::BuildHasher;
 #[cfg(feature = "std")]
@@ -2703,7 +2703,7 @@ mod test {
     use super::*;
     use crate::base::opt;
     use crate::base::{Name, Serial, Ttl};
-    use crate::rdata::{Ns, Soa, A};
+    use crate::rdata::{A, Ns, Soa};
     use core::str::FromStr;
 
     #[test]

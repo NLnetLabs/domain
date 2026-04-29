@@ -272,7 +272,9 @@ fn parse_step<Lines: Iterator<Item = String>>(
                             Some(KeyName::from_str(key_name).unwrap());
                     }
                     (Some(param), Some(value)) => {
-                        eprintln!("Ignoring unknown query parameter '{param}' with value '{value}'");
+                        eprintln!(
+                            "Ignoring unknown query parameter '{param}' with value '{value}'"
+                        );
                     }
                     (Some(param), None) => {
                         eprintln!(

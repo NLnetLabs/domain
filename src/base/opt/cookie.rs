@@ -738,9 +738,10 @@ mod test {
                 Cookie::parse,
             )
             .unwrap();
-            assert!(request
-                .check_server_hash(CLIENT_1, &SECRET, |serial| serial
-                    == Serial(1559731985)));
+            assert!(
+                request.check_server_hash(CLIENT_1, &SECRET, |serial| serial
+                    == Serial(1559731985))
+            );
 
             assert_eq!(
                 compose_vec(|vec| {
@@ -770,9 +771,10 @@ mod test {
                 Cookie::parse,
             )
             .unwrap();
-            assert!(request
-                .check_server_hash(CLIENT_2, &SECRET, |serial| serial
-                    == Serial(1559727985)));
+            assert!(
+                request.check_server_hash(CLIENT_2, &SECRET, |serial| serial
+                    == Serial(1559727985))
+            );
 
             assert_eq!(
                 compose_vec(|vec| {

@@ -12,24 +12,24 @@ use std::boxed::Box;
 use std::hash::Hash;
 use std::vec::Vec;
 
-use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::OctetsFrom;
+use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 
+use crate::base::Name;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::name::ToName;
 use crate::base::record::Record;
-use crate::base::Name;
 use crate::crypto::sign::SignRaw;
+use crate::dnssec::sign::SignableZoneInOut;
+use crate::dnssec::sign::SigningConfig;
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::SigningKey;
 use crate::dnssec::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::dnssec::sign::sign_zone;
-use crate::dnssec::sign::signatures::rrsigs::sign_sorted_zone_records;
 use crate::dnssec::sign::signatures::rrsigs::GenerateRrsigConfig;
-use crate::dnssec::sign::SignableZoneInOut;
-use crate::dnssec::sign::SigningConfig;
+use crate::dnssec::sign::signatures::rrsigs::sign_sorted_zone_records;
 use crate::rdata::dnssec::Timestamp;
 use crate::rdata::{Rrsig, ZoneRecordData};
 

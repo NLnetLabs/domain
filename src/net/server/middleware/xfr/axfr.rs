@@ -2,8 +2,8 @@ use std::boxed::Box;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::sync::mpsc::Sender;
 use tokio::sync::Semaphore;
+use tokio::sync::mpsc::Sender;
 use tracing::error;
 
 use crate::base::iana::OptRcode;
@@ -41,7 +41,9 @@ impl ZoneFunneler {
         // Limit the number of concurrently running XFR related zone walking
         // operations.
         if self.zone_walk_semaphore.acquire().await.is_err() {
-            error!("Internal error: Failed to acquire XFR zone walking semaphore");
+            error!(
+                "Internal error: Failed to acquire XFR zone walking semaphore"
+            );
             return Err(OptRcode::SERVFAIL);
         }
 
@@ -75,7 +77,9 @@ impl ZoneFunneler {
                     .send((self.qname, self.zone_soa_rrset))
                     .await
                 {
-                    error!("Internal error: Failed to send final AXFR SOA to batcher: {err}");
+                    error!(
+                        "Internal error: Failed to send final AXFR SOA to batcher: {err}"
+                    );
                     return Err(OptRcode::SERVFAIL);
                 }
             }
@@ -86,7 +90,9 @@ impl ZoneFunneler {
                         .batcher_tx
                         .blocking_send((self.qname, self.zone_soa_rrset))
                     {
-                        error!("Internal error: Failed to send final AXFR SOA to batcher: {err}");
+                        error!(
+                            "Internal error: Failed to send final AXFR SOA to batcher: {err}"
+                        );
                         // Note: The lack of the final SOA will be detected by the batcher.
                     }
                 });

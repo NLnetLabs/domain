@@ -80,6 +80,7 @@ use alloc::boxed::Box;
 
 use crate::{
     new::base::{
+        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
         build::{BuildInMessage, NameCompressor},
         name::CanonicalName,
         parse::{ParseMessageBytes, SplitMessageBytes},
@@ -87,7 +88,6 @@ use crate::{
             AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
             TruncationError,
         },
-        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
     },
     utils::dst::UnsizedCopy,
 };
@@ -98,7 +98,7 @@ use crate::new::base::name::{Name, NameBuf};
 //----------- Concrete record data types -------------------------------------
 
 mod basic;
-pub use basic::{CName, HInfo, Mx, Ns, Ptr, Soa, Txt, A};
+pub use basic::{A, CName, HInfo, Mx, Ns, Ptr, Soa, Txt};
 
 mod dname;
 pub use dname::DName;

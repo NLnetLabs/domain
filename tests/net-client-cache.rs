@@ -4,8 +4,8 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use domain::stelline::client::do_client_simple;
 use domain::stelline::client::CurrStepValue;
+use domain::stelline::client::do_client_simple;
 use domain::stelline::connect::Connect;
 use domain::stelline::parse_stelline::parse_file;
 

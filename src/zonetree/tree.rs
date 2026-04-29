@@ -1,7 +1,7 @@
 //! The known set of zones.
 
-use std::collections::hash_map;
 use std::collections::HashMap;
+use std::collections::hash_map;
 use std::vec::Vec;
 
 use crate::base::iana::Class;

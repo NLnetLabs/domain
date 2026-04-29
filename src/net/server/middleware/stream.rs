@@ -27,7 +27,7 @@
 //! [`Service`]: crate::net::server::service::Service
 use core::future::Future;
 use core::ops::DerefMut;
-use core::task::{ready, Context, Poll};
+use core::task::{Context, Poll, ready};
 
 use std::pin::Pin;
 

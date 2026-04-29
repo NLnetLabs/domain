@@ -26,7 +26,7 @@ use openssl::rsa::Rsa;
 use openssl::sign::Verifier;
 
 use super::common::{
-    rsa_encode, rsa_exponent_modulus, AlgorithmError, DigestType,
+    AlgorithmError, DigestType, rsa_encode, rsa_exponent_modulus,
 };
 use crate::base::iana::SecurityAlgorithm;
 use crate::rdata::Dnskey;

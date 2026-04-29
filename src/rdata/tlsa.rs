@@ -337,10 +337,10 @@ mod test {
     #[cfg(feature = "zonefile")]
     #[test]
     fn tlsa_parse_zonefile() {
+        use crate::base::Name;
         use crate::base::iana::{
             TlsaCertificateUsage, TlsaMatchingType, TlsaSelector,
         };
-        use crate::base::Name;
         use crate::rdata::ZoneRecordData;
         use crate::zonefile::inplace::{Entry, Zonefile};
 

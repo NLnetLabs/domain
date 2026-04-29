@@ -42,19 +42,19 @@
 //! also gets the request. If the probes upstream provides a suitable response
 //! before the next upstream then its estimated will be updated.
 
-use crate::base::iana::OptRcode;
-use crate::base::iana::Rcode;
-use crate::base::opt::AllOptData;
 use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::StaticCompressor;
+use crate::base::iana::OptRcode;
+use crate::base::iana::Rcode;
+use crate::base::opt::AllOptData;
 use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::{Error, GetResponse, SendRequest};
 use crate::utils::config::DefMinMax;
 use bytes::Bytes;
-use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use octseq::Octets;
 use rand::{random, random_range};
 use std::boxed::Box;
@@ -67,7 +67,7 @@ use std::string::ToString;
 use std::sync::Arc;
 use std::vec::Vec;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep_until, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep_until};
 
 /*
 Basic algorithm:
@@ -822,7 +822,9 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
                                     .expect("just checked for Some");
                                 return Err(err);
                             }
-                            panic!("either deferred_reply or deferred_error should be present");
+                            panic!(
+                                "either deferred_reply or deferred_error should be present"
+                            );
                         }
                         let res = self.fut_list.next().await;
                         let res = res.expect("res should not be empty");

@@ -16,7 +16,7 @@ use crate::base::{
 };
 use crate::base::{Name, ToName};
 use crate::logging::init_logging;
-use crate::rdata::{Aaaa, Soa, ZoneRecordData, A};
+use crate::rdata::{A, Aaaa, Soa, ZoneRecordData};
 use crate::zonetree::types::{ZoneUpdate, ZoneUpdate as ZU};
 
 use super::interpreter::XfrResponseInterpreter;

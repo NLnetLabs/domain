@@ -53,7 +53,7 @@ mod test {
     #[test]
     fn ser_de() {
         use super::DigestAlgorithm;
-        use serde_test::{assert_tokens, Token};
+        use serde_test::{Token, assert_tokens};
 
         assert_tokens(&DigestAlgorithm::SHA384, &[Token::U8(4)]);
         assert_tokens(&DigestAlgorithm(100), &[Token::U8(100)]);

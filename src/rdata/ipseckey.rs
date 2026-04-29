@@ -23,7 +23,7 @@ use core::{fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
-use super::{Aaaa, A};
+use super::{A, Aaaa};
 
 /// The IPSECKEY Resource Record is used to publish a public key that is to be
 /// associated with a domain name for use with the IPsec protocol suite.
@@ -139,7 +139,9 @@ impl<Octs, N> Ipseckey<Octs, N> {
         let gateway = IpseckeyGateway::scan(scanner, gateway_type)?;
         let key = scanner.convert_entry(base64::SymbolConverter::new())?;
         if key.as_ref().is_empty() && algorithm != IpseckeyAlgorithm::NONE {
-            return Err(ScannerError::custom("Missing IPSECKEY public key field. The public key field may only be omitted when the algorithm is specified as 0"));
+            return Err(ScannerError::custom(
+                "Missing IPSECKEY public key field. The public key field may only be omitted when the algorithm is specified as 0",
+            ));
         }
 
         Ok(Self {
@@ -400,7 +402,9 @@ where
         match self.gateway.partial_cmp(&other.gateway) {
             Some(Ordering::Equal) => {}
             Some(other) => return other,
-            None => unreachable!("The gateway will be the same variant and therefore have an ordering, because the gateway_type above was Equal"),
+            None => unreachable!(
+                "The gateway will be the same variant and therefore have an ordering, because the gateway_type above was Equal"
+            ),
         }
         self.key.as_ref().cmp(other.key.as_ref())
     }
@@ -423,7 +427,9 @@ impl<Octs: AsRef<[u8]>, N: ToName> Ord for Ipseckey<Octs, N> {
         match self.gateway.partial_cmp(&other.gateway) {
             Some(Ordering::Equal) => {}
             Some(other) => return other,
-            None => unreachable!("The gateway will be the same variant and therefore have an ordering, because the gateway_type above was Equal"),
+            None => unreachable!(
+                "The gateway will be the same variant and therefore have an ordering, because the gateway_type above was Equal"
+            ),
         }
         self.key.as_ref().cmp(other.key.as_ref())
     }
@@ -607,7 +613,7 @@ impl<Octs> IpseckeyGateway<ParsedName<Octs>> {
             _ => {
                 return Err(ParseError::Form(FormError::new(
                     "Unknown IPSECKEY gateway type",
-                )))
+                )));
             }
         };
         let remaining = parser.remaining();
@@ -683,10 +689,10 @@ impl<N: fmt::Debug> fmt::Debug for IpseckeyGateway<N> {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
+    use crate::base::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
-    use crate::base::Name;
     use crate::utils::base64::decode;
     use core::str::FromStr;
     use std::net::{Ipv4Addr, Ipv6Addr};

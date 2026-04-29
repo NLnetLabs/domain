@@ -60,11 +60,11 @@ use bytes::Bytes;
 use octseq::Octets;
 use tracing::trace;
 
+use crate::base::Message;
+use crate::base::StaticCompressor;
 use crate::base::message::CopyRecordsError;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::Message;
-use crate::base::StaticCompressor;
 use crate::net::client::request::{
     ComposeRequest, ComposeRequestMulti, Error, GetResponse,
     GetResponseMulti, SendRequest, SendRequestMulti,
@@ -771,7 +771,11 @@ mod tests {
         if let Ok(res) = res {
             // Verify that the mock response has had its TSIG RR stripped out
             // during validation.
-            assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should have been removed from the additional section during response processing");
+            assert_eq!(
+                res.header_counts().arcount(),
+                0,
+                "TSIG RR should have been removed from the additional section during response processing"
+            );
         }
     }
 
@@ -827,7 +831,11 @@ mod tests {
 
         // Verify that the mock response has had its TSIG RR stripped out
         // during validation.
-        assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should have been removed from the additional section during response processing");
+        assert_eq!(
+            res.header_counts().arcount(),
+            0,
+            "TSIG RR should have been removed from the additional section during response processing"
+        );
 
         // Receive the second mock response, which may have been deliberately
         // invalidated.
@@ -850,7 +858,11 @@ mod tests {
 
             // Verify that the mock response has had its TSIG RR stripped out
             // during validation.
-            assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should have been removed from the additional section during response processing");
+            assert_eq!(
+                res.header_counts().arcount(),
+                0,
+                "TSIG RR should have been removed from the additional section during response processing"
+            );
 
             // Receive the third and final mock response, which may have been
             // deliberately not signed, in order to test whether or not we
@@ -868,16 +880,29 @@ mod tests {
             // during validation, or it was never added during response
             // generation.
             if dont_sign_last_response {
-                assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should never have been added to the additional section during response generation");
+                assert_eq!(
+                    res.header_counts().arcount(),
+                    0,
+                    "TSIG RR should never have been added to the additional section during response generation"
+                );
             } else {
-                assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should have been removed from the additional section during response processing");
+                assert_eq!(
+                    res.header_counts().arcount(),
+                    0,
+                    "TSIG RR should have been removed from the additional section during response processing"
+                );
             }
 
             if dont_sign_last_response {
                 // Attempt to receive another response but discover that the
                 // last response was not signed as it should have been.
                 assert!(
-                    matches!(req.get_response().await, Err(Error::Authentication(ValidationError::TooManyUnsigned))),
+                    matches!(
+                        req.get_response().await,
+                        Err(Error::Authentication(
+                            ValidationError::TooManyUnsigned
+                        ))
+                    ),
                     "Receiving another response should have failed because the last response should have lacked a signature"
                 );
             } else {
@@ -982,7 +1007,11 @@ mod tests {
             // Generate the wire format response message and sanity check it
             // before returning it.
             let res = builder.into_message();
-            assert_eq!(res.header_counts().arcount(), 1, "Constructed response lacks a TSIG RR in the additional section");
+            assert_eq!(
+                res.header_counts().arcount(),
+                1,
+                "Constructed response lacks a TSIG RR in the additional section"
+            );
             Box::pin(ready(Ok(res)))
         }
     }
@@ -1102,7 +1131,11 @@ mod tests {
             // before returning it.
             let res = builder.into_message();
             if sign {
-                assert_eq!(res.header_counts().arcount(), 1, "Constructed response lacks a TSIG RR in the additional section");
+                assert_eq!(
+                    res.header_counts().arcount(),
+                    1,
+                    "Constructed response lacks a TSIG RR in the additional section"
+                );
                 let rec = res.additional().unwrap().next().unwrap().unwrap();
                 assert_eq!(rec.rtype(), Rtype::TSIG);
             }

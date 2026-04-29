@@ -9,12 +9,12 @@ use core::slice::Iter;
 use std::vec::Vec;
 use std::{fmt, slice};
 
+use crate::base::Ttl;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToName;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
-use crate::base::Ttl;
 
 use super::error::SigningError;
 

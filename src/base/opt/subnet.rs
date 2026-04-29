@@ -155,7 +155,7 @@ impl ClientSubnet {
                 return Err(FormError::new(
                     "invalid client subnet address family",
                 )
-                .into())
+                .into());
             }
         };
 

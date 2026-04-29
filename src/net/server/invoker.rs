@@ -102,11 +102,15 @@ where
                 }
 
                 if matches!(self.status(), InvokerStatus::Aborting) {
-                    trace!("Aborting response stream processing for request id {request_id}");
+                    trace!(
+                        "Aborting response stream processing for request id {request_id}"
+                    );
                     break;
                 }
             }
-            trace!("Finished processing service call results for request id {request_id}");
+            trace!(
+                "Finished processing service call results for request id {request_id}"
+            );
         })
     }
 

@@ -317,7 +317,8 @@ impl Key {
             + 2 // Original ID
             + 2 // Error
             + 2; // Other Len
-                 //+ 0; // Other Data (assume a successful response)
+
+        //+ 0; // Other Data (assume a successful response)
 
         self.name().compose_len()
             + 2 // TYPE
@@ -1147,10 +1148,10 @@ impl<K: AsRef<Key>> SigningContext<K> {
             // > If the TSIG RR cannot be interpreted, the server MUST regard
             // > the message as corrupt and return a FORMERR to the server.
             Err(TsigError::Invalid) => {
-                return Err(ServerError::unsigned(TsigRcode::FORMERR))
+                return Err(ServerError::unsigned(TsigRcode::FORMERR));
             }
             Err(TsigError::ParseError) => {
-                return Err(ServerError::unsigned(TsigRcode::FORMERR))
+                return Err(ServerError::unsigned(TsigRcode::FORMERR));
             }
             Err(TsigError::Missing) => return Ok(None),
         };
@@ -1251,7 +1252,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
             // > the message as corrupt and return a FORMERR to the server.
             Err(TsigError::Invalid) => return Err(ValidationError::FormErr),
             Err(TsigError::ParseError) => {
-                return Err(ValidationError::FormErr)
+                return Err(ValidationError::FormErr);
             }
             Err(TsigError::Missing) => return Ok(None),
         };

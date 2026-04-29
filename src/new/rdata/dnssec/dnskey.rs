@@ -8,13 +8,13 @@ use core::{
 
 use crate::{
     new::base::{
+        CanonicalRecordData,
         build::BuildInMessage,
         name::NameCompressor,
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes,
             SplitBytesZC, TruncationError, U16,
         },
-        CanonicalRecordData,
     },
     utils::dst::UnsizedCopy,
 };

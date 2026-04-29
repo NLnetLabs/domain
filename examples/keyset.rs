@@ -1,6 +1,6 @@
 //! Demonstrate the use of key sets.
-use domain::base::iana::SecurityAlgorithm;
 use domain::base::Name;
+use domain::base::iana::SecurityAlgorithm;
 use domain::dnssec::sign::keys::keyset::{
     Action, Available, Error, KeySet, KeyType, RollType, UnixTime,
 };
@@ -97,7 +97,9 @@ keyset example-keyset.json status
         return;
     }
 
-    eprintln!("Unknown command '{command}'. Valid commands are: init, addkey, deletekey, start, propagation1-complete, cache-expired1, propagation2-complete, cache-expired2, done, actions, and status");
+    eprintln!(
+        "Unknown command '{command}'. Valid commands are: init, addkey, deletekey, start, propagation1-complete, cache-expired1, propagation2-complete, cache-expired2, done, actions, and status"
+    );
     exit(1);
 }
 
@@ -508,7 +510,9 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                 }
             }
             Action::UpdateDsRrset => {
-                println!("\tUpdate the DS records at the parent to contain just the following keys:");
+                println!(
+                    "\tUpdate the DS records at the parent to contain just the following keys:"
+                );
                 let keys = ks.keys();
                 for (pubref, key) in keys {
                     let status = match key.keytype() {
@@ -523,7 +527,9 @@ fn report_actions(actions: Result<Vec<Action>, Error>, ks: &KeySet) {
                 }
             }
             Action::CreateCdsRrset => {
-                println!("\tCreate CDS and CDNSKEY RRsets with the following keys:");
+                println!(
+                    "\tCreate CDS and CDNSKEY RRsets with the following keys:"
+                );
                 let keys = ks.keys();
                 for (pubref, key) in keys {
                     let status = match key.keytype() {

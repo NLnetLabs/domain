@@ -3,9 +3,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
+use crate::base::Name;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
-use crate::base::Name;
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;

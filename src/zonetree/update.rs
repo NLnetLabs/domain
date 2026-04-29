@@ -643,7 +643,7 @@ mod tests {
     };
     use crate::logging::init_logging;
     use crate::net::xfr::protocol::XfrResponseInterpreter;
-    use crate::rdata::{Ns, Soa, A};
+    use crate::rdata::{A, Ns, Soa};
     use crate::zonetree::ZoneBuilder;
 
     use super::*;

@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::vec::Vec;
 use std::{error, io};
 use tokio::sync::Semaphore;
-use tokio::time::{timeout_at, Duration, Instant};
+use tokio::time::{Duration, Instant, timeout_at};
 use tracing::trace;
 
 //------------ Configuration Constants ----------------------------------------
@@ -303,7 +303,9 @@ where
 
                 if !request.is_answer(answer.for_slice()) {
                     // Wrong answer, go back to receiving
-                    trace!("Received message is not the answer we were waiting for, reading more");
+                    trace!(
+                        "Received message is not the answer we were waiting for, reading more"
+                    );
                     buf = answer.into_octets();
                     continue;
                 }

@@ -8,10 +8,10 @@ use core::ops::Deref;
 
 use std::time::Duration;
 
+use crate::base::StreamTarget;
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::{Composer, ParseError};
-use crate::base::StreamTarget;
 
 use super::message::Request;
 

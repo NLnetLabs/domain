@@ -2,8 +2,8 @@
 
 use proc_macro2::Span;
 use syn::{
-    punctuated::Punctuated, spanned::Spanned, Attribute, Error, LitInt, Meta,
-    Token,
+    Attribute, Error, LitInt, Meta, Token, punctuated::Punctuated,
+    spanned::Spanned,
 };
 
 //----------- Repr -----------------------------------------------------------
@@ -50,8 +50,12 @@ impl Repr {
                     }
 
                     Meta::Path(p) if p.is_ident("Rust") => {
-                        return Err(Error::new_spanned(p,
-                            format!("repr(Rust) is not stable, cannot derive {bound} for it")));
+                        return Err(Error::new_spanned(
+                            p,
+                            format!(
+                                "repr(Rust) is not stable, cannot derive {bound} for it"
+                            ),
+                        ));
                     }
 
                     Meta::Path(p) if p.is_ident("packed") => {
@@ -66,8 +70,12 @@ impl Repr {
                         let lit: LitInt = syn::parse2(meta.tokens)?;
                         let n: usize = lit.base10_parse()?;
                         if n != 1 {
-                            return Err(Error::new(span,
-                                format!("'Self' must be unaligned to derive {bound}")));
+                            return Err(Error::new(
+                                span,
+                                format!(
+                                    "'Self' must be unaligned to derive {bound}"
+                                ),
+                            ));
                         }
                     }
 

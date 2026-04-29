@@ -727,7 +727,7 @@ mod test {
     #[cfg(feature = "serde")]
     #[test]
     fn ser_de() {
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         let abs_name =
             UncertainName::<Vec<u8>>::from_str("www.example.com.").unwrap();

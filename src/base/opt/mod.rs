@@ -1164,7 +1164,7 @@ pub(super) mod test {
     use super::*;
     use crate::base::rdata::test::{test_compose_parse, test_rdlen};
     use crate::base::record::ParsedRecord;
-    use crate::base::{opt, MessageBuilder};
+    use crate::base::{MessageBuilder, opt};
     use bytes::{Bytes, BytesMut};
     use core::fmt::Debug;
     use octseq::builder::infallible;

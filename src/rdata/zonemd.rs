@@ -338,8 +338,8 @@ mod test {
     #[cfg(feature = "zonefile")]
     #[test]
     fn zonemd_parse_zonefile() {
-        use crate::base::iana::ZonemdAlgorithm;
         use crate::base::Name;
+        use crate::base::iana::ZonemdAlgorithm;
         use crate::rdata::ZoneRecordData;
         use crate::zonefile::inplace::{Entry, Zonefile};
 

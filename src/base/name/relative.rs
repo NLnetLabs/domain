@@ -1819,7 +1819,7 @@ mod test {
     #[cfg(all(feature = "serde", feature = "std"))]
     #[test]
     fn ser_de() {
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         let name = RelativeName::from_octets(Vec::from(
             b"\x03www\x07example\x03com".as_ref(),

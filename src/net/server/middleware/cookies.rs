@@ -1,11 +1,11 @@
 //! RFC 7873 DNS Cookies related message processing.
-use core::future::{ready, Ready};
+use core::future::{Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
 use std::vec::Vec;
 
-use futures_util::stream::{once, Once, Stream};
+use futures_util::stream::{Once, Stream, once};
 use octseq::Octets;
 use rand::Rng;
 use tracing::{debug, error, trace, warn};
@@ -172,10 +172,14 @@ where
         let too_new_at = now.add(FIVE_MINUTES_AS_SECS);
         let expires_at = serial.add(ONE_HOUR_AS_SECS);
         if now > expires_at {
-            trace!("Invalid server cookie: cookie has expired ({now} > {expires_at})");
+            trace!(
+                "Invalid server cookie: cookie has expired ({now} > {expires_at})"
+            );
             false
         } else if serial > too_new_at {
-            trace!("Invalid server cookie: cookie is too new ({serial} > {too_new_at})");
+            trace!(
+                "Invalid server cookie: cookie is too new ({serial} > {too_new_at})"
+            );
             false
         } else {
             true
@@ -298,7 +302,9 @@ where
                 if request.transport_ctx().is_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
-                    debug!("Rejecting cookie-less non-TCP request due to matching deny list entry");
+                    debug!(
+                        "Rejecting cookie-less non-TCP request due to matching deny list entry"
+                    );
                     let builder = mk_builder_for_target();
                     let mut additional = builder.additional();
                     additional.header_mut().set_rcode(Rcode::REFUSED);
@@ -414,14 +420,16 @@ where
                             // and no Server Cookie, the response SHALL have
                             // the RCODE NOERROR."
                             trace!(
-                                "Replying to DNS cookie pre-fetch request with missing server cookie");
+                                "Replying to DNS cookie pre-fetch request with missing server cookie"
+                            );
                             self.prefetch_cookie_response(request)
                         } else {
                             // "In this case, the response SHALL have the
                             // RCODE BADCOOKIE if the Server Cookie sent with
                             // the query was invalid"
                             debug!(
-                                    "Rejecting pre-fetch request due to invalid server cookie");
+                                "Rejecting pre-fetch request due to invalid server cookie"
+                            );
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
@@ -431,7 +439,9 @@ where
                             .contains(&request.client_addr().ip())
                     {
                         let additional = self.bad_cookie_response(request);
-                        debug!("Rejecting non-TCP request with invalid server cookie due to matching deny list entry");
+                        debug!(
+                            "Rejecting non-TCP request with invalid server cookie due to matching deny list entry"
+                        );
                         return ControlFlow::Break(additional);
                     }
                 } else if request.message().header_counts().qdcount() == 0 {
@@ -448,7 +458,8 @@ where
                     // TODO: Does the TCP check also apply to RFC 7873 section
                     // 5.4 "Querying for a Server Cookie" too?
                     trace!(
-                            "Replying to DNS cookie pre-fetch request with valid server cookie");
+                        "Replying to DNS cookie pre-fetch request with valid server cookie"
+                    );
                     let additional = self.prefetch_cookie_response(request);
                     return ControlFlow::Break(additional);
                 } else {
@@ -511,8 +522,8 @@ mod tests {
     use tokio::time::Instant;
     use tokio_stream::StreamExt;
 
-    use crate::base::opt::cookie::ClientCookie;
     use crate::base::opt::Cookie;
+    use crate::base::opt::cookie::ClientCookie;
     use crate::base::{Message, MessageBuilder, Name, Rtype};
     use crate::net::server::message::{Request, UdpTransportContext};
     use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;

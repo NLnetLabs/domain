@@ -2,9 +2,9 @@ use core::fmt;
 
 use crate::rdata::AllRecordData;
 
-use super::zonefile_fmt::{DisplayKind, ZonefileFmt};
 use super::ParsedRecord;
-use super::{opt::AllOptData, Message, Rtype};
+use super::zonefile_fmt::{DisplayKind, ZonefileFmt};
+use super::{Message, Rtype, opt::AllOptData};
 
 /// Interal type for printing a message in dig style
 ///

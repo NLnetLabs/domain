@@ -10,8 +10,8 @@
 //!
 //! [Datagram]: https://en.wikipedia.org/wiki/Datagram
 use core::fmt::Debug;
-use core::future::poll_fn;
 use core::future::Future;
+use core::future::poll_fn;
 use core::ops::Deref;
 use core::pin::Pin;
 use core::time::Duration;
@@ -24,22 +24,22 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use log::{log_enabled, Level};
+use log::{Level, log_enabled};
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
-use tokio::time::interval;
-use tokio::time::timeout;
 use tokio::time::Instant;
 use tokio::time::MissedTickBehavior;
+use tokio::time::interval;
+use tokio::time::timeout;
 use tracing::{error, trace, warn};
 
+use crate::base::Message;
+use crate::base::StreamTarget;
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::Message;
-use crate::base::StreamTarget;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::message::Request;
@@ -50,10 +50,10 @@ use crate::net::server::util::mk_error_response;
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
+use super::ServerCommand;
 use super::buf::VecBufSource;
 use super::invoker::{InvokerStatus, ServiceInvoker};
 use super::message::{TransportSpecificContext, UdpTransportContext};
-use super::ServerCommand;
 
 /// A UDP transport based DNS server transport.
 ///
@@ -572,7 +572,9 @@ where
             //         a query (0), or a response (1)."
             Ok(msg) if msg.header().qr() => {
                 // TO DO: Count this event?
-                trace!("Ignoring received message because it is a reply, not a query.");
+                trace!(
+                    "Ignoring received message because it is a reply, not a query."
+                );
                 let response = mk_error_response::<Buf::Output, Svc::Target>(
                     &msg,
                     OptRcode::FORMERR,

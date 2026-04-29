@@ -1,4 +1,4 @@
-use core::future::{ready, Future};
+use core::future::{Future, ready};
 use core::ops::Deref;
 use core::pin::Pin;
 
@@ -7,8 +7,8 @@ use octseq::Octets;
 use std::boxed::Box;
 use std::vec::Vec;
 
-use crate::base::wire::ParseError;
 use crate::base::Serial;
+use crate::base::wire::ParseError;
 use crate::net::server::message::Request;
 use crate::zonetree::types::EmptyZoneDiff;
 use crate::zonetree::{Zone, ZoneDiff, ZoneTree};

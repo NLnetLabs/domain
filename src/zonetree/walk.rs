@@ -3,8 +3,8 @@ use std::boxed::Box;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
-use crate::base::name::OwnedLabel;
 use crate::base::NameBuilder;
+use crate::base::name::OwnedLabel;
 
 use super::{Rrset, SharedRrset, StoredName, StoredRecord};
 

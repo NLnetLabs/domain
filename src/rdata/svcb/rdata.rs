@@ -198,7 +198,9 @@ impl<Octs: AsRef<[u8]>, Name: ToName> SvcbRdata<SvcbVariant, Octs, Name> {
         #[cfg(not(feature = "std"))]
         {
             let _ = scanner;
-            Err(S::Error::custom("zonefile parsing of SVCB RRs is not implemented without the domain std feature"))
+            Err(S::Error::custom(
+                "zonefile parsing of SVCB RRs is not implemented without the domain std feature",
+            ))
         }
     }
 }
@@ -220,7 +222,9 @@ impl<Octs: AsRef<[u8]>, Name: ToName> SvcbRdata<HttpsVariant, Octs, Name> {
         #[cfg(not(feature = "std"))]
         {
             let _ = scanner;
-            Err(S::Error::custom("zonefile parsing of HTTPS RRs is not implemented without the domain std feature"))
+            Err(S::Error::custom(
+                "zonefile parsing of HTTPS RRs is not implemented without the domain std feature",
+            ))
         }
     }
 }
@@ -557,8 +561,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::super::value::AllValues;
     use super::super::UnknownSvcParam;
+    use super::super::value::AllValues;
     use super::*;
     use crate::base::Name;
     use core::str::FromStr;

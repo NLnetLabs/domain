@@ -309,7 +309,7 @@ pub trait ZoneDiff {
 
     /// The serial number of the zone that resulted from the modifications.
     fn end_serial(&self)
-        -> Pin<Box<dyn Future<Output = Serial> + Send + '_>>;
+    -> Pin<Box<dyn Future<Output = Serial> + Send + '_>>;
 
     /// An stream of RRsets that were added to the zone.
     // TODO: Does this need to be Box<Pin<dyn Future<Output = Stream>>>?

@@ -1,4 +1,4 @@
-use core::future::{ready, Future, Ready};
+use core::future::{Future, Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
@@ -8,10 +8,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
 
-use futures_util::stream::{once, Once, Stream};
+use futures_util::stream::{Once, Stream, once};
 use octseq::Octets;
-use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::Semaphore;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info, trace, warn};
 
@@ -567,7 +567,9 @@ where
         // Errata https://www.rfc-editor.org/errata/eid3196 points out that
         // this is NOT "just as in AXFR" as AXFR does not do that.
         if query_serial >= soa.serial() {
-            trace!("Responding to IXFR with single SOA because query serial >= zone serial");
+            trace!(
+                "Responding to IXFR with single SOA because query serial >= zone serial"
+            );
             let builder = mk_builder_for_target();
             let response = zone_soa_answer.to_message(msg, builder);
             let res = Ok(CallResult::new(response));

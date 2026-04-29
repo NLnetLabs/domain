@@ -1,4 +1,4 @@
-use core::future::{ready, Future, Ready};
+use core::future::{Future, Ready, ready};
 use core::ops::ControlFlow;
 use core::pin::Pin;
 use core::str::FromStr;
@@ -34,7 +34,7 @@ use crate::net::server::service::{
     CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
 };
 use crate::rdata::{
-    Aaaa, AllRecordData, Cname, Ds, Mx, Ns, Soa, Txt, ZoneRecordData, A,
+    A, Aaaa, AllRecordData, Cname, Ds, Mx, Ns, Soa, Txt, ZoneRecordData,
 };
 use crate::tsig::{Algorithm, Key, KeyName};
 use crate::zonefile::inplace::Zonefile;

@@ -2,8 +2,8 @@
 
 use bytes::Bytes;
 
-use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 
 use octseq::Octets;
 
@@ -17,10 +17,10 @@ use std::pin::Pin;
 use std::vec::Vec;
 
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep_until, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep_until};
 
-use crate::base::iana::OptRcode;
 use crate::base::Message;
+use crate::base::iana::OptRcode;
 use crate::net::client::request::{Error, GetResponse, SendRequest};
 
 /*
@@ -592,7 +592,9 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
                                     .expect("just checked for Some");
                                 return Err(err);
                             }
-                            panic!("either deferred_reply or deferred_error should be present");
+                            panic!(
+                                "either deferred_reply or deferred_error should be present"
+                            );
                         }
                         let res = self.fut_list.next().await;
                         let res = res.expect("res should not be empty");

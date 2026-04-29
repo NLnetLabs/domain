@@ -1,4 +1,4 @@
-use core::future::{ready, Ready};
+use core::future::{Ready, ready};
 use core::pin::Pin;
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::time::sleep;
 use tokio::time::Instant;
+use tokio::time::sleep;
 use tracing::trace;
 
 use crate::base::MessageBuilder;

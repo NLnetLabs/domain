@@ -11,8 +11,8 @@ use crate::net::client::request::{
 use crate::net::client::stream;
 use crate::utils::config::DefMinMax;
 use bytes::Bytes;
-use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use rand::random;
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -25,7 +25,7 @@ use tokio::io;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
-use tokio::time::{sleep_until, Instant};
+use tokio::time::{Instant, sleep_until};
 
 //------------ Constants -----------------------------------------------------
 
@@ -375,7 +375,7 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                         //     fatal errors where retrying doesn’t make any
                         //     sense?
                         Err(Error::WrongReplyForQuery) => {
-                            return Err(Error::WrongReplyForQuery)
+                            return Err(Error::WrongReplyForQuery);
                         }
                         Err(Error::ConnectionClosed) => {
                             // The stream may immedately return that the

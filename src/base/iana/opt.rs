@@ -181,7 +181,7 @@ mod test {
     #[test]
     fn ser_de() {
         use super::OptionCode;
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         assert_tokens(
             &OptionCode::SERVER_TAG.readable(),

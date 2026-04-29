@@ -5,7 +5,7 @@
 use bytes::Bytes;
 
 use crate::{
-    base::{wire::ParseError, ParsedName, Record, Rtype},
+    base::{ParsedName, Record, Rtype, wire::ParseError},
     rdata::ZoneRecordData,
 };
 

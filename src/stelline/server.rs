@@ -39,8 +39,7 @@ where
     for range in ranges {
         trace!(
             "Checking against range {} <= {}",
-            range.start_value,
-            range.end_value
+            range.start_value, range.end_value
         );
         if step < range.start_value || step > range.end_value {
             continue;

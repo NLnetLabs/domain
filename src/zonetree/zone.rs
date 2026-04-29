@@ -11,7 +11,7 @@ use super::error::{RecordError, ZoneErrors};
 use super::in_memory::ZoneBuilder;
 use super::traits::WritableZone;
 use super::types::StoredName;
-use super::{parsed, ReadableZone, ZoneStore};
+use super::{ReadableZone, ZoneStore, parsed};
 
 /// A single DNS zone.
 ///

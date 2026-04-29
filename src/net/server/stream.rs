@@ -29,7 +29,7 @@ use octseq::Octets;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-use tokio::time::{interval, timeout, MissedTickBehavior};
+use tokio::time::{MissedTickBehavior, interval, timeout};
 use tracing::{error, trace, trace_span, warn};
 
 use crate::net::server::buf::BufSource;
@@ -39,9 +39,9 @@ use crate::net::server::service::Service;
 use crate::net::server::sock::AsyncAccept;
 use crate::utils::config::DefMinMax;
 
+use super::ServerCommand;
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
-use super::ServerCommand;
 
 // TODO: Should this crate also provide a TLS listener implementation?
 

@@ -1092,7 +1092,7 @@ mod tests {
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::sign::{
-        generate, GenerateParams, KeyPair, SecretKeyBytes,
+        GenerateParams, KeyPair, SecretKeyBytes, generate,
     };
     const KEYS: &[(SecurityAlgorithm, u16)] = &[
         (SecurityAlgorithm::RSASHA256, 60616),

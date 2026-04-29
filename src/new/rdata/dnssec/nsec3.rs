@@ -10,10 +10,10 @@ use domain_macros::*;
 
 use crate::{
     new::base::{
+        CanonicalRecordData,
         build::BuildInMessage,
         name::NameCompressor,
         wire::{AsBytes, BuildBytes, SizePrefixed, TruncationError, U16},
-        CanonicalRecordData,
     },
     utils::dst::UnsizedCopy,
 };
