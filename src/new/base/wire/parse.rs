@@ -581,6 +581,8 @@ impl ParseBytesInPlace for alloc::sync::Arc<[u8]> {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParseError;
 
+impl core::error::Error for ParseError {}
+
 //--- Formatting
 
 impl fmt::Display for ParseError {
