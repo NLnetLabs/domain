@@ -89,7 +89,7 @@ impl StubResolver {
         Self::from_conf(ResolvConf::default())
     }
 
-    /// Creates a new resolver using the given configuraiton.
+    /// Creates a new resolver using the given configuration.
     pub fn from_conf(conf: ResolvConf) -> Self {
         StubResolver {
             transport: None.into(),
