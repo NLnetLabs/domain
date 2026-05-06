@@ -774,28 +774,28 @@ mod test {
     #[tokio::test]
     async fn fmt_records() {
         use crate::base;
-        use crate::new::base::Message;
-        use crate::new::base::MessageItem;
         use crate::new::base::name::NameBuf;
         use crate::new::base::name::RevNameBuf;
         use crate::new::base::wire::ParseBytesZC;
+        use crate::new::base::Message;
+        use crate::new::base::MessageItem;
         use crate::new::rdata::RecordData;
         use crate::resolv::StubResolver;
+        use crate::utils::base16;
+        use crate::utils::base64;
         use std::str::FromStr;
         use std::string::String;
-        use crate::utils::base64;
-        use crate::utils::base16;
 
         async fn make_query(
             stub_resolver: &StubResolver,
             qname: &base::Name<bytes::Bytes>,
-            qtype: domain::base::Rtype
+            qtype: domain::base::Rtype,
         ) {
             // --- Question
             let question = domain::base::Question::new_in(qname, qtype);
-            let mut message = domain::base::MessageBuilder
-                ::from_target(Default::default())
-                .unwrap();
+            let mut message =
+                domain::base::MessageBuilder::from_target(Default::default())
+                    .unwrap();
 
             message.header_mut().set_rd(true);
             let mut message = message.question();
@@ -803,21 +803,21 @@ mod test {
             let message = message.additional();
 
             // --- Query
-            let response = domain::resolv::stub::Query
-                ::new(&stub_resolver)
+            let response = domain::resolv::stub::Query::new(stub_resolver)
                 .unwrap()
-                .run(message.into()).await
+                .run(message)
+                .await
                 .unwrap();
 
-            let response: &Message = Message::parse_bytes_by_ref(response.as_slice()).unwrap();
+            let response: &Message =
+                Message::parse_bytes_by_ref(response.as_slice()).unwrap();
             let parser = response.parse();
             for result_message_item in parser {
-
-                let message_item  = match result_message_item {
+                let message_item = match result_message_item {
                     Ok(o) => o,
                     Err(e) => {
                         panic!("TXT record ParseError here {:?}", e);
-                    },
+                    }
                 };
 
                 let revname_record = match message_item {
@@ -827,54 +827,61 @@ mod test {
                     }
                 };
                 // transform RevNameBuf to NameBuf for rname, keep rdata untouched.
-                let record: Record<NameBuf, RecordData<'_, NameBuf>> = revname_record.transform(
-                    |name: RevNameBuf| name.into(),
-                    |data: RecordData<'_, NameBuf>| data
-                );
+                let record: Record<NameBuf, RecordData<'_, NameBuf>> =
+                    revname_record.transform(
+                        |name: RevNameBuf| name.into(),
+                        |data: RecordData<'_, NameBuf>| data,
+                    );
 
                 let data = match record.rdata {
-                    RecordData::A(a) => format!("{}", std::net::Ipv4Addr::from_octets(a.octets)),
-                    RecordData::Aaaa(aaaa) =>
-                        format!("{}", std::net::Ipv6Addr::from_octets(aaaa.octets)),
+                    RecordData::A(a) => format!(
+                        "{}",
+                        std::net::Ipv4Addr::from_octets(a.octets)
+                    ),
+                    RecordData::Aaaa(aaaa) => format!(
+                        "{}",
+                        std::net::Ipv6Addr::from_octets(aaaa.octets)
+                    ),
                     RecordData::CName(cname) => format!("{}", cname.name),
-                    RecordData::Soa(soa) =>
-                        format!(
-                            "{} {} {} {} {} {} {}",
-                            soa.mname,
-                            soa.rname,
-                            soa.serial,
-                            soa.refresh,
-                            soa.retry,
-                            soa.expire,
-                            soa.minimum
-                        ),
-                    RecordData::Mx(mx) => format!("{} {}", mx.preference, mx.exchange),
+                    RecordData::Soa(soa) => format!(
+                        "{} {} {} {} {} {} {}",
+                        soa.mname,
+                        soa.rname,
+                        soa.serial,
+                        soa.refresh,
+                        soa.retry,
+                        soa.expire,
+                        soa.minimum
+                    ),
+                    RecordData::Mx(mx) => {
+                        format!("{} {}", mx.preference, mx.exchange)
+                    }
                     RecordData::Txt(txt) => {
                         // TODO: How could this be improved?
                         // Can't really use txt.iter() as a real Iterator and txt.as_bytes includes length of string which breaks the parsing.
                         // format!("{:?} {:?} {}", str::from_utf8(txt.as_bytes()), txt.as_bytes(), txt.as_bytes().len())
                         let mut output = String::new();
                         for cstr in txt.iter() {
-                            output.push_str(str::from_utf8(&cstr.octets).unwrap());
+                            output.push_str(
+                                str::from_utf8(&cstr.octets).unwrap(),
+                            );
                         }
                         output
                     }
-                    RecordData::Ds(ds) =>
-                        format!(
-                            "{} {} {} {}",
-                            ds.keytag,
-                            ds.algorithm.code,
-                            ds.digest_type.code,
-                            base16::encode_display(ds.digest.as_bytes())
-                        ),
-                    RecordData::DNSKey(dnskey) =>
-                        format!(
-                            "{} {} {} {}",
-                            dnskey.flags.bits(),
-                            dnskey.protocol,
-                            dnskey.algorithm.code,
-                            base64::encode_display(&dnskey.key.as_bytes())
-                        ),
+                    RecordData::Ds(ds) => format!(
+                        "{} {} {} {}",
+                        ds.keytag,
+                        ds.algorithm.code,
+                        ds.digest_type.code,
+                        base16::encode_display(ds.digest.as_bytes())
+                    ),
+                    RecordData::DNSKey(dnskey) => format!(
+                        "{} {} {} {}",
+                        dnskey.flags.bits(),
+                        dnskey.protocol,
+                        dnskey.algorithm.code,
+                        base64::encode_display(&dnskey.key.as_bytes())
+                    ),
                     other => format!("not implemented {:?}", other),
                 };
 
@@ -890,7 +897,8 @@ mod test {
         }
 
         let stub_resolver: StubResolver = StubResolver::new();
-        let qname: base::Name<bytes::Bytes> = base::Name::from_str("cloudflare.com.").unwrap();
+        let qname: base::Name<bytes::Bytes> =
+            base::Name::from_str("cloudflare.com.").unwrap();
         let qtypes: std::vec::Vec<domain::base::Rtype> = vec![
             domain::base::Rtype::A,
             domain::base::Rtype::AAAA,
