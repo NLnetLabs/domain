@@ -415,6 +415,38 @@ impl fmt::Debug for RType {
     }
 }
 
+impl fmt::Display for RType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::A => "A",
+            Self::NS => "NS",
+            Self::CNAME => "CNAME",
+            Self::SOA => "SOA",
+            Self::PTR => "PTR",
+            Self::HINFO => "HINFO",
+            Self::MX => "MX",
+            Self::TXT => "TXT",
+            Self::RP => "RP",
+            Self::AAAA => "AAAA",
+            Self::DNAME => "DNAME",
+            Self::OPT => "OPT",
+            Self::DS => "DS",
+            Self::RRSIG => "RRSIG",
+            Self::NSEC => "NSEC",
+            Self::DNSKEY => "DNSKEY",
+            Self::NSEC3 => "NSEC3",
+            Self::NSEC3PARAM => "NSEC3PARAM",
+            Self::CDS => "CDS",
+            Self::CDNSKEY => "CDNSKEY",
+            Self::ZONEMD => "ZONEMD",
+            Self::TSIG => "TSIG",
+            _ => {
+                unimplemented!()
+            }
+        })
+    }
+}
+
 //----------- RClass ---------------------------------------------------------
 
 /// The class of a record.
@@ -469,6 +501,17 @@ impl fmt::Debug for RClass {
     }
 }
 
+impl fmt::Display for RClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::IN => "IN",
+            Self::CH => "CH",
+            _ => {
+                unimplemented!()
+            }
+        })
+    }
+}
 //----------- TTL ------------------------------------------------------------
 
 /// How long a record can be cached.
@@ -727,5 +770,144 @@ mod test {
         let mut buffer = [0u8; 15];
         assert_eq!(record.build_bytes(&mut buffer), Ok(&mut [] as &mut [u8]));
         assert_eq!(buffer, &bytes[..15]);
+    }
+    #[tokio::test]
+    async fn fmt_records() {
+        use crate::base;
+        use crate::new::base::Message;
+        use crate::new::base::MessageItem;
+        use crate::new::base::name::NameBuf;
+        use crate::new::base::name::RevNameBuf;
+        use crate::new::base::wire::ParseBytesZC;
+        use crate::new::rdata::RecordData;
+        use crate::resolv::StubResolver;
+        use std::str::FromStr;
+        use std::string::String;
+        use crate::utils::base64;
+        use crate::utils::base16;
+
+        async fn make_query(
+            stub_resolver: &StubResolver,
+            qname: &base::Name<bytes::Bytes>,
+            qtype: domain::base::Rtype
+        ) {
+            // --- Question
+            let question = domain::base::Question::new_in(qname, qtype);
+            let mut message = domain::base::MessageBuilder
+                ::from_target(Default::default())
+                .unwrap();
+
+            message.header_mut().set_rd(true);
+            let mut message = message.question();
+            message.push(question).unwrap();
+            let message = message.additional();
+
+            // --- Query
+            let response = domain::resolv::stub::Query
+                ::new(&stub_resolver)
+                .unwrap()
+                .run(message.into()).await
+                .unwrap();
+
+            let response: &Message = Message::parse_bytes_by_ref(response.as_slice()).unwrap();
+            let parser = response.parse();
+            for result_message_item in parser {
+
+                let message_item  = match result_message_item {
+                    Ok(o) => o,
+                    Err(e) => {
+                        panic!("TXT record ParseError here {:?}", e);
+                    },
+                };
+
+                let revname_record = match message_item {
+                    MessageItem::Answer(r) => r,
+                    _ => {
+                        continue;
+                    }
+                };
+                // transform RevNameBuf to NameBuf for rname, keep rdata untouched.
+                let record: Record<NameBuf, RecordData<'_, NameBuf>> = revname_record.transform(
+                    |name: RevNameBuf| name.into(),
+                    |data: RecordData<'_, NameBuf>| data
+                );
+
+                let data = match record.rdata {
+                    RecordData::A(a) => format!("{}", std::net::Ipv4Addr::from_octets(a.octets)),
+                    RecordData::Aaaa(aaaa) =>
+                        format!("{}", std::net::Ipv6Addr::from_octets(aaaa.octets)),
+                    RecordData::CName(cname) => format!("{}", cname.name),
+                    RecordData::Soa(soa) =>
+                        format!(
+                            "{} {} {} {} {} {} {}",
+                            soa.mname,
+                            soa.rname,
+                            soa.serial,
+                            soa.refresh,
+                            soa.retry,
+                            soa.expire,
+                            soa.minimum
+                        ),
+                    RecordData::Mx(mx) => format!("{} {}", mx.preference, mx.exchange),
+                    RecordData::Txt(txt) => {
+                        // TODO: How could this be improved?
+                        // Can't really use txt.iter() as a real Iterator and txt.as_bytes includes length of string which breaks the parsing.
+                        // format!("{:?} {:?} {}", str::from_utf8(txt.as_bytes()), txt.as_bytes(), txt.as_bytes().len())
+                        let mut output = String::new();
+                        for cstr in txt.iter() {
+                            output.push_str(str::from_utf8(&cstr.octets).unwrap());
+                        }
+                        output
+                    }
+                    RecordData::Ds(ds) =>
+                        format!(
+                            "{} {} {} {}",
+                            ds.keytag,
+                            ds.algorithm.code,
+                            ds.digest_type.code,
+                            base16::encode_display(ds.digest.as_bytes())
+                        ),
+                    RecordData::DNSKey(dnskey) =>
+                        format!(
+                            "{} {} {} {}",
+                            dnskey.flags.bits(),
+                            dnskey.protocol,
+                            dnskey.algorithm.code,
+                            base64::encode_display(&dnskey.key.as_bytes())
+                        ),
+                    other => format!("not implemented {:?}", other),
+                };
+
+                println!(
+                    "{} {} {} {} {}",
+                    record.rname,
+                    record.ttl.value,
+                    record.rclass,
+                    record.rtype,
+                    data
+                );
+            }
+        }
+
+        let stub_resolver: StubResolver = StubResolver::new();
+        let qname: base::Name<bytes::Bytes> = base::Name::from_str("cloudflare.com.").unwrap();
+        let qtypes: std::vec::Vec<domain::base::Rtype> = vec![
+            domain::base::Rtype::A,
+            domain::base::Rtype::AAAA,
+            domain::base::Rtype::CNAME,
+            domain::base::Rtype::MX,
+            domain::base::Rtype::SOA,
+            domain::base::Rtype::MX,
+            // Fails, currently no clue why there is a Err(ParseErr)
+            // But only for the last cloudflare.com. TXT record.
+            domain::base::Rtype::TXT,
+            domain::base::Rtype::DS,
+            domain::base::Rtype::DNSKEY,
+        ];
+
+        for qtype in qtypes {
+            println!("{qtype}");
+            make_query(&stub_resolver, &qname, qtype).await;
+        }
     }
 }
