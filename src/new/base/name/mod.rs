@@ -29,7 +29,13 @@
 //! - [`RevName`] is similar to [`Name`], except that labels are stored in
 //!   _reverse_ order, from outermost to innermost (i.e. `org, example` in
 //!   `example.org.`). It is the right type to use as the owner name of a
-//!   DNS record ([`Record.rname`]).
+//!   DNS record ([`Record`]`.rname`). The [`RevName`] type is introduced to
+//!   improve manipulations done on a Domain Name.
+//!
+//! During serialization with [`BuildBytes`] to wire format both types result
+//! the same byte sequence.
+//!
+//! [`Record`]: domain::new::base::Record
 //!
 //! These types are _dynamically sized_; this means that they cannot be used
 //! by value. The following table illustrates the various container and
@@ -43,6 +49,30 @@
 //! | `NameBuf`      | Yes | Yes | Efficient short-term usage
 //! | `Box<RevName>` | Yes | Yes | Compact, long-term storage
 //! | `RevNameBuf`   | Yes | Yes | Efficient short-term usage
+//!
+//!
+//! ### Usage example
+//!
+//! In the following example a `str` is parsed into a [`NameBuf`] which is the
+//! owner of the data buffer. The [`NameBuf`] is be passed on as a [`Name`]
+//! reference. Later the [`NameBuf`] gets moved into a [`RevNameBuf`] which is
+//! in turn passed on as a [`RevName`].
+//!
+//! ```
+//! let name_buf: new::base::name::NameBuf =
+//!     "www.nlnetlabs.nl".parse().unwrap();
+//! let name_ref: &new::base::name::Name = &name_buf;
+//!
+//! println!("NameBuf {}, &Name {}", name_buf, name_ref);
+//!
+//! let revname_buf: new::base::name::RevNameBuf = name_buf.into();
+//! let revname_ref: &new::base::name::RevName = &revname_buf;
+//!
+//! println!(
+//!     "RevNameBuf {:?}, &RevName {:?}",
+//!     revname_buf, revname_ref
+//! );
+//! ```
 
 use core::cmp::Ordering;
 
