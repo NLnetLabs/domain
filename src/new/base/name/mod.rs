@@ -59,14 +59,16 @@
 //! in turn passed on as a [`RevName`].
 //!
 //! ```
-//! let name_buf: new::base::name::NameBuf =
+//! use domain::new::base::name;
+//!
+//! let name_buf: name::NameBuf =
 //!     "www.nlnetlabs.nl".parse().unwrap();
-//! let name_ref: &new::base::name::Name = &name_buf;
+//! let name_ref: &name::Name = &name_buf;
 //!
 //! println!("NameBuf {}, &Name {}", name_buf, name_ref);
 //!
-//! let revname_buf: new::base::name::RevNameBuf = name_buf.into();
-//! let revname_ref: &new::base::name::RevName = &revname_buf;
+//! let revname_buf: name::RevNameBuf = name_buf.into();
+//! let revname_ref: &name::RevName = &revname_buf;
 //!
 //! println!(
 //!     "RevNameBuf {:?}, &RevName {:?}",
