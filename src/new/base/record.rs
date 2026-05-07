@@ -938,9 +938,31 @@ mod test {
         use crate::new;
 
         let name_buf: new::base::name::NameBuf =
-            "nlnetlabs.nl".parse().unwrap();
+            "www.nlnetlabs.nl".parse().unwrap();
         let name_ref: &new::base::name::Name = &name_buf;
 
         println!("Name Buffer {}, Referenced Name {}", name_buf, name_ref);
+
+        let revname_buf: new::base::name::RevNameBuf = name_buf.into();
+        let revname_ref: &new::base::name::RevName = &revname_buf;
+
+        println!(
+            "Name Buffer {:?}, Referenced Name {:?}",
+            revname_buf, revname_ref
+        );
+
+        let record: new::base::record::Record<
+            new::base::name::NameBuf,
+            new::rdata::CName<new::base::name::NameBuf>,
+        > = new::base::record::Record::new(
+            "nlnetlabs.nl".parse().unwrap(),
+            new::base::RType::CNAME,
+            new::base::RClass::IN,
+            new::base::TTL::from(1024),
+            new::rdata::CName {
+                name: "www.nlnetlabs.org".parse().unwrap(),
+            },
+        );
+        println!("{:?}", record);
     }
 }
