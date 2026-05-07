@@ -932,4 +932,15 @@ mod test {
             make_query(&stub_resolver, &qname, qtype).await;
         }
     }
+
+    #[tokio::test]
+    async fn create_record() {
+        use crate::new;
+
+        let name_buf: new::base::name::NameBuf =
+            "nlnetlabs.nl".parse().unwrap();
+        let name_ref: &new::base::name::Name = &name_buf;
+
+        println!("Name Buffer {}, Referenced Name {}", name_buf, name_ref);
+    }
 }
