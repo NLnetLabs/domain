@@ -118,14 +118,16 @@ where
 
     /// Processing a single response stream item.
     ///
-    /// Calls [`Self::process_feedback()`] if necessary. Extracts any response for
+    /// Calls [`process_feedback()`] if necessary. Extracts any response for
     /// further processing by the caller.
     ///
-    /// On [`ServiceError`] calls the trait impl'd [`Self::set_status()`] function
+    /// On [`ServiceError`] calls the trait impl'd [`set_status()`] function
     /// with `InvokerStatus::Aborting` and returns a generated error response
     /// instead of the response from the service.
     ///
     /// [`ServiceError`]: domain::net::server::service::ServiceError
+    /// [`process_feedback()`]: Self::process_feedback()
+    /// [`set_status()`]: Self::set_status()
     fn process_response_stream_item(
         &mut self,
         stream_item: ServiceResult<Svc::Target>,
@@ -149,15 +151,18 @@ where
 
     //// Acts on [`ServiceFeedback`] received from the [`Service`].
     ///
-    /// Calls the trait impl'd [`Self::reconfigure`] on
+    /// Calls the trait impl'd [`reconfigure()`] on
     /// [`ServiceFeedback::Reconfigure`].
     ///
-    /// Calls the trait impl'd [`Self::set_status()`] on
+    /// Calls the trait impl'd [`set_status()`] on
     /// [`ServiceFeedback::BeginTransaction`] with
     /// [`InvokerStatus::InTransaction`].
     ///
     /// Calls the trait impl'd [`Self::set_status()`] on
     /// [`ServiceFeedback::EndTransaction`] with [`InvokerStatus::Normal`].
+    ///
+    /// [`reconfigure()`]: Self::reconfigure()
+    /// [`set_status()`]: Self::set_status()
     fn process_feedback(&mut self, feedback: ServiceFeedback) {
         match feedback {
             ServiceFeedback::Reconfigure { idle_timeout } => {

@@ -268,11 +268,13 @@ impl NameCompressor {
     /// The contents slice should begin immediately after the 12-byte message
     /// header. It must end at the position the name will be inserted. It is
     /// assumed that the domain names inserted in these contents still exist
-    /// from previous calls to [`Self::compress_name()`] and related methods. If
-    /// this is not true, panics or silently invalid results may occur.
+    /// from previous calls to [`compress_name()`] and related methods. If this
+    /// is not true, panics or silently invalid results may occur.
     ///
     /// The compressor's state will be updated to assume the provided name was
     /// inserted into the message.
+    ///
+    /// [`compress_name()`]: Self::compress_name()
     pub fn compress_name<'n>(
         &mut self,
         contents: &[u8],
