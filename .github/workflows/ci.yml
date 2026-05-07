@@ -104,8 +104,11 @@ jobs:
         cache: false
 
     # Do the actual formatting check.
+    # `-D warnings` promotes all warnings to errors which leads to failure
     - name: Build documentation for validation
-      run: cargo doc --all-features
+      run: |
+        RUSTDOCFLAGS="-D warnings" \
+          cargo doc --no-deps --all-features
 
   # Determine MSRV
   # --------------
