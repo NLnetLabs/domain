@@ -65,6 +65,8 @@ pub trait ZoneStore: Debug + Sync + Send + Any {
     /// This can be used to obtain access to methods on the specific
     /// [`ZoneStore`] implementation. See [`Zone`] for how this can used to
     /// layer functionality on top of a zone.
+    ///
+    /// [`Zone`]: super::Zone
     fn as_any(&self) -> &dyn Any;
 }
 

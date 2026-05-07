@@ -82,7 +82,7 @@ impl Answer {
 
     /// Creates a new [Rcode::REFUSED] answer.
     ///
-    /// This is equivalent to calling [`Answer::new(Rcode::Refused)`].
+    /// This is equivalent to calling `Answer::new(Rcode::REFUSED)`.
     pub fn refused() -> Self {
         Answer::new(Rcode::REFUSED)
     }

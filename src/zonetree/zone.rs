@@ -23,6 +23,8 @@ use super::{parsed, ReadableZone, ZoneStore};
 /// backed zone) in the same way, and even to store zones with different
 /// backing stores together in the same [`ZoneTree`].
 ///
+/// [`ZoneTree`]: super::ZoneTree
+///
 /// # Layering functionality
 ///
 /// The functionality of [`Zone`]s can be extended by creating a [`ZoneStore`]
@@ -36,11 +38,12 @@ use super::{parsed, ReadableZone, ZoneStore};
 ///
 /// To layer [`ZoneStore`] implementations on top of one another, use
 /// [`Zone::into_inner()`] to obtain backing store implementation of a
-/// [`Zone`] then store that (via [`Arc<dyn ZoneStore`]) in a wrapper type
+/// [`Zone`] then store that (via [`Arc<dyn ZoneStore>`]) in a wrapper type
 /// that itself implements [`ZoneStore`], and then use [`Zone::new()`] to
 /// create a new [`Zone`] based on the outer backing store impl.
 ///
 /// Then to gain access to the additional functionality and state use
+// TODO
 /// [`ZoneStore::as_any()`] and attempt to [`Any::downcast()`] to a
 /// [`ZoneStore`] implementing type that was used earlier.
 #[derive(Clone, Debug)]

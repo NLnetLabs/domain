@@ -283,6 +283,7 @@ impl<W: fmt::Write> fmt::Write for MultiLineWriter<W> {
     }
 }
 
+// TODO including all other PresentationWriter occurrences
 /// A more structured wrapper around a [`PresentationWriter`]
 pub trait Formatter: FormatWriter {
     /// Start a sequence of grouped tokens

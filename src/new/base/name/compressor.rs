@@ -98,8 +98,11 @@ impl NameCompressor {
 
     /// Compress a [`RevName`].
     ///
-    /// This is a low-level function; use [`RevName::build_in_message()`] to
+    /// This is a low-level function; use [`BuildInMessage::build_in_message()`] to
     /// write a [`RevName`] into a DNS message.
+    ///
+    /// [`BuildInMessage::build_in_message()`]:
+    ///     crate::new::base::build::BuildInMessage::build_in_message()
     ///
     /// Given the contents of the DNS message, determine how to compress the
     /// given domain name. If a suitable compression for the name could be
@@ -109,7 +112,7 @@ impl NameCompressor {
     /// The contents slice should begin immediately after the 12-byte message
     /// header. It must end at the position the name will be inserted. It is
     /// assumed that the domain names inserted in these contents still exist
-    /// from previous calls to [`compress_name()`] and related methods. If
+    /// from previous calls to [`Self::compress_name()`] and related methods. If
     /// this is not true, panics or silently invalid results may occur.
     ///
     /// The compressor's state will be updated to assume the provided name was
@@ -251,8 +254,11 @@ impl NameCompressor {
 
     /// Compress a [`Name`].
     ///
-    /// This is a low-level function; use [`Name::build_in_message()`] to
+    /// This is a low-level function; use [`BuildInMessage::build_in_message()`] to
     /// write a [`Name`] into a DNS message.
+    ///
+    /// [`BuildInMessage::build_in_message()`]:
+    ///     domain::new::base::build::BuildInMessage::build_in_message()
     ///
     /// Given the contents of the DNS message, determine how to compress the
     /// given domain name. If a suitable compression for the name could be
@@ -262,7 +268,7 @@ impl NameCompressor {
     /// The contents slice should begin immediately after the 12-byte message
     /// header. It must end at the position the name will be inserted. It is
     /// assumed that the domain names inserted in these contents still exist
-    /// from previous calls to [`compress_name()`] and related methods. If
+    /// from previous calls to [`Self::compress_name()`] and related methods. If
     /// this is not true, panics or silently invalid results may occur.
     ///
     /// The compressor's state will be updated to assume the provided name was

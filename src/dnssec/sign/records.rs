@@ -45,7 +45,7 @@ pub trait Sorter {
 /// The default [`Sorter`] implementation used by [`SortedRecords`].
 ///
 /// The current implementation is the single threaded sort provided by Rust
-/// [`std::vec::Vec.sort_by()`].
+/// [`slice::sort_by()`].
 pub struct DefaultSorter;
 
 impl Sorter for DefaultSorter {

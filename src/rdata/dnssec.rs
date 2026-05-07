@@ -682,7 +682,7 @@ impl Timestamp {
         self.0.into_int()
     }
 
-    /// Returns a [`SytemTime`] close to a reference time.
+    /// Returns a [`SystemTime`] close to a reference time.
     ///
     /// The returned [`SystemTime`] meets the following requirements:
     ///
