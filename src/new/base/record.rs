@@ -789,6 +789,7 @@ mod test {
         use std::net::SocketAddr;
         use std::str::FromStr;
         use std::string::String;
+        use crate::new::base::charstr;
 
         async fn make_query(
             stub_resolver: &StubResolver,
@@ -873,6 +874,7 @@ mod test {
                             output.push_str(
                                 str::from_utf8(&cstr.octets).unwrap(),
                             );
+                            output.push_str("||");
                         }
                         output
                     }
@@ -950,19 +952,31 @@ mod test {
             "Name Buffer {:?}, Referenced Name {:?}",
             revname_buf, revname_ref
         );
-
+        
+        // Construct DNS Record with `RevNameBuf` as the `rname` and a CNAME
+        // record with a `NameBuf`
         let record: new::base::record::Record<
-            new::base::name::NameBuf,
+            new::base::name::RevNameBuf,
             new::rdata::CName<new::base::name::NameBuf>,
-        > = new::base::record::Record::new(
-            "nlnetlabs.nl".parse().unwrap(),
-            new::base::RType::CNAME,
-            new::base::RClass::IN,
-            new::base::TTL::from(1024),
-            new::rdata::CName {
-                name: "www.nlnetlabs.org".parse().unwrap(),
+        > = new::base::record::Record {
+            rname: "www.nlnetlabs.nl".parse().unwrap(),
+            rtype: new::base::RType::CNAME,
+            rclass: new::base::RClass::IN,
+            ttl: new::base::TTL::from(3600),
+            rdata: new::rdata::CName {
+                name: "nlnetlabs.nl".parse().unwrap(),
             },
-        );
+        };
+
+        // Convert the `rname` from `RevNameBuf` into `NameBuf` but keep the
+        // `rdata` untouched.
+        let record: Record<new::base::name::NameBuf, new::rdata::CName<new::base::name::NameBuf>> =
+            record.transform(
+                |name: new::base::name::RevNameBuf| name.into(),
+                |data: new::rdata::CName<new::base::name::NameBuf>| data,
+            );
+
+        // add the transform stuff
         println!("{:?}", record);
     }
 }
