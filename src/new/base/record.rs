@@ -780,9 +780,13 @@ mod test {
         use crate::new::base::Message;
         use crate::new::base::MessageItem;
         use crate::new::rdata::RecordData;
+        use crate::resolv::stub::conf::ResolvConf;
+        use crate::resolv::stub::conf::ServerConf;
+        use crate::resolv::stub::conf::Transport;
         use crate::resolv::StubResolver;
         use crate::utils::base16;
         use crate::utils::base64;
+        use std::net::SocketAddr;
         use std::str::FromStr;
         use std::string::String;
 
@@ -809,8 +813,12 @@ mod test {
                 .await
                 .unwrap();
 
+            let old_message = response.clone().into_message();
+
+            // --- Moving from old message to new message
             let response: &Message =
-                Message::parse_bytes_by_ref(response.as_slice()).unwrap();
+                Message::parse_bytes_by_ref(old_message.as_slice()).unwrap();
+
             let parser = response.parse();
             for result_message_item in parser {
                 let message_item = match result_message_item {
@@ -896,7 +904,15 @@ mod test {
             }
         }
 
-        let stub_resolver: StubResolver = StubResolver::new();
+        let server = ServerConf::new(
+            SocketAddr::from_str("1.1.1.1:53").unwrap(),
+            Transport::UdpTcp,
+        );
+        let mut resolv_conf = ResolvConf::new();
+        resolv_conf.servers = vec![server];
+
+        let stub_resolver: StubResolver =
+            StubResolver::from_conf(resolv_conf);
         let qname: base::Name<bytes::Bytes> =
             base::Name::from_str("cloudflare.com.").unwrap();
         let qtypes: std::vec::Vec<domain::base::Rtype> = vec![
@@ -906,8 +922,6 @@ mod test {
             domain::base::Rtype::MX,
             domain::base::Rtype::SOA,
             domain::base::Rtype::MX,
-            // Fails, currently no clue why there is a Err(ParseErr)
-            // But only for the last cloudflare.com. TXT record.
             domain::base::Rtype::TXT,
             domain::base::Rtype::DS,
             domain::base::Rtype::DNSKEY,
