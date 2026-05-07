@@ -31,14 +31,14 @@ where
     /// Note: While zones can have multiple NSEC3 chains, only the configuraton
     /// for a single chain can be expressed using this type.
     ///
-    /// https://datatracker.ietf.org/doc/html/rfc5155#section-7.3
+    /// <https://datatracker.ietf.org/doc/html/rfc5155#section-7.3>
     /// 7.3.  Secondary Servers
     ///   ...
     ///   "If there are multiple NSEC3PARAM RRs present, there are multiple
     ///    valid NSEC3 chains present.  The server must choose one of them,
     ///    but may use any criteria to do so."
     ///
-    /// https://datatracker.ietf.org/doc/html/rfc5155#section-12.1.3
+    /// <https://datatracker.ietf.org/doc/html/rfc5155#section-12.1.3>
     /// 12.1.3.  Transitioning to a New Hash Algorithm
     ///   "Although the NSEC3 and NSEC3PARAM RR formats include a hash
     ///    algorithm parameter, this document does not define a particular

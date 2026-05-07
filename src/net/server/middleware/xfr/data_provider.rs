@@ -48,7 +48,7 @@ pub struct XfrData<Diff> {
 
     /// Should XFR be done in RFC 5936 backward compatible mode?
     ///
-    /// See: https://www.rfc-editor.org/rfc/rfc5936#section-7
+    /// See: <https://www.rfc-editor.org/rfc/rfc5936#section-7>
     compatibility_mode: bool,
 }
 

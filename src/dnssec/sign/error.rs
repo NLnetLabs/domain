@@ -26,7 +26,7 @@ pub enum SigningError {
 
     /// TODO
     ///
-    /// https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2
+    /// <https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2>
     /// 2.2.  Including RRSIG RRs in a Zone
     ///   ...
     ///   "An RRSIG RR itself MUST NOT be signed"
