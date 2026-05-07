@@ -83,6 +83,30 @@ jobs:
     - name: Check formatting
       run: cargo fmt --all -- --check
 
+  # Build Documentation
+  # ----------------
+  #
+  # Validate that the documentation builds without any issues.
+  build-doc:
+    name: Build documentation for validation
+    runs-on: ubuntu-latest
+    steps:
+
+    # Load the repository.
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Set up the Rust toolchain.
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        cache: false
+
+    # Do the actual formatting check.
+    - name: Build documentation for validation
+      run: cargo doc --all-features
+
   # Determine MSRV
   # --------------
   #
