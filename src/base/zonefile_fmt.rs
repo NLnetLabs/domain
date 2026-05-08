@@ -77,13 +77,13 @@ pub trait FormatWriter: Sized {
     /// Start a block of grouped tokens
     ///
     /// This might push `'('` to the zonefile, but may be ignored by the
-    /// `PresentationWriter`.
+    /// [`FormatWriter`].
     fn begin_block(&mut self) -> Result;
 
     /// End a block of grouped tokens
     ///
     /// This might push `'('` to the zonefile, but may be ignored by the
-    /// `PresentationWriter`.
+    /// [`FormatWriter`].
     fn end_block(&mut self) -> Result;
 
     /// Write a comment
@@ -283,8 +283,7 @@ impl<W: fmt::Write> fmt::Write for MultiLineWriter<W> {
     }
 }
 
-// TODO including all other PresentationWriter occurrences
-/// A more structured wrapper around a [`PresentationWriter`]
+/// A more structured wrapper around a [`FormatWriter`]
 pub trait Formatter: FormatWriter {
     /// Start a sequence of grouped tokens
     ///
