@@ -1981,4 +1981,11 @@ mod test {
             "../../test-data/zonefiles/rfc_1035_ttl_class_type_rdata.yaml"
         ))
     }
+
+    #[test]
+    fn test_security_algorithm_as_int_and_str_in_cds_rrsig_dnskey() {
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/security_algorithm_as_int_and_str_in_cds_rrsig_dnskey.yaml"
+        ))
+    }
 }
