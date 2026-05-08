@@ -789,7 +789,6 @@ mod test {
         use std::net::SocketAddr;
         use std::str::FromStr;
         use std::string::String;
-        use crate::new::base::charstr;
 
         async fn make_query(
             stub_resolver: &StubResolver,
@@ -952,7 +951,7 @@ mod test {
             "Name Buffer {:?}, Referenced Name {:?}",
             revname_buf, revname_ref
         );
-        
+
         // Construct DNS Record with `RevNameBuf` as the `rname` and a CNAME
         // record with a `NameBuf`
         let record: new::base::record::Record<
@@ -970,11 +969,13 @@ mod test {
 
         // Convert the `rname` from `RevNameBuf` into `NameBuf` but keep the
         // `rdata` untouched.
-        let record: Record<new::base::name::NameBuf, new::rdata::CName<new::base::name::NameBuf>> =
-            record.transform(
-                |name: new::base::name::RevNameBuf| name.into(),
-                |data: new::rdata::CName<new::base::name::NameBuf>| data,
-            );
+        let record: Record<
+            new::base::name::NameBuf,
+            new::rdata::CName<new::base::name::NameBuf>,
+        > = record.transform(
+            |name: new::base::name::RevNameBuf| name.into(),
+            |data: new::rdata::CName<new::base::name::NameBuf>| data,
+        );
 
         // add the transform stuff
         println!("{:?}", record);

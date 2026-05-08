@@ -128,3 +128,30 @@ impl TryFrom<parsed::Zonefile> for Zone {
         )?))
     }
 }
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn load_zone() {
+        use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
+        use crate::zonetree::zone::inplace::{Entry, Zonefile};
+        use std::io::BufReader;
+
+        let zone_bytes =
+            include_bytes!("../../test-data/zonefiles/example.com.txt");
+        let mut zone_bytes = BufReader::new(&zone_bytes[..]);
+
+        let mut reader = Zonefile::load(&mut zone_bytes).unwrap();
+        while let Some(entry) = reader.next_entry().unwrap() {
+            match entry {
+                Entry::Record(record) => {
+                    println!(
+                        "{}",
+                        record.display_zonefile(DisplayKind::Simple)
+                    );
+                }
+                _ => continue,
+            }
+        }
+    }
+}
