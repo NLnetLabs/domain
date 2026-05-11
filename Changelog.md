@@ -13,10 +13,15 @@ Improvements
 
 Bug fixes
 
+* Changed the `FromStr` impl for `SecurityAlgorithm` to also accept
+  mnemonics. This also means that these are now accepted by the zonefile
+  parser. ([#656])
+
 Other changes
 
 
 [#641]: https://github.com/NLnetLabs/domain/pull/641
+[#656]: https://github.com/NLnetLabs/domain/pull/656
 [@soywod]: https://github.com/soywod
 
 
