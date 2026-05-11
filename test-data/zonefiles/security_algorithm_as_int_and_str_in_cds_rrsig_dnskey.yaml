@@ -1,0 +1,107 @@
+origin: example.com.
+zonefile: |
+    v01.example.com. 3600 IN CDS 0 0 0 00
+    v02.example.com. 3600 IN CDS 0 DELETE 0 00
+
+    v03.example.com. 3600 IN RRSIG A 5       3 3600 20060825081644 20060728081644 44537 Example.com. ONq5uFbBsvt6XRZdGA7TdZkRy9DcV3ZXS1CXL1AMZ78+MaS+YufBes9wUo/8rBJPoGrBx1u6HRiLOUjc+7LpLJa0NSGCCwPsispbAgNwBKNBYBHd2ftxWImchh1qp5OfFvjkSp9jftr4DlQOW3Sjz8/kvzNU3b+Cr+ERF6vlJks=
+    v04.example.com. 3600 IN RRSIG A RSASHA1 3 3600 20060825081644 20060728081644 44537 Example.com. ONq5uFbBsvt6XRZdGA7TdZkRy9DcV3ZXS1CXL1AMZ78+MaS+YufBes9wUo/8rBJPoGrBx1u6HRiLOUjc+7LpLJa0NSGCCwPsispbAgNwBKNBYBHd2ftxWImchh1qp5OfFvjkSp9jftr4DlQOW3Sjz8/kvzNU3b+Cr+ERF6vlJks=
+
+    v05.example.com. 3600 IN DNSKEY 257 3 8         AQO5v4qLMhH88u+O2rSXA349FO48DlVX8cCQCW3P8edee/4moLd3wLwGm4SoUwX/TyP9HLoyMjCw1gGJPyvlR6IA4u1NAE7Ik2Vpj8NtA9y1evpOd6AYBYlRKon0SAsl5x7QqcN0lKaE2zklXh3lUdQTKrh94xAyXu+SsiSdaaVy+w==
+    v06.example.com. 3600 IN DNSKEY 257 3 RSASHA256 AQO5v4qLMhH88u+O2rSXA349FO48DlVX8cCQCW3P8edee/4moLd3wLwGm4SoUwX/TyP9HLoyMjCw1gGJPyvlR6IA4u1NAE7Ik2Vpj8NtA9y1evpOd6AYBYlRKon0SAsl5x7QqcN0lKaE2zklXh3lUdQTKrh94xAyXu+SsiSdaaVy+w==
+
+    v07.example.com. 3600 IN DNSKEY 257 3 10        AQO5v4qLMhH88u+O2rSXA349FO48DlVX8cCQCW3P8edee/4moLd3wLwGm4SoUwX/TyP9HLoyMjCw1gGJPyvlR6IA4u1NAE7Ik2Vpj8NtA9y1evpOd6AYBYlRKon0SAsl5x7QqcN0lKaE2zklXh3lUdQTKrh94xAyXu+SsiSdaaVy+w==
+    v08.example.com. 3600 IN DNSKEY 257 3 RSASHA512 AQO5v4qLMhH88u+O2rSXA349FO48DlVX8cCQCW3P8edee/4moLd3wLwGm4SoUwX/TyP9HLoyMjCw1gGJPyvlR6IA4u1NAE7Ik2Vpj8NtA9y1evpOd6AYBYlRKon0SAsl5x7QqcN0lKaE2zklXh3lUdQTKrh94xAyXu+SsiSdaaVy+w==
+result:
+
+  # --- Code 0 / DELETE
+  # https://datatracker.ietf.org/doc/html/rfc8078#section-4
+  - owner: v01.example.com.
+    class: IN
+    ttl: 3600
+    data: !Cds
+      rtype: Ds
+      key_tag: 0
+      algorithm: 0
+      digest_type: 0
+      digest: AA== # 0 in Base64
+
+  # https://datatracker.ietf.org/doc/html/rfc8078#section-4
+  - owner: v02.example.com.
+    class: IN
+    ttl: 3600
+    data: !Cds
+      rtype: Ds
+      key_tag: 0
+      algorithm: 0
+      digest_type: 0
+      digest: AA== # 0 in Base64
+
+  - owner: v03.example.com.
+    class: IN
+    ttl: 3600
+    data: !Rrsig
+      rtype: Rrsig
+      type_covered: A
+      algorithm: 5 # RSA/SHA-1 [RSASHA1] https://datatracker.ietf.org/doc/html/rfc4034#appendix-A.1
+      labels: 3
+      original_ttl: 3600
+      expiration: 1156493804
+      inception: 1154074604
+      key_tag: 44537
+      signer_name: example.com.
+      signature: ONq5uFbBsvt6XRZdGA7TdZkRy9DcV3ZXS1CXL1AMZ78+MaS+YufBes9wUo/8rBJPoGrBx1u6HRiLOUjc+7LpLJa0NSGCCwPsispbAgNwBKNBYBHd2ftxWImchh1qp5OfFvjkSp9jftr4DlQOW3Sjz8/kvzNU3b+Cr+ERF6vlJks=
+
+  - owner: v04.example.com.
+    class: IN
+    ttl: 3600
+    data: !Rrsig
+      rtype: Rrsig
+      type_covered: A
+      algorithm: 5 # RSA/SHA-1 [RSASHA1] https://datatracker.ietf.org/doc/html/rfc4034#appendix-A.1
+      labels: 3
+      original_ttl: 3600
+      expiration: 1156493804
+      inception: 1154074604
+      key_tag: 44537
+      signer_name: example.com.
+      signature: ONq5uFbBsvt6XRZdGA7TdZkRy9DcV3ZXS1CXL1AMZ78+MaS+YufBes9wUo/8rBJPoGrBx1u6HRiLOUjc+7LpLJa0NSGCCwPsispbAgNwBKNBYBHd2ftxWImchh1qp5OfFvjkSp9jftr4DlQOW3Sjz8/kvzNU3b+Cr+ERF6vlJks=
+
+  - owner: v05.example.com.
+    class: IN
+    ttl: 3600
+    data: !Dnskey
+      rtype: Dnskey
+      flags: 257
+      protocol: 3
+      algorithm: 8 # RSA/SHA-256 [RSASHA256] https://datatracker.ietf.org/doc/html/rfc5702#section-7
+      public_key: AQO5v4qLMhH88u+O2rSXA349FO48DlVX8cCQCW3P8edee/4moLd3wLwGm4SoUwX/TyP9HLoyMjCw1gGJPyvlR6IA4u1NAE7Ik2Vpj8NtA9y1evpOd6AYBYlRKon0SAsl5x7QqcN0lKaE2zklXh3lUdQTKrh94xAyXu+SsiSdaaVy+w==
+
+  - owner: v06.example.com.
+    class: IN
+    ttl: 3600
+    data: !Dnskey
+      rtype: Dnskey
+      flags: 257
+      protocol: 3
+      algorithm: 8 # RSA/SHA-256 [RSASHA256] https://datatracker.ietf.org/doc/html/rfc5702#section-7
+      public_key: AQO5v4qLMhH88u+O2rSXA349FO48DlVX8cCQCW3P8edee/4moLd3wLwGm4SoUwX/TyP9HLoyMjCw1gGJPyvlR6IA4u1NAE7Ik2Vpj8NtA9y1evpOd6AYBYlRKon0SAsl5x7QqcN0lKaE2zklXh3lUdQTKrh94xAyXu+SsiSdaaVy+w==
+
+  - owner: v07.example.com.
+    class: IN
+    ttl: 3600
+    data: !Dnskey
+      rtype: Dnskey
+      flags: 257
+      protocol: 3
+      algorithm: 10 # RSA/SHA-512 [RSASHA512] https://datatracker.ietf.org/doc/html/rfc5702#section-7
+      public_key: AQO5v4qLMhH88u+O2rSXA349FO48DlVX8cCQCW3P8edee/4moLd3wLwGm4SoUwX/TyP9HLoyMjCw1gGJPyvlR6IA4u1NAE7Ik2Vpj8NtA9y1evpOd6AYBYlRKon0SAsl5x7QqcN0lKaE2zklXh3lUdQTKrh94xAyXu+SsiSdaaVy+w==
+
+  - owner: v08.example.com.
+    class: IN
+    ttl: 3600
+    data: !Dnskey
+      rtype: Dnskey
+      flags: 257
+      protocol: 3
+      algorithm: 10 # RSA/SHA-512 [RSASHA512] https://datatracker.ietf.org/doc/html/rfc5702#section-7
+      public_key: AQO5v4qLMhH88u+O2rSXA349FO48DlVX8cCQCW3P8edee/4moLd3wLwGm4SoUwX/TyP9HLoyMjCw1gGJPyvlR6IA4u1NAE7Ik2Vpj8NtA9y1evpOd6AYBYlRKon0SAsl5x7QqcN0lKaE2zklXh3lUdQTKrh94xAyXu+SsiSdaaVy+w==

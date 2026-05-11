@@ -121,7 +121,6 @@ int_enum_fromstr_mnemonic!(
     u8,
     "unknown security algorithm"
 );
-
 // We want SecurityAlgorithm to parse from a mnemonic from compatibility with
 // some zonefiles, but always print as a number.
 int_enum_display_decimal!(SecurityAlgorithm, u8);
