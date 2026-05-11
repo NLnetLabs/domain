@@ -116,5 +116,9 @@ int_enum! {
     (PRIVATEOID => 254, "PRIVATEOID")
 }
 
-int_enum_str_decimal!(SecurityAlgorithm, u8);
+int_enum_str_with_decimal!(
+    SecurityAlgorithm,
+    u8,
+    "unknown security algorithm"
+);
 int_enum_zonefile_fmt_decimal!(SecurityAlgorithm, "algorithm");
