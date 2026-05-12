@@ -43,9 +43,10 @@ use super::{parsed, ReadableZone, ZoneStore};
 /// create a new [`Zone`] based on the outer backing store impl.
 ///
 /// Then to gain access to the additional functionality and state use
-// TODO
-/// [`ZoneStore::as_any()`] and attempt to [`Any::downcast()`] to a
+/// [`ZoneStore::as_any()`] and attempt to [`Any::downcast_ref()`] to a
 /// [`ZoneStore`] implementing type that was used earlier.
+///
+/// [`Any::downcast_ref()`]: std::any::Any
 #[derive(Clone, Debug)]
 pub struct Zone {
     store: Arc<dyn ZoneStore>,
