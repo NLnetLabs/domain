@@ -141,8 +141,8 @@ where
 /// This function may panic if the input records are not sorted in DNSSEC
 /// canonical order (see [`CanonicalOrd`]).
 ///
-/// [RFC 9077]: <https://www.rfc-editor.org/rfc/rfc9077.html>
-/// [RFC 9276]: <https://www.rfc-editor.org/rfc/rfc9276.html>
+/// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077.html
+/// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
 // TODO: Add mutable iterator based variant.
 // TODO: Get rid of &mut for GenerateNsec3Config.
 pub fn generate_nsec3s<N, Octs, Sort>(

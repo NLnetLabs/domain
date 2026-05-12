@@ -284,10 +284,8 @@ impl StubResolver {
 
     /// Synchronously perform a DNS operation atop a configured resolver.
     ///
-    /// This is like [`run`] but also takes a resolver configuration for
+    /// This is like [`Self::run()`] but also takes a resolver configuration for
     /// tailor-making your own resolver.
-    ///
-    /// [`run`]: Self::run
     pub fn run_with_conf<R, T, E, F>(conf: ResolvConf, op: F) -> R::Output
     where
         R: Future<Output = Result<T, E>> + Send + 'static,

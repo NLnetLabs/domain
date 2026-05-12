@@ -171,11 +171,10 @@ pub trait CanonicalName: BuildBytes + Ord {
     /// Compare domain names as if they were in the wire format, lowercased.
     ///
     /// This is equivalent to serializing both domain names in the wire format
-    /// using [`build_lowercased_bytes()`] and comparing the resulting byte
-    /// sequences. It is implemented automatically, but it could be overriden
+    /// using [`Self::build_lowercased_bytes()`] and comparing the resulting
+    /// byte sequences. It is implemented automatically, but it could be
+    /// overriden
     /// for performance.
-    ///
-    /// [`build_lowercased_bytes()`]: Self::build_lowercased_bytes()
     fn cmp_lowercase_composed(&self, other: &Self) -> Ordering {
         // Build both names into byte arrays.
 

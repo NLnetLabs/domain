@@ -89,7 +89,7 @@
 //! labels.
 //!
 //! [`FromStr`]: std::str::FromStr
-//! [_punycode_]: <https://datatracker.ietf.org/doc/html/rfc3492>
+//! [_punycode_]: https://datatracker.ietf.org/doc/html/rfc3492
 
 pub use self::absolute::{Name, NameError};
 pub use self::builder::{
