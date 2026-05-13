@@ -51,18 +51,19 @@ pub type ScannedString = Str<Bytes>;
 /// A value of this types holds data to be scanned in memory and allows
 /// fetching entries by acting as an iterator.
 ///
-/// The type implements the `bytes::BufMut` trait for appending data directly
-/// into the memory buffer. The function [`load`][Self::load] can be used to
-/// create a value directly from a reader.
+/// The type implements the [`bytes::BufMut`] trait for appending data directly
+/// into the memory buffer. The function [`Self::load()`] can be used to create
+/// a value directly from a reader.
 ///
 /// Once data has been added, you can simply iterate over the value to get
-/// entries. The [`next_entry`][Self::next_entry] method provides an
-/// alternative with a more question mark friendly signature.
+/// entries. The [`Self::next_entry()`] method provides an alternative with a
+/// more question mark friendly signature.
 ///
 /// By default RFC 1035 validity checks are enabled. At present only the first
 /// check is implemented: "1. All RRs in the zonefile should have the same
-/// class". To disable strict validation call [`allow_invalid()`] prior to
-/// calling [`load()`].
+/// class". To disable strict validation call [`Self::allow_invalid()`] prior to
+/// calling [`Self::load()`].
+
 #[derive(Clone, Debug)]
 pub struct Zonefile {
     /// This is where we keep the data of the next entry.

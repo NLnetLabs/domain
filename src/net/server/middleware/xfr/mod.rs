@@ -39,11 +39,10 @@
 //! [RFC 5936]: https://www.rfc-editor.org/info/rfc5936
 //! [RFC 1995]: https://www.rfc-editor.org/info/rfc1995
 //! [`Request::metadata()`]: crate::net::server::message::Request::metadata
-//! [`TsigMiddlewareSvc`]:
-//!     crate::net::server::middleware::tsig::TsigMiddlewareSvc
-//! [`XfrDataProvider`]: super::data_provider::XfrDataProvider
-//! [`Zone`]: crate::net::zonetree::Zone
-//! [`ZoneTree`]: crate::net::zonetree::ZoneTree
+//! [`TsigMiddlewareSvc`]: super::tsig::TsigMiddlewareSvc
+//! [`XfrDataProvider`]: super::xfr::data_provider::XfrDataProvider
+//! [`Zone`]: crate::zonetree::Zone
+//! [`ZoneTree`]: crate::zonetree::ZoneTree
 mod axfr;
 mod batcher;
 mod ixfr;

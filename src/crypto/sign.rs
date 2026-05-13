@@ -175,9 +175,7 @@ pub trait SignRaw {
     /// The public key.
     ///
     /// This can be used to verify produced signatures.  It must use the same
-    /// algorithm as returned by [`algorithm()`].
-    ///
-    /// [`algorithm()`]: Self::algorithm()
+    /// algorithm as returned by [`Self::algorithm()`].
     fn dnskey(&self) -> Dnskey<Vec<u8>>;
 
     /// Sign the given bytes.
