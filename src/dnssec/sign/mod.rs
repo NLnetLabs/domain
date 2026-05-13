@@ -71,7 +71,10 @@
 //! - Signing of unsorted zones, record collections must be sorted according
 //!   to [`CanonicalOrd`].
 //! - Signing of
-#![cfg_attr(feature = "unstable-zonetree", doc = "[`zonetree::Zone`](crate::zonetree::Zone)")]
+#![cfg_attr(
+    feature = "unstable-zonetree",
+    doc = "[`zonetree::Zone`](crate::zonetree::Zone)"
+)]
 #![cfg_attr(not(feature = "unstable-zonetree"), doc = "`Zone`")]
 //!   types or via an [`core::iter::Iterator`] over
 //!   [`Record`]s, only signing of slices is supported.
