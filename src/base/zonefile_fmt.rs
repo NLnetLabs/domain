@@ -82,7 +82,7 @@ pub trait FormatWriter: Sized {
 
     /// End a block of grouped tokens
     ///
-    /// This might push `'('` to the zonefile, but may be ignored by the
+    /// This might push `')'` to the zonefile, but may be ignored by the
     /// [`FormatWriter`].
     fn end_block(&mut self) -> Result;
 
