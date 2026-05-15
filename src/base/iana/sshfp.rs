@@ -38,7 +38,8 @@ int_enum! {
 
 }
 
-int_enum_str_decimal!(SshfpType, u8);
+int_enum_fromstr_decimal!(SshfpType, u8);
+int_enum_display_decimal!(SshfpType, u8);
 int_enum_zonefile_fmt_decimal!(SshfpType, "fingerprint type");
 
 //------------ SshfpAlgorithm ------------------------------------------------
@@ -87,5 +88,6 @@ int_enum! {
     (ED448 => 6, "Ed448")
 }
 
-int_enum_str_decimal!(SshfpAlgorithm, u8);
+int_enum_fromstr_decimal!(SshfpAlgorithm, u8);
+int_enum_display_decimal!(SshfpAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(SshfpAlgorithm, "public key algorithm");

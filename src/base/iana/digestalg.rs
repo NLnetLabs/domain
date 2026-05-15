@@ -42,7 +42,8 @@ int_enum! {
     (SHA384 => 4, "SHA-384")
 }
 
-int_enum_str_decimal!(DigestAlgorithm, u8);
+int_enum_fromstr_decimal!(DigestAlgorithm, u8);
+int_enum_display_decimal!(DigestAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(DigestAlgorithm, "digest type");
 
 //============ Tests =========================================================

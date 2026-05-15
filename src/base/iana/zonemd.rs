@@ -20,7 +20,8 @@ int_enum! {
     (SIMPLE => 1, "SIMPLE")
 }
 
-int_enum_str_decimal!(ZonemdScheme, u8);
+int_enum_fromstr_decimal!(ZonemdScheme, u8);
+int_enum_display_decimal!(ZonemdScheme, u8);
 int_enum_zonefile_fmt_decimal!(ZonemdScheme, "scheme");
 
 //------------ ZonemdAlgorithm -----------------------------------------------
@@ -46,5 +47,6 @@ int_enum! {
     (SHA512 => 2, "SHA512")
 }
 
-int_enum_str_decimal!(ZonemdAlgorithm, u8);
+int_enum_fromstr_decimal!(ZonemdAlgorithm, u8);
+int_enum_display_decimal!(ZonemdAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(ZonemdAlgorithm, "hash algorithm");

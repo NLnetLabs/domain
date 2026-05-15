@@ -35,7 +35,8 @@ int_enum! {
     (EDDSA => 4, "EdDSA")
 }
 
-int_enum_str_decimal!(IpseckeyAlgorithm, u8);
+int_enum_fromstr_decimal!(IpseckeyAlgorithm, u8);
+int_enum_display_decimal!(IpseckeyAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(IpseckeyAlgorithm, "ipseckey algorithm");
 
 //------------ IpseckeyGateway -----------------------------------------------
@@ -67,5 +68,6 @@ int_enum! {
     (NAME => 3, "NAME")
 }
 
-int_enum_str_decimal!(IpseckeyGatewayType, u8);
+int_enum_fromstr_decimal!(IpseckeyGatewayType, u8);
+int_enum_display_decimal!(IpseckeyGatewayType, u8);
 int_enum_zonefile_fmt_decimal!(IpseckeyGatewayType, "ipseckey gateway type");

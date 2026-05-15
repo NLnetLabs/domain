@@ -116,9 +116,13 @@ int_enum! {
     (PRIVATEOID => 254, "PRIVATEOID")
 }
 
-int_enum_str_with_decimal!(
+int_enum_fromstr_mnemonic!(
     SecurityAlgorithm,
     u8,
     "unknown security algorithm"
 );
+
+// We want SecurityAlgorithm to parse from a mnemonic from compatibility with
+// some zonefiles, but always print as a number.
+int_enum_display_decimal!(SecurityAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(SecurityAlgorithm, "algorithm");
