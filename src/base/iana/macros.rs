@@ -544,3 +544,29 @@ macro_rules! from_str_error {
         }
     };
 }
+
+//------------ Tests ---------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+    use crate::base::iana::SecurityAlgorithm;
+    use alloc::string::String;
+
+    #[test]
+    fn security_algorithm_to_json_string() {
+        let secalg: SecurityAlgorithm = SecurityAlgorithm::DELETE;
+
+        let secalg_json_str: String = serde_json::to_string(&secalg).unwrap();
+
+        println!(
+            "#{secalg}#{secalg:?}#: #{secalg_json_str}#{secalg_json_str:?}#"
+        );
+
+        let secalg_from_str: Result<SecurityAlgorithm, serde_json::Error> =
+            serde_json::from_str(&secalg_json_str);
+
+        println!("{:?}", secalg_from_str);
+        assert!(secalg_from_str.is_ok())
+
+    }
+}
