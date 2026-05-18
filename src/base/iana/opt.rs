@@ -170,7 +170,8 @@ int_enum! {
     (DEVICE_ID => 26946, "DeviceId")
 }
 
-int_enum_str_with_decimal!(OptionCode, u16, "unknown option code");
+int_enum_fromstr_mnemonic!(OptionCode, u16, "unknown option code");
+int_enum_display_mnemonic!(OptionCode, u16, "unknown option code");
 int_enum_zonefile_fmt_with_decimal!(OptionCode);
 
 //============ Tests =========================================================

@@ -896,7 +896,8 @@ impl From<OptRcode> for TsigRcode {
     }
 }
 
-int_enum_str_with_decimal!(TsigRcode, u16, "unknown TSIG error");
+int_enum_fromstr_mnemonic!(TsigRcode, u16, "unknown TSIG error");
+int_enum_display_mnemonic!(TsigRcode, u16, "unknown TSIG error");
 int_enum_zonefile_fmt_with_decimal!(TsigRcode);
 
 //============ Error Types ===================================================

@@ -20,5 +20,6 @@ int_enum! {
     (SHA1 => 1, "SHA-1")
 }
 
-int_enum_str_decimal!(Nsec3HashAlgorithm, u8);
+int_enum_fromstr_decimal!(Nsec3HashAlgorithm, u8);
+int_enum_display_decimal!(Nsec3HashAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(Nsec3HashAlgorithm, "hash algorithm");

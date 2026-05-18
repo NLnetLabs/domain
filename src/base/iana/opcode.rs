@@ -81,5 +81,6 @@ int_enum! {
     (DSO => 6, "DSO")
 }
 
-int_enum_str_with_decimal!(Opcode, u8, "unknown opcode");
+int_enum_fromstr_mnemonic!(Opcode, u8, "unknown opcode");
+int_enum_display_mnemonic!(Opcode, u8, "unknown opcode");
 int_enum_zonefile_fmt_with_decimal!(Opcode);

@@ -32,7 +32,8 @@ int_enum! {
     (PRIVCERT => 255, "PrivCert")
 }
 
-int_enum_str_decimal!(TlsaCertificateUsage, u8);
+int_enum_fromstr_decimal!(TlsaCertificateUsage, u8);
+int_enum_display_decimal!(TlsaCertificateUsage, u8);
 int_enum_zonefile_fmt_decimal!(
     TlsaCertificateUsage,
     "certificate usage type"
@@ -64,7 +65,8 @@ int_enum! {
     (PRIVSEL => 255, "PrivSel")
 }
 
-int_enum_str_decimal!(TlsaSelector, u8);
+int_enum_fromstr_decimal!(TlsaSelector, u8);
+int_enum_display_decimal!(TlsaSelector, u8);
 int_enum_zonefile_fmt_decimal!(TlsaSelector, "selector");
 
 //------------ TlsaMatchingType ----------------------------------------------
@@ -95,5 +97,6 @@ int_enum! {
     (PRIVMATCH => 255, "PrivMatch")
 }
 
-int_enum_str_decimal!(TlsaMatchingType, u8);
+int_enum_fromstr_decimal!(TlsaMatchingType, u8);
+int_enum_display_decimal!(TlsaMatchingType, u8);
 int_enum_zonefile_fmt_decimal!(TlsaMatchingType, "matching type");
