@@ -552,6 +552,7 @@ mod test {
     use crate::base::iana::SecurityAlgorithm;
     use alloc::string::String;
 
+    #[cfg(feature = "serde")]
     #[test]
     fn security_algorithm_to_json_string() {
         let secalg: SecurityAlgorithm = SecurityAlgorithm::DELETE;
@@ -567,6 +568,5 @@ mod test {
 
         println!("{:?}", secalg_from_str);
         assert!(secalg_from_str.is_ok())
-
     }
 }

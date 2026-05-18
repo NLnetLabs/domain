@@ -114,8 +114,7 @@ mod test {
         display_repr: String,       // Display MUST result in this String
         fromstr_list: &[&str], // `&[&str]` `FromStr`s MUST result in `test_value`
         zonefile_fmt_value: String, // ZonefileFmt MUST result in this String
-    ) -> ()
-    where
+    ) where
         T: Display + ZonefileFmt + FromStr + PartialEq + Debug,
         <T as core::str::FromStr>::Err: core::fmt::Debug,
     {
@@ -129,9 +128,9 @@ mod test {
         for value in fromstr_list {
             // FromStr mnemonic
             assert_eq!(
-                value
-                    .parse::<T>()
-                    .expect(&format!("FromStr failed with {value}")),
+                value.parse::<T>().unwrap_or_else(|_| panic!(
+                    "FromStr failed with {value}"
+                )),
                 test_value,
                 "FromStr representation"
             );
