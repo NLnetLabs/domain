@@ -545,16 +545,263 @@ macro_rules! from_str_error {
     };
 }
 
+// --- TODO: NEW VERSION, FINISH IT!
+
+/// --- FromStrError ---
+/// This macro defines a new struct which is used as an error type in
+/// core::str::FromStr. The description is used to std::fmt::Display the
+/// error.
+macro_rules! instantiate_fromstrerror_with_error_description {
+    ($error_description:expr) => {
+        #[derive(Clone, Debug)]
+        pub struct FromStrError(());
+
+        impl core::error::Error for FromStrError {
+            fn description(&self) -> &str {
+                $error_description
+            }
+        }
+
+        impl core::fmt::Display for FromStrError {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
+                $error_description.fmt(f)
+            }
+        }
+    };
+}
+// ---
+
+/// --- FromBytes / FromStr --- COMBINATION VERSION
+/// This macro implements core::str::FromStr and the function from_bytes(). It
+/// tries to parse the bytes as mnemonic first and falls back to parsing it as
+/// an integer if that is not possible.
+macro_rules! int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer {
+    ($enum_type:ident) => {
+        impl $enum_type {
+            #[must_use]
+            pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+                $enum_type::from_mnemonic(bytes).or_else(|| {
+                    core::str::from_utf8(bytes).ok().and_then(|r| {
+                        r.parse().ok().map($enum_type::from_int)
+                    })
+                })
+            }
+        }
+
+        impl core::str::FromStr for $enum_type {
+            type Err = FromStrError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                // We assume all mnemonics are always ASCII, so using
+                // the bytes representation of `s` is safe.
+                match $enum_type::from_mnemonic(s.as_bytes()) {
+                    Some(res) => Ok(res),
+                    None => {
+                        if let Ok(res) = s.parse() {
+                            Ok($enum_type::from_int(res))
+                        } else {
+                            Err(FromStrError(()))
+                        }
+                    }
+                }
+            }
+        }
+    };
+}
+// ---
+
+/// --- FromBytes / FromStr --- PREFIX VERSION
+/// This macro implements core::str::FromStr and the function from_bytes(). It
+/// tries to parse the bytes as mnemonic first and falls back to parsing it as
+/// an integer with a specific prefix if that is not possible.
+macro_rules! int_enum_impl_fromstr_frombytes_from_mnemonics_or_prefix {
+    ($enum_type:ident, $str_prefix:expr, $prefix_bytes:expr) => {
+        impl $enum_type {
+            #[must_use]
+            pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+                $enum_type::from_mnemonic(bytes).or_else(|| {
+                    if bytes.len() <= $prefix_bytes.len() {
+                        return None;
+                    }
+                    let (l, r) = bytes.split_at($prefix_bytes.len());
+                    if !l.eq_ignore_ascii_case($prefix_bytes) {
+                        return None;
+                    }
+                    let r = match core::str::from_utf8(r) {
+                        Ok(r) => r,
+                        Err(_) => return None,
+                    };
+                    r.parse().ok().map($enum_type::from_int)
+                })
+            }
+        }
+
+        impl core::str::FromStr for $enum_type {
+            type Err = FromStrError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                // We assume all mnemonics are always ASCII, so using
+                // the bytes representation of `s` is safe.
+                match $enum_type::from_mnemonic(s.as_bytes()) {
+                    Some(res) => Ok(res),
+                    None => {
+                        if let Some((n, _)) =
+                            s.char_indices().nth($str_prefix.len())
+                        {
+                            let (l, r) = s.split_at(n);
+                            if l.eq_ignore_ascii_case($str_prefix) {
+                                let value = match r.parse() {
+                                    Ok(x) => x,
+                                    Err(..) => return Err(FromStrError(())),
+                                };
+                                Ok($enum_type::from_int(value))
+                            } else {
+                                Err(FromStrError(()))
+                            }
+                        } else {
+                            Err(FromStrError(()))
+                        }
+                    }
+                }
+            }
+        }
+    };
+}
+// ---
+
+/// --- Display --- COMBINATION VERSION
+/// This macro implements std::fmt::Display. If the value has a mnemonic it
+/// formats the string as "<mnemonic>(<integer>)" including the interger in
+/// parenthesis. If the value does not have a mnemonic it falls back to the
+/// integer and formats the String as "<integer>".
+macro_rules! int_enum_impl_display_mnemonics_with_integer_fallback_integer {
+    ($enum_type:ident) => {
+        impl std::fmt::Display for $enum_type {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
+                match self.to_mnemonic_str() {
+                    Some(m) => {
+                        write!(f, "{m}({})", self.to_int())
+                    }
+                    None => {
+                        write!(f, "{}", self.to_int())
+                    }
+                }
+            }
+        }
+    };
+}
+// ---
+
+/// --- Display --- COMBINATION VERSION
+/// This macro implements std::fmt::Display. If the value has a mnemonic it
+/// formats the string as "<mnemonic>". If the value does not have a mnemonic
+/// it falls back to the integer and formats the String as "<integer>".
+macro_rules! int_enum_impl_display_mnemonics_fallback_integer {
+    ($enum_type:ident) => {
+        impl std::fmt::Display for $enum_type {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
+                match self.to_mnemonic_str() {
+                    Some(m) => {
+                        write!(f, "{}", m)
+                    }
+                    None => {
+                        write!(f, "{}", self.to_int())
+                    }
+                }
+            }
+        }
+    };
+}
+// ---
+
+/// --- Serialization / Deserialization --- INTEGER VERSION
+/// This macro implements serde::Serialize and serde::Deserialize. The token
+/// represented in the JSON string is an integer without quotes surrounding
+/// it.
+/// {
+///    "value": 42
+/// }
+macro_rules! int_enum_impl_serde_to_and_from_integer {
+    ($enum_type:ident) => {
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $enum_type {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                self.to_int().serialize(serializer)
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $enum_type {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                u8::deserialize(deserializer).map(Into::into)
+            }
+        }
+    };
+}
+// ---
+
+/// --- Serialization / Deserialization --- MNEMONIC VERSION
+/// This macro implements serde::Serialize and serde::Deserialize. The token
+/// represented in the JSON string is a mnemonic in quotes if available or an
+/// integer without quotes surrounding
+/// it.
+/// {
+///    "value": "SHA1",
+///    "value2": 42
+/// }
+macro_rules! int_enum_impl_serde_to_and_from_mnemonic {
+    ($enum_type:ident, $enum_integer_type:ident) => {
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $enum_type {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                if serializer.is_human_readable() {
+                    serializer.collect_str(&format_args!("{}", self))
+                } else {
+                    self.to_int().serialize(serializer)
+                }
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $enum_type {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                use crate::base::serde::DeserializeNativeOrStr;
+
+                $enum_integer_type::deserialize_native_or_str(deserializer)
+            }
+        }
+    };
+}
+// ---
+
 //------------ Tests ---------------------------------------------------------
 
 #[cfg(test)]
 mod test {
-    use crate::base::iana::SecurityAlgorithm;
-    use alloc::string::String;
-
     #[cfg(feature = "serde")]
     #[test]
     fn security_algorithm_to_json_string() {
+        use crate::base::iana::SecurityAlgorithm;
+        use alloc::string::String;
         let secalg: SecurityAlgorithm = SecurityAlgorithm::DELETE;
 
         let secalg_json_str: String = serde_json::to_string(&secalg).unwrap();

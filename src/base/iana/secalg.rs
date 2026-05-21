@@ -116,12 +116,22 @@ int_enum! {
     (PRIVATEOID => 254, "PRIVATEOID")
 }
 
-int_enum_fromstr_mnemonic!(
-    SecurityAlgorithm,
-    u8,
+scan_impl!(SecurityAlgorithm);
+
+int_enum_zonefile_fmt_decimal!(SecurityAlgorithm, "algorithm");
+
+// Display
+int_enum_impl_display_mnemonics_with_integer_fallback_integer!(
+    SecurityAlgorithm
+);
+
+// FromStrError
+instantiate_fromstrerror_with_error_description!(
     "unknown security algorithm"
 );
-// We want SecurityAlgorithm to parse from a mnemonic from compatibility with
-// some zonefiles, but always print as a number.
-int_enum_display_decimal!(SecurityAlgorithm, u8);
-int_enum_zonefile_fmt_decimal!(SecurityAlgorithm, "algorithm");
+
+// serde::Serialize / serde::Deserialize
+int_enum_impl_serde_to_and_from_integer!(SecurityAlgorithm);
+
+// core::str::FromStr / from_bytes()
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(SecurityAlgorithm);

@@ -56,8 +56,23 @@ int_enum! {
     (ANY => 0xFF, "*")
 }
 
-int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
+scan_impl!(Class);
+
 int_enum_zonefile_fmt_with_prefix!(Class, "CLASS");
+
+// Display
+int_enum_impl_display_mnemonics_fallback_integer!(Class);
+
+// FromStrError
+instantiate_fromstrerror_with_error_description!("unknown class");
+
+// serde::Serialize / serde::Deserialize
+int_enum_impl_serde_to_and_from_mnemonic!(Class, u16);
+
+// core::str::FromStr / from_bytes()
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_prefix!(
+    Class, "CLASS", b"CLASS"
+);
 
 //============ Tests =========================================================
 

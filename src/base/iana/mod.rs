@@ -76,6 +76,7 @@ pub mod svcb;
 pub mod tlsa;
 pub mod zonemd;
 
+#[cfg(feature = "serde")]
 #[cfg(test)]
 mod test {
     use crate::base::iana::class::Class;
@@ -114,8 +115,15 @@ mod test {
         display_repr: String,       // Display MUST result in this String
         fromstr_list: &[&str], // `&[&str]` `FromStr`s MUST result in `test_value`
         zonefile_fmt_value: String, // ZonefileFmt MUST result in this String
+        serde_serialize_value: String, // ZonefileFmt MUST result in this String
     ) where
-        T: Display + ZonefileFmt + FromStr + PartialEq + Debug,
+        T: Display
+            + ZonefileFmt
+            + FromStr
+            + PartialEq
+            + Debug
+            + serde::Serialize
+            + for<'a> serde::Deserialize<'a>,
         <T as core::str::FromStr>::Err: core::fmt::Debug,
     {
         // Display
@@ -144,6 +152,28 @@ mod test {
             format!("{display_zonefile}"),
             "ZonefileFmt representation"
         );
+
+        // serde::Serialize
+        assert_eq!(
+            serde_serialize_value,
+            serde_json::to_string(&test_value).unwrap(),
+            "serde_json::to_string(&test_value)"
+        );
+
+        // serde::Deserialize
+        let value_as_json_string =
+            serde_json::to_string(&test_value).unwrap();
+
+        println!(
+            "test_value as json string is #{}# without the #",
+            value_as_json_string
+        );
+
+        assert_eq!(
+            test_value,
+            serde_json::from_str(&value_as_json_string).unwrap(),
+            "serde_json::from_str(&value_as_json_string)"
+        );
     }
 
     #[test]
@@ -153,6 +183,7 @@ mod test {
             "IN".into(),
             &["IN", "CLASS1"],
             "IN".into(),
+            r#""IN""#.into(),
         );
     }
 
@@ -163,6 +194,7 @@ mod test {
             "2".into(),
             &["2"],
             "2".into(),
+            r#"2"#.into(),
         );
     }
 
@@ -179,6 +211,7 @@ mod test {
             "3".into(),
             &["3"],
             "3".into(),
+            r#"3"#.into(),
         );
     }
 
@@ -189,6 +222,7 @@ mod test {
             "0".into(),
             &["0"],
             "0".into(),
+            r#"0"#.into(),
         );
     }
 
@@ -199,6 +233,7 @@ mod test {
             "1".into(),
             &["1"],
             "1".into(),
+            r#"1"#.into(),
         );
     }
 
@@ -209,6 +244,7 @@ mod test {
             "QUERY(0)".into(),
             &["0"],
             "QUERY".into(),
+            r#""QUERY""#.into(),
         );
     }
 
@@ -219,6 +255,7 @@ mod test {
             "COOKIE(10)".into(),
             &["10"],
             "COOKIE".into(),
+            r#""COOKIE""#.into(),
         );
     }
 
@@ -241,6 +278,7 @@ mod test {
             "BADCOOKIE(23)".into(),
             &["23", "BADCOOKIE"],
             "BADCOOKIE".into(),
+            r#""BADCOOKIE""#.into(),
         );
     }
 
@@ -251,6 +289,7 @@ mod test {
             "MX".into(),
             &["MX", "TYPE15"],
             "MX".into(),
+            r#""MX""#.into(),
         );
     }
 
@@ -258,9 +297,10 @@ mod test {
     fn validate_security_algorithm_representation() {
         validate_generic_representation(
             SecurityAlgorithm::DELETE,
-            "0".into(),
-            &["0", "DELETE"],
-            "0".into(),
+            "DELETE(0)".into(),
+            &["0", "DELETE"], // SPECIAL, read from mnemonic and int
+            "0".into(),       // ...but print as integer
+            r#"0"#.into(),
         );
     }
 
@@ -271,6 +311,7 @@ mod test {
             "4".into(),
             &["4"],
             "4".into(),
+            r#"4"#.into(),
         );
     }
 
@@ -281,6 +322,7 @@ mod test {
             "2".into(),
             &["2"],
             "2".into(),
+            r#"2"#.into(),
         );
     }
 
@@ -291,6 +333,7 @@ mod test {
             "alpn".into(),
             &["KEY1"],
             "alpn".into(),
+            r#""alpn""#.into(),
         );
     }
 
@@ -301,6 +344,7 @@ mod test {
             "3".into(),
             &["3"],
             "3".into(),
+            r#"3"#.into(),
         );
     }
 
@@ -311,6 +355,7 @@ mod test {
             "0".into(),
             &["0"],
             "0".into(),
+            r#"0"#.into(),
         );
     }
 
@@ -321,6 +366,7 @@ mod test {
             "0".into(),
             &["0"],
             "0".into(),
+            r#"0"#.into(),
         );
     }
 
@@ -331,6 +377,7 @@ mod test {
             "2".into(),
             &["2"],
             "2".into(),
+            "2".into(),
         );
     }
 
@@ -340,6 +387,7 @@ mod test {
             ZonemdScheme::SIMPLE,
             "1".into(),
             &["1"],
+            "1".into(),
             "1".into(),
         );
     }
