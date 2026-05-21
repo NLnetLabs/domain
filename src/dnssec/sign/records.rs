@@ -436,6 +436,9 @@ impl<'a, N, D> Rrset<'a, N, D> {
         if slice.is_empty() {
             Err(SigningError::EmptyRecordSlice)
         } else {
+            // This should not panic but return an error if check_ttl
+            // fails. However, other code cannot handle errors.
+            Rrset::check_ttls(&slice).expect("TTLs should be the same");
             Ok(Rrset { slice })
         }
     }
@@ -446,9 +449,13 @@ impl<'a, N, D> Rrset<'a, N, D> {
         if slice.is_empty() {
             Err(SigningError::EmptyRecordSlice)
         } else {
-            Ok(Rrset {
-                slice: SliceRefsOrOwned::new_from_refs(slice),
-            })
+            let slice = SliceRefsOrOwned::new_from_refs(slice);
+
+            // This should not panic but return an error if check_ttl
+            // fails. However, other code cannot handle errors.
+            Rrset::check_ttls(&slice).expect("TTLs should be the same");
+
+            Ok(Rrset { slice })
         }
     }
 
@@ -458,9 +465,13 @@ impl<'a, N, D> Rrset<'a, N, D> {
         if slice.is_empty() {
             Err(SigningError::EmptyRecordSlice)
         } else {
-            Ok(Rrset {
-                slice: SliceRefsOrOwned::new_from_owned(slice),
-            })
+            let slice = SliceRefsOrOwned::new_from_owned(slice);
+
+            // This should not panic but return an error if check_ttl
+            // fails. However, other code cannot handle errors.
+            Rrset::check_ttls(&slice).expect("TTLs should be the same");
+
+            Ok(Rrset { slice })
         }
     }
 
@@ -498,6 +509,16 @@ impl<'a, N, D> Rrset<'a, N, D> {
 
     pub fn into_inner(self) -> SliceRefsOrOwned<'a, Record<N, D>> {
         self.slice
+    }
+
+    fn check_ttls(
+        slice: &SliceRefsOrOwned<'a, Record<N, D>>,
+    ) -> Result<(), SigningError> {
+        let first_ttl = slice.first().expect("slice is not empty").ttl();
+        if slice.iter().any(|r| r.ttl() != first_ttl) {
+            return Err(SigningError::MultipleTtlValues);
+        }
+        Ok(())
     }
 }
 
@@ -602,9 +623,7 @@ where
         }
         let (res, slice) = self.slice.split_at(end);
         self.slice = slice;
-        Some(
-            Rrset::new(res).expect("res is not empty so new should not fail"),
-        )
+        Some(Rrset::new(res).expect("Rrset::new should not fail"))
     }
 }
 
