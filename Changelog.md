@@ -13,10 +13,15 @@ Improvements
 
 Bug fixes
 
+Unstable features
+
+* For `unstable-crypto` add key generation and signing for RSASHA512. ([#659])
+
 Other changes
 
 
 [#641]: https://github.com/NLnetLabs/domain/pull/641
+[#659]: https://github.com/NLnetLabs/domain/pull/659
 [@soywod]: https://github.com/soywod
 
 
