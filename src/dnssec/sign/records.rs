@@ -429,7 +429,10 @@ pub struct Rrset<'a, N, D> {
     slice: SliceRefsOrOwned<'a, Record<N, D>>,
 }
 
-impl<'a, N, D> Rrset<'a, N, D> {
+impl<'a, N, D> Rrset<'a, N, D>
+where
+    D: RecordData,
+{
     pub fn new(
         slice: SliceRefsOrOwned<'a, Record<N, D>>,
     ) -> Result<Self, SigningError> {
@@ -514,7 +517,14 @@ impl<'a, N, D> Rrset<'a, N, D> {
     fn check_ttls(
         slice: &SliceRefsOrOwned<'a, Record<N, D>>,
     ) -> Result<(), SigningError> {
-        let first_ttl = slice.first().expect("slice is not empty").ttl();
+        let first = slice.first().expect("slice is not empty");
+        if first.rtype() == Rtype::RRSIG {
+            // RRSIG records should not be grouped into RRsets. However,
+            // code may still try do that and ignore the RRSIG records later.
+            // Allow RRSIG records to have different TTLs.
+            return Ok(());
+        }
+        let first_ttl = first.ttl();
         if slice.iter().any(|r| r.ttl() != first_ttl) {
             return Err(SigningError::MultipleTtlValues);
         }
