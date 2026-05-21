@@ -329,6 +329,18 @@ pub mod sign {
             rng: Arc<dyn ring::rand::SecureRandom + Send + Sync>,
         },
 
+        /// An RSA/SHA-512 keypair.
+        RsaSha512 {
+            /// They RSA key.
+            key: RsaKeyPair,
+
+            /// Flags from [`Dnskey`].
+            flags: u16,
+
+            /// Random number generator.
+            rng: Arc<dyn ring::rand::SecureRandom + Send + Sync>,
+        },
+
         /// An ECDSA P-256/SHA-256 keypair.
         EcdsaP256Sha256 {
             /// The ECDSA key.
@@ -370,12 +382,20 @@ pub mod sign {
         {
             let rng = Arc::new(SystemRandom::new());
             match secret {
-                SecretKeyBytes::RsaSha256(s) => {
+                SecretKeyBytes::RsaSha256(s)
+                | SecretKeyBytes::RsaSha512(s) => {
                     let rsa_public = signature::RsaPublicKeyComponents {
                         n: s.n.to_vec(),
                         e: s.e.to_vec(),
                     };
-                    let p = PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, rsa_public).dnskey(public.flags());
+                    let p = if matches!(secret, SecretKeyBytes::RsaSha256(_))
+                    {
+                        PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, rsa_public).dnskey(public.flags())
+                    } else if matches!(secret, SecretKeyBytes::RsaSha512(_)) {
+                        PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY, rsa_public).dnskey(public.flags())
+                    } else {
+                        unreachable!();
+                    };
                     // Ensure that the public and private key match.
                     if p != *public {
                         return Err(FromBytesError::InvalidKey);
@@ -398,13 +418,26 @@ pub mod sign {
                         dQ: s.d_q.expose_secret(),
                         qInv: s.q_i.expose_secret(),
                     };
-                    ring::signature::RsaKeyPair::from_components(&components)
-                        .map_err(|_| FromBytesError::InvalidKey)
-                        .map(|key| Self::RsaSha256 {
+                    let key_pair =
+                        ring::signature::RsaKeyPair::from_components(
+                            &components,
+                        )
+                        .map_err(|_| FromBytesError::InvalidKey);
+                    if matches!(secret, SecretKeyBytes::RsaSha256(_)) {
+                        key_pair.map(|key| Self::RsaSha256 {
                             key,
                             flags: public.flags(),
                             rng,
                         })
+                    } else if matches!(secret, SecretKeyBytes::RsaSha512(_)) {
+                        key_pair.map(|key| Self::RsaSha512 {
+                            key,
+                            flags: public.flags(),
+                            rng,
+                        })
+                    } else {
+                        unreachable!();
+                    }
                 }
 
                 SecretKeyBytes::EcdsaP256Sha256(s) => {
@@ -477,6 +510,7 @@ pub mod sign {
         fn algorithm(&self) -> SecurityAlgorithm {
             match self {
                 Self::RsaSha256 { .. } => SecurityAlgorithm::RSASHA256,
+                Self::RsaSha512 { .. } => SecurityAlgorithm::RSASHA512,
                 Self::EcdsaP256Sha256 { .. } => {
                     SecurityAlgorithm::ECDSAP256SHA256
                 }
@@ -489,14 +523,21 @@ pub mod sign {
 
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
             match self {
-                Self::RsaSha256 { key, flags, rng: _ } => {
+                Self::RsaSha256 { key, flags, rng: _ }
+                | Self::RsaSha512 { key, flags, rng: _ } => {
                     let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
                         key.public().into();
                     let n = components.n;
                     let e = components.e;
                     let public_key =
                         signature::RsaPublicKeyComponents { n, e };
-                    let public = PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, public_key);
+                    let public = if matches!(self, Self::RsaSha256 { .. }) {
+                        PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, public_key)
+                    } else if matches!(self, Self::RsaSha512 { .. }) {
+                        PublicKey::Rsa(&signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY, public_key)
+                    } else {
+                        unreachable!();
+                    };
                     public.dnskey(*flags)
                 }
 
@@ -559,6 +600,16 @@ pub mod sign {
                     key.sign(pad, &**rng, data, &mut buf)
                         .map(|()| {
                             Signature::RsaSha256(buf.into_boxed_slice())
+                        })
+                        .map_err(|_| SignError)
+                }
+
+                Self::RsaSha512 { key, flags: _, rng } => {
+                    let mut buf = vec![0u8; key.public().modulus_len()];
+                    let pad = &ring::signature::RSA_PKCS1_SHA512;
+                    key.sign(pad, &**rng, data, &mut buf)
+                        .map(|()| {
+                            Signature::RsaSha512(buf.into_boxed_slice())
                         })
                         .map_err(|_| SignError)
                 }
@@ -689,6 +740,7 @@ pub mod sign {
 
         const KEYS: &[(SecurityAlgorithm, u16)] = &[
             (SecurityAlgorithm::RSASHA256, 60616),
+            (SecurityAlgorithm::RSASHA512, 46731),
             (SecurityAlgorithm::ECDSAP256SHA256, 42253),
             (SecurityAlgorithm::ECDSAP384SHA384, 33566),
             (SecurityAlgorithm::ED25519, 56037),
