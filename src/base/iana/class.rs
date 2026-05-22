@@ -56,12 +56,14 @@ int_enum! {
     (ANY => 0xFF, "*")
 }
 
+// int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
+
 scan_impl!(Class);
 
 int_enum_zonefile_fmt_with_prefix!(Class, "CLASS");
 
 // Display
-int_enum_impl_display_mnemonics_fallback_integer!(Class);
+int_enum_impl_display_mnemonics_fallback_prefix_integer!(Class, "CLASS");
 
 // FromStrError
 instantiate_fromstrerror_with_error_description!("unknown class");
