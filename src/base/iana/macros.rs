@@ -612,6 +612,44 @@ macro_rules! int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer {
     };
 }
 // ---
+//
+/// --- FromBytes / FromStr --- INTEGER VERSION
+/// This macro implements core::str::FromStr and the function from_bytes(). It
+/// parses the value from the integer associated with it.
+macro_rules! int_enum_impl_fromstr_frombytes_from_integer {
+    ($enum_type:ident) => {
+        impl $enum_type {
+            #[must_use]
+            pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+                $enum_type::from_mnemonic(bytes).or_else(|| {
+                    core::str::from_utf8(bytes).ok().and_then(|r| {
+                        r.parse().ok().map($enum_type::from_int)
+                    })
+                })
+            }
+        }
+
+        impl core::str::FromStr for $enum_type {
+            type Err = FromStrError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                // We assume all mnemonics are always ASCII, so using
+                // the bytes representation of `s` is safe.
+                match $enum_type::from_mnemonic(s.as_bytes()) {
+                    Some(res) => Ok(res),
+                    None => {
+                        if let Ok(res) = s.parse() {
+                            Ok($enum_type::from_int(res))
+                        } else {
+                            Err(FromStrError(()))
+                        }
+                    }
+                }
+            }
+        }
+    };
+}
+// ---
 
 /// --- FromBytes / FromStr --- PREFIX VERSION
 /// This macro implements core::str::FromStr and the function from_bytes(). It
@@ -698,7 +736,32 @@ macro_rules! int_enum_impl_display_mnemonics_with_integer_fallback_integer {
 }
 // ---
 
-/// --- Display --- COMBINATION VERSION
+/// --- Display --- MNEMONIC PREFIX VERSION
+/// This macro implements std::fmt::Display. If the value has a mnemonic it
+/// formats the string as "<mnemonic>". If the value does not have a mnemonic
+/// it falls back to the integer and formats the String as "<integer>".
+macro_rules! int_enum_impl_display_mnemonics_fallback_prefix_integer {
+    ($enum_type:ident, $prefix:expr) => {
+        impl std::fmt::Display for $enum_type {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
+                match self.to_mnemonic_str() {
+                    Some(m) => {
+                        write!(f, "{}", m)
+                    }
+                    None => {
+                        write!(f, "{}{}", $prefix, self.to_int())
+                    }
+                }
+            }
+        }
+    };
+}
+// ---
+
+/// --- Display --- MNEMONIC VERSION
 /// This macro implements std::fmt::Display. If the value has a mnemonic it
 /// formats the string as "<mnemonic>". If the value does not have a mnemonic
 /// it falls back to the integer and formats the String as "<integer>".
@@ -717,6 +780,23 @@ macro_rules! int_enum_impl_display_mnemonics_fallback_integer {
                         write!(f, "{}", self.to_int())
                     }
                 }
+            }
+        }
+    };
+}
+// ---
+//
+/// --- Display --- COMBINATION VERSION
+/// This macro implements std::fmt::Display. The value will always be formated
+/// with the integer associated with it.
+macro_rules! int_enum_impl_display_integer {
+    ($enum_type:ident) => {
+        impl std::fmt::Display for $enum_type {
+            fn fmt(
+                &self,
+                f: &mut core::fmt::Formatter<'_>,
+            ) -> core::fmt::Result {
+                    write!(f, "{}", self.to_int())
             }
         }
     };
@@ -754,11 +834,11 @@ macro_rules! int_enum_impl_serde_to_and_from_integer {
 }
 // ---
 
-/// --- Serialization / Deserialization --- MNEMONIC VERSION
+/// --- Serialization / Deserialization --- DISPLAY VERSION
 /// This macro implements serde::Serialize and serde::Deserialize. The token
-/// represented in the JSON string is a mnemonic in quotes if available or an
-/// integer without quotes surrounding
-/// it.
+/// represented in the JSON string is the same as the Display implementation
+/// in quotes. In the compact format the value is represented as the
+/// associated integer.
 /// {
 ///    "value": "SHA1",
 ///    "value2": 42
