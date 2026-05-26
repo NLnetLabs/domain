@@ -594,12 +594,23 @@ use core::fmt::Display;
 use std::string::String;
 use std::string::ToString;
 
+#[cfg(feature = "serde")]
 use serde::Deserialize;
+#[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "serde")]
 use crate::base::serde::DeserializeNativeOrStr;
 
 pub trait IanaEnum<'de>: Sized {
+    #[cfg(not(feature = "serde"))]
+    type INT: Default
+        + std::string::ToString
+        + crate::base::wire::Compose
+        + core::str::FromStr
+        + Into<Self>
+        + Display;
+    #[cfg(feature = "serde")]
     type INT: Default
         + std::string::ToString
         + crate::base::wire::Compose
@@ -642,11 +653,7 @@ pub trait IanaEnum<'de>: Sized {
     fn display_mnemonic_fallback_prefix_integer(&self) -> String {
         match self.get_mnemonic_str() {
             Some(m) => m.to_string(),
-            None => format!(
-                "{}{}",
-                Self::get_prefix(),
-                self.get_integer().to_string()
-            ),
+            None => format!("{}{}", Self::get_prefix(), self.get_integer()),
         }
     }
     fn display_mnemonic_with_integer(&self) -> String {
@@ -702,6 +709,7 @@ pub trait IanaEnum<'de>: Sized {
     }
 
     //--- serde::Serialize
+    #[cfg(feature = "serde")]
     fn serialize_to_integer<S: serde::Serializer>(
         &self,
         serializer: S,
@@ -709,12 +717,13 @@ pub trait IanaEnum<'de>: Sized {
         self.get_integer().serialize(serializer)
     }
 
+    #[cfg(feature = "serde")]
     fn serialize_to_mnemonic_fallback_integer<S: serde::Serializer>(
         &self,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         if !serializer.is_human_readable() {
-            return self.get_integer().serialize(serializer)
+            return self.get_integer().serialize(serializer);
         }
 
         match self.get_mnemonic_str() {
@@ -723,12 +732,13 @@ pub trait IanaEnum<'de>: Sized {
         }
     }
 
+    #[cfg(feature = "serde")]
     fn serialize_to_mnemonic_fallback_prefix_integer<S: serde::Serializer>(
         &self,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         if !serializer.is_human_readable() {
-            return self.get_integer().serialize(serializer)
+            return self.get_integer().serialize(serializer);
         }
 
         match self.get_mnemonic_str() {
@@ -739,18 +749,21 @@ pub trait IanaEnum<'de>: Sized {
     }
 
     //--- serde::Deserialize
+    #[cfg(feature = "serde")]
     fn deserialize_from_integer<D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Self, <D as serde::Deserializer<'de>>::Error> {
         Self::INT::deserialize(deserializer).map(Self::from_integer)
     }
 
+    #[cfg(feature = "serde")]
     fn deserialize_from_mnemonic_or_integer<D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Self, <D as serde::Deserializer<'de>>::Error> {
         Self::INT::deserialize_native_or_str(deserializer)
     }
 
+    #[cfg(feature = "serde")]
     fn deserialize_from_mnemonic_or_prefix_integer<
         D: serde::Deserializer<'de>,
     >(

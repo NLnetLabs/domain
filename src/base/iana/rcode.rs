@@ -18,10 +18,10 @@
 //  Note: Rcode and OptRcode don’t use the macros since they don’t use all the
 //  bits of the wrapped integer.
 
-use core::fmt;
-use core::str::FromStr;
 use crate::base::iana::macros::FromStrError;
 use crate::base::iana::macros::IanaEnum;
+use core::fmt;
+use core::str::FromStr;
 
 //------------ Rcode ---------------------------------------------------------
 

@@ -29,4 +29,3 @@ iana_enum! {
 }
 
 int_enum_zonefile_fmt_decimal!(Nsec3HashAlgorithm, "hash algorithm");
-
