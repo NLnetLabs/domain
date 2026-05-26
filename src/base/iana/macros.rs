@@ -786,7 +786,7 @@ macro_rules! int_enum_impl_display_mnemonics_fallback_integer {
 }
 // ---
 //
-/// --- Display --- COMBINATION VERSION
+/// --- Display --- INTEGER VERSION
 /// This macro implements std::fmt::Display. The value will always be formated
 /// with the integer associated with it.
 macro_rules! int_enum_impl_display_integer {
@@ -796,7 +796,7 @@ macro_rules! int_enum_impl_display_integer {
                 &self,
                 f: &mut core::fmt::Formatter<'_>,
             ) -> core::fmt::Result {
-                    write!(f, "{}", self.to_int())
+                write!(f, "{}", self.to_int())
             }
         }
     };
@@ -811,7 +811,7 @@ macro_rules! int_enum_impl_display_integer {
 ///    "value": 42
 /// }
 macro_rules! int_enum_impl_serde_to_and_from_integer {
-    ($enum_type:ident) => {
+    ($enum_type:ident, $enum_integer_type:ident) => {
         #[cfg(feature = "serde")]
         impl serde::Serialize for $enum_type {
             fn serialize<S: serde::Serializer>(
@@ -827,17 +827,16 @@ macro_rules! int_enum_impl_serde_to_and_from_integer {
             fn deserialize<D: serde::Deserializer<'de>>(
                 deserializer: D,
             ) -> Result<Self, D::Error> {
-                u8::deserialize(deserializer).map(Into::into)
+                $enum_integer_type::deserialize(deserializer).map(Into::into)
             }
         }
     };
 }
 // ---
 
-/// --- Serialization / Deserialization --- DISPLAY VERSION
+/// --- Serialization / Deserialization --- MNEMONIC FALLBACK INTEGER
 /// This macro implements serde::Serialize and serde::Deserialize. The token
-/// represented in the JSON string is the same as the Display implementation
-/// in quotes. In the compact format the value is represented as the
+/// represented in the JSON is the mnemonic version if possible otherwise the
 /// associated integer.
 /// {
 ///    "value": "SHA1",
@@ -852,7 +851,58 @@ macro_rules! int_enum_impl_serde_to_and_from_mnemonic {
                 serializer: S,
             ) -> Result<S::Ok, S::Error> {
                 if serializer.is_human_readable() {
-                    serializer.collect_str(&format_args!("{}", self))
+                    match self.to_mnemonic_str() {
+                        Some(m) => {
+                            serializer.collect_str(&format_args!("{}", m))
+                        }
+                        None => self.to_int().serialize(serializer),
+                    }
+                } else {
+                    self.to_int().serialize(serializer)
+                }
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $enum_type {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                use crate::base::serde::DeserializeNativeOrStr;
+
+                $enum_integer_type::deserialize_native_or_str(deserializer)
+            }
+        }
+    };
+}
+
+/// --- Serialization / Deserialization --- MNEMONIC FALLBACK PREFIX INTEGER
+/// This macro implements serde::Serialize and serde::Deserialize. The token
+/// represented in the JSON is the mnemonic version if possible otherwise the
+/// associated integer with a prefix.
+/// {
+///    "value": "SHA1",
+///    "value2": 42
+/// }
+macro_rules! int_enum_impl_serde_to_and_from_mnemonic_fallback_prefix {
+    ($enum_type:ident, $enum_integer_type:ident, $int_prefix:expr) => {
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $enum_type {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                if serializer.is_human_readable() {
+                    match self.to_mnemonic_str() {
+                        Some(m) => {
+                            serializer.collect_str(&format_args!("{}", m))
+                        }
+                        None => serializer.collect_str(&format_args!(
+                            "{}{}",
+                            $int_prefix,
+                            self.to_int()
+                        )),
+                    }
                 } else {
                     self.to_int().serialize(serializer)
                 }
@@ -873,6 +923,116 @@ macro_rules! int_enum_impl_serde_to_and_from_mnemonic {
 }
 // ---
 
+// --- TRY AGAIN VERSION 3 :)
+// Plan now is to only make one gianc function
+
+// (=> $name:ident, $int:ident; fmt:decimal, zonefile:decimal($zname:expr); $($variants:tt)*) => {
+macro_rules! iana_enum_implementation {
+    // INTEGER ONLY
+    (=> $name:ident, $int_type:ident;
+    fmt:integer) => {
+        instantiate_fromstrerror_with_error_description!(concat!(
+            "unknown ",
+            stringify!($ianatype),
+        ));
+
+        // fmt::Display INTEGER ONLY
+        int_enum_impl_display_integer!($name);
+        // FromStr and frombytes() INTEGER ONLY
+        int_enum_impl_fromstr_frombytes_from_integer!($name);
+        // JSON INTEGER ONLY
+        int_enum_impl_serde_to_and_from_integer!($name, $int_type);
+        // Zonefile Format INTEGER
+        int_enum_zonefile_fmt_decimal!($name, stringify!($name));
+    };
+
+    // MNEMONICS WITH PREFIX
+    (=> $name:ident, $int_type:ident;
+    fmt:mnemonic, prefix($int_prefix:expr, $int_byte_prefix:expr)) => {
+        // fmt::Display MNEMONICS fallback integer with prefix
+        int_enum_impl_display_mnemonics_fallback_prefix_integer!(
+            $name,
+            $int_prefix
+        );
+        // READ MNEMONICS fallback integer with prefix
+        int_enum_impl_fromstr_frombytes_from_mnemonics_or_prefix!(
+            $name,
+            $int_prefix,
+            $int_byte_prefix
+        );
+        // JSON MNEMONICS fallback integer with prefix
+        int_enum_impl_serde_to_and_from_mnemonic_fallback_prefix!(
+            $name,
+            $int_type,
+            $int_prefix
+        );
+        // Zonefile Format INTEGER
+        int_enum_zonefile_fmt_with_prefix!($name, $int_prefix);
+    };
+
+    // MNEMONICS BUT `fmt::Display` WITH INTEGER IN PARENTHESES
+    (=> $name:ident, $int_type:ident;
+    fmt:mnemonic_display_with_combination) => {
+        // fmt::Display MNEMONIC with () fallback integer only
+        int_enum_impl_display_mnemonics_with_integer_fallback_integer!($name);
+        // READ MNEMONIC
+        int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!($name);
+        // JSON MNEMONIC
+        int_enum_impl_serde_to_and_from_mnemonic!($name, $int_type);
+        // Zonefile Format MNEMONIC
+        int_enum_zonefile_fmt_with_decimal!($name);
+    };
+
+    // INTEGER with integer in parentheses for display
+    (=> $name:ident, $int_type:ident;
+    fmt:integer_display_with_combination) => {
+        // fmt::Display MNEMONIC with () fallback integer only
+        int_enum_impl_display_mnemonics_with_integer_fallback_integer!($name);
+        // READ MNEMONIC
+        int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!($name);
+        // JSON MNEMONIC
+        int_enum_impl_serde_to_and_from_integer!($name, $int_type);
+        // Zonefile Format MNEMONIC
+        int_enum_zonefile_fmt_decimal!($name, stringify!($name));
+    };
+}
+
+int_enum! {
+    =>
+    JannisTestEnum1, u8;
+    (A => 0, "A")
+    (B => 1, "B")
+}
+int_enum! {
+    =>
+    JannisTestEnum2, u8;
+    (A => 0, "A")
+    (B => 1, "B")
+}
+int_enum! {
+    =>
+    JannisTestEnum3, u8;
+    (A => 0, "A")
+    (B => 1, "B")
+}
+int_enum! {
+    =>
+    JannisTestEnum4, u8;
+    (A => 0, "A")
+    (B => 1, "B")
+}
+
+iana_enum_implementation!(=> JannisTestEnum1, u8;
+    fmt:integer);
+
+iana_enum_implementation!(=> JannisTestEnum2, u8;
+    fmt:mnemonic, prefix("J", b"J"));
+
+iana_enum_implementation!(=> JannisTestEnum3, u8;
+    fmt:mnemonic_display_with_combination);
+
+iana_enum_implementation!(=> JannisTestEnum4, u8;
+    fmt:integer_display_with_combination);
 //------------ Tests ---------------------------------------------------------
 
 #[cfg(test)]

@@ -42,24 +42,24 @@ int_enum! {
     (SHA384 => 4, "SHA-384")
 }
 
-// int_enum_fromstr_decimal!(DigestAlgorithm, u8);
-// int_enum_display_decimal!(DigestAlgorithm, u8);
-// int_enum_zonefile_fmt_decimal!(DigestAlgorithm, "digest type");
-scan_impl!(DigestAlgorithm);
-
+int_enum_fromstr_decimal!(DigestAlgorithm, u8);
+int_enum_display_decimal!(DigestAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(DigestAlgorithm, "digest type");
-
-// Display
-int_enum_impl_display_integer!(DigestAlgorithm);
-
-// FromStrError
-instantiate_fromstrerror_with_error_description!("unknown digest type");
-
-// serde::Serialize / serde::Deserialize
-int_enum_impl_serde_to_and_from_integer!(DigestAlgorithm);
-
-// core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_integer!(DigestAlgorithm);
+// scan_impl!(DigestAlgorithm);
+//
+// int_enum_zonefile_fmt_decimal!(DigestAlgorithm, "digest type");
+//
+// // Display
+// int_enum_impl_display_integer!(DigestAlgorithm);
+//
+// // FromStrError
+// instantiate_fromstrerror_with_error_description!("unknown digest type");
+//
+// // serde::Serialize / serde::Deserialize
+// int_enum_impl_serde_to_and_from_integer!(DigestAlgorithm, u8);
+//
+// // core::str::FromStr / from_bytes()
+// int_enum_impl_fromstr_frombytes_from_integer!(DigestAlgorithm);
 
 //============ Tests =========================================================
 

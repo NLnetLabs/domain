@@ -35,9 +35,29 @@ int_enum! {
     (EDDSA => 4, "EdDSA")
 }
 
-int_enum_fromstr_decimal!(IpseckeyAlgorithm, u8);
-int_enum_display_decimal!(IpseckeyAlgorithm, u8);
-int_enum_zonefile_fmt_decimal!(IpseckeyAlgorithm, "ipseckey algorithm");
+// int_enum_fromstr_decimal!(IpseckeyAlgorithm, u8);
+// int_enum_display_decimal!(IpseckeyAlgorithm, u8);
+// int_enum_zonefile_fmt_decimal!(IpseckeyAlgorithm, "ipseckey algorithm");
+
+scan_impl!(IpseckeyAlgorithm);
+
+int_enum_zonefile_fmt_decimal!(IpseckeyAlgorithm, "algorithm");
+
+// Display
+int_enum_impl_display_integer!(
+    IpseckeyAlgorithm
+);
+
+// FromStrError
+instantiate_fromstrerror_with_error_description!(
+    "unknown ipseckey algorithm"
+);
+
+// serde::Serialize / serde::Deserialize
+int_enum_impl_serde_to_and_from_integer!(IpseckeyAlgorithm, u8);
+
+// core::str::FromStr / from_bytes()
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(IpseckeyAlgorithm);
 
 //------------ IpseckeyGateway -----------------------------------------------
 
@@ -68,6 +88,26 @@ int_enum! {
     (NAME => 3, "NAME")
 }
 
-int_enum_fromstr_decimal!(IpseckeyGatewayType, u8);
-int_enum_display_decimal!(IpseckeyGatewayType, u8);
-int_enum_zonefile_fmt_decimal!(IpseckeyGatewayType, "ipseckey gateway type");
+// int_enum_fromstr_decimal!(IpseckeyGatewayType, u8);
+// int_enum_display_decimal!(IpseckeyGatewayType, u8);
+// int_enum_zonefile_fmt_decimal!(IpseckeyGatewayType, "ipseckey gateway type");
+
+scan_impl!(IpseckeyGatewayType);
+
+int_enum_zonefile_fmt_decimal!(IpseckeyGatewayType, "algorithm");
+
+// Display
+int_enum_impl_display_integer!(
+    IpseckeyGatewayType
+);
+
+// FromStrError
+// instantiate_fromstrerror_with_error_description!(
+//     "unknown ipseckey algorithm"
+// );
+
+// serde::Serialize / serde::Deserialize
+int_enum_impl_serde_to_and_from_integer!(IpseckeyGatewayType, u8);
+
+// core::str::FromStr / from_bytes()
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(IpseckeyGatewayType);

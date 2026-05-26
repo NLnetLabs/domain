@@ -81,6 +81,26 @@ int_enum! {
     (DSO => 6, "DSO")
 }
 
-int_enum_fromstr_mnemonic!(Opcode, u8, "unknown opcode");
-int_enum_display_mnemonic!(Opcode, u8, "unknown opcode");
+// int_enum_fromstr_mnemonic!(Opcode, u8, "unknown opcode");
+// int_enum_display_mnemonic!(Opcode, u8, "unknown opcode");
+// int_enum_zonefile_fmt_with_decimal!(Opcode);
+
+scan_impl!(Opcode);
+
 int_enum_zonefile_fmt_with_decimal!(Opcode);
+
+// Display
+int_enum_impl_display_mnemonics_with_integer_fallback_integer!(
+    Opcode
+);
+
+// FromStrError
+instantiate_fromstrerror_with_error_description!(
+    "unknown Opcode"
+);
+
+// serde::Serialize / serde::Deserialize
+int_enum_impl_serde_to_and_from_mnemonic!(Opcode, u8);
+
+// core::str::FromStr / from_bytes()
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(Opcode);

@@ -170,9 +170,29 @@ int_enum! {
     (DEVICE_ID => 26946, "DeviceId")
 }
 
-int_enum_fromstr_mnemonic!(OptionCode, u16, "unknown option code");
-int_enum_display_mnemonic!(OptionCode, u16, "unknown option code");
+// int_enum_fromstr_mnemonic!(OptionCode, u16, "unknown option code");
+// int_enum_display_mnemonic!(OptionCode, u16, "unknown option code");
+// int_enum_zonefile_fmt_with_decimal!(OptionCode);
+
+scan_impl!(OptionCode);
+
 int_enum_zonefile_fmt_with_decimal!(OptionCode);
+
+// Display
+int_enum_impl_display_mnemonics_with_integer_fallback_integer!(
+    OptionCode
+);
+
+// FromStrError
+instantiate_fromstrerror_with_error_description!(
+    "unknown OptionCode"
+);
+
+// serde::Serialize / serde::Deserialize
+int_enum_impl_serde_to_and_from_integer!(OptionCode, u16);
+
+// core::str::FromStr / from_bytes()
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(OptionCode);
 
 //============ Tests =========================================================
 

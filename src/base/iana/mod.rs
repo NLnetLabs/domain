@@ -101,6 +101,13 @@ mod test {
     use crate::base::iana::zonemd::ZonemdAlgorithm;
     use crate::base::iana::zonemd::ZonemdScheme;
 
+
+    // TODO: REMOVE
+    use crate::base::iana::macros::JannisTestEnum1;
+    use crate::base::iana::macros::JannisTestEnum2;
+    use crate::base::iana::macros::JannisTestEnum3;
+    use crate::base::iana::macros::JannisTestEnum4;
+
     use core::fmt::Debug;
     use core::fmt::Display;
     use core::str::FromStr;
@@ -188,6 +195,92 @@ mod test {
     }
 
     #[test]
+    fn validate_jannis1_representation() {
+        validate_generic_representation(
+            JannisTestEnum1::A,
+            "0".into(),
+            "JannisTestEnum1::A".into(),
+            &["0"],
+            "0".into(),
+            r#"0"#.into(),
+        );
+        validate_generic_representation(
+            JannisTestEnum1::from_int(42),
+            "42".into(),
+            "JannisTestEnum1(42)".into(),
+            &["42"],
+            "42".into(),
+            r#"42"#.into(),
+        );
+        // use serde_test::{assert_tokens, Configure, Token};
+        // assert_tokens(&JannisTestEnum1::A.readable(), &[Token::Str("A")]);
+        // assert_tokens(&JannisTestEnum1::from_int(42).readable(), &[Token::U8(42)]);
+        //
+        // assert_tokens(&JannisTestEnum1::A.compact(), &[Token::U8(0)]);
+        // assert_tokens(&JannisTestEnum1::from_int(42).compact(), &[Token::U8(42)]);
+    }
+
+    #[test]
+    fn validate_jannis2_representation() {
+        validate_generic_representation(
+            JannisTestEnum2::A,
+            "A".into(),
+            "JannisTestEnum2::A".into(),
+            &["A", "J0"],
+            "A".into(),
+            r#""A""#.into(),
+        );
+        validate_generic_representation(
+            JannisTestEnum2::from_int(42),
+            "J42".into(),
+            "JannisTestEnum2(42)".into(),
+            &["J42"],
+            "J42".into(),
+            r#""J42""#.into(),
+        );
+    }
+
+    #[test]
+    fn validate_jannis3_representation() {
+        validate_generic_representation(
+            JannisTestEnum3::A,
+            "A(0)".into(),
+            "JannisTestEnum3::A".into(),
+            &["A", "0"],
+            "A".into(),
+            r#""A""#.into(),
+        );
+        validate_generic_representation(
+            JannisTestEnum3::from_int(42),
+            "42".into(),
+            "JannisTestEnum3(42)".into(),
+            &["42"],
+            "42".into(),
+            r#"42"#.into(),
+        );
+    }
+
+    #[test]
+    fn validate_jannis4_representation() {
+        validate_generic_representation(
+            JannisTestEnum4::A,
+            "A(0)".into(),
+            "JannisTestEnum4::A".into(),
+            &["A", "0"],
+            "0".into(),
+            r#"0"#.into(),
+        );
+        validate_generic_representation(
+            JannisTestEnum4::from_int(42),
+            "42".into(),
+            "JannisTestEnum4(42)".into(),
+            &["42"],
+            "42".into(),
+            r#"42"#.into(),
+        );
+    }
+
+    #[test]
     fn validate_class_representation() {
         validate_generic_representation(
             Class::IN,
@@ -239,7 +332,7 @@ mod test {
             IpseckeyAlgorithm::ECDSA,
             "3".into(),
             "IpseckeyAlgorithm::ECDSA".into(),
-            &["3"],
+            &["3", "ECDSA"],
             "3".into(),
             r#"3"#.into(),
         );
@@ -259,7 +352,7 @@ mod test {
             IpseckeyGatewayType::NONE,
             "0".into(),
             "IpseckeyGatewayType::NONE".into(),
-            &["0"],
+            &["0", "NONE"],
             "0".into(),
             r#"0"#.into(),
         );
@@ -274,12 +367,12 @@ mod test {
     }
 
     #[test]
-    fn validate_nsec3_hash_algorithm_representation() {
+     fn validate_nsec3_hash_algorithm_representation() {
         validate_generic_representation(
             Nsec3HashAlgorithm::SHA1,
             "1".into(),
             "Nsec3HashAlgorithm::SHA-1".into(),
-            &["1"],
+            &["1", "SHA-1"],
             "1".into(),
             r#"1"#.into(),
         );
@@ -451,7 +544,7 @@ mod test {
             SvcParamKey::ALPN,
             "alpn".into(),
             "SvcParamKey::alpn".into(),
-            &["KEY1"],
+            &["alpn", "KEY1"],
             "alpn".into(),
             r#""alpn""#.into(),
         );
@@ -459,7 +552,7 @@ mod test {
             SvcParamKey::from_int(42),
             "key42".into(),
             "SvcParamKey(42)".into(),
-            &["key42"],
+            &["KEY42"],
             "key42".into(),
             r#""key42""#.into(),
         );

@@ -131,7 +131,7 @@ instantiate_fromstrerror_with_error_description!(
 );
 
 // serde::Serialize / serde::Deserialize
-int_enum_impl_serde_to_and_from_integer!(SecurityAlgorithm);
+int_enum_impl_serde_to_and_from_integer!(SecurityAlgorithm, u8);
 
 // core::str::FromStr / from_bytes()
 int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(SecurityAlgorithm);

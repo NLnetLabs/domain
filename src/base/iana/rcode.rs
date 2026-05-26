@@ -896,9 +896,24 @@ impl From<OptRcode> for TsigRcode {
     }
 }
 
-int_enum_fromstr_mnemonic!(TsigRcode, u16, "unknown TSIG error");
-int_enum_display_mnemonic!(TsigRcode, u16, "unknown TSIG error");
+// int_enum_fromstr_mnemonic!(TsigRcode, u16, "unknown TSIG error");
+// int_enum_display_mnemonic!(TsigRcode, u16, "unknown TSIG error");
+// int_enum_zonefile_fmt_with_decimal!(TsigRcode);
+scan_impl!(TsigRcode);
+
 int_enum_zonefile_fmt_with_decimal!(TsigRcode);
+
+// Display
+int_enum_impl_display_mnemonics_fallback_integer!(TsigRcode);
+
+// FromStrError
+instantiate_fromstrerror_with_error_description!("unknown tsig rcode");
+
+// serde::Serialize / serde::Deserialize
+int_enum_impl_serde_to_and_from_mnemonic!(TsigRcode, u16);
+
+// core::str::FromStr / from_bytes()
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(TsigRcode);
 
 //============ Error Types ===================================================
 
