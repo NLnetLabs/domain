@@ -32,7 +32,7 @@ iana_enum! {
     parse_from_mnemonic_or_prefix_integer,
     serialize_to_mnemonic_fallback_prefix_integer,
     deserialize_from_mnemonic_or_prefix_integer,
-    "J";
+    "CLASS";
 
     /// Internet (IN).
     ///

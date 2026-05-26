@@ -5,7 +5,10 @@
 
 //------------ IpseckeyAlgorithm ---------------------------------------------
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     /// IPSECKEY Algorithms.
     ///
     /// This type identifies the public key's cryptographic algorithm of the
@@ -18,6 +21,11 @@ int_enum! {
     /// [IANA registration]:  https://www.iana.org/assignments/ipseckey-rr-parameters/ipseckey-rr-parameters.xhtml#ipseckey-rr-parameters-1
     =>
     IpseckeyAlgorithm, u8;
+    display_integer,
+    parse_from_mnemonic_or_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     /// Specified that no Public key is present.
     (NONE => 0, "NONE")
@@ -35,31 +43,11 @@ int_enum! {
     (EDDSA => 4, "EdDSA")
 }
 
-// int_enum_fromstr_decimal!(IpseckeyAlgorithm, u8);
-// int_enum_display_decimal!(IpseckeyAlgorithm, u8);
-// int_enum_zonefile_fmt_decimal!(IpseckeyAlgorithm, "ipseckey algorithm");
-
-scan_impl!(IpseckeyAlgorithm);
-
-int_enum_zonefile_fmt_decimal!(IpseckeyAlgorithm, "algorithm");
-
-// Display
-int_enum_impl_display_integer!(IpseckeyAlgorithm);
-
-// FromStrError
-instantiate_fromstrerror_with_error_description!(
-    "unknown ipseckey algorithm"
-);
-
-// serde::Serialize / serde::Deserialize
-int_enum_impl_serde_to_and_from_integer!(IpseckeyAlgorithm, u8);
-
-// core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(IpseckeyAlgorithm);
+int_enum_zonefile_fmt_decimal!(IpseckeyAlgorithm, "ipseckey algorithm");
 
 //------------ IpseckeyGateway -----------------------------------------------
 
-int_enum! {
+iana_enum! {
     /// IPSECKEY Gateway Types.
     ///
     /// This type indicates the format of the information that is stored in
@@ -72,6 +60,11 @@ int_enum! {
     /// [IANA registration]: https://www.iana.org/assignments/ipseckey-rr-parameters/ipseckey-rr-parameters.xhtml#ipseckey-rr-parameters-2
     =>
     IpseckeyGatewayType, u8;
+    display_integer,
+    parse_from_mnemonic_or_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     /// Specified that No gateway is present.
     (NONE => 0, "NONE")
@@ -86,26 +79,4 @@ int_enum! {
     (NAME => 3, "NAME")
 }
 
-// int_enum_fromstr_decimal!(IpseckeyGatewayType, u8);
-// int_enum_display_decimal!(IpseckeyGatewayType, u8);
-// int_enum_zonefile_fmt_decimal!(IpseckeyGatewayType, "ipseckey gateway type");
-
-scan_impl!(IpseckeyGatewayType);
-
-int_enum_zonefile_fmt_decimal!(IpseckeyGatewayType, "algorithm");
-
-// Display
-int_enum_impl_display_integer!(IpseckeyGatewayType);
-
-// FromStrError
-// instantiate_fromstrerror_with_error_description!(
-//     "unknown ipseckey algorithm"
-// );
-
-// serde::Serialize / serde::Deserialize
-int_enum_impl_serde_to_and_from_integer!(IpseckeyGatewayType, u8);
-
-// core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(
-    IpseckeyGatewayType
-);
+int_enum_zonefile_fmt_decimal!(IpseckeyGatewayType, "ipseckey gateway type");

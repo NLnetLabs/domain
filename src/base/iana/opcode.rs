@@ -2,7 +2,10 @@
 
 //------------ Opcode --------------------------------------------------------
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     /// DNS OpCodes.
     ///
     /// The opcode specifies the kind of query to be performed.
@@ -16,6 +19,11 @@ int_enum! {
     /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
     =>
     Opcode, u8;
+    display_mnemonic_with_integer,
+    parse_from_mnemonic_or_integer,
+    serialize_to_mnemonic_fallback_integer,
+    deserialize_from_mnemonic_or_integer,
+    "";
 
     /// A standard query (0).
     ///
@@ -81,22 +89,4 @@ int_enum! {
     (DSO => 6, "DSO")
 }
 
-// int_enum_fromstr_mnemonic!(Opcode, u8, "unknown opcode");
-// int_enum_display_mnemonic!(Opcode, u8, "unknown opcode");
-// int_enum_zonefile_fmt_with_decimal!(Opcode);
-
-scan_impl!(Opcode);
-
 int_enum_zonefile_fmt_with_decimal!(Opcode);
-
-// Display
-int_enum_impl_display_mnemonics_with_integer_fallback_integer!(Opcode);
-
-// FromStrError
-instantiate_fromstrerror_with_error_description!("unknown Opcode");
-
-// serde::Serialize / serde::Deserialize
-int_enum_impl_serde_to_and_from_mnemonic!(Opcode, u8);
-
-// core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(Opcode);

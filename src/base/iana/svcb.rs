@@ -1,8 +1,16 @@
 //! Service Binding (SVCB) Parameter Registry
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     =>
     SvcParamKey, u16;
+    display_mnemonic_fallback_prefix_integer,
+    parse_from_mnemonic_or_prefix_integer,
+    serialize_to_mnemonic_fallback_prefix_integer,
+    deserialize_from_mnemonic_or_prefix_integer,
+    "key";
 
     (MANDATORY => 0, "mandatory")
     (ALPN => 1, "alpn")
@@ -20,7 +28,6 @@ int_enum! {
     // TODO: docpath https://datatracker.ietf.org/doc/draft-ietf-core-dns-over-coap/
 }
 
-int_enum_str_with_prefix!(SvcParamKey, "key", b"key", u16, "unknown key");
 int_enum_zonefile_fmt_with_prefix!(SvcParamKey, "key");
 
 impl SvcParamKey {

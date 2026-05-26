@@ -2,7 +2,10 @@
 
 //------------ Rtype ---------------------------------------------------------
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     /// Resource Record Types.
     ///
     /// Each resource records has a 16 bit type value indicating what kind of
@@ -22,6 +25,11 @@ int_enum! {
     /// guidelines.
     =>
     Rtype, u16;
+    display_mnemonic_fallback_prefix_integer,
+    parse_from_mnemonic_or_prefix_integer,
+    serialize_to_mnemonic_fallback_prefix_integer,
+    deserialize_from_mnemonic_or_prefix_integer,
+    "TYPE";
 
     /// A host address.
     (A => 1, "A")
@@ -429,7 +437,6 @@ int_enum! {
     (DLV => 32769, "DLV")
 }
 
-int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16, "unknown record type");
 int_enum_zonefile_fmt_with_prefix!(Rtype, "TYPE");
 
 impl Rtype {

@@ -2,7 +2,10 @@
 
 //------------ ZonemdScheme --------------------------------------------------
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     /// ZONEMD schemes.
     ///
     /// This type selects the method by which data is collated and presented
@@ -15,18 +18,21 @@ int_enum! {
     /// [IANA registration]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#zonemd-schemes
     =>
     ZonemdScheme, u8;
+    display_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     /// Specifies that the SIMPLE scheme is used.
     (SIMPLE => 1, "SIMPLE")
 }
 
-int_enum_fromstr_decimal!(ZonemdScheme, u8);
-int_enum_display_decimal!(ZonemdScheme, u8);
 int_enum_zonefile_fmt_decimal!(ZonemdScheme, "scheme");
 
 //------------ ZonemdAlgorithm -----------------------------------------------
 
-int_enum! {
+iana_enum! {
     /// ZONEMD algorithms.
     ///
     /// This type selects the algorithm used to hash domain names for use with
@@ -39,6 +45,11 @@ int_enum! {
     /// [IANA registration]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#zonemd-hash-algorithms
     =>
     ZonemdAlgorithm, u8;
+    display_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     /// Specifies that the SHA-384 algorithm is used.
     (SHA384 => 1, "SHA384")
@@ -47,6 +58,4 @@ int_enum! {
     (SHA512 => 2, "SHA512")
 }
 
-int_enum_fromstr_decimal!(ZonemdAlgorithm, u8);
-int_enum_display_decimal!(ZonemdAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(ZonemdAlgorithm, "hash algorithm");

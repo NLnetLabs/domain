@@ -2,7 +2,10 @@
 
 //------------ TlsaCertificateUsage ------------------------------------------
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     /// TLSA Certificate Usage type.
     ///
     /// This type specifies the provided association that will be used to match the certificate
@@ -15,6 +18,11 @@ int_enum! {
     /// [IANA registration]: https://www.iana.org/assignments/dane-parameters/dane-parameters.xhtml#certificate-usages
     =>
     TlsaCertificateUsage, u8;
+    display_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     /// CA constraint
     (PKIX_TA => 0, "PKIX-TA")
@@ -32,8 +40,6 @@ int_enum! {
     (PRIVCERT => 255, "PrivCert")
 }
 
-int_enum_fromstr_decimal!(TlsaCertificateUsage, u8);
-int_enum_display_decimal!(TlsaCertificateUsage, u8);
 int_enum_zonefile_fmt_decimal!(
     TlsaCertificateUsage,
     "certificate usage type"
@@ -41,7 +47,7 @@ int_enum_zonefile_fmt_decimal!(
 
 //------------ TlsaSelector --------------------------------------------------
 
-int_enum! {
+iana_enum! {
     /// TLSA Selector type.
     ///
     /// This type specifies which part of the TLS certificate presented by the server will be
@@ -54,6 +60,11 @@ int_enum! {
     /// [IANA registration]: https://www.iana.org/assignments/dane-parameters/dane-parameters.xhtml#selectors
     =>
     TlsaSelector, u8;
+    display_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     /// Full certificate
     (CERT => 0, "Cert")
@@ -65,13 +76,11 @@ int_enum! {
     (PRIVSEL => 255, "PrivSel")
 }
 
-int_enum_fromstr_decimal!(TlsaSelector, u8);
-int_enum_display_decimal!(TlsaSelector, u8);
 int_enum_zonefile_fmt_decimal!(TlsaSelector, "selector");
 
 //------------ TlsaMatchingType ----------------------------------------------
 
-int_enum! {
+iana_enum! {
     /// TLSA Matching Type type.
     ///
     /// This type specifies how the certificate association is presented.
@@ -83,6 +92,11 @@ int_enum! {
     /// [IANA registration]: https://www.iana.org/assignments/dane-parameters/dane-parameters.xhtml#matching-types
     =>
     TlsaMatchingType, u8;
+    display_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     /// No hash used
     (FULL => 0, "Full")
@@ -97,6 +111,4 @@ int_enum! {
     (PRIVMATCH => 255, "PrivMatch")
 }
 
-int_enum_fromstr_decimal!(TlsaMatchingType, u8);
-int_enum_display_decimal!(TlsaMatchingType, u8);
 int_enum_zonefile_fmt_decimal!(TlsaMatchingType, "matching type");

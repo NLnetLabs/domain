@@ -57,6 +57,7 @@ pub use self::sshfp::{SshfpAlgorithm, SshfpType};
 pub use self::svcb::SvcParamKey;
 pub use self::tlsa::{TlsaCertificateUsage, TlsaMatchingType, TlsaSelector};
 pub use self::zonemd::{ZonemdAlgorithm, ZonemdScheme};
+pub use self::macros::{IanaEnum};
 
 #[macro_use]
 mod macros;
@@ -84,7 +85,6 @@ mod test {
     // use crate::base::iana::exterr::ExtendedErrorCode;
     use crate::base::iana::ipseckey::IpseckeyAlgorithm;
     use crate::base::iana::ipseckey::IpseckeyGatewayType;
-    use crate::base::iana::macros::IanaEnum;
     use crate::base::iana::nsec3::Nsec3HashAlgorithm;
     use crate::base::iana::opcode::Opcode;
     use crate::base::iana::opt::OptionCode;

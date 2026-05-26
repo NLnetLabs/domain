@@ -10,7 +10,10 @@
 
 //------------ SshfpType -----------------------------------------------------
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     /// SSHFP fingerprint type.
     ///
     /// This type selects the digest algorithm used for the fingerprint in the
@@ -23,6 +26,11 @@ int_enum! {
     /// [IANA registration]: https://www.iana.org/assignments/dns-sshfp-rr-parameters/dns-sshfp-rr-parameters.xhtml#dns-sshfp-rr-parameters-2
     =>
     SshfpType, u8;
+    display_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     (RESERVED => 0, "Reserved")
 
@@ -38,13 +46,11 @@ int_enum! {
 
 }
 
-int_enum_fromstr_decimal!(SshfpType, u8);
-int_enum_display_decimal!(SshfpType, u8);
 int_enum_zonefile_fmt_decimal!(SshfpType, "fingerprint type");
 
 //------------ SshfpAlgorithm ------------------------------------------------
 
-int_enum! {
+iana_enum! {
     /// SSHFP public key algorithms.
     ///
     /// This type selects the algorithm of the public key associated with the [`Sshfp`].
@@ -56,6 +62,11 @@ int_enum! {
     /// [IANA registration]: https://www.iana.org/assignments/dns-sshfp-rr-parameters/dns-sshfp-rr-parameters.xhtml#dns-sshfp-rr-parameters-1
     =>
     SshfpAlgorithm, u8;
+    display_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
 
     /// Specified that the Reserved algorithm is used. [RFC4255]
     ///
@@ -88,6 +99,4 @@ int_enum! {
     (ED448 => 6, "Ed448")
 }
 
-int_enum_fromstr_decimal!(SshfpAlgorithm, u8);
-int_enum_display_decimal!(SshfpAlgorithm, u8);
 int_enum_zonefile_fmt_decimal!(SshfpAlgorithm, "public key algorithm");

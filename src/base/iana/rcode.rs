@@ -20,6 +20,8 @@
 
 use core::fmt;
 use core::str::FromStr;
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
 
 //------------ Rcode ---------------------------------------------------------
 
@@ -669,7 +671,7 @@ impl fmt::Debug for OptRcode {
 
 //------------ TsigRcode ----------------------------------------------------
 
-int_enum! {
+iana_enum! {
     /// Response codes for transaction authentication (TSIG).
     ///
     /// TSIG and TKEY resource records contain a 16 bit wide error field whose
@@ -687,6 +689,11 @@ int_enum! {
     /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
     =>
     TsigRcode, u16;
+    display_mnemonic_with_integer,
+    parse_from_mnemonic_or_integer,
+    serialize_to_mnemonic_fallback_integer,
+    deserialize_from_mnemonic_or_integer,
+    "";
 
     /// No error condition.
     ///
@@ -896,24 +903,7 @@ impl From<OptRcode> for TsigRcode {
     }
 }
 
-// int_enum_fromstr_mnemonic!(TsigRcode, u16, "unknown TSIG error");
-// int_enum_display_mnemonic!(TsigRcode, u16, "unknown TSIG error");
-// int_enum_zonefile_fmt_with_decimal!(TsigRcode);
-scan_impl!(TsigRcode);
-
 int_enum_zonefile_fmt_with_decimal!(TsigRcode);
-
-// Display
-int_enum_impl_display_mnemonics_fallback_integer!(TsigRcode);
-
-// FromStrError
-instantiate_fromstrerror_with_error_description!("unknown tsig rcode");
-
-// serde::Serialize / serde::Deserialize
-int_enum_impl_serde_to_and_from_mnemonic!(TsigRcode, u16);
-
-// core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(TsigRcode);
 
 //============ Error Types ===================================================
 

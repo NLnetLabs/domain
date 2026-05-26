@@ -2,7 +2,10 @@
 
 //------------ SecurityAlgorithm ---------------------------------------------
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     /// Security Algorithm Numbers.
     ///
     /// These numbers are used in various security related record types.
@@ -12,6 +15,11 @@ int_enum! {
     /// [IANA registration]: http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml#dns-sec-alg-numbers-1].
     =>
     SecurityAlgorithm, u8;
+    display_mnemonic_with_integer,
+    parse_from_mnemonic_or_integer,
+    serialize_to_integer,
+    deserialize_from_mnemonic_or_integer,
+    "CLASS";
 
     /// Delete DS
     ///
@@ -116,22 +124,4 @@ int_enum! {
     (PRIVATEOID => 254, "PRIVATEOID")
 }
 
-scan_impl!(SecurityAlgorithm);
-
 int_enum_zonefile_fmt_decimal!(SecurityAlgorithm, "algorithm");
-
-// Display
-int_enum_impl_display_mnemonics_with_integer_fallback_integer!(
-    SecurityAlgorithm
-);
-
-// FromStrError
-instantiate_fromstrerror_with_error_description!(
-    "unknown security algorithm"
-);
-
-// serde::Serialize / serde::Deserialize
-int_enum_impl_serde_to_and_from_integer!(SecurityAlgorithm, u8);
-
-// core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(SecurityAlgorithm);
