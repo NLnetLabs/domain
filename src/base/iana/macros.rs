@@ -997,42 +997,399 @@ macro_rules! iana_enum_implementation {
     };
 }
 
-int_enum! {
+macro_rules! iana_enum {
+    ( $(#[$attr:meta])* =>
+      $ianatype:ident, $inttype:path;
+      $display_function:tt,
+      $parse_function:tt,
+      $serde_serialize:tt,
+      $serde_deserialize:tt,
+      $prefix:expr;
+      $( $(#[$variant_attr:meta])* ( $variant:ident =>
+                                        $value:expr, $mnemonic:expr) )* ) => {
+        $(#[$attr])*
+        #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+        pub struct $ianatype($inttype);
+
+        impl $ianatype {
+            $(
+                $(#[$variant_attr])*
+                pub const $variant: $ianatype = $ianatype($value);
+            )*
+        }
+
+        impl IanaEnum <'_>for $ianatype {
+            type INT = $inttype;
+            type ParseError = FromStrError;
+            fn get_prefix() -> &'static str {
+                $prefix
+            }
+            /// Returns a value from its raw integer value.
+            fn from_int(value: $inttype) -> Self {
+                Self(value)
+            }
+
+            /// Returns the raw integer value for a value.
+            fn get_integer(&self) -> $inttype {
+                self.0
+            }
+
+            /// Returns a value from a well-defined mnemonic.
+            fn from_mnemonic(m: &[u8]) -> Option<Self> {
+                $(
+                    if m.eq_ignore_ascii_case($mnemonic.as_bytes()) {
+                        return Some($ianatype::$variant)
+                    }
+                )*
+                None
+            }
+
+            /// Returns the mnemonic as a `&str` for this value if there is one
+            fn get_mnemonic_str(&self) -> Option<&'static str> {
+                match self {
+                    $(
+                        &$ianatype::$variant => {
+                            Some($mnemonic)
+                        }
+                    )*
+                    _ => None
+                }
+            }
+
+        }
+        impl $ianatype {
+            pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized> (
+                parser: &mut octseq::parse::Parser<'a, Octs>
+            ) -> Result<Self, $crate::base::wire::ParseError> {
+                <$inttype as $crate::base::wire::Parse<'a, Octs>>::parse(
+                    parser
+                ).map(Self::from_int)
+            }
+
+            pub const COMPOSE_LEN: u16 =
+                <$inttype as $crate::base::wire::Compose>::COMPOSE_LEN;
+
+        }
+
+
+        //--- From
+
+        impl From<$inttype> for $ianatype {
+            fn from(value: $inttype) -> Self {
+                $ianatype::from_int(value)
+            }
+        }
+
+        impl From<$ianatype> for $inttype {
+            fn from(value: $ianatype) -> Self {
+                value.get_integer()
+            }
+        }
+
+        impl<'a> From<&'a $ianatype> for $inttype {
+            fn from(value: &'a $ianatype) -> Self {
+                value.get_integer()
+            }
+        }
+
+        impl core::str::FromStr for $ianatype {
+            type Err = FromStrError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                $ianatype::$parse_function(s)
+            }
+        }
+
+        scan_impl!($ianatype);
+
+        //--- Display
+        impl core::fmt::Display for $ianatype {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "{}", self.$display_function())
+            }
+        }
+
+        //--- Debug
+
+        impl core::fmt::Debug for $ianatype {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                match self.get_mnemonic_bytes().and_then(|bytes| {
+                    core::str::from_utf8(bytes).ok()
+                }) {
+                    Some(mnemonic) => {
+                        write!(
+                            f,
+                            concat!(stringify!($ianatype), "::{}"),
+                            mnemonic
+                        )
+                    }
+                    None => {
+                        f.debug_tuple(stringify!($ianatype))
+                            .field(&self.0)
+                            .finish()
+                    }
+                }
+            }
+        }
+
+        //--- Serde
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $ianatype{
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                self.$serde_serialize(serializer)
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $ianatype{
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                Self::$serde_deserialize(deserializer)
+            }
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub struct FromStrError(());
+
+impl core::error::Error for FromStrError {
+    fn description(&self) -> &str {
+        "unknown TODO"
+    }
+}
+
+impl core::fmt::Display for FromStrError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        "unkown TODO".fmt(f)
+    }
+}
+iana_enum! {
     =>
     JannisTestEnum1, u8;
+    display_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
     (A => 0, "A")
     (B => 1, "B")
 }
-int_enum! {
+iana_enum! {
     =>
     JannisTestEnum2, u8;
+    display_mnemonic_fallback_prefix_integer,
+    parse_from_mnemonic_or_prefix_integer,
+    serialize_to_mnemonic_fallback_prefix_integer,
+    deserialize_from_mnemonic_or_prefix_integer,
+    "J";
     (A => 0, "A")
     (B => 1, "B")
 }
-int_enum! {
+iana_enum! {
     =>
     JannisTestEnum3, u8;
+    display_mnemonic_with_integer,
+    parse_from_mnemonic_or_integer,
+    serialize_to_mnemonic_fallback_integer,
+    deserialize_from_mnemonic_or_integer,
+    "";
     (A => 0, "A")
     (B => 1, "B")
 }
-int_enum! {
+iana_enum! {
     =>
     JannisTestEnum4, u8;
+    display_mnemonic_with_integer,
+    parse_from_integer,
+    serialize_to_integer,
+    deserialize_from_integer,
+    "";
     (A => 0, "A")
     (B => 1, "B")
 }
 
-iana_enum_implementation!(=> JannisTestEnum1, u8;
-    fmt:integer);
+use core::fmt::Display;
+use std::string::String;
+use std::string::ToString;
 
-iana_enum_implementation!(=> JannisTestEnum2, u8;
-    fmt:mnemonic, prefix("J", b"J"));
+use serde::Deserialize;
+use serde::Serialize;
 
-iana_enum_implementation!(=> JannisTestEnum3, u8;
-    fmt:mnemonic_display_with_combination);
+use crate::base::serde::DeserializeNativeOrStr;
 
-iana_enum_implementation!(=> JannisTestEnum4, u8;
-    fmt:integer_display_with_combination);
+pub trait IanaEnum<'de>: Sized {
+    type INT: Default
+        + std::string::ToString
+        + crate::base::wire::Compose
+        + core::str::FromStr
+        + Deserialize<'de>
+        + Into<Self>
+        + Serialize
+        + Display
+        + DeserializeNativeOrStr<'de, Self>;
+    // + core::str::FromStr<Err = core::num::ParseIntError>
+
+    type ParseError;
+
+    fn get_prefix() -> &'static str;
+    fn from_int(value: Self::INT) -> Self;
+    fn from_mnemonic(m: &[u8]) -> Option<Self>;
+    fn get_mnemonic_str(&self) -> Option<&'static str>;
+    fn get_mnemonic_bytes(&self) -> Option<&'static [u8]> {
+        match self.get_mnemonic_str() {
+            Some(m) => Some(m.as_bytes()),
+            None => None,
+        }
+    }
+    fn to_mnemonic_str(self) -> Option<&'static str> {
+        self.get_mnemonic_str()
+    }
+
+    fn get_integer(&self) -> Self::INT;
+    fn to_int(self) -> Self::INT {
+        self.get_integer()
+    }
+
+    fn compose<Target: octseq::builder::OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        crate::base::wire::Compose::compose(&self.get_integer(), target)
+    }
+
+    //--- Display
+    fn display_integer(&self) -> String {
+        self.get_integer().to_string()
+    }
+    fn display_mnemonic_fallback_integer(&self) -> String {
+        match self.get_mnemonic_str() {
+            Some(m) => m.to_string(),
+            None => self.get_integer().to_string(),
+        }
+    }
+    fn display_mnemonic_fallback_prefix_integer(&self) -> String {
+        match self.get_mnemonic_str() {
+            Some(m) => m.to_string(),
+            None => format!(
+                "{}{}",
+                Self::get_prefix(),
+                self.get_integer().to_string()
+            ),
+        }
+    }
+    fn display_mnemonic_with_integer(&self) -> String {
+        match self.get_mnemonic_str() {
+            Some(m) => format!("{}({})", m, self.get_integer()),
+            None => format!("{}", self.get_integer()),
+        }
+    }
+
+    //--- PARSING
+    fn parse_from_integer(value: &str) -> Result<Self, FromStrError> {
+        match value.parse().map(Self::from_int) {
+            Ok(v) => Ok(v),
+            Err(_) => Err(FromStrError(())),
+        }
+    }
+    fn parse_from_mnemonic_or_integer(
+        value: &str,
+    ) -> Result<Self, FromStrError> {
+        match Self::from_mnemonic(value.as_bytes()) {
+            Some(v) => Ok(v),
+            None => match value.parse().map(Self::from_int) {
+                Ok(v) => Ok(v),
+                Err(_) => Err(FromStrError(())),
+            },
+        }
+    }
+
+    fn parse_from_mnemonic_or_prefix_integer(
+        value: &str,
+    ) -> Result<Self, FromStrError> {
+        match Self::from_mnemonic(value.as_bytes()) {
+            Some(res) => Ok(res),
+            None => {
+                if let Some((n, _)) =
+                    value.char_indices().nth(Self::get_prefix().len())
+                {
+                    let (l, r) = value.split_at(n);
+                    if l.eq_ignore_ascii_case(Self::get_prefix()) {
+                        let value = match r.parse() {
+                            Ok(x) => x,
+                            Err(..) => return Err(FromStrError(())),
+                        };
+                        Ok(Self::from_int(value))
+                    } else {
+                        Err(FromStrError(()))
+                    }
+                } else {
+                    Err(FromStrError(()))
+                }
+            }
+        }
+    }
+
+    //--- serde::Serialize
+    fn serialize_to_integer<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        self.get_integer().serialize(serializer)
+    }
+
+    fn serialize_to_mnemonic_fallback_integer<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match self.get_mnemonic_str() {
+            Some(m) => m.serialize(serializer),
+            None => self.get_integer().serialize(serializer),
+        }
+    }
+
+    fn serialize_to_mnemonic_fallback_prefix_integer<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match self.get_mnemonic_str() {
+            Some(m) => m.serialize(serializer),
+            None => format!("{}{}", Self::get_prefix(), self.get_integer())
+                .serialize(serializer),
+        }
+    }
+
+    //--- serde::Deserialize
+    fn deserialize_from_integer<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, <D as serde::Deserializer<'de>>::Error> {
+        Self::INT::deserialize(deserializer).map(Self::from_int)
+    }
+
+    fn deserialize_from_mnemonic_or_integer<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, <D as serde::Deserializer<'de>>::Error> {
+        Self::INT::deserialize_native_or_str(deserializer)
+    }
+
+    fn deserialize_from_mnemonic_or_prefix_integer<
+        D: serde::Deserializer<'de>,
+    >(
+        deserializer: D,
+    ) -> Result<Self, <D as serde::Deserializer<'de>>::Error> {
+        Self::INT::deserialize_native_or_str(deserializer)
+    }
+}
+
+int_enum_zonefile_fmt_decimal!(JannisTestEnum1, "jannis1");
+int_enum_zonefile_fmt_with_prefix!(JannisTestEnum2, "J");
+int_enum_zonefile_fmt_with_decimal!(JannisTestEnum3);
+int_enum_zonefile_fmt_decimal!(JannisTestEnum4, "jannis4");
+
 //------------ Tests ---------------------------------------------------------
 
 #[cfg(test)]

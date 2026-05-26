@@ -29,9 +29,7 @@ scan_impl!(Nsec3HashAlgorithm);
 int_enum_zonefile_fmt_decimal!(Nsec3HashAlgorithm, "algorithm");
 
 // Display
-int_enum_impl_display_integer!(
-    Nsec3HashAlgorithm
-);
+int_enum_impl_display_integer!(Nsec3HashAlgorithm);
 
 // FromStrError
 instantiate_fromstrerror_with_error_description!(
@@ -42,4 +40,6 @@ instantiate_fromstrerror_with_error_description!(
 int_enum_impl_serde_to_and_from_integer!(Nsec3HashAlgorithm, u8);
 
 // core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(Nsec3HashAlgorithm);
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(
+    Nsec3HashAlgorithm
+);

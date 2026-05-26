@@ -179,14 +179,10 @@ scan_impl!(OptionCode);
 int_enum_zonefile_fmt_with_decimal!(OptionCode);
 
 // Display
-int_enum_impl_display_mnemonics_with_integer_fallback_integer!(
-    OptionCode
-);
+int_enum_impl_display_mnemonics_with_integer_fallback_integer!(OptionCode);
 
 // FromStrError
-instantiate_fromstrerror_with_error_description!(
-    "unknown OptionCode"
-);
+instantiate_fromstrerror_with_error_description!("unknown OptionCode");
 
 // serde::Serialize / serde::Deserialize
 int_enum_impl_serde_to_and_from_integer!(OptionCode, u16);

@@ -44,9 +44,7 @@ scan_impl!(IpseckeyAlgorithm);
 int_enum_zonefile_fmt_decimal!(IpseckeyAlgorithm, "algorithm");
 
 // Display
-int_enum_impl_display_integer!(
-    IpseckeyAlgorithm
-);
+int_enum_impl_display_integer!(IpseckeyAlgorithm);
 
 // FromStrError
 instantiate_fromstrerror_with_error_description!(
@@ -97,9 +95,7 @@ scan_impl!(IpseckeyGatewayType);
 int_enum_zonefile_fmt_decimal!(IpseckeyGatewayType, "algorithm");
 
 // Display
-int_enum_impl_display_integer!(
-    IpseckeyGatewayType
-);
+int_enum_impl_display_integer!(IpseckeyGatewayType);
 
 // FromStrError
 // instantiate_fromstrerror_with_error_description!(
@@ -110,4 +106,6 @@ int_enum_impl_display_integer!(
 int_enum_impl_serde_to_and_from_integer!(IpseckeyGatewayType, u8);
 
 // core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(IpseckeyGatewayType);
+int_enum_impl_fromstr_frombytes_from_mnemonics_or_integer!(
+    IpseckeyGatewayType
+);

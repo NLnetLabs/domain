@@ -2,7 +2,10 @@
 
 //------------ Class ---------------------------------------------------------
 
-int_enum! {
+use crate::base::iana::macros::FromStrError;
+use crate::base::iana::macros::IanaEnum;
+
+iana_enum! {
     /// DNS CLASSes.
     ///
     /// The domain name space is partitioned into separate classes for different
@@ -25,6 +28,11 @@ int_enum! {
     /// [DNS CLASSes IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
     =>
     Class, u16;
+    display_mnemonic_fallback_prefix_integer,
+    parse_from_mnemonic_or_prefix_integer,
+    serialize_to_mnemonic_fallback_prefix_integer,
+    deserialize_from_mnemonic_or_prefix_integer,
+    "J";
 
     /// Internet (IN).
     ///
@@ -56,25 +64,7 @@ int_enum! {
     (ANY => 0xFF, "*")
 }
 
-// int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
-
-scan_impl!(Class);
-
 int_enum_zonefile_fmt_with_prefix!(Class, "CLASS");
-
-// Display
-int_enum_impl_display_mnemonics_fallback_prefix_integer!(Class, "CLASS");
-
-// FromStrError
-instantiate_fromstrerror_with_error_description!("unknown class");
-
-// serde::Serialize / serde::Deserialize
-int_enum_impl_serde_to_and_from_mnemonic!(Class, u16);
-
-// core::str::FromStr / from_bytes()
-int_enum_impl_fromstr_frombytes_from_mnemonics_or_prefix!(
-    Class, "CLASS", b"CLASS"
-);
 
 //============ Tests =========================================================
 

@@ -84,6 +84,7 @@ mod test {
     // use crate::base::iana::exterr::ExtendedErrorCode;
     use crate::base::iana::ipseckey::IpseckeyAlgorithm;
     use crate::base::iana::ipseckey::IpseckeyGatewayType;
+    use crate::base::iana::macros::IanaEnum;
     use crate::base::iana::nsec3::Nsec3HashAlgorithm;
     use crate::base::iana::opcode::Opcode;
     use crate::base::iana::opt::OptionCode;
@@ -100,7 +101,6 @@ mod test {
     use crate::base::iana::tlsa::TlsaSelector;
     use crate::base::iana::zonemd::ZonemdAlgorithm;
     use crate::base::iana::zonemd::ZonemdScheme;
-
 
     // TODO: REMOVE
     use crate::base::iana::macros::JannisTestEnum1;
@@ -266,7 +266,7 @@ mod test {
             JannisTestEnum4::A,
             "A(0)".into(),
             "JannisTestEnum4::A".into(),
-            &["A", "0"],
+            &["0"],
             "0".into(),
             r#"0"#.into(),
         );
@@ -279,7 +279,6 @@ mod test {
             r#"42"#.into(),
         );
     }
-
     #[test]
     fn validate_class_representation() {
         validate_generic_representation(
@@ -367,7 +366,7 @@ mod test {
     }
 
     #[test]
-     fn validate_nsec3_hash_algorithm_representation() {
+    fn validate_nsec3_hash_algorithm_representation() {
         validate_generic_representation(
             Nsec3HashAlgorithm::SHA1,
             "1".into(),

@@ -90,14 +90,10 @@ scan_impl!(Opcode);
 int_enum_zonefile_fmt_with_decimal!(Opcode);
 
 // Display
-int_enum_impl_display_mnemonics_with_integer_fallback_integer!(
-    Opcode
-);
+int_enum_impl_display_mnemonics_with_integer_fallback_integer!(Opcode);
 
 // FromStrError
-instantiate_fromstrerror_with_error_description!(
-    "unknown Opcode"
-);
+instantiate_fromstrerror_with_error_description!("unknown Opcode");
 
 // serde::Serialize / serde::Deserialize
 int_enum_impl_serde_to_and_from_mnemonic!(Opcode, u8);
