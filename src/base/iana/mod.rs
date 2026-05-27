@@ -86,19 +86,24 @@ mod test {
     use core::fmt::Debug;
     use core::fmt::Display;
     use core::str::FromStr;
-    use std::string::String;
 
     use crate::base::zonefile_fmt::DisplayKind;
     use crate::base::zonefile_fmt::ZonefileFmt;
 
+    /// `test_value`: T - This is used as the desired value
+    /// `display_repr`: &str - Display MUST result in this string
+    /// `debug_repr`: &str - Debug MUST result in this string
+    /// `fromstr_list`: &[&str] - `FromStr` MUST result in `test_value`
+    /// `zonefile_fmt_value`: &str - ZonefileFmt MUST result in this string
+    /// `serde_serialize_value`: &str - Serialize MUST result in this string
     #[track_caller]
     fn validate_generic_representation<T>(
-        test_value: T,              // This value is used as desired value
-        display_repr: String,       // Display MUST result in this String
-        debug_repr: String,         // Debug MUST result in this String
-        fromstr_list: &[&str], // `&[&str]` `FromStr`s MUST result in `test_value`
-        zonefile_fmt_value: String, // ZonefileFmt MUST result in this String
-        serde_serialize_value: String, // ZonefileFmt MUST result in this String
+        test_value: T,
+        display_repr: &str,
+        debug_repr: &str,
+        fromstr_list: &[&str],
+        zonefile_fmt_value: &str,
+        serde_serialize_value: &str,
     ) where
         T: Display
             + Debug
@@ -178,19 +183,19 @@ mod test {
     fn validate_class_representation() {
         validate_generic_representation(
             Class::IN,
-            "IN".into(),
-            "Class::IN".into(),
+            "IN",
+            "Class::IN",
             &["IN", "CLASS1"],
-            "IN".into(),
-            r#""IN""#.into(),
+            "IN",
+            r#""IN""#,
         );
         validate_generic_representation(
             Class::from_int(42),
-            "CLASS42".into(),
-            "Class(42)".into(),
+            "CLASS42",
+            "Class(42)",
             &["CLASS42"],
-            "CLASS42".into(),
-            r#""CLASS42""#.into(),
+            "CLASS42",
+            r#""CLASS42""#,
         );
     }
 
@@ -198,19 +203,19 @@ mod test {
     fn validate_digest_algorithm_representation() {
         validate_generic_representation(
             DigestAlgorithm::SHA256,
-            "2".into(),
-            "DigestAlgorithm::SHA-256".into(),
+            "2",
+            "DigestAlgorithm::SHA-256",
             &["2"],
-            "2".into(),
-            r#"2"#.into(),
+            "2",
+            r#"2"#,
         );
         validate_generic_representation(
             DigestAlgorithm::from_int(42),
-            "42".into(),
-            "DigestAlgorithm(42)".into(),
+            "42",
+            "DigestAlgorithm(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -224,19 +229,19 @@ mod test {
     fn validate_ipseckey_algorithm_representation() {
         validate_generic_representation(
             IpseckeyAlgorithm::ECDSA,
-            "3".into(),
-            "IpseckeyAlgorithm::ECDSA".into(),
+            "3",
+            "IpseckeyAlgorithm::ECDSA",
             &["3"], // not "ECDSA"
-            "3".into(),
-            r#"3"#.into(),
+            "3",
+            r#"3"#,
         );
         validate_generic_representation(
             IpseckeyAlgorithm::from_int(42),
-            "42".into(),
-            "IpseckeyAlgorithm(42)".into(),
+            "42",
+            "IpseckeyAlgorithm(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -244,19 +249,19 @@ mod test {
     fn validate_ipseckey_gateway_type_representation() {
         validate_generic_representation(
             IpseckeyGatewayType::NONE,
-            "0".into(),
-            "IpseckeyGatewayType::NONE".into(),
+            "0",
+            "IpseckeyGatewayType::NONE",
             &["0"], // not "NONE"
-            "0".into(),
-            r#"0"#.into(),
+            "0",
+            r#"0"#,
         );
         validate_generic_representation(
             IpseckeyGatewayType::from_int(42),
-            "42".into(),
-            "IpseckeyGatewayType(42)".into(),
+            "42",
+            "IpseckeyGatewayType(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -264,19 +269,19 @@ mod test {
     fn validate_nsec3_hash_algorithm_representation() {
         validate_generic_representation(
             Nsec3HashAlgorithm::SHA1,
-            "1".into(),
-            "Nsec3HashAlgorithm::SHA-1".into(),
+            "1",
+            "Nsec3HashAlgorithm::SHA-1",
             &["1"], // "SHA-1"
-            "1".into(),
-            r#"1"#.into(),
+            "1",
+            r#"1"#,
         );
         validate_generic_representation(
             Nsec3HashAlgorithm::from_int(42),
-            "42".into(),
-            "Nsec3HashAlgorithm(42)".into(),
+            "42",
+            "Nsec3HashAlgorithm(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -284,19 +289,19 @@ mod test {
     fn validate_opcode_representation() {
         validate_generic_representation(
             Opcode::QUERY,
-            "QUERY(0)".into(),
-            "Opcode::QUERY".into(),
+            "QUERY(0)",
+            "Opcode::QUERY",
             &["QUERY", "0"],
-            "QUERY".into(),
-            r#""QUERY""#.into(),
+            "QUERY",
+            r#""QUERY""#,
         );
         validate_generic_representation(
             Opcode::from_int(42),
-            "42".into(),
-            "Opcode(42)".into(),
+            "42",
+            "Opcode(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -304,19 +309,19 @@ mod test {
     fn validate_option_code_representation() {
         validate_generic_representation(
             OptionCode::COOKIE,
-            "COOKIE(10)".into(),
-            "OptionCode::COOKIE".into(),
+            "COOKIE(10)",
+            "OptionCode::COOKIE",
             &["COOKIE", "10"],
-            "COOKIE".into(),
-            r#""COOKIE""#.into(),
+            "COOKIE",
+            r#""COOKIE""#,
         );
         validate_generic_representation(
             OptionCode::from_int(42),
-            "42".into(),
-            "OptionCode(42)".into(),
+            "42",
+            "OptionCode(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -336,19 +341,19 @@ mod test {
     fn validate_tsig_rcode_representation() {
         validate_generic_representation(
             TsigRcode::BADCOOKIE,
-            "BADCOOKIE(23)".into(),
-            "TsigRcode::BADCOOKIE".into(),
+            "BADCOOKIE(23)",
+            "TsigRcode::BADCOOKIE",
             &["23", "BADCOOKIE"],
-            "BADCOOKIE".into(),
-            r#""BADCOOKIE""#.into(),
+            "BADCOOKIE",
+            r#""BADCOOKIE""#,
         );
         validate_generic_representation(
             TsigRcode::from_int(42),
-            "42".into(),
-            "TsigRcode(42)".into(),
+            "42",
+            "TsigRcode(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -356,19 +361,19 @@ mod test {
     fn validate_rtype_representation() {
         validate_generic_representation(
             Rtype::MX,
-            "MX".into(),
-            "Rtype::MX".into(),
+            "MX",
+            "Rtype::MX",
             &["MX", "TYPE15"],
-            "MX".into(),
-            r#""MX""#.into(),
+            "MX",
+            r#""MX""#,
         );
         validate_generic_representation(
             Rtype::from_int(842),
-            "TYPE842".into(),
-            "Rtype(842)".into(),
+            "TYPE842",
+            "Rtype(842)",
             &["TYPE842"],
-            "TYPE842".into(),
-            r#""TYPE842""#.into(),
+            "TYPE842",
+            r#""TYPE842""#,
         );
     }
 
@@ -376,19 +381,19 @@ mod test {
     fn validate_security_algorithm_representation() {
         validate_generic_representation(
             SecurityAlgorithm::DELETE,
-            "0".into(),
-            "SecurityAlgorithm::DELETE".into(),
+            "0",
+            "SecurityAlgorithm::DELETE",
             &["0"], // not "DELETE"
-            "0".into(),
-            r#"0"#.into(),
+            "0",
+            r#"0"#,
         );
         validate_generic_representation(
             SecurityAlgorithm::from_int(42),
-            "42".into(),
-            "SecurityAlgorithm(42)".into(),
+            "42",
+            "SecurityAlgorithm(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -396,19 +401,19 @@ mod test {
     fn validate_sshfp_algorithm_representation() {
         validate_generic_representation(
             SshfpAlgorithm::ED25519,
-            "4".into(),
-            "SshfpAlgorithm::Ed25519".into(),
+            "4",
+            "SshfpAlgorithm::Ed25519",
             &["4"],
-            "4".into(),
-            r#"4"#.into(),
+            "4",
+            r#"4"#,
         );
         validate_generic_representation(
             SshfpAlgorithm::from_int(42),
-            "42".into(),
-            "SshfpAlgorithm(42)".into(),
+            "42",
+            "SshfpAlgorithm(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -416,19 +421,19 @@ mod test {
     fn validate_sshfp_type_representation() {
         validate_generic_representation(
             SshfpType::SHA256,
-            "2".into(),
-            "SshfpType::SHA-256".into(),
+            "2",
+            "SshfpType::SHA-256",
             &["2"],
-            "2".into(),
-            r#"2"#.into(),
+            "2",
+            r#"2"#,
         );
         validate_generic_representation(
             SshfpType::from_int(42),
-            "42".into(),
-            "SshfpType(42)".into(),
+            "42",
+            "SshfpType(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -436,19 +441,19 @@ mod test {
     fn validate_svc_param_key_representation() {
         validate_generic_representation(
             SvcParamKey::ALPN,
-            "alpn".into(),
-            "SvcParamKey::alpn".into(),
+            "alpn",
+            "SvcParamKey::alpn",
             &["alpn", "KEY1"],
-            "alpn".into(),
-            r#""alpn""#.into(),
+            "alpn",
+            r#""alpn""#,
         );
         validate_generic_representation(
             SvcParamKey::from_int(42),
-            "key42".into(),
-            "SvcParamKey(42)".into(),
+            "key42",
+            "SvcParamKey(42)",
             &["KEY42"],
-            "key42".into(),
-            r#""key42""#.into(),
+            "key42",
+            r#""key42""#,
         );
     }
 
@@ -456,19 +461,19 @@ mod test {
     fn validate_tlsa_certificate_usage_representation() {
         validate_generic_representation(
             TlsaCertificateUsage::DANE_EE,
-            "3".into(),
-            "TlsaCertificateUsage::DANE-EE".into(),
+            "3",
+            "TlsaCertificateUsage::DANE-EE",
             &["3"],
-            "3".into(),
-            r#"3"#.into(),
+            "3",
+            r#"3"#,
         );
         validate_generic_representation(
             TlsaCertificateUsage::from_int(42),
-            "42".into(),
-            "TlsaCertificateUsage(42)".into(),
+            "42",
+            "TlsaCertificateUsage(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -476,19 +481,19 @@ mod test {
     fn validate_tlsa_matching_type_representation() {
         validate_generic_representation(
             TlsaMatchingType::FULL,
-            "0".into(),
-            "TlsaMatchingType::Full".into(),
+            "0",
+            "TlsaMatchingType::Full",
             &["0"],
-            "0".into(),
-            r#"0"#.into(),
+            "0",
+            r#"0"#,
         );
         validate_generic_representation(
             TlsaMatchingType::from_int(42),
-            "42".into(),
-            "TlsaMatchingType(42)".into(),
+            "42",
+            "TlsaMatchingType(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -496,19 +501,19 @@ mod test {
     fn validate_tlsa_selector_representation() {
         validate_generic_representation(
             TlsaSelector::CERT,
-            "0".into(),
-            "TlsaSelector::Cert".into(),
+            "0",
+            "TlsaSelector::Cert",
             &["0"],
-            "0".into(),
-            r#"0"#.into(),
+            "0",
+            r#"0"#,
         );
         validate_generic_representation(
             TlsaSelector::from_int(42),
-            "42".into(),
-            "TlsaSelector(42)".into(),
+            "42",
+            "TlsaSelector(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -516,19 +521,19 @@ mod test {
     fn validate_zonemd_algorithm_representation() {
         validate_generic_representation(
             ZonemdAlgorithm::SHA512,
-            "2".into(),
-            "ZonemdAlgorithm::SHA512".into(),
+            "2",
+            "ZonemdAlgorithm::SHA512",
             &["2"],
-            "2".into(),
-            "2".into(),
+            "2",
+            "2",
         );
         validate_generic_representation(
             ZonemdAlgorithm::from_int(42),
-            "42".into(),
-            "ZonemdAlgorithm(42)".into(),
+            "42",
+            "ZonemdAlgorithm(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 
@@ -536,19 +541,19 @@ mod test {
     fn validate_zonemd_scheme_representation() {
         validate_generic_representation(
             ZonemdScheme::SIMPLE,
-            "1".into(),
-            "ZonemdScheme::SIMPLE".into(),
+            "1",
+            "ZonemdScheme::SIMPLE",
             &["1"],
-            "1".into(),
-            "1".into(),
+            "1",
+            "1",
         );
         validate_generic_representation(
             ZonemdScheme::from_int(42),
-            "42".into(),
-            "ZonemdScheme(42)".into(),
+            "42",
+            "ZonemdScheme(42)",
             &["42"],
-            "42".into(),
-            r#"42"#.into(),
+            "42",
+            r#"42"#,
         );
     }
 }
