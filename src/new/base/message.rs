@@ -154,6 +154,75 @@ impl fmt::Display for Header {
     }
 }
 
+//----------- OpCode ---------------------------------------------------------
+/// The type of a record.
+///
+/// Operation Code (OpCode)
+///
+/// IANA Assignments can be found under [DNS OpCodes].
+///
+/// [DNS OpCodes]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
+#[derive(Copy, Clone, PartialEq)]
+pub struct OpCode {
+    /// The operation code
+    pub code: u8,
+}
+
+impl OpCode {
+    /// Create a new [`OpCode`].
+    const fn new(value: u8) -> Self {
+        Self { code: value }
+    }
+
+    /// Query [RFC1035](https://www.iana.org/go/rfc1035)
+    pub const QUERY: Self = Self::new(0);
+
+    /// IQuery (Inverse Query, OBSOLETE)
+    /// [RFC3425](https://www.iana.org/go/rfc3425)
+    pub const IQUERY: Self = Self::new(1);
+
+    /// Status [RFC1035](https://www.iana.org/go/rfc1035)
+    pub const STATUS: Self = Self::new(2);
+
+    /// Notify [RFC1996](https://www.iana.org/go/rfc1996)
+    pub const NOTIFY: Self = Self::new(4);
+
+    /// Update [RFC2136](https://www.iana.org/go/rfc2136)
+    pub const UPDATE: Self = Self::new(5);
+
+    /// DNS Stateful Operations (DSO)
+    /// [RFC8490](https://www.iana.org/go/rfc8490)
+    pub const DSO: Self = Self::new(6);
+}
+
+//--- Conversion to and from 'u8'
+
+impl From<u8> for OpCode {
+    fn from(value: u8) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<OpCode> for u8 {
+    fn from(value: OpCode) -> Self {
+        value.code
+    }
+}
+
+impl fmt::Debug for OpCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::QUERY => "OpCode::QUERY",
+            Self::IQUERY => "OpCode::IQUERY",
+            Self::STATUS => "OpCode::STATUS",
+            Self::NOTIFY => "OpCode::NOTIFY",
+            Self::UPDATE => "OpCode::UPDATE",
+            Self::DSO => "OpCode::DSO",
+            _ => return write!(f, "OpCode({})", self.code),
+        })
+    }
+}
+
 //----------- HeaderFlags ----------------------------------------------------
 
 /// DNS message header flags.
