@@ -110,7 +110,6 @@ mod test {
         <T as core::str::FromStr>::Err: core::fmt::Debug,
     {
         // Display
-        println!("assert fmt::Display");
         assert_eq!(
             display_repr,
             format!("{test_value}"),
@@ -118,7 +117,6 @@ mod test {
         );
 
         // Debug
-        println!("assert fmt::Debug");
         assert_eq!(
             debug_repr,
             format!("{test_value:?}"),
@@ -127,7 +125,6 @@ mod test {
 
         for value in fromstr_list {
             // FromStr mnemonic
-            println!("assert FromStr with {}", value);
             assert_eq!(
                 value.parse::<T>().unwrap_or_else(|_| panic!(
                     "FromStr failed with {value}"
@@ -138,7 +135,6 @@ mod test {
         }
 
         // ZonefileFmt
-        println!("assert ZonefileFmt");
         let display_zonefile =
             test_value.display_zonefile(DisplayKind::Simple);
         assert_eq!(
@@ -148,7 +144,6 @@ mod test {
         );
 
         // serde::Serialize
-        println!("assert Serialize");
         assert_eq!(
             serde_serialize_value,
             serde_json::to_string(&test_value).unwrap(),
@@ -159,14 +154,24 @@ mod test {
         let value_as_json_string =
             serde_json::to_string(&test_value).unwrap();
 
-        println!("assert Deserialize from #{}#", value_as_json_string);
         assert_eq!(
             test_value,
-            serde_json::from_str(&value_as_json_string).unwrap(),
-            "serde_json::from_str(&value_as_json_string)"
+            serde_json::from_str(&value_as_json_string).unwrap_or_else(|_|
+                panic!("serde_json::from_str() failed with {value_as_json_string}")
+            ),
+            "serde_json::from_str(&{value_as_json_string})"
         );
 
-        // TODO: Missing is the non-human-readable testing of serde!
+        let big_number_error: Result<T, serde_json::Error> =
+            serde_json::from_str(&format!("{}", u32::MAX));
+        assert!(
+            big_number_error.is_err(),
+            "Make sure too big integer (u32::MAX) throw an error {big_number_error:?}"
+        );
+
+        // NOTE: Currently there is no testing for `is_human_reable()` = false
+        // option in this function.
+        // https://docs.rs/serde/latest/serde/trait.Serializer.html#method.is_human_readable
     }
 
     #[test]

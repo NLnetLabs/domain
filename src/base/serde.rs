@@ -44,7 +44,12 @@ where
             }
 
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
-                Ok(T::from(v as u8))
+                match v.try_into() {
+                    Ok(u8_value) => Ok(T::from(u8_value)),
+                    Err(e) => Err(E::custom(format!(
+                        "value too big, expected u8: {e}"
+                    ))),
+                }
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<T, E> {
@@ -77,7 +82,12 @@ where
             }
 
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
-                Ok(T::from(v as u16))
+                match v.try_into() {
+                    Ok(u16_value) => Ok(T::from(u16_value)),
+                    Err(e) => Err(E::custom(format!(
+                        "value too big, expected u16: {e}"
+                    ))),
+                }
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<T, E> {
@@ -110,7 +120,12 @@ where
             }
 
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
-                Ok(T::from(v as u32))
+                match v.try_into() {
+                    Ok(u32_value) => Ok(T::from(u32_value)),
+                    Err(e) => Err(E::custom(format!(
+                        "value too big, expected u32: {e}"
+                    ))),
+                }
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<T, E> {
