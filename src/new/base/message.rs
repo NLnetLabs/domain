@@ -170,7 +170,7 @@ pub struct OpCode {
 
 impl OpCode {
     /// Create a new [`OpCode`].
-    const fn new(value: u8) -> Self {
+    pub const fn new(value: u8) -> Self {
         Self { code: value }
     }
 

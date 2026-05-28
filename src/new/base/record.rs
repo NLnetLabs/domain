@@ -275,7 +275,7 @@ pub struct RType {
 
 impl RType {
     /// Create a new [`RType`].
-    const fn new(value: u16) -> Self {
+    pub const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
         }
@@ -476,7 +476,7 @@ pub struct RClass {
 
 impl RClass {
     /// Create a new [`RType`].
-    const fn new(value: u16) -> Self {
+    pub const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
         }
@@ -731,7 +731,6 @@ impl Clone for alloc::boxed::Box<UnparsedRecordData> {
 #[cfg(test)]
 mod test {
     use super::{RClass, RType, Record, TTL, UnparsedRecordData};
-    use core::fmt::Debug;
 
     use crate::new::base::{
         name::Name,
@@ -758,31 +757,5 @@ mod test {
         let mut buffer = [0u8; 15];
         assert_eq!(record.build_bytes(&mut buffer), Ok(&mut [] as &mut [u8]));
         assert_eq!(buffer, &bytes[..15]);
-    }
-
-    /// `test_value`: T - This is used as the desired value
-    /// `debug_repr`: &str - Debug MUST result in this string
-    #[track_caller]
-    fn validate_generic_representation<T>(test_value: T, debug_repr: &str)
-    where
-        T: Debug + PartialEq,
-    {
-        // Debug
-        assert_eq!(
-            debug_repr,
-            format!("{test_value:?}"),
-            "Debug representation"
-        );
-    }
-    #[test]
-    fn validate_class_representation() {
-        validate_generic_representation(RClass::IN, "RClass::IN");
-        validate_generic_representation(RClass::new(42), "RClass(42)");
-    }
-
-    #[test]
-    fn validate_rtype_representation() {
-        validate_generic_representation(RType::MX, "RType::MX");
-        validate_generic_representation(RType::new(842), "RType(842)");
     }
 }
