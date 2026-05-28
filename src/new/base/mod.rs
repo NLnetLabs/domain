@@ -211,6 +211,10 @@ pub mod build;
 pub mod parse;
 pub mod wire;
 
+//--- IANA DNS Parameters
+
+mod parameters;
+
 //--- Compatibility exports
 
 /// A compatibility module with [`domain::base`].
