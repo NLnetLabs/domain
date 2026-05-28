@@ -56,7 +56,7 @@ impl Display for SigningError {
                 f.write_str("Empty slice of Record")
 	    }
 	    SigningError::MultipleTtlValues => {
-                f.write_str("Muultiple TTL values in RRset")
+                f.write_str("Multiple TTL values in RRset")
 	    }
             SigningError::Nsec3HashingError(err) => {
                 f.write_fmt(format_args!("NSEC3 hashing error: {err}"))
