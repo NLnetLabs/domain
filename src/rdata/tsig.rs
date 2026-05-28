@@ -307,6 +307,7 @@ impl<Octs> Tsig<Octs, ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
+        LongRecordData::check_len(parser.remaining())?;
         let algorithm = ParsedName::parse(parser)?;
         let time_signed = Time48::parse(parser)?;
         let fudge = u16::parse(parser)?;

@@ -137,6 +137,7 @@ impl<Octs> Cdnskey<Octs> {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
         };
+        LongRecordData::check_len(len)?;
         Ok(unsafe {
             Self::new_unchecked(
                 u16::parse(parser)?,
@@ -470,6 +471,7 @@ impl<Octs> Cds<Octs> {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
         };
+        LongRecordData::check_len(len)?;
         Ok(unsafe {
             Self::new_unchecked(
                 u16::parse(parser)?,

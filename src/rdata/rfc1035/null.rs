@@ -137,6 +137,7 @@ impl<Octs> Null<Octs> {
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
+        LongRecordData::check_len(len)?;
         parser
             .parse_octets(len)
             .map(|res| unsafe { Self::from_octets_unchecked(res) })

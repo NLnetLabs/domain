@@ -245,6 +245,7 @@ impl<Octs> Dnskey<Octs> {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
         };
+        LongRecordData::check_len(len)?;
         Ok(unsafe {
             Self::new_unchecked(
                 u16::parse(parser)?,
@@ -1042,6 +1043,7 @@ impl<Octs> Rrsig<Octs, ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
+        LongRecordData::check_len(parser.remaining())?;
         let type_covered = Rtype::parse(parser)?;
         let algorithm = SecurityAlgorithm::parse(parser)?;
         let labels = u8::parse(parser)?;
@@ -1826,6 +1828,7 @@ impl<Octs> Ds<Octs> {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
         };
+        LongRecordData::check_len(parser.remaining())?;
         Ok(unsafe {
             Self::new_unchecked(
                 u16::parse(parser)?,
