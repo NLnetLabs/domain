@@ -43,20 +43,20 @@ where
                 write!(f, "a u8 or string")
             }
 
-            fn visit_u8<E: serde::de::Error>(self, v: u8) -> Result<T, E> {
-                Ok(T::from(v))
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
+                match v.try_into() {
+                    Ok(u8_value) => Ok(T::from(u8_value)),
+                    Err(e) => Err(E::custom(format!(
+                        "value too big, expected u8: {e}"
+                    ))),
+                }
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<T, E> {
                 T::from_str(v).map_err(E::custom)
             }
         }
-
-        if deserializer.is_human_readable() {
-            deserializer.deserialize_str(Visitor(PhantomData))
-        } else {
-            deserializer.deserialize_u8(Visitor(PhantomData))
-        }
+        deserializer.deserialize_any(Visitor(PhantomData))
     }
 }
 
@@ -81,20 +81,20 @@ where
                 write!(f, "a u16 or string")
             }
 
-            fn visit_u16<E: serde::de::Error>(self, v: u16) -> Result<T, E> {
-                Ok(T::from(v))
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
+                match v.try_into() {
+                    Ok(u16_value) => Ok(T::from(u16_value)),
+                    Err(e) => Err(E::custom(format!(
+                        "value too big, expected u16: {e}"
+                    ))),
+                }
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<T, E> {
                 T::from_str(v).map_err(E::custom)
             }
         }
-
-        if deserializer.is_human_readable() {
-            deserializer.deserialize_str(Visitor(PhantomData))
-        } else {
-            deserializer.deserialize_u16(Visitor(PhantomData))
-        }
+        deserializer.deserialize_any(Visitor(PhantomData))
     }
 }
 
@@ -119,19 +119,19 @@ where
                 write!(f, "a u32 or string")
             }
 
-            fn visit_u32<E: serde::de::Error>(self, v: u32) -> Result<T, E> {
-                Ok(T::from(v))
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
+                match v.try_into() {
+                    Ok(u32_value) => Ok(T::from(u32_value)),
+                    Err(e) => Err(E::custom(format!(
+                        "value too big, expected u32: {e}"
+                    ))),
+                }
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<T, E> {
                 T::from_str(v).map_err(E::custom)
             }
         }
-
-        if deserializer.is_human_readable() {
-            deserializer.deserialize_str(Visitor(PhantomData))
-        } else {
-            deserializer.deserialize_u32(Visitor(PhantomData))
-        }
+        deserializer.deserialize_any(Visitor(PhantomData))
     }
 }
