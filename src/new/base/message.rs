@@ -1,7 +1,9 @@
 //! DNS message headers.
 
 use core::fmt;
+use std::string::String;
 
+use crate::new::base::parameters::DNSParameter;
 use crate::new::edns::EdnsRecord;
 use crate::utils::dst::UnsizedCopy;
 
@@ -193,33 +195,70 @@ impl OpCode {
     /// DNS Stateful Operations (DSO)
     /// [RFC8490](https://www.iana.org/go/rfc8490)
     pub const DSO: Self = Self::new(6);
+
+    /// Contains all Constants in a tuple (<NAME>, <VALUE>).
+    /// Should be generated automatically
+    const MAGIC_LIST: [(&'static str, u8); 6] = [
+        ("QUERY", 0),
+        ("IQUERY", 1),
+        ("STATUS", 2),
+        ("NOTIFY", 4),
+        ("UPDATE", 5),
+        ("DSO", 6),
+    ];
+}
+
+//--- DNSParameter
+impl DNSParameter for OpCode {
+    type INT = u8;
+    fn from_integer(value: Self::INT) -> Self {
+        OpCode { code: value }
+    }
+    fn from_mnemonic(_: &str) -> Option<Self> {
+        // `OpCode`s do not have mnemonics
+        None
+    }
+    fn get_integer(&self) -> Self::INT {
+        self.code
+    }
+    fn get_mnemonic(&self) -> Option<&'static str> {
+        // `OpCode`s do not have mnemonics
+        None
+    }
+    fn get_representation(&self) -> String {
+        match Self::MAGIC_LIST.iter().find(|e| e.1 == self.get_integer()) {
+            Some(r) => format!("OpCode::{}", r.0),
+            _ => format!("OpCode({})", self.get_integer()),
+        }
+    }
+    fn display_impl(&self) -> String {
+        self.display_integer()
+    }
 }
 
 //--- Conversion to and from 'u8'
 
 impl From<u8> for OpCode {
     fn from(value: u8) -> Self {
-        Self::new(value)
+        Self::from_integer(value)
     }
 }
 
 impl From<OpCode> for u8 {
     fn from(value: OpCode) -> Self {
-        value.code
+        OpCode::get_integer(&value)
     }
 }
 
 impl fmt::Debug for OpCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::QUERY => "OpCode::QUERY",
-            Self::IQUERY => "OpCode::IQUERY",
-            Self::STATUS => "OpCode::STATUS",
-            Self::NOTIFY => "OpCode::NOTIFY",
-            Self::UPDATE => "OpCode::UPDATE",
-            Self::DSO => "OpCode::DSO",
-            _ => return write!(f, "OpCode({})", self.code),
-        })
+        f.write_str(&self.get_representation())
+    }
+}
+
+impl fmt::Display for OpCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.display_impl())
     }
 }
 

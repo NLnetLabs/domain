@@ -213,6 +213,7 @@ pub mod wire;
 
 //--- IANA DNS Parameters
 
+/// contains DNSParameter trait including default implementations
 mod parameters;
 
 //--- Compatibility exports
