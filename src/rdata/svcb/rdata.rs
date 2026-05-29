@@ -175,6 +175,7 @@ impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
+        LongRecordData::check_len(parser.remaining())?;
         let priority = u16::parse(parser)?;
         let target = ParsedName::parse(parser)?;
         let params = SvcParams::parse(parser)?;

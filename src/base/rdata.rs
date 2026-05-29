@@ -529,6 +529,12 @@ impl LongRecordData {
     }
 }
 
+impl From<LongRecordData> for ParseError {
+    fn from(src: LongRecordData) -> ParseError {
+        ParseError::form_error(src.as_str())
+    }
+}
+
 impl fmt::Display for LongRecordData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())

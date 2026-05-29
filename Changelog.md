@@ -13,10 +13,13 @@ Improvements
 
 Bug fixes
 
-* Detect when an attempt is made to create an dnssec::sign::records::Rrset
-  with records that have different TTLs. Unfortuantely error handling is
-  poor so the code currently panics. At least this prevents bad signatures
-  but the error handling needs to be fixed later. ([#660])
+* Added a length check when parsing open-ended record types like
+  `Dnskey<_>` which are supposed to never be too large. ([#664])
+* Detect when an attempt is made to create a
+  `dnssec::sign::records::Rrset` with records that have different TTLs.
+  Unfortuantely error handling is poor so the code currently panics. At
+  least this prevents bad signatures but the error handling needs to be
+  fixed later. ([#660])
 
 Unstable features
 
@@ -28,6 +31,7 @@ Other changes
 [#641]: https://github.com/NLnetLabs/domain/pull/641
 [#659]: https://github.com/NLnetLabs/domain/pull/659
 [#660]: https://github.com/NLnetLabs/domain/pull/660
+[#664]: https://github.com/NLnetLabs/domain/pull/664
 [@soywod]: https://github.com/soywod
 
 
