@@ -1,10 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.12.1
 
-Breaking changes
-
-New
+Released 2026-05-29.
 
 Improvements
 
@@ -24,9 +22,8 @@ Bug fixes
 
 Unstable features
 
-* For `unstable-crypto` add key generation and signing for RSASHA512. ([#659])
-
-Other changes
+* `unstable-crypto`:
+  * Added key generation and signing for RSASHA512. ([#659])
 
 
 [#641]: https://github.com/NLnetLabs/domain/pull/641
