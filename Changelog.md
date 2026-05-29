@@ -13,15 +13,21 @@ Improvements
 
 Bug fixes
 
-* Changed the `FromStr` impl for `SecurityAlgorithm` to also accept
-  mnemonics. This also means that these are now accepted by the zonefile
-  parser. ([#656])
+* Detect when an attempt is made to create an dnssec::sign::records::Rrset
+  with records that have different TTLs. Unfortuantely error handling is
+  poor so the code currently panics. At least this prevents bad signatures
+  but the error handling needs to be fixed later. ([#660])
+
+Unstable features
+
+* For `unstable-crypto` add key generation and signing for RSASHA512. ([#659])
 
 Other changes
 
 
 [#641]: https://github.com/NLnetLabs/domain/pull/641
-[#656]: https://github.com/NLnetLabs/domain/pull/656
+[#659]: https://github.com/NLnetLabs/domain/pull/659
+[#660]: https://github.com/NLnetLabs/domain/pull/660
 [@soywod]: https://github.com/soywod
 
 

@@ -175,9 +175,7 @@ pub trait SignRaw {
     /// The public key.
     ///
     /// This can be used to verify produced signatures.  It must use the same
-    /// algorithm as returned by [`algorithm()`].
-    ///
-    /// [`algorithm()`]: Self::algorithm()
+    /// algorithm as returned by [`Self::algorithm()`].
     fn dnskey(&self) -> Dnskey<Vec<u8>>;
 
     /// Sign the given bytes.
@@ -522,6 +520,9 @@ pub enum SecretKeyBytes {
     /// An RSA/SHA-256 keypair.
     RsaSha256(RsaSecretKeyBytes),
 
+    /// An RSA/SHA-256 keypair.
+    RsaSha512(RsaSecretKeyBytes),
+
     /// An ECDSA P-256/SHA-256 keypair.
     ///
     /// The private key is a single 32-byte big-endian integer.
@@ -550,6 +551,7 @@ impl SecretKeyBytes {
     pub fn algorithm(&self) -> SecurityAlgorithm {
         match self {
             Self::RsaSha256(_) => SecurityAlgorithm::RSASHA256,
+            Self::RsaSha512(_) => SecurityAlgorithm::RSASHA512,
             Self::EcdsaP256Sha256(_) => SecurityAlgorithm::ECDSAP256SHA256,
             Self::EcdsaP384Sha384(_) => SecurityAlgorithm::ECDSAP384SHA384,
             Self::Ed25519(_) => SecurityAlgorithm::ED25519,
@@ -571,6 +573,11 @@ impl SecretKeyBytes {
         match self {
             Self::RsaSha256(k) => {
                 writeln!(w, "Algorithm: 8 (RSASHA256)")?;
+                k.format_as_bind(w)
+            }
+
+            Self::RsaSha512(k) => {
+                writeln!(w, "Algorithm: 10 (RSASHA512)")?;
                 k.format_as_bind(w)
             }
 
@@ -676,6 +683,9 @@ impl SecretKeyBytes {
         match (code, name) {
             (8, "(RSASHA256)") => {
                 RsaSecretKeyBytes::parse_from_bind(data).map(Self::RsaSha256)
+            }
+            (10, "(RSASHA512)") => {
+                RsaSecretKeyBytes::parse_from_bind(data).map(Self::RsaSha512)
             }
             (13, "(ECDSAP256SHA256)") => {
                 parse_pkey(data).map(Self::EcdsaP256Sha256)
@@ -1096,6 +1106,7 @@ mod tests {
     };
     const KEYS: &[(SecurityAlgorithm, u16)] = &[
         (SecurityAlgorithm::RSASHA256, 60616),
+        (SecurityAlgorithm::RSASHA512, 46731),
         (SecurityAlgorithm::ECDSAP256SHA256, 42253),
         (SecurityAlgorithm::ECDSAP384SHA384, 33566),
         (SecurityAlgorithm::ED25519, 56037),
@@ -1136,6 +1147,14 @@ mod tests {
                 SecurityAlgorithm::RSASHA256 => {
                     if cfg!(feature = "openssl") {
                         GenerateParams::RsaSha256 { bits: 2048 }
+                    } else {
+                        // No support for RSASHA256 in Ring.
+                        continue;
+                    }
+                }
+                SecurityAlgorithm::RSASHA512 => {
+                    if cfg!(feature = "openssl") {
+                        GenerateParams::RsaSha512 { bits: 2048 }
                     } else {
                         // No support for RSASHA256 in Ring.
                         continue;

@@ -71,7 +71,10 @@
 //! - Signing of unsorted zones, record collections must be sorted according
 //!   to [`CanonicalOrd`].
 //! - Signing of
-#![cfg_attr(feature = "unstable-zonetree", doc = "[`Zone`]")]
+#![cfg_attr(
+    feature = "unstable-zonetree",
+    doc = "[`zonetree::Zone`](crate::zonetree::Zone)"
+)]
 #![cfg_attr(not(feature = "unstable-zonetree"), doc = "`Zone`")]
 //!   types or via an [`core::iter::Iterator`] over
 //!   [`Record`]s, only signing of slices is supported.
@@ -81,12 +84,11 @@
 //!   older DSA or RSASHA1 algorithms (which is anyway only possible at
 //!   present if you bring your own cryptography).
 //!
-//! [`common`]: crate::sign::crypto::common
+//! [`common`]: crate::crypto::common
 //! [`keyset`]: crate::dnssec::sign::keys::keyset
-//! [`openssl`]: crate::sign::crypto::openssl
-//! [`ring`]: crate::sign::crypto::ring
+//! [`openssl`]: crate::crypto::openssl
+//! [`ring`]: crate::crypto::ring
 //! [`sign_rrset()`]: crate::dnssec::sign::signatures::rrsigs::sign_rrset
-//! [`DnssecSigningKey`]: crate::sign::keys::DnssecSigningKey
 //! [`Record`]: crate::base::record::Record
 //! [RFC 5155]: https://rfc-editor.org/rfc/rfc5155
 //! [RFC 6781 section 3.1]: https://rfc-editor.org/rfc/rfc6781#section-3.1
@@ -95,14 +97,13 @@
 //! [RFC 9364]: https://rfc-editor.org/rfc/rfc9364
 //! [RFC 9499 section 10]:
 //!     https://www.rfc-editor.org/rfc/rfc9499.html#section-10
-//! [`GenerateParams`]: crate::sign::crypto::common::GenerateParams
-//! [`KeyPair`]: crate::sign::crypto::common::KeyPair
+//! [`GenerateParams`]: crate::crypto::sign::GenerateParams
+//! [`KeyPair`]: crate::crypto::sign::KeyPair
 //! [`Signable`]: crate::dnssec::sign::traits::Signable
 //! [`SignableZone`]: crate::dnssec::sign::traits::SignableZone
 //! [`SignableZoneInPlace`]: crate::dnssec::sign::traits::SignableZoneInPlace
-//! [`SigningKey`]: crate::sign::keys::SigningKey
-//! [`SortedRecords`]: crate::sign::SortedRecords
-//! [`Zone`]: crate::zonetree::Zone
+//! [`SigningKey`]: crate::dnssec::sign::keys::signingkey::SigningKey
+//! [`SortedRecords`]: crate::dnssec::sign::records::SortedRecords
 
 #![cfg(feature = "unstable-sign")]
 // NOTE: Users should not interact with the `unstable-crypto-backend` feature
@@ -383,6 +384,7 @@ where
 /// [RFC 5155 section 2 Backwards Compatibility]:
 ///     https://www.rfc-editor.org/rfc/rfc5155.html#section-2
 /// [`SignableZoneInPlace`]: crate::dnssec::sign::traits::SignableZoneInPlace
+/// [`sign_rrset()`]: crate::dnssec::sign::signatures::rrsigs::sign_rrset
 /// [`SortedRecords`]: crate::dnssec::sign::records::SortedRecords
 /// [`Zone`]: crate::zonetree::Zone
 pub fn sign_zone<N, Octs, S, Inner, Sort, T>(
