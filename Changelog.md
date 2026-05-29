@@ -10,6 +10,7 @@ Improvements
 
 * Implemented `core::error::Error` instead of `std::error::Error` for error
   types, reducing the need for the `std` feature flag. ([#641] by [@soywod])
+* Added missing `impl core::Error for ParseError`. ([#650] by [@soywod])
 
 Bug fixes
 
@@ -29,6 +30,7 @@ Other changes
 
 
 [#641]: https://github.com/NLnetLabs/domain/pull/641
+[#650]: https://github.com/NLnetLabs/domain/pull/650
 [#659]: https://github.com/NLnetLabs/domain/pull/659
 [#660]: https://github.com/NLnetLabs/domain/pull/660
 [#664]: https://github.com/NLnetLabs/domain/pull/664
