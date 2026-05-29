@@ -19,6 +19,7 @@
 //  bits of the wrapped integer.
 
 use core::fmt;
+use core::str;
 use core::str::FromStr;
 
 //------------ Rcode ---------------------------------------------------------
@@ -195,18 +196,27 @@ impl Rcode {
     /// Returns the mnemonic for this value if there is one.
     #[must_use]
     pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
+        match self.to_mnemonic_str() {
+            Some(m) => Some(m.as_bytes()),
+            None => None,
+        }
+    }
+
+    /// Returns the mnemonic as a `&str` for this value if there is one
+    #[must_use]
+    pub const fn to_mnemonic_str(self) -> Option<&'static str> {
         match self {
-            Rcode::NOERROR => Some(b"NOERROR"),
-            Rcode::FORMERR => Some(b"FORMERR"),
-            Rcode::SERVFAIL => Some(b"SERVFAIL"),
-            Rcode::NXDOMAIN => Some(b"NXDOMAIN"),
-            Rcode::NOTIMP => Some(b"NOTIMP"),
-            Rcode::REFUSED => Some(b"REFUSED"),
-            Rcode::YXDOMAIN => Some(b"YXDOMAIN"),
-            Rcode::YXRRSET => Some(b"YXRRSET"),
-            Rcode::NXRRSET => Some(b"NXRRSET"),
-            Rcode::NOTAUTH => Some(b"NOTAUTH"),
-            Rcode::NOTZONE => Some(b"NOTZONE"),
+            Rcode::NOERROR => Some("NOERROR"),
+            Rcode::FORMERR => Some("FORMERR"),
+            Rcode::SERVFAIL => Some("SERVFAIL"),
+            Rcode::NXDOMAIN => Some("NXDOMAIN"),
+            Rcode::NOTIMP => Some("NOTIMP"),
+            Rcode::REFUSED => Some("REFUSED"),
+            Rcode::YXDOMAIN => Some("YXDOMAIN"),
+            Rcode::YXRRSET => Some("YXRRSET"),
+            Rcode::NXRRSET => Some("NXRRSET"),
+            Rcode::NOTAUTH => Some("NOTAUTH"),
+            Rcode::NOTZONE => Some("NOTZONE"),
             _ => None,
         }
     }
@@ -255,10 +265,7 @@ impl From<Rcode> for u8 {
 
 impl fmt::Display for Rcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self
-            .to_mnemonic()
-            .and_then(|bytes| core::str::from_utf8(bytes).ok())
-        {
+        match self.to_mnemonic_str() {
             Some(mnemonic) => f.write_str(mnemonic),
             None => self.0.fmt(f),
         }
@@ -267,10 +274,7 @@ impl fmt::Display for Rcode {
 
 impl fmt::Debug for Rcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self
-            .to_mnemonic()
-            .and_then(|bytes| core::str::from_utf8(bytes).ok())
-        {
+        match self.to_mnemonic_str() {
             Some(mnemonic) => write!(f, "Rcode::{}", mnemonic),
             None => f.debug_tuple("Rcode").field(&self.0).finish(),
         }
@@ -575,20 +579,29 @@ impl OptRcode {
     /// Returns the mnemonic for this value if there is one.
     #[must_use]
     pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
+        match self.to_mnemonic_str() {
+            Some(m) => Some(m.as_bytes()),
+            None => None,
+        }
+    }
+
+    /// Returns the mnemonic as a `&str` for this value if there is one
+    #[must_use]
+    pub const fn to_mnemonic_str(self) -> Option<&'static str> {
         match self {
-            OptRcode::NOERROR => Some(b"NOERROR"),
-            OptRcode::FORMERR => Some(b"FORMERR"),
-            OptRcode::SERVFAIL => Some(b"SERVFAIL"),
-            OptRcode::NXDOMAIN => Some(b"NXDOMAIN"),
-            OptRcode::NOTIMP => Some(b"NOTIMP"),
-            OptRcode::REFUSED => Some(b"REFUSED"),
-            OptRcode::YXDOMAIN => Some(b"YXDOMAIN"),
-            OptRcode::YXRRSET => Some(b"YXRRSET"),
-            OptRcode::NXRRSET => Some(b"NXRRSET"),
-            OptRcode::NOTAUTH => Some(b"NOTAUTH"),
-            OptRcode::NOTZONE => Some(b"NOTZONE"),
-            OptRcode::BADVERS => Some(b"BADVERS"),
-            OptRcode::BADCOOKIE => Some(b"BADCOOKIE"),
+            OptRcode::NOERROR => Some("NOERROR"),
+            OptRcode::FORMERR => Some("FORMERR"),
+            OptRcode::SERVFAIL => Some("SERVFAIL"),
+            OptRcode::NXDOMAIN => Some("NXDOMAIN"),
+            OptRcode::NOTIMP => Some("NOTIMP"),
+            OptRcode::REFUSED => Some("REFUSED"),
+            OptRcode::YXDOMAIN => Some("YXDOMAIN"),
+            OptRcode::YXRRSET => Some("YXRRSET"),
+            OptRcode::NXRRSET => Some("NXRRSET"),
+            OptRcode::NOTAUTH => Some("NOTAUTH"),
+            OptRcode::NOTZONE => Some("NOTZONE"),
+            OptRcode::BADVERS => Some("BADVERS"),
+            OptRcode::BADCOOKIE => Some("BADCOOKIE"),
             _ => None,
         }
     }
@@ -645,10 +658,7 @@ impl From<Rcode> for OptRcode {
 
 impl fmt::Display for OptRcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self
-            .to_mnemonic()
-            .and_then(|bytes| core::str::from_utf8(bytes).ok())
-        {
+        match self.to_mnemonic_str() {
             Some(mnemonic) => f.write_str(mnemonic),
             None => self.0.fmt(f),
         }
@@ -657,10 +667,7 @@ impl fmt::Display for OptRcode {
 
 impl fmt::Debug for OptRcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self
-            .to_mnemonic()
-            .and_then(|bytes| core::str::from_utf8(bytes).ok())
-        {
+        match self.to_mnemonic_str() {
             Some(mnemonic) => write!(f, "Rcode::{}", mnemonic),
             None => f.debug_tuple("Rcode").field(&self.0).finish(),
         }
@@ -974,6 +981,22 @@ mod test {
     }
 
     #[test]
+    fn rcode_tomnemonicstr() {
+        assert_eq!(Rcode::NOERROR.to_mnemonic_str(), Some("NOERROR"));
+        assert_eq!(Rcode::FORMERR.to_mnemonic_str(), Some("FORMERR"));
+        assert_eq!(Rcode::SERVFAIL.to_mnemonic_str(), Some("SERVFAIL"));
+        assert_eq!(Rcode::NXDOMAIN.to_mnemonic_str(), Some("NXDOMAIN"));
+        assert_eq!(Rcode::NOTIMP.to_mnemonic_str(), Some("NOTIMP"));
+        assert_eq!(Rcode::REFUSED.to_mnemonic_str(), Some("REFUSED"));
+        assert_eq!(Rcode::YXDOMAIN.to_mnemonic_str(), Some("YXDOMAIN"));
+        assert_eq!(Rcode::YXRRSET.to_mnemonic_str(), Some("YXRRSET"));
+        assert_eq!(Rcode::NXRRSET.to_mnemonic_str(), Some("NXRRSET"));
+        assert_eq!(Rcode::NOTAUTH.to_mnemonic_str(), Some("NOTAUTH"));
+        assert_eq!(Rcode::NOTZONE.to_mnemonic_str(), Some("NOTZONE"));
+        assert_eq!(Rcode(42).to_mnemonic_str(), None);
+    }
+
+    #[test]
     fn optrcode_fromstr() {
         assert_eq!(Ok(OptRcode::NOERROR), "NOERROR".parse());
         assert_eq!(Ok(OptRcode::FORMERR), "FORMERR".parse());
@@ -989,6 +1012,24 @@ mod test {
         assert_eq!(Ok(OptRcode::BADVERS), "BADVERS".parse());
         assert_eq!(Ok(OptRcode::BADCOOKIE), "BADCOOKIE".parse());
         assert!("#$%!@".parse::<Rcode>().is_err());
+    }
+
+    #[test]
+    fn optrcode_tomnemonicstr() {
+        assert_eq!(OptRcode::NOERROR.to_mnemonic_str(), Some("NOERROR"));
+        assert_eq!(OptRcode::FORMERR.to_mnemonic_str(), Some("FORMERR"));
+        assert_eq!(OptRcode::SERVFAIL.to_mnemonic_str(), Some("SERVFAIL"));
+        assert_eq!(OptRcode::NXDOMAIN.to_mnemonic_str(), Some("NXDOMAIN"));
+        assert_eq!(OptRcode::NOTIMP.to_mnemonic_str(), Some("NOTIMP"));
+        assert_eq!(OptRcode::REFUSED.to_mnemonic_str(), Some("REFUSED"));
+        assert_eq!(OptRcode::YXDOMAIN.to_mnemonic_str(), Some("YXDOMAIN"));
+        assert_eq!(OptRcode::YXRRSET.to_mnemonic_str(), Some("YXRRSET"));
+        assert_eq!(OptRcode::NXRRSET.to_mnemonic_str(), Some("NXRRSET"));
+        assert_eq!(OptRcode::NOTAUTH.to_mnemonic_str(), Some("NOTAUTH"));
+        assert_eq!(OptRcode::NOTZONE.to_mnemonic_str(), Some("NOTZONE"));
+        assert_eq!(OptRcode::BADVERS.to_mnemonic_str(), Some("BADVERS"));
+        assert_eq!(OptRcode::BADCOOKIE.to_mnemonic_str(), Some("BADCOOKIE"));
+        assert_eq!(OptRcode(42).to_mnemonic_str(), None);
     }
 
     #[test]
