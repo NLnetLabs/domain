@@ -55,7 +55,7 @@ where
     ///
     /// This is possible because RFC 5155 section 7.1 says:
     ///
-    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-7.1
+    /// <https://www.rfc-editor.org/rfc/rfc5155.html#section-7.1>
     /// 7.1.  Zone Signing
     /// ...
     ///   "If Opt-Out is being used, owner names of unsigned delegations MAY

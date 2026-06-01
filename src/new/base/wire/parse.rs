@@ -235,10 +235,8 @@ pub use domain_macros::SplitBytes;
 /// # Safety
 ///
 /// Every implementation of [`ParseBytesZC`] must satisfy the invariants
-/// documented on [`parse_bytes_by_ref()`]. An incorrect implementation is
+/// documented on [`Self::parse_bytes_by_ref()`]. An incorrect implementation is
 /// considered to cause undefined behaviour.
-///
-/// [`parse_bytes_by_ref()`]: Self::parse_bytes_by_ref()
 ///
 /// Implementing types must also have no alignment (i.e. a valid instance of
 /// [`Self`] can occur at any address). This eliminates the possibility of
@@ -375,10 +373,8 @@ pub use domain_macros::ParseBytesZC;
 /// # Safety
 ///
 /// Every implementation of [`SplitBytesZC`] must satisfy the invariants
-/// documented on [`split_bytes_by_ref()`]. An incorrect implementation is
+/// documented on [`Self::split_bytes_by_ref()`]. An incorrect implementation is
 /// considered to cause undefined behaviour.
-///
-/// [`split_bytes_by_ref()`]: Self::split_bytes_by_ref()
 ///
 /// Note that [`ParseBytesZC`] and [`UnsizedCopy`], required by this trait,
 /// also have several invariants that need to be considered with care.
@@ -580,6 +576,8 @@ impl ParseBytesInPlace for alloc::sync::Arc<[u8]> {
 /// A DNS message parsing error.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParseError;
+
+impl core::error::Error for ParseError {}
 
 //--- Formatting
 

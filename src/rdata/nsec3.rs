@@ -428,13 +428,13 @@ const NSEC3_OPT_OUT_FLAG_MASK: u8 = 0b0000_0001;
     ))
 )]
 pub struct Nsec3param<Octs> {
-    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.1
+    /// <https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.1>
     /// 3.1.1.  Hash Algorithm
     ///   "The Hash Algorithm field identifies the cryptographic hash
     ///    algorithm used to construct the hash-value."
     hash_algorithm: Nsec3HashAlgorithm,
 
-    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.2
+    /// <https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.2>
     /// 3.1.2.  Flags
     ///   "The Flags field contains 8 one-bit flags that can be used to
     ///   indicate different processing.  All undefined flags must be zero.
@@ -452,7 +452,7 @@ pub struct Nsec3param<Octs> {
     ///    See Section 6 for details about the use of this flag."
     flags: u8,
 
-    /// https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.3
+    /// <https://www.rfc-editor.org/rfc/rfc5155.html#section-3.1.3>
     /// 3.1.3.  Iterations
     ///   "The Iterations field defines the number of additional times the
     ///    hash function has been performed.  More iterations result in
@@ -461,19 +461,19 @@ pub struct Nsec3param<Octs> {
     ///    resolver.  See Section 5 for details of the use of this field, and
     ///    Section 10.3 for limitations on the value."
     ///
-    /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
+    /// <https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1>
     /// 3.1. Best Practice for Zone Publishers
     ///   "If NSEC3 must be used, then an iterations count of 0 MUST be used
     ///    to alleviate computational burdens."
     iterations: u16,
 
-    /// https://datatracker.ietf.org/doc/html/rfc5155#section-3.1.5
+    /// <https://datatracker.ietf.org/doc/html/rfc5155#section-3.1.5>
     /// 3.1.5.  Salt
     ///   "The Salt field is appended to the original owner name before
     ///    hashing in order to defend against pre-calculated dictionary
     ///    attacks."
     ///
-    /// https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1
+    /// <https://www.rfc-editor.org/rfc/rfc9276.html#section-3.1>
     /// 3.1. Best Practice for Zone Publishers
     ///   "Operators SHOULD NOT use a salt by indicating a zero-length salt
     ///   value instead (represented as a "-" in the presentation format)."

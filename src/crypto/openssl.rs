@@ -446,7 +446,8 @@ pub mod sign {
             }
 
             let pkey = match secret {
-                SecretKeyBytes::RsaSha256(s) => {
+                SecretKeyBytes::RsaSha256(s)
+                | SecretKeyBytes::RsaSha512(s) => {
                     let n = num(&s.n)?;
                     let e = num(&s.e)?;
 
@@ -458,12 +459,20 @@ pub mod sign {
                     .expect("should not fail");
                     let rsa_public =
                         PKey::from_rsa(rsa_public).expect("should not fail");
-                    let p = PublicKey::Rsa(
-                        MessageDigest::sha256(),
-                        rsa_public,
-                        public.flags(),
-                    )
-                    .dnskey();
+                    let digest =
+                        if matches!(secret, SecretKeyBytes::RsaSha256(_)) {
+                            MessageDigest::sha256()
+                        } else if matches!(
+                            secret,
+                            SecretKeyBytes::RsaSha512(_)
+                        ) {
+                            MessageDigest::sha512()
+                        } else {
+                            unreachable!();
+                        };
+                    let p =
+                        PublicKey::Rsa(digest, rsa_public, public.flags())
+                            .dnskey();
                     if p != *public {
                         return Err(FromBytesError::InvalidKey);
                     }
@@ -585,9 +594,10 @@ pub mod sign {
         pub fn to_bytes(&self) -> SecretKeyBytes {
             // TODO: Consider security implications of secret data in 'Vec's.
             match self.algorithm {
-                SecurityAlgorithm::RSASHA256 => {
+                SecurityAlgorithm::RSASHA256
+                | SecurityAlgorithm::RSASHA512 => {
                     let key = self.pkey.rsa().unwrap();
-                    SecretKeyBytes::RsaSha256(RsaSecretKeyBytes {
+                    let secret_key_bytes = RsaSecretKeyBytes {
                         n: key.n().to_vec().into(),
                         e: key.e().to_vec().into(),
                         d: key.d().to_vec().into(),
@@ -596,7 +606,14 @@ pub mod sign {
                         d_p: key.dmp1().unwrap().to_vec().into(),
                         d_q: key.dmq1().unwrap().to_vec().into(),
                         q_i: key.iqmp().unwrap().to_vec().into(),
-                    })
+                    };
+                    if self.algorithm == SecurityAlgorithm::RSASHA256 {
+                        SecretKeyBytes::RsaSha256(secret_key_bytes)
+                    } else if self.algorithm == SecurityAlgorithm::RSASHA512 {
+                        SecretKeyBytes::RsaSha512(secret_key_bytes)
+                    } else {
+                        unreachable!();
+                    }
                 }
                 SecurityAlgorithm::ECDSAP256SHA256 => {
                     let key = self.pkey.ec_key().unwrap();
@@ -637,6 +654,13 @@ pub mod sign {
                 SecurityAlgorithm::RSASHA256 => {
                     let mut s =
                         Signer::new(MessageDigest::sha256(), &self.pkey)?;
+                    s.set_rsa_padding(openssl::rsa::Padding::PKCS1)?;
+                    s.sign_oneshot_to_vec(data)
+                }
+
+                SecurityAlgorithm::RSASHA512 => {
+                    let mut s =
+                        Signer::new(MessageDigest::sha512(), &self.pkey)?;
                     s.set_rsa_padding(openssl::rsa::Padding::PKCS1)?;
                     s.sign_oneshot_to_vec(data)
                 }
@@ -687,18 +711,24 @@ pub mod sign {
 
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
             match self.algorithm {
-                SecurityAlgorithm::RSASHA256 => {
+                SecurityAlgorithm::RSASHA256
+                | SecurityAlgorithm::RSASHA512 => {
                     let key = self.pkey.rsa().expect("should not fail");
                     let n = key.n().to_owned().expect("should not fail");
                     let e = key.e().to_owned().expect("should not fail");
                     let key = Rsa::from_public_components(n, e)
                         .expect("should not fail");
                     let key = PKey::from_rsa(key).expect("should not fail");
-                    let public = PublicKey::Rsa(
-                        MessageDigest::sha256(),
-                        key,
-                        self.flags,
-                    );
+                    let digest = if self.algorithm
+                        == SecurityAlgorithm::RSASHA256
+                    {
+                        MessageDigest::sha256()
+                    } else if self.algorithm == SecurityAlgorithm::RSASHA512 {
+                        MessageDigest::sha512()
+                    } else {
+                        unreachable!();
+                    };
+                    let public = PublicKey::Rsa(digest, key, self.flags);
                     public.dnskey()
                 }
                 SecurityAlgorithm::ECDSAP256SHA256
@@ -754,6 +784,10 @@ pub mod sign {
             match self.algorithm {
                 SecurityAlgorithm::RSASHA256 => {
                     Ok(Signature::RsaSha256(signature))
+                }
+
+                SecurityAlgorithm::RSASHA512 => {
+                    Ok(Signature::RsaSha512(signature))
                 }
 
                 SecurityAlgorithm::ECDSAP256SHA256 => signature
@@ -827,6 +861,7 @@ pub mod sign {
 
         const KEYS: &[(SecurityAlgorithm, u16)] = &[
             (SecurityAlgorithm::RSASHA256, 60616),
+            (SecurityAlgorithm::RSASHA512, 46731),
             (SecurityAlgorithm::ECDSAP256SHA256, 42253),
             (SecurityAlgorithm::ECDSAP384SHA384, 33566),
             (SecurityAlgorithm::ED25519, 56037),
@@ -839,6 +874,9 @@ pub mod sign {
                 let params = match algorithm {
                     SecurityAlgorithm::RSASHA256 => {
                         GenerateParams::RsaSha256 { bits: 3072 }
+                    }
+                    SecurityAlgorithm::RSASHA512 => {
+                        GenerateParams::RsaSha512 { bits: 3072 }
                     }
                     SecurityAlgorithm::ECDSAP256SHA256 => {
                         GenerateParams::EcdsaP256Sha256
@@ -861,6 +899,9 @@ pub mod sign {
                 let params = match algorithm {
                     SecurityAlgorithm::RSASHA256 => {
                         GenerateParams::RsaSha256 { bits: 3072 }
+                    }
+                    SecurityAlgorithm::RSASHA512 => {
+                        GenerateParams::RsaSha512 { bits: 3072 }
                     }
                     SecurityAlgorithm::ECDSAP256SHA256 => {
                         GenerateParams::EcdsaP256Sha256

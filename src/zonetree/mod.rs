@@ -96,8 +96,8 @@
 //! [`Rtype`]: crate::base::iana::Rtype
 //! [`Name`]: crate::base::name::Name
 //! [`Message`]: crate::base::Message
-//! [`NoError`]: crate::base::iana::code::Rcode::NOERROR
-//! [`NxDomain`]: crate::base::iana::code::Rcode::NXDOMAIN
+//! [`NoError`]: crate::base::iana::Rcode::NOERROR
+//! [`NxDomain`]: crate::base::iana::Rcode::NXDOMAIN
 //! [`ZoneBuilder`]: in_memory::ZoneBuilder
 //! [`ZoneUpdater`]: update::ZoneUpdater
 

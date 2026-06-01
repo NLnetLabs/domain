@@ -65,6 +65,8 @@ pub trait ZoneStore: Debug + Sync + Send + Any {
     /// This can be used to obtain access to methods on the specific
     /// [`ZoneStore`] implementation. See [`Zone`] for how this can used to
     /// layer functionality on top of a zone.
+    ///
+    /// [`Zone`]: super::Zone
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -140,13 +142,12 @@ pub trait WritableZone: Send + Sync {
     ///
     /// If `create_diff` is true the zone backing store is requested to create
     /// an [`InMemoryZoneDiff`] which will accumulate entries as changes are
-    /// made to the zone and will be returned finally when [`commit()`] is
+    /// made to the zone and will be returned finally when [`Self::commit()`] is
     /// invoked.
     ///
     /// Creating a diff is optional. If the backing store doesn't support
-    /// diff creation [`commit()`] will return `None`.
+    /// diff creation [`Self::commit()`] will return `None`.
     ///
-    /// [`commit()`]: Self::commit
     #[allow(clippy::type_complexity)]
     fn open(
         &self,
@@ -161,19 +162,18 @@ pub trait WritableZone: Send + Sync {
 
     /// Complete a write operation for the zone.
     ///
-    /// This function commits the changes accumulated since [`open()`] was
+    /// This function commits the changes accumulated since [`Self::open()`] was
     /// invoked. Clients who obtain a [`ReadableZone`] interface to this zone
     /// _before_ this function has been called will not see any of the changes
     /// made since the last commit. Only clients who obtain a [`ReadableZone`]
     /// _after_ invoking this function will be able to see the changes made
-    /// since [`open()`] was called.
+    /// since [`Self::open()`] was called.
     ///
-    /// If `create_diff` was set to `true` when [`open()`] was invoked then
-    /// this function _may_ return `Some` if a diff was created. `None` may be
-    /// returned if the zone backing store does not support creation of diffs
+    /// If `create_diff` was set to `true` when [`Self::open()`] was invoked
+    /// then this function _may_ return `Some` if a diff was created. `None` may
+    /// be returned if the zone backing store does not support creation of diffs
     /// or was unable to create a diff for some reason.
     ///
-    /// [`open()`]: Self::open
     fn commit(
         &mut self,
         bump_soa_serial: bool,

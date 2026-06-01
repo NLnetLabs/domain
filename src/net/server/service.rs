@@ -25,7 +25,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// For an overview of how services fit into the total flow of request and
 /// response handling see the [`net::server`] module documentation.
 ///
-/// Each `Service` implementation defines a [`call`] function which takes a
+/// Each `Service` implementation defines a [`Self::call()`] function which takes a
 /// [`Request`] DNS request as input and returns a future that yields a stream
 /// of one or more items each of which is either a [`CallResult`] or
 /// [`ServiceError`].
@@ -36,7 +36,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// # Usage
 ///
 /// You can either implement the [`Service`] trait on a struct or use the
-/// helper function [`service_fn`] to turn a function into a [`Service`].
+/// helper function [`service_fn()`] to turn a function into a [`Service`].
 ///
 /// # Implementing the `Service` trait on a `struct`
 ///
@@ -163,8 +163,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
 /// [middleware]: crate::net::server::middleware
 /// [`net::server`]: crate::net::server
-/// [`call`]: Self::call()
-/// [`service_fn`]: crate::net::server::util::service_fn()
+/// [`service_fn()`]: crate::net::server::util::service_fn()
 pub trait Service<
     RequestOctets: AsRef<[u8]> + Send + Sync,
     RequestMeta: Clone + Default,

@@ -317,7 +317,7 @@ impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
         }
 
         SvcParams::from_octets(builder.freeze()).map_err(|e| {
-            println!("error in params::from_octets = {}", &e.0);
+            println!("error in params::from_octets = {}", e.0);
             S::Error::custom("invalid SvcParams")
         })
     }

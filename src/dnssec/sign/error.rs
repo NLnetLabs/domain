@@ -21,12 +21,15 @@ pub enum SigningError {
     /// Cannot create an Rrset from an empty slice.
     EmptyRecordSlice,
 
+    /// Multiple TTL values in RRset.
+    MultipleTtlValues,
+
     // TODO
     Nsec3HashingError(Nsec3HashError),
 
     /// TODO
     ///
-    /// https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2
+    /// <https://www.rfc-editor.org/rfc/rfc4035.html#section-2.2>
     /// 2.2.  Including RRSIG RRs in a Zone
     ///   ...
     ///   "An RRSIG RR itself MUST NOT be signed"
@@ -51,6 +54,9 @@ impl Display for SigningError {
             }
 	    SigningError::EmptyRecordSlice => {
                 f.write_str("Empty slice of Record")
+	    }
+	    SigningError::MultipleTtlValues => {
+                f.write_str("Multiple TTL values in RRset")
 	    }
             SigningError::Nsec3HashingError(err) => {
                 f.write_fmt(format_args!("NSEC3 hashing error: {err}"))

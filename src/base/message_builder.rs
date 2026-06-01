@@ -1813,9 +1813,9 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
 
 /// A builder target for sending messages on stream transports.
 ///
-/// TODO: Rename this type and adjust the doc comments as it is usable both
-/// for datagram AND stream transports via [`as_dgram_slice`] and
-/// [`as_stream_slice`].
+/// TODO: Rename this type and adjust the doc comments as it is usable both for
+/// datagram AND stream transports via [`Self::as_dgram_slice()`] and
+/// [`Self::as_stream_slice()`].
 ///
 /// When messages are sent over stream-oriented transports such as TCP, a DNS
 /// message is preceded by a 16 bit length value in order to determine the end
@@ -1827,9 +1827,6 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
 /// Because the length is 16 bits long, the assembled message can be at most
 /// 65536 octets long, independently of the maximum length the underlying
 /// builder allows.
-///
-/// [`as_dgram_slice`]: Self::as_dgram_slice
-/// [`as_stream_slice`]: Self::as_stream_slice
 #[derive(Clone, Debug, Default)]
 pub struct StreamTarget<Target> {
     /// The underlying octets builder.

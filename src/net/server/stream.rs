@@ -422,9 +422,7 @@ where
     ///
     /// # Drop behaviour
     ///
-    /// When dropped [`shutdown`] will be invoked.
-    ///
-    /// [`shutdown`]: Self::shutdown
+    /// When dropped [`Self::shutdown()`] will be invoked.
     pub async fn run(&self)
     where
         Buf: 'static,

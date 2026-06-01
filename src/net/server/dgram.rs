@@ -318,9 +318,7 @@ where
     ///   responses.
     /// - A [`Config`] with settings to control the server behaviour.
     ///
-    /// Invoke [`run`] to receive and process incoming messages.
-    ///
-    /// [`run`]: Self::run()
+    /// Invoke [`Self::run()`] to receive and process incoming messages.
     #[must_use]
     pub fn with_config(
         sock: Sock,
@@ -388,9 +386,7 @@ where
     ///
     /// # Drop behaviour
     ///
-    /// When dropped [`shutdown`] will be invoked.
-    ///
-    /// [`shutdown`]: Self::shutdown
+    /// When dropped [`Self::shutdown()`] will be invoked.
     pub async fn run(&self) {
         if let Err(err) = self.run_until_error().await {
             error!("Server stopped due to error: {err}");

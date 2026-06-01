@@ -185,6 +185,7 @@ impl<Octs> Txt<Octs> {
         Octs: AsRef<[u8]>,
     {
         let len = parser.remaining();
+        LongRecordData::check_len(len)?;
         let text = parser.parse_octets(len)?;
         let mut tmp = Parser::from_ref(text.as_ref());
         while tmp.remaining() != 0 {

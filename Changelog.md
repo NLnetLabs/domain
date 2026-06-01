@@ -8,15 +8,42 @@ New
 
 Improvements
 
-* Implemented `core::error::Error` instead of `std::error::Error` for error
-  types, reducing the need for the `std` feature flag. ([#641] by [@soywod])
-
 Bug fixes
 
 Other changes
 
 
+## 0.12.1
+
+Released 2026-05-29.
+
+Improvements
+
+* Implemented `core::error::Error` instead of `std::error::Error` for error
+  types, reducing the need for the `std` feature flag. ([#641] by [@soywod])
+* Added missing `impl core::Error for ParseError`. ([#650] by [@soywod])
+
+Bug fixes
+
+* Added a length check when parsing open-ended record types like
+  `Dnskey<_>` which are supposed to never be too large. ([#664])
+* Detect when an attempt is made to create a
+  `dnssec::sign::records::Rrset` with records that have different TTLs.
+  Unfortuantely error handling is poor so the code currently panics. At
+  least this prevents bad signatures but the error handling needs to be
+  fixed later. ([#660])
+
+Unstable features
+
+* `unstable-crypto`:
+  * Added key generation and signing for RSASHA512. ([#659])
+
+
 [#641]: https://github.com/NLnetLabs/domain/pull/641
+[#650]: https://github.com/NLnetLabs/domain/pull/650
+[#659]: https://github.com/NLnetLabs/domain/pull/659
+[#660]: https://github.com/NLnetLabs/domain/pull/660
+[#664]: https://github.com/NLnetLabs/domain/pull/664
 [@soywod]: https://github.com/soywod
 
 

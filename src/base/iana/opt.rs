@@ -31,11 +31,12 @@ int_enum! {
 
     /// Update lease (UL, 2).
     ///
-    /// This option was proposed in a draft as a way to state lease times for
-    /// registrations made via DNS UPDATE. Its draft, [draft-sekar-dns-ul],
-    /// has since expired. The code is considered ‘on hold.’
+    /// This option is used to request lease times for registrations made via
+    /// DNS UPDATE. DNS lease expiration is used in the DNS-SD Service
+    /// Registration Protocol [RFC 9665]. The option is defined in [RFC 9664].
     ///
-    /// [draft-sekar-dns-ul]: http://files.dns-sd.org/draft-sekar-dns-ul.txt
+    /// [RFC 9664]: https://datatracker.ietf.org/doc/html/rfc9664
+    /// [RFC 9665]: https://datatracker.ietf.org/doc/html/rfc9665
     (UL => 2, "UL")
 
     /// Name server identifier (NSID, 3).

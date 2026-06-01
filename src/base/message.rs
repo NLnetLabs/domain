@@ -1221,9 +1221,7 @@ where
 /// error but can continue with the next record. If parsing the entire record
 /// fails the item will be an error and subsequent attempts to continue will
 /// also produce errors. This case can be distinguished from an error while
-/// parsing the record data by [`next_section`] returning an error, too.
-///
-/// [`next_section`]: Self::next_section
+/// parsing the record data by [`Self::next_section()`] returning an error, too.
 #[derive(Debug)]
 pub struct AnyRecordIter<'a, Octs: ?Sized, Data> {
     section: RecordSection<'a, Octs>,

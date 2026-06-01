@@ -14,6 +14,38 @@ use super::wire::{
 //----------- Record ---------------------------------------------------------
 
 /// A DNS record.
+///
+/// ```
+/// use domain::new::base;
+/// use domain::new::rdata;
+///
+/// // Construct DNS Record with `RevNameBuf` as the `rname` and a `Cname`
+/// // record with a `NameBuf`
+/// let record: base::Record<
+///     base::name::RevNameBuf,
+///     rdata::CName<base::name::NameBuf>,
+/// > = base::Record {
+///     rname: "www.nlnetlabs.nl".parse().unwrap(),
+///     rtype: base::RType::CNAME,
+///     rclass: base::RClass::IN,
+///     ttl: base::TTL::from(3600),
+///     rdata: rdata::CName {
+///         name: "nlnetlabs.nl".parse().unwrap(),
+///     },
+/// };
+///
+/// // Convert the `rname` from `RevNameBuf` into `NameBuf` but keep the
+/// // `rdata` untouched.
+/// let record: base::Record<
+///     base::name::NameBuf,
+///     rdata::CName<base::name::NameBuf>,
+/// > = record.transform(
+///     |name: base::name::RevNameBuf| name.into(),
+///     |data: rdata::CName<base::name::NameBuf>| data,
+/// );
+///
+/// println!("{:?}", record);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Record<N, D> {
     /// The name of the record.
@@ -566,9 +598,7 @@ pub trait CanonicalRecordData: BuildBytes {
     /// Compare record data in the canonical form.
     ///
     /// This is equivalent to serializing both record data instances using
-    /// [`build_canonical_bytes()`] and comparing the resulting byte sequences.
-    ///
-    /// [`build_canonical_bytes()`]: Self::build_canonical_bytes()
+    /// [`Self::build_canonical_bytes()`] and comparing the resulting byte sequences.
     fn cmp_canonical(&self, other: &Self) -> Ordering;
 }
 

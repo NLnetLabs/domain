@@ -347,9 +347,7 @@ where
 
     /// Has zone updating finished?
     ///
-    /// If true, further calls to [`apply()`] will fail.
-    ///
-    /// [`apply()`]: Self::apply
+    /// If true, further calls to [`Self::apply()`] will fail.
     pub fn is_finished(&self) -> bool {
         self.state == ZoneUpdaterState::Finished
     }
