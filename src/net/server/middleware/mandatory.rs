@@ -3,7 +3,7 @@ use core::future::{Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use std::fmt::Display;
+use core::fmt::Display;
 
 use futures_util::stream::{Once, Stream, once};
 use octseq::Octets;
@@ -409,7 +409,7 @@ impl From<PushError> for TruncateError {
 
 #[cfg(test)]
 mod tests {
-    use std::vec::Vec;
+    use alloc::vec::Vec;
 
     use bytes::Bytes;
     use futures_util::StreamExt;

@@ -8,7 +8,7 @@
 //! and doesn’t provide all the features the `std` version has.
 
 #[cfg(feature = "std")]
-pub use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
+pub use core::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[cfg(not(feature = "std"))]
 pub use self::nostd::*;

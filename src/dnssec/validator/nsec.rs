@@ -1,9 +1,9 @@
 //! Helper functions for NSEC and NSEC3 validation.
 
-use std::collections::VecDeque;
-use std::str::{FromStr, Utf8Error};
-use std::sync::Arc;
-use std::vec::Vec;
+use alloc::collections::VecDeque;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::str::{FromStr, Utf8Error};
 
 use bytes::Bytes;
 use moka::future::Cache;
@@ -993,7 +993,7 @@ pub async fn cached_nsec3_hash(
 pub fn nsec3_label_to_hash(
     label: &Label,
 ) -> Result<OwnerHash<Vec<u8>>, Utf8Error> {
-    let label_str = std::str::from_utf8(label.as_ref())?;
+    let label_str = core::str::from_utf8(label.as_ref())?;
     Ok(OwnerHash::<Vec<u8>>::from_str(label_str).expect("should not fail"))
 }
 

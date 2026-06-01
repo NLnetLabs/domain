@@ -1,8 +1,8 @@
 //! Small utilities for building and working with servers.
 use core::future::{Ready, ready};
 
+use alloc::string::{String, ToString};
 use core::marker::PhantomData;
-use std::string::{String, ToString};
 
 use futures_util::stream::Once;
 use octseq::{Octets, OctetsBuilder};
@@ -94,9 +94,9 @@ where
 ///   service.
 /// - Call [`service_fn`] to wrap it in an actual [`Service`] impl.
 ///
-/// [`Vec<u8>`]: std::vec::Vec<u8>
+/// [`Vec<u8>`]: alloc::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
-/// [`Result::Ok`]: std::result::Result::Ok
+/// [`Result::Ok`]: core::result::Result::Ok
 pub fn service_fn<RequestOctets, Target, T, RequestMeta, Metadata>(
     request_handler: T,
     metadata: Metadata,
@@ -359,7 +359,7 @@ mod tests {
     use crate::net::server::util::{
         add_edns_options, mk_builder_for_target, remove_edns_opt_record,
     };
-    use std::vec::Vec;
+    use alloc::vec::Vec;
 
     #[test]
     fn test_add_edns_option() {

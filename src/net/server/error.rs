@@ -1,6 +1,6 @@
 //! Server related errors.
 
-use std::fmt::Display;
+use core::fmt::Display;
 
 /// Errors raised by DNS servers.
 #[derive(Debug)]

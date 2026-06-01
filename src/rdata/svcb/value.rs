@@ -1,5 +1,5 @@
-#[cfg(feature = "std")]
-use std::collections::BTreeSet;
+#[cfg(feature = "alloc")]
+use alloc::collections::BTreeSet;
 #[cfg(feature = "std")]
 use std::collections::HashSet;
 
@@ -519,7 +519,7 @@ impl<Octs: AsRef<[u8]>> Mandatory<Octs> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs> for Mandatory<Octs>
 where
     Octs: AsRef<[u8]>,

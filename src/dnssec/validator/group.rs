@@ -24,14 +24,14 @@ use crate::dnssec::validator::base::RrsigExt;
 use crate::net::client::request::{RequestMessage, SendRequest};
 use crate::rdata::dnssec::Timestamp;
 use crate::rdata::{AllRecordData, Dnskey, Rrsig};
+use alloc::vec;
+use alloc::vec::Vec;
 use bytes::Bytes;
+use core::cmp::{max, min};
+use core::fmt::Debug;
+use core::slice::Iter;
+use core::time::Duration;
 use moka::future::Cache;
-use std::cmp::{max, min};
-use std::fmt::Debug;
-use std::slice::Iter;
-use std::time::Duration;
-use std::vec;
-use std::vec::Vec;
 
 //----------- Group ----------------------------------------------------------
 

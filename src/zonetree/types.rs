@@ -4,12 +4,12 @@ use core::future::{Future, ready};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use std::boxed::Box;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::ops;
 use std::collections::{HashMap, hash_map};
-use std::ops;
-use std::sync::Arc;
-use std::vec;
-use std::vec::Vec;
 
 use bytes::Bytes;
 use futures_util::stream;
@@ -564,7 +564,7 @@ pub enum ZoneDiffError {
 
 //--- Display
 
-impl std::fmt::Display for ZoneDiffError {
+impl core::fmt::Display for ZoneDiffError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ZoneDiffError::MissingStartSoa => f.write_str("MissingStartSoa"),
@@ -675,7 +675,7 @@ pub enum ZoneUpdate<R> {
 
 //--- Display
 
-impl<R> std::fmt::Display for ZoneUpdate<R> {
+impl<R> core::fmt::Display for ZoneUpdate<R> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ZoneUpdate::DeleteAllRecords => f.write_str("DeleteAllRecords"),

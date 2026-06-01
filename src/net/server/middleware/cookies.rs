@@ -3,8 +3,8 @@ use core::future::{Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use std::vec;
-use std::vec::Vec;
+use alloc::vec;
+use alloc::vec::Vec;
 
 use futures_util::stream::{Once, Stream, once};
 use octseq::Octets;
@@ -518,8 +518,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
     use bytes::Bytes;
-    use std::vec::Vec;
     use tokio::time::Instant;
     use tokio_stream::StreamExt;
 

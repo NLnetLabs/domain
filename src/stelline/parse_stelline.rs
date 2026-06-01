@@ -1,13 +1,13 @@
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::{format, vec};
+use core::default::Default;
+use core::fmt::Debug;
+use core::net::IpAddr;
+use core::str::FromStr;
 use core::str::SplitWhitespace;
-use std::default::Default;
-use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
-use std::net::IpAddr;
-use std::str::FromStr;
-use std::string::{String, ToString};
-use std::vec::Vec;
 use std::{eprintln, println};
-use std::{format, vec};
 
 use bytes::Bytes;
 
@@ -68,8 +68,8 @@ pub enum StepType {
     Assign,
 }
 
-impl std::fmt::Display for StepType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for StepType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             StepType::Query => f.write_str("Query"),
             StepType::CheckAnswer => f.write_str("CheckAnswer"),

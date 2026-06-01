@@ -11,9 +11,9 @@
 //! use domain::dnssec::sign::keys::keyset::{Available, KeySet, RollType, UnixTime};
 //! use std::fs::File;
 //! use std::io::Write;
-//! use std::str::FromStr;
+//! use core::str::FromStr;
 //! use std::thread::sleep;
-//! use std::time::Duration;
+//! use core::time::Duration;
 //!
 //! // Create new KeySet for example.com
 //! let mut ks = KeySet::new(Name::from_str("example.com").unwrap());
@@ -60,15 +60,15 @@
 use crate::base::Name;
 use crate::base::iana::SecurityAlgorithm;
 use crate::rdata::dnssec::Timestamp;
+use alloc::fmt;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use core::fmt::{Debug, Display, Formatter};
+use core::ops::Add;
+use core::str::FromStr;
+use core::time::Duration;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, hash_map};
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
-use std::ops::Add;
-use std::str::FromStr;
-use std::string::{String, ToString};
-use std::time::Duration;
-use std::vec::Vec;
 
 #[cfg(test)]
 use mock_instant::global::{SystemTime, UNIX_EPOCH};
@@ -2681,13 +2681,13 @@ mod tests {
     use crate::dnssec::sign::keys::keyset::{
         Action, Available, KeySet, KeyType, RollType, UnixTime,
     };
+    use alloc::string::String;
+    use alloc::string::ToString;
+    use alloc::vec::Vec;
+    use core::str::FromStr;
+    use core::time::Duration;
     use mock_instant::global::MockClock;
     use std::println;
-    use std::str::FromStr;
-    use std::string::String;
-    use std::string::ToString;
-    use std::time::Duration;
-    use std::vec::Vec;
 
     #[test]
     fn test_name() {

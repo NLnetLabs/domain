@@ -2,7 +2,7 @@
 
 //------------ ServerMetrics -------------------------------------------------
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 /// Metrics common to all provided DNS server implementations.
 ///

@@ -4,9 +4,9 @@ use core::pin::Pin;
 
 use octseq::Octets;
 
-use std::boxed::Box;
-use std::vec;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
 
 use crate::base::Serial;
 use crate::base::wire::ParseError;

@@ -1,8 +1,9 @@
 //! Importing from and (in future) exporting to a zone files.
 
-use std::collections::{BTreeMap, HashMap};
-use std::vec;
-use std::vec::Vec;
+use alloc::collections::BTreeMap;
+use alloc::vec;
+use alloc::vec::Vec;
+use std::collections::HashMap;
 
 use crate::base::Name;
 use crate::base::iana::{Class, Rtype};
@@ -362,7 +363,7 @@ impl<Content> Owners<Content> {
     }
 
     fn insert(&mut self, name: StoredName, content: Content) -> bool {
-        use std::collections::btree_map::Entry;
+        use alloc::collections::btree_map::Entry;
 
         match self.owners.entry(name) {
             Entry::Occupied(_) => false,

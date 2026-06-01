@@ -79,9 +79,9 @@
 #![cfg(feature = "unstable-crypto-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-crypto-sign")))]
 
-use std::boxed::Box;
-use std::fmt;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::fmt;
+use alloc::vec::Vec;
 
 use secrecy::{ExposeSecret, SecretBox};
 
@@ -1097,9 +1097,9 @@ impl core::error::Error for BindFormatError {}
 
 #[cfg(test)]
 mod tests {
-    use std::format;
-    use std::string::ToString;
-    use std::vec::Vec;
+    use alloc::format;
+    use alloc::string::ToString;
+    use alloc::vec::Vec;
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::sign::{

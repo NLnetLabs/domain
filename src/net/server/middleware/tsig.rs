@@ -35,7 +35,7 @@ use core::future::{Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};

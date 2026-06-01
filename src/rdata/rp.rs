@@ -267,8 +267,8 @@ mod test {
         test_compose_parse, test_rdlen, test_scan,
     };
     use crate::zonefile::inplace::{self, Zonefile};
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
 
     type Octets512 = Array<512>;
 

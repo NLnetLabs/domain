@@ -49,12 +49,12 @@
 
 use core::ops::DerefMut;
 
-use std::boxed::Box;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::fmt::{Debug, Formatter};
+use core::future::Future;
+use core::pin::Pin;
 
 use bytes::Bytes;
 use octseq::Octets;

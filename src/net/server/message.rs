@@ -6,10 +6,11 @@
 use bytes::Bytes;
 use core::time::Duration;
 
-use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
-use std::vec;
-use std::vec::Vec;
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::fmt::Debug;
+use std::sync::Mutex;
 
 use tokio::time::Instant;
 
@@ -172,7 +173,7 @@ where
     Octs: AsRef<[u8]> + Send + Sync,
 {
     /// The network address of the connected client.
-    client_addr: std::net::SocketAddr,
+    client_addr: core::net::SocketAddr,
 
     /// The instant when the request was received.
     received_at: Instant,
@@ -208,7 +209,7 @@ where
 {
     /// Creates a new request wrapper around a message along with its context.
     pub fn new(
-        client_addr: std::net::SocketAddr,
+        client_addr: core::net::SocketAddr,
         received_at: Instant,
         message: Message<Octs>,
         transport_specific: TransportSpecificContext,
@@ -235,7 +236,7 @@ where
     }
 
     /// From which IP address and port number was this message received?
-    pub fn client_addr(&self) -> std::net::SocketAddr {
+    pub fn client_addr(&self) -> core::net::SocketAddr {
         self.client_addr
     }
 

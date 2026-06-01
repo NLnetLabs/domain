@@ -9,17 +9,19 @@
 //! Both parts are modeled along the lines of glibc’s resolver.
 
 use crate::base::name::{self, Name};
+use alloc::format;
+use alloc::vec::Vec;
+use core::cmp::Ordering;
+use core::default::Default;
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+use core::slice::SliceIndex;
+use core::str::{FromStr, SplitWhitespace};
+use core::time::Duration;
+use core::{convert, error, fmt, ops};
 use smallvec::SmallVec;
-use std::cmp::Ordering;
-use std::default::Default;
 use std::io::Read;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
-use std::slice::SliceIndex;
-use std::str::{self, FromStr, SplitWhitespace};
-use std::time::Duration;
-use std::vec::Vec;
-use std::{convert, error, fmt, format, fs, io, ops};
+use std::{fs, io};
 
 //------------ ResolvOptions ------------------------------------------------
 
@@ -658,7 +660,7 @@ impl AsRef<[SearchSuffix]> for SearchList {
 
 /// Returns a reference to the next word or an error.
 fn next_word<'a>(
-    words: &'a mut str::SplitWhitespace<'_>,
+    words: &'a mut core::str::SplitWhitespace<'_>,
 ) -> Result<&'a str, Error> {
     match words.next() {
         Some(word) => Ok(word),
@@ -667,7 +669,9 @@ fn next_word<'a>(
 }
 
 /// Returns nothing but errors out if there are words left.
-fn no_more_words(mut words: str::SplitWhitespace<'_>) -> Result<(), Error> {
+fn no_more_words(
+    mut words: core::str::SplitWhitespace<'_>,
+) -> Result<(), Error> {
     match words.next() {
         Some(..) => Err(Error::ParseError),
         None => Ok(()),
@@ -714,8 +718,8 @@ impl convert::From<name::FromStrError> for Error {
     }
 }
 
-impl convert::From<::std::num::ParseIntError> for Error {
-    fn from(_: ::std::num::ParseIntError) -> Error {
+impl convert::From<::core::num::ParseIntError> for Error {
+    fn from(_: ::core::num::ParseIntError) -> Error {
         Error::ParseError
     }
 }
@@ -734,7 +738,7 @@ impl fmt::Display for Error {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::string::ToString;
+    use alloc::string::ToString;
 
     #[test]
     fn parse_resolv_conf() {

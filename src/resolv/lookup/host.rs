@@ -5,9 +5,10 @@ use crate::base::message::RecordIter;
 use crate::base::name::{ParsedName, ToName, ToRelativeName};
 use crate::rdata::{A, Aaaa};
 use crate::resolv::resolver::{Resolver, SearchNames};
+use core::net::{IpAddr, SocketAddr};
 use octseq::octets::Octets;
 use std::io;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::ToSocketAddrs;
 
 //------------ lookup_host ---------------------------------------------------
 

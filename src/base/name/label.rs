@@ -362,8 +362,8 @@ impl AsMut<[u8]> for Label {
 
 //--- ToOwned
 
-#[cfg(feature = "std")]
-impl std::borrow::ToOwned for Label {
+#[cfg(feature = "alloc")]
+impl alloc::borrow::ToOwned for Label {
     type Owned = OwnedLabel;
 
     fn to_owned(&self) -> Self::Owned {
@@ -947,10 +947,10 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn compose() {
+        use alloc::vec::Vec;
         use octseq::builder::infallible;
-        use std::vec::Vec;
 
         let mut buf = Vec::new();
         infallible(Label::root().compose(&mut buf));
@@ -1001,8 +1001,8 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn hash() {
+        use core::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
 
         let mut s1 = DefaultHasher::new();
         let mut s2 = DefaultHasher::new();

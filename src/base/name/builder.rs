@@ -8,12 +8,12 @@ use super::Label;
 use super::absolute::Name;
 use super::relative::{RelativeName, RelativeNameError};
 use super::traits::{ToName, ToRelativeName};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::fmt;
 use octseq::builder::{EmptyBuilder, FreezeBuilder, OctetsBuilder, ShortBuf};
-#[cfg(feature = "std")]
-use std::vec::Vec;
 
 //------------ NameBuilder --------------------------------------------------
 
@@ -92,7 +92,7 @@ impl<Builder> NameBuilder<Builder> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl NameBuilder<Vec<u8>> {
     /// Creates an empty domain name builder atop a `Vec<u8>`.
     #[must_use]
@@ -762,7 +762,7 @@ impl core::error::Error for PresentationError {}
 //============ Testing =======================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod test {
     use super::*;
 

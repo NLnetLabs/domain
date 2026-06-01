@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use core::fmt::Debug;
 use std::println;
 
 use octseq::{OctetsBuilder, Truncate};

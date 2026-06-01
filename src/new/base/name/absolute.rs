@@ -345,7 +345,7 @@ impl serde::Serialize for Name {
     where
         S: serde::Serializer,
     {
-        use std::string::ToString;
+        use alloc::string::ToString;
 
         if serializer.is_human_readable() {
             serializer.serialize_newtype_struct("Name", &self.to_string())
@@ -822,7 +822,7 @@ impl<'a> serde::Deserialize<'a> for NameBuf {
 }
 
 #[cfg(feature = "serde")]
-impl<'a> serde::Deserialize<'a> for std::boxed::Box<Name> {
+impl<'a> serde::Deserialize<'a> for alloc::boxed::Box<Name> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'a>,

@@ -2,11 +2,11 @@ use core::future::{Future, Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::fmt::Debug;
+use core::pin::Pin;
 
 use futures_util::stream::{Once, Stream, once};
 use octseq::Octets;

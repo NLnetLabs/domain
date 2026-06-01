@@ -137,8 +137,12 @@ use super::opt::{ComposeOptData, OptHeader, OptRecord};
 use super::question::ComposeQuestion;
 use super::record::ComposeRecord;
 use super::wire::{Compose, Composer};
+#[cfg(feature = "std")]
+use alloc::vec::Vec;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
+#[cfg(feature = "std")]
+use core::hash::BuildHasher;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
@@ -151,10 +155,6 @@ use octseq::builder::{FreezeBuilder, OctetsBuilder, ShortBuf, Truncate};
 use octseq::octets::Octets;
 #[cfg(feature = "std")]
 use std::collections::{HashMap, hash_map::RandomState};
-#[cfg(feature = "std")]
-use std::hash::BuildHasher;
-#[cfg(feature = "std")]
-use std::vec::Vec;
 
 //------------ MessageBuilder ------------------------------------------------
 

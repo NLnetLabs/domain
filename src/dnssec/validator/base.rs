@@ -12,7 +12,7 @@ use crate::rdata::{Dnskey, Rrsig};
 
 use bytes::Bytes;
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -336,8 +336,8 @@ mod test {
     use crate::rdata::{Mx, ZoneRecordData};
     use crate::utils::base64;
 
-    use std::str::FromStr;
-    use std::{format, vec};
+    use alloc::{format, vec};
+    use core::str::FromStr;
 
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Ds = crate::rdata::Ds<Vec<u8>>;

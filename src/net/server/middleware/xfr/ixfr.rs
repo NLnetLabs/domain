@@ -1,4 +1,4 @@
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 use bytes::Bytes;
 use futures_util::{StreamExt, pin_mut};

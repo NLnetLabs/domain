@@ -1,9 +1,9 @@
 //! Buffer types and allocation strategies.
 use core::ops::Deref;
 
-use std::sync::Arc;
-use std::vec;
-use std::vec::Vec;
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
 
 //----------- BufSource -----------------------------------------------------
 

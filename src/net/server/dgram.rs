@@ -16,13 +16,14 @@ use core::ops::Deref;
 use core::pin::Pin;
 use core::time::Duration;
 
-use std::boxed::Box;
-use std::format;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::sync::Arc;
+use core::net::SocketAddr;
 use std::io;
-use std::net::SocketAddr;
-use std::string::String;
-use std::string::ToString;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use arc_swap::ArcSwap;
 use log::{Level, log_enabled};
@@ -207,8 +208,8 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 ///
 /// ```no_run
 /// use std::boxed::Box;
-/// use std::future::{Future, Ready};
-/// use std::pin::Pin;
+/// use core::future::{Future, Ready};
+/// use core::pin::Pin;
 /// use std::sync::Arc;
 ///
 /// use tokio::net::UdpSocket;

@@ -48,9 +48,9 @@ const _: () = {
     );
 };
 
+use alloc::vec::Vec;
 use core::error;
 use core::fmt;
-use std::vec::Vec;
 
 use crate::rdata::Dnskey;
 

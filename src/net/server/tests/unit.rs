@@ -5,12 +5,14 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
 use core::time::Duration;
 
-use std::collections::VecDeque;
+use alloc::collections::VecDeque;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use alloc::{format, vec};
+use core::net::SocketAddr;
+use std::eprintln;
 use std::io;
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-use std::vec::Vec;
-use std::{eprintln, format, vec};
+use std::sync::Mutex;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::Instant;
@@ -216,7 +218,7 @@ impl MockListener {
 impl AsyncAccept for MockListener {
     type Error = io::Error;
     type StreamType = MockStream;
-    type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Future = core::future::Ready<Result<Self::StreamType, io::Error>>;
 
     /// Accept mock connections one at a time at a defined rate.
     fn poll_accept(
@@ -241,7 +243,7 @@ impl AsyncAccept for MockListener {
                     {
                         last_accept.replace(Instant::now());
                         return Poll::Ready(Ok((
-                            std::future::ready(Ok(MockStream::new(
+                            core::future::ready(Ok(MockStream::new(
                                 messages,
                                 new_message_every,
                                 disconnect_with_pending_responses,

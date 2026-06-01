@@ -141,7 +141,7 @@ mod test {
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
-    use std::vec::Vec;
+    use alloc::vec::Vec;
 
     // We only test Cname since all the other types are exactly the same.
 

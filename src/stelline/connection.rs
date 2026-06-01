@@ -1,8 +1,8 @@
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::Waker;
-use std::task::{Context, Poll};
-use std::vec::Vec;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::pin::Pin;
+use core::task::Waker;
+use core::task::{Context, Poll};
 
 use super::client::CurrStepValue;
 use super::parse_stelline::Stelline;

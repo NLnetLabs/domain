@@ -1,5 +1,5 @@
-use std::boxed::Box;
-use std::sync::Arc;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 
 use bytes::Bytes;
 use tokio::sync::Semaphore;

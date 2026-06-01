@@ -309,8 +309,8 @@ mod test {
         test_compose_parse, test_rdlen, test_scan,
     };
     use crate::utils::base16::decode;
-    use std::string::ToString;
-    use std::vec::Vec;
+    use alloc::string::ToString;
+    use alloc::vec::Vec;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...

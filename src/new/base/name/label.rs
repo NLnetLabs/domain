@@ -308,7 +308,7 @@ impl serde::Serialize for Label {
     where
         S: serde::Serializer,
     {
-        use std::string::ToString;
+        use alloc::string::ToString;
 
         if serializer.is_human_readable() {
             serializer.serialize_newtype_struct("Label", &self.to_string())
@@ -677,7 +677,7 @@ impl<'a> serde::Deserialize<'a> for LabelBuf {
 }
 
 #[cfg(feature = "serde")]
-impl<'a> serde::Deserialize<'a> for std::boxed::Box<Label> {
+impl<'a> serde::Deserialize<'a> for alloc::boxed::Box<Label> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'a>,

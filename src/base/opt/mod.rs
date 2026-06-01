@@ -1159,16 +1159,16 @@ impl core::error::Error for BuildDataError {}
 //============ Tests =========================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 pub(super) mod test {
     use super::*;
     use crate::base::rdata::test::{test_compose_parse, test_rdlen};
     use crate::base::record::ParsedRecord;
     use crate::base::{MessageBuilder, opt};
+    use alloc::vec::Vec;
     use bytes::{Bytes, BytesMut};
     use core::fmt::Debug;
     use octseq::builder::infallible;
-    use std::vec::Vec;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...

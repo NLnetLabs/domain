@@ -18,12 +18,13 @@ use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 
-use std::fmt::Debug;
-use std::format;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use core::fmt::Debug;
+use core::net::SocketAddr;
 use std::io;
-use std::net::SocketAddr;
-use std::string::{String, ToString};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use arc_swap::ArcSwap;
 use octseq::Octets;
@@ -218,8 +219,8 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 ///
 /// ```no_run
 /// use std::boxed::Box;
-/// use std::future::{Future, Ready};
-/// use std::pin::Pin;
+/// use core::future::{Future, Ready};
+/// use core::pin::Pin;
 /// use std::sync::Arc;
 ///
 /// use tokio::net::TcpListener;

@@ -21,14 +21,14 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::ExtendedError;
 use crate::dep::octseq::Octets;
 use crate::net::client::request::{RequestMessage, SendRequest};
+use alloc::boxed::Box;
+use alloc::string::ToString;
+use alloc::vec::Vec;
+use core::fmt::Debug;
+use core::future::{Future, Ready, ready};
+use core::marker::PhantomData;
+use core::pin::Pin;
 use futures_util::stream::{Once, once};
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::{Future, Ready, ready};
-use std::marker::PhantomData;
-use std::pin::Pin;
-use std::string::ToString;
-use std::vec::Vec;
 
 /// Provide a [Service] trait for an object that implements [SingleService].
 pub struct SingleServiceToService<RequestOcts, SVC, CR, RequestMeta>
