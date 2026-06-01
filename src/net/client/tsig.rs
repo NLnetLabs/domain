@@ -730,6 +730,7 @@ mod tests {
     };
     use core::future::ready;
     use core::str::FromStr;
+    use std::eprintln;
 
     #[tokio::test]
     async fn single_signed_valid_response() {

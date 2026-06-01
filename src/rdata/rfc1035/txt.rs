@@ -929,7 +929,7 @@ mod test {
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
-    use std::vec::Vec;
+    use std::{format, vec::Vec};
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...

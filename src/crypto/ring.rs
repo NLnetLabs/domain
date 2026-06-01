@@ -294,6 +294,7 @@ impl PublicKey {
 pub mod sign {
     use std::boxed::Box;
     use std::sync::Arc;
+    use std::vec;
     use std::vec::Vec;
 
     use secrecy::ExposeSecret;
@@ -725,6 +726,7 @@ pub mod sign {
     #[cfg(test)]
     mod test {
 
+        use std::format;
         use std::vec::Vec;
 
         use crate::base::iana::SecurityAlgorithm;

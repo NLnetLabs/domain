@@ -13,6 +13,7 @@ use std::string::{String, ToString};
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
+use std::{eprintln, vec};
 
 use rstest::rstest;
 use tracing::instrument;

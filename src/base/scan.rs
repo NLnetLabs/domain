@@ -1220,6 +1220,7 @@ impl core::error::Error for StrError {}
 #[cfg(feature = "std")]
 mod test {
     use super::*;
+    use std::format;
 
     #[test]
     fn symbol_from_slice_index() {

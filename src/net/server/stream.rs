@@ -19,6 +19,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 
 use std::fmt::Debug;
+use std::format;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};

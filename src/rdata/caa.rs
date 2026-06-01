@@ -627,6 +627,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for CaaFlags {
 mod test {
     use super::*;
     use octseq::array::Array;
+    use std::format;
     use std::string::ToString;
 
     #[test]

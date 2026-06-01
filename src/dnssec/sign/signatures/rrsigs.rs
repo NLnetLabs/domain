@@ -6,6 +6,7 @@ use core::marker::Send;
 use std::boxed::Box;
 use std::cmp::Ordering;
 use std::fmt::Debug;
+use std::vec;
 use std::vec::Vec;
 
 use octseq::builder::FromBuilder;
@@ -363,6 +364,7 @@ mod tests {
     use core::str::FromStr;
     use pretty_assertions::assert_eq;
     use rand::RngExt;
+    use std::eprintln;
 
     use crate::base::Serial;
     use crate::base::iana::SecurityAlgorithm;

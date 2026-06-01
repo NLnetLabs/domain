@@ -19,7 +19,7 @@ use std::slice::SliceIndex;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::time::Duration;
 use std::vec::Vec;
-use std::{convert, error, fmt, fs, io, ops};
+use std::{convert, error, fmt, format, fs, io, ops};
 
 //------------ ResolvOptions ------------------------------------------------
 

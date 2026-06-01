@@ -3,6 +3,7 @@ use core::future::{Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
+use std::vec;
 use std::vec::Vec;
 
 use futures_util::stream::{Once, Stream, once};

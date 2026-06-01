@@ -2702,6 +2702,7 @@ mod test {
     use crate::base::{Name, Serial, Ttl};
     use crate::rdata::{A, Ns, Soa};
     use core::str::FromStr;
+    use std::println;
 
     #[test]
     fn message_builder() {

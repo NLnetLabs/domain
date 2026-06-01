@@ -850,6 +850,7 @@ pub mod sign {
     #[cfg(test)]
     mod tests {
 
+        use std::format;
         use std::string::ToString;
         use std::vec::Vec;
 

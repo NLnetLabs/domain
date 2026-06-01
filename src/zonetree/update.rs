@@ -627,6 +627,7 @@ mod tests {
     use core::sync::atomic::{AtomicUsize, Ordering};
 
     use std::sync::Arc;
+    use std::vec;
     use std::vec::Vec;
 
     use bytes::BytesMut;

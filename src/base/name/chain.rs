@@ -383,6 +383,7 @@ mod test {
     use super::*;
     use crate::base::name::RelativeName;
     use octseq::builder::infallible;
+    use std::println;
 
     /// Tests that `ToName` and `ToRelativeName` are implemented for the
     /// right types.

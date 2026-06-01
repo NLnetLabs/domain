@@ -519,6 +519,7 @@ mod test {
         rdata::test::{test_compose_parse, test_rdlen, test_scan},
     };
     use core::str::FromStr;
+    use std::format;
     use std::vec::Vec;
 
     #[test]

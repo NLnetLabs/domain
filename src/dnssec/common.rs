@@ -330,6 +330,7 @@ impl error::Error for ParseDnskeyTextError {}
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod test {
+    use std::format;
     use std::string::ToString;
     use std::vec::Vec;
 

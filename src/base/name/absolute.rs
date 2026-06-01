@@ -2000,6 +2000,7 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn display() {
+        use std::format;
         use std::string::ToString;
 
         fn cmp(bytes: &[u8], fmt: &str, fmt_with_dot: &str) {

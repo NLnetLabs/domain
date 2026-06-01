@@ -2,12 +2,14 @@
 
 #![cfg(all(test, feature = "unstable-validator"))]
 
+use std::eprintln;
 use std::fs::File;
 use std::path::PathBuf;
 use std::string::ToString;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+use std::vec;
 use std::vec::Vec;
 
 use crate::stelline::client::CurrStepValue;

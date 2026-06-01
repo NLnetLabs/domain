@@ -14,6 +14,8 @@
 
 use core::str::FromStr;
 use core::{fmt, str};
+#[cfg(feature = "std")]
+use std::format;
 
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, Bytes, BytesMut};

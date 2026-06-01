@@ -1,6 +1,7 @@
 //! Importing from and (in future) exporting to a zone files.
 
 use std::collections::{BTreeMap, HashMap};
+use std::vec;
 use std::vec::Vec;
 
 use crate::base::Name;

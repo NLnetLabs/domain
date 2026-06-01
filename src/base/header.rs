@@ -960,6 +960,9 @@ impl core::error::Error for CountOverflow {}
 mod test {
     use super::*;
 
+    #[cfg(feature = "std")]
+    use std::format;
+
     #[test]
     #[cfg(feature = "std")]
     fn for_slice() {

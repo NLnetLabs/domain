@@ -5,6 +5,7 @@ use core::pin::Pin;
 use octseq::Octets;
 
 use std::boxed::Box;
+use std::vec;
 use std::vec::Vec;
 
 use crate::base::Serial;

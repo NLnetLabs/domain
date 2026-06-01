@@ -14,6 +14,7 @@ use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::vec;
 
 use bytes::Bytes;
 use octseq::OctetsInto;

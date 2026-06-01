@@ -7,6 +7,7 @@ use core::ops::Deref;
 use std::hash::Hash;
 use std::string::String;
 use std::vec::Vec;
+use std::{format, vec};
 
 use octseq::OctetsFrom;
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
@@ -872,6 +873,7 @@ mod tests {
     use core::str::FromStr;
 
     use std::cell::RefCell;
+    use std::thread_local;
 
     use pretty_assertions::assert_eq;
 
@@ -888,7 +890,7 @@ mod tests {
     }
 
     thread_local! {
-    pub(super) static NSEC3_TEST_MODE: RefCell<Nsec3TestMode> = const { RefCell::new(Nsec3TestMode::Normal) };
+        pub(super) static NSEC3_TEST_MODE: RefCell<Nsec3TestMode> = const { RefCell::new(Nsec3TestMode::Normal) };
     }
 
     #[test]

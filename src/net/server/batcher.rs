@@ -342,6 +342,7 @@ mod tests {
     use crate::rdata::Txt;
     use core::sync::atomic::{AtomicU64, Ordering};
     use std::vec::Vec;
+    use std::{eprintln, vec};
 
     #[test]
     fn batch_of_zero() {

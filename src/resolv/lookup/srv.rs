@@ -12,6 +12,7 @@ use futures_util::stream::{self, Stream, StreamExt};
 use octseq::octets::Octets;
 use rand::distr::{Distribution, Uniform};
 use std::net::{IpAddr, SocketAddr};
+use std::vec;
 use std::vec::Vec;
 use std::{io, mem, ops};
 

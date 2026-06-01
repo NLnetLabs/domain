@@ -1,4 +1,6 @@
 //! Answers to zone tree queries.
+
+use std::vec;
 use std::vec::Vec;
 
 use octseq::Octets;

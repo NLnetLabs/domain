@@ -1673,6 +1673,7 @@ mod test {
         test_compose_parse, test_rdlen, test_scan,
     };
     use crate::base::zonefile_fmt::DisplayKind;
+    use std::format;
     use std::vec::Vec;
 
     #[test]

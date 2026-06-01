@@ -63,6 +63,8 @@ int_enum_zonefile_fmt_with_prefix!(Class, "CLASS");
 
 #[cfg(test)]
 mod test {
+    #[cfg(feature = "std")]
+    use std::format;
 
     #[cfg(feature = "serde")]
     #[test]

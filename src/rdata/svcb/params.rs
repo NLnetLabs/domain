@@ -317,7 +317,10 @@ impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
         }
 
         SvcParams::from_octets(builder.freeze()).map_err(|e| {
-            println!("error in params::from_octets = {}", e.0);
+            #[cfg(feature = "tracing")]
+            tracing::error!("error in params::from_octets = {}", e.0);
+            #[cfg(not(feature = "tracing"))]
+            let _ = e;
             S::Error::custom("invalid SvcParams")
         })
     }
@@ -1289,6 +1292,8 @@ mod test {
     #[cfg(feature = "std")]
     #[test]
     fn test_representation() {
+        use std::format;
+
         let mandatory = value::Mandatory::<Octets512>::from_keys(
             [
                 SvcParamKey::ALPN,

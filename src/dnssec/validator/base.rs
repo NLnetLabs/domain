@@ -337,6 +337,7 @@ mod test {
     use crate::utils::base64;
 
     use std::str::FromStr;
+    use std::{format, vec};
 
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Ds = crate::rdata::Ds<Vec<u8>>;

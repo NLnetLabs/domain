@@ -1097,6 +1097,7 @@ impl core::error::Error for BindFormatError {}
 
 #[cfg(test)]
 mod tests {
+    use std::format;
     use std::string::ToString;
     use std::vec::Vec;
 

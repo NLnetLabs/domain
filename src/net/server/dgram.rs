@@ -17,6 +17,7 @@ use core::pin::Pin;
 use core::time::Duration;
 
 use std::boxed::Box;
+use std::format;
 use std::io;
 use std::net::SocketAddr;
 use std::string::String;

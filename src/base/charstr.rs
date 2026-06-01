@@ -1215,6 +1215,7 @@ impl core::error::Error for PresentationError {}
 mod test {
     use super::*;
     use octseq::builder::infallible;
+    use std::{format, vec};
 
     type CharStrRef<'a> = CharStr<&'a [u8]>;
 

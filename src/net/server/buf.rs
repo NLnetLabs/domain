@@ -2,6 +2,7 @@
 use core::ops::Deref;
 
 use std::sync::Arc;
+use std::vec;
 use std::vec::Vec;
 
 //----------- BufSource -----------------------------------------------------

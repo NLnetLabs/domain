@@ -11,6 +11,7 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::slice::Iter;
 use std::sync::Arc;
+use std::vec;
 use std::vec::Vec;
 
 //----------- TrustAnchor ----------------------------------------------------
