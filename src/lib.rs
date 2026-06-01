@@ -189,8 +189,6 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
-#[allow(unused_imports)] // Import macros even if unused.
-#[macro_use]
 extern crate std;
 
 // The 'domain-macros' crate introduces 'derive' macros which can be used by
