@@ -293,6 +293,10 @@ impl ScannerError for std::io::Error {
         std::io::Error::other(msg)
     }
 
+    #[allow(
+        clippy::std_instead_of_core,
+        reason = "false positive due to MSRV/unstable, see <https://github.com/rust-lang/rust-clippy/pull/16964>"
+    )]
     fn end_of_entry() -> Self {
         std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
