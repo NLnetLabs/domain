@@ -22,10 +22,10 @@ use crate::base::iana::Rtype;
 use crate::base::name::Label;
 use crate::base::{NameBuilder, Serial};
 use crate::rdata::ZoneRecordData;
+use crate::zonetree::StoredName;
 use crate::zonetree::types::{
     InMemoryZoneDiff, InMemoryZoneDiffBuilder, ZoneCut,
 };
-use crate::zonetree::StoredName;
 use crate::zonetree::{Rrset, SharedRr};
 use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
 
@@ -464,7 +464,9 @@ impl WriteNode {
 
             match (current_rrset.is_some(), !new_rrset.is_empty()) {
                 (true, true) => {
-                    trace!("Diff detected: update of existing RRSET - recording change of RRSET from {current_rrset:?} to {new_rrset:#?}");
+                    trace!(
+                        "Diff detected: update of existing RRSET - recording change of RRSET from {current_rrset:?} to {new_rrset:#?}"
+                    );
 
                     // Check each resource record in the RRset being updated
                     // to see if it is missing from the new RRSet.
@@ -514,7 +516,9 @@ impl WriteNode {
                     }
                 }
                 (true, false) => {
-                    trace!("Diff detected: update of existing RRSET - recording removal of the current RRSET {current_rrset:#?}");
+                    trace!(
+                        "Diff detected: update of existing RRSET - recording removal of the current RRSET {current_rrset:#?}"
+                    );
                     diff.lock().unwrap().remove(
                         owner.clone(),
                         new_rrset.rtype(),
@@ -522,7 +526,9 @@ impl WriteNode {
                     );
                 }
                 (false, true) => {
-                    trace!("Diff detected: update of existing RRSET - recording addition of new RRSET {new_rrset:#?}");
+                    trace!(
+                        "Diff detected: update of existing RRSET - recording addition of new RRSET {new_rrset:#?}"
+                    );
                     diff.lock().unwrap().add(
                         owner.clone(),
                         new_rrset.rtype(),

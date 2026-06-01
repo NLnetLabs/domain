@@ -21,8 +21,8 @@ use core::cmp::Ordering;
 use core::convert::{Infallible, TryFrom};
 use core::{fmt, hash, mem, str};
 use octseq::builder::{
-    infallible, EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
-    ShortBuf,
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+    infallible,
 };
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
@@ -156,7 +156,7 @@ impl Txt<[u8]> {
     /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Txt has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Checks that a slice contains correctly encoded TXT data.
@@ -987,15 +987,19 @@ mod test {
 
         // Too long
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
-        assert!(builder
-            .append_slice(&b"\x00".repeat(u16::MAX as usize))
-            .is_err());
+        assert!(
+            builder
+                .append_slice(&b"\x00".repeat(u16::MAX as usize))
+                .is_err()
+        );
 
         // Incremental, reserve space for offsets
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
-        assert!(builder
-            .append_slice(&b"\x00".repeat(u16::MAX as usize - 512))
-            .is_ok());
+        assert!(
+            builder
+                .append_slice(&b"\x00".repeat(u16::MAX as usize - 512))
+                .is_ok()
+        );
         assert!(builder.append_slice(&b"\x00".repeat(512)).is_err());
     }
 
@@ -1061,7 +1065,7 @@ mod test {
     #[cfg(all(feature = "serde", feature = "std"))]
     #[test]
     fn txt_ser_de() {
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         let txt = Txt::from_octets(Vec::from(b"\x03foo".as_ref())).unwrap();
         assert_tokens(
@@ -1108,7 +1112,7 @@ mod test {
     #[cfg(all(feature = "serde", feature = "std"))]
     #[test]
     fn txt_de_str() {
-        use serde_test::{assert_de_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_de_tokens};
 
         assert_de_tokens(
             &Txt::from_octets(Vec::from(b"\x03foo".as_ref()))

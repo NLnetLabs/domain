@@ -26,10 +26,10 @@ use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
 use core::time::Duration;
 use core::{fmt, hash};
+use octseq::OctetsBuilder;
 use octseq::builder::ShortBuf;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use octseq::OctetsBuilder;
 
 //------------ Record --------------------------------------------------------
 

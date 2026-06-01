@@ -224,7 +224,7 @@ impl Name<[u8]> {
     /// Creates a domain name from an octet slice without checking,
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Name has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Creates a domain name from an octets slice.
@@ -610,7 +610,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     where
         Octs: Octets,
     {
-        Name::from_octets_unchecked(self.0.range(begin..))
+        unsafe { Name::from_octets_unchecked(self.0.range(begin..)) }
     }
 }
 
@@ -2015,7 +2015,7 @@ pub(crate) mod test {
     #[cfg(all(feature = "serde", feature = "std"))]
     #[test]
     fn ser_de() {
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         let name = Name::<Vec<u8>>::from_str("www.example.com.").unwrap();
         assert_tokens(

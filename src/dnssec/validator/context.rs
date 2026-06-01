@@ -5,16 +5,16 @@
 //! or evaluated results.
 
 use super::anchor::{TrustAnchor, TrustAnchors};
-use super::base::{supported_algorithm, supported_digest, DnskeyExt};
+use super::base::{DnskeyExt, supported_algorithm, supported_digest};
 use super::group::{Group, GroupSet, SigCache, ValidatedGroup};
 use super::nsec::{
-    cached_nsec3_hash, nsec3_for_nodata, nsec3_for_nodata_wildcard,
-    nsec3_for_nxdomain, nsec3_in_range, nsec3_label_to_hash, nsec_for_nodata,
-    nsec_for_nodata_wildcard, nsec_for_nxdomain, nsec_in_range,
-    supported_nsec3_hash,
+    Nsec3Cache, Nsec3NXState, Nsec3State, NsecNXState, NsecState,
 };
 use super::nsec::{
-    Nsec3Cache, Nsec3NXState, Nsec3State, NsecNXState, NsecState,
+    cached_nsec3_hash, nsec_for_nodata, nsec_for_nodata_wildcard,
+    nsec_for_nxdomain, nsec_in_range, nsec3_for_nodata,
+    nsec3_for_nodata_wildcard, nsec3_for_nxdomain, nsec3_in_range,
+    nsec3_label_to_hash, supported_nsec3_hash,
 };
 use super::utilities::{
     check_not_exists_for_wildcard, do_cname_dname, get_answer_state,
@@ -25,11 +25,11 @@ use crate::base::iana::{ExtendedErrorCode, OptRcode};
 use crate::base::message::ShortMessage;
 use crate::base::name::{Chain, Label};
 use crate::base::opt::ExtendedError;
-use crate::base::{name, wire};
 use crate::base::{
     Message, MessageBuilder, Name, ParsedName, Record, RelativeName, Rtype,
     ToName,
 };
+use crate::base::{name, wire};
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
 use crate::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,
@@ -571,7 +571,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             maybe_secure,
                         ),
                         ede,
-                    ))
+                    ));
                 }
                 NsecState::Nothing => (), // Try something else.
             }
@@ -592,7 +592,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             maybe_secure,
                         ),
                         ede,
-                    ))
+                    ));
                 }
                 NsecState::Nothing => (), // Try something else.
             }
@@ -616,16 +616,16 @@ impl<Upstream> ValidationContext<Upstream> {
                             maybe_secure,
                         ),
                         None,
-                    ))
+                    ));
                 }
                 Nsec3State::Nothing => (), // Try something else.
                 Nsec3State::NoDataInsecure =>
                 // totest, NSEC3 NODATA with opt-out
                 {
-                    return Ok((ValidationState::Insecure, ede))
+                    return Ok((ValidationState::Insecure, ede));
                 }
                 Nsec3State::Bogus => {
-                    return Ok((ValidationState::Bogus, ede))
+                    return Ok((ValidationState::Bogus, ede));
                 }
             }
 
@@ -657,13 +657,13 @@ impl<Upstream> ValidationContext<Upstream> {
                 Nsec3State::Nothing =>
                 // totest, missing NSEC3 for wildcard.
                 {
-                    return Ok((ValidationState::Bogus, ede))
+                    return Ok((ValidationState::Bogus, ede));
                 }
                 Nsec3State::NoDataInsecure => {
-                    return Ok((ValidationState::Insecure, ede))
+                    return Ok((ValidationState::Insecure, ede));
                 }
                 Nsec3State::Bogus => {
-                    return Ok((ValidationState::Bogus, ede))
+                    return Ok((ValidationState::Bogus, ede));
                 }
             }
 
@@ -690,7 +690,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 return Ok((
                     map_maybe_secure(ValidationState::Secure, maybe_secure),
                     ede,
-                ))
+                ));
             }
             NsecNXState::Nothing => (), // Try something else.
         }
@@ -709,14 +709,14 @@ impl<Upstream> ValidationContext<Upstream> {
                 return Ok((
                     map_maybe_secure(ValidationState::Secure, maybe_secure),
                     None,
-                ))
+                ));
             }
             Nsec3NXState::DoesNotExistInsecure(_) => {
                 return Ok((ValidationState::Insecure, ede));
             }
             Nsec3NXState::Bogus => return Ok((ValidationState::Bogus, ede)),
             Nsec3NXState::Insecure => {
-                return Ok((ValidationState::Insecure, ede))
+                return Ok((ValidationState::Insecure, ede));
             }
             Nsec3NXState::Nothing => (), // Try something else.
         }
@@ -791,7 +791,7 @@ impl<Upstream> ValidationContext<Upstream> {
             match node.validation_state() {
                 ValidationState::Secure => (), // continue
                 ValidationState::Insecure | ValidationState::Bogus => {
-                    return Ok(node)
+                    return Ok(node);
                 }
                 ValidationState::Indeterminate => {
                     // totest, negative trust anchors
@@ -1000,7 +1000,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             node.signer_name().clone(),
                             ede,
                             ttl,
-                        ))
+                        ));
                     }
                     CNsecState::Bogus => {
                         return Ok(Node::new_delegation(
@@ -1009,7 +1009,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             Vec::new(),
                             ede,
                             ttl,
-                        ))
+                        ));
                     }
                     CNsecState::Nothing => (), // Try NSEC3 next.
                 }
@@ -1031,7 +1031,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             Vec::new(),
                             ede,
                             ttl,
-                        ))
+                        ));
                     }
                     CNsecState::SecureIntermediate => {
                         return Ok(Node::new_intermediate(
@@ -1040,7 +1040,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             node.signer_name().clone(),
                             ede,
                             ttl,
-                        ))
+                        ));
                     }
                     CNsecState::Bogus => {
                         return Ok(Node::new_delegation(
@@ -1049,7 +1049,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             Vec::new(),
                             ede,
                             ttl,
-                        ))
+                        ));
                     }
                     CNsecState::Nothing => (),
                 }
@@ -1841,7 +1841,7 @@ async fn nsec_for_ds(
                 // insecure and indeterminate should not happen. But it is
                 // easier to treat them as bogus.
                 {
-                    return (CNsecState::Bogus, ttl, ede)
+                    return (CNsecState::Bogus, ttl, ede);
                 }
                 ValidationState::Secure => (),
             }

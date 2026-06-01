@@ -1,7 +1,7 @@
 use std::vec::Vec;
 
 use bytes::Bytes;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use tokio::sync::mpsc::Sender;
 use tracing::error;
 
@@ -67,7 +67,9 @@ where
             .send((self.qname.clone(), self.zone_soa_rrset.clone()))
             .await
         {
-            error!("Internal error: Failed to send initial IXFR SOA to batcher: {err}");
+            error!(
+                "Internal error: Failed to send initial IXFR SOA to batcher: {err}"
+            );
             return Err(OptRcode::SERVFAIL);
         }
 
@@ -107,7 +109,9 @@ where
             .send((qname.clone(), self.zone_soa_rrset))
             .await
         {
-            error!("Internal error: Failed to send final IXFR SOA to batcher: {err}");
+            error!(
+                "Internal error: Failed to send final IXFR SOA to batcher: {err}"
+            );
             return Err(OptRcode::SERVFAIL);
         }
 
@@ -135,7 +139,9 @@ where
                 if let Err(err) =
                     batcher_tx.send((owner.clone(), rrset.clone())).await
                 {
-                    error!("Internal error: Failed to send RRSET to batcher: {err}");
+                    error!(
+                        "Internal error: Failed to send RRSET to batcher: {err}"
+                    );
                     return Err(OptRcode::SERVFAIL);
                 }
             }

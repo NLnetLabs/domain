@@ -3,10 +3,10 @@ use std::vec::Vec;
 
 use octseq::Octets;
 
+use crate::base::MessageBuilder;
 use crate::base::iana::Rcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::MessageBuilder;
 use crate::base::{Message, Ttl};
 
 use super::types::{StoredName, StoredRecord, StoredRecordData};

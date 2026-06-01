@@ -14,11 +14,11 @@ use core::ops::Range;
 
 use crate::{
     new::base::{
+        Serial,
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes,
             SplitBytesZC,
         },
-        Serial,
     },
     utils::dst::UnsizedCopy,
 };

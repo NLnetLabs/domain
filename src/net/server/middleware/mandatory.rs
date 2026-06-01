@@ -1,11 +1,11 @@
 //! RFC 1034, 1035 and other "core" DNS RFC related message processing.
-use core::future::{ready, Ready};
+use core::future::{Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
 use std::fmt::Display;
 
-use futures_util::stream::{once, Once, Stream};
+use futures_util::stream::{Once, Stream, once};
 use octseq::Octets;
 use tracing::{debug, error, trace, warn};
 
@@ -178,7 +178,9 @@ where
                 let mut target = target.additional();
                 if let Some(opt) = source.opt() {
                     if let Err(err) = target.push(opt.as_record()) {
-                        warn!("Error while truncating response: unable to push OPT record: {err}");
+                        warn!(
+                            "Error while truncating response: unable to push OPT record: {err}"
+                        );
                         // As the client had an OPT record and RFC 6891 says
                         // when truncating that there MUST be an OPT record,
                         // attempt to push just the empty OPT record (as the
@@ -191,13 +193,17 @@ where
                                 .set_udp_payload_size(opt.udp_payload_size());
                             Ok(())
                         }) {
-                            error!("Error while truncating response: unable to add minimal OPT record: {err}");
+                            error!(
+                                "Error while truncating response: unable to add minimal OPT record: {err}"
+                            );
                         }
                     }
                 }
 
                 let new_len = target.as_slice().len();
-                trace!("Truncating response from {old_len} bytes to {new_len} bytes");
+                trace!(
+                    "Truncating response from {old_len} bytes to {new_len} bytes"
+                );
 
                 *response = target;
             }
@@ -291,7 +297,9 @@ where
             && !request.message().header_counts().qdcount()
                 == response.counts().qdcount()
         {
-            warn!("RFC 1035 violation: response question count != request question count");
+            warn!(
+                "RFC 1035 violation: response question count != request question count"
+            );
         }
     }
 
@@ -413,7 +421,7 @@ mod tests {
     use crate::net::server::service::{CallResult, Service, ServiceResult};
     use crate::net::server::util::{mk_builder_for_target, service_fn};
 
-    use super::{MandatoryMiddlewareSvc, MINIMUM_RESPONSE_BYTE_LEN};
+    use super::{MINIMUM_RESPONSE_BYTE_LEN, MandatoryMiddlewareSvc};
 
     //------------ Constants -------------------------------------------------
 

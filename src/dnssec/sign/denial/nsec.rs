@@ -182,7 +182,7 @@ where
                 let soa_rr = rrset.first();
 
                 // Check that the RDATA for the SOA record can be parsed.
-                let ZoneRecordData::Soa(ref soa_data) = soa_rr.data() else {
+                let ZoneRecordData::Soa(soa_data) = soa_rr.data() else {
                     return Err(SigningError::SoaRecordCouldNotBeDetermined);
                 };
 
@@ -224,8 +224,8 @@ mod tests {
     use crate::base::{Name, Ttl};
     use crate::dnssec::sign::records::SortedRecords;
     use crate::dnssec::sign::test_util::*;
-    use crate::zonetree::types::StoredRecordData;
     use crate::zonetree::StoredName;
+    use crate::zonetree::types::StoredRecordData;
 
     use super::*;
     use core::str::FromStr;

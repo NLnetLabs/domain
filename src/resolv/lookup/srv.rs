@@ -5,7 +5,7 @@ use crate::base::iana::{Class, Rtype};
 use crate::base::message::Message;
 use crate::base::name::{Name, ToName, ToRelativeName};
 use crate::base::wire::ParseError;
-use crate::rdata::{Aaaa, Srv, A};
+use crate::rdata::{A, Aaaa, Srv};
 use crate::resolv::resolver::Resolver;
 use core::fmt;
 use futures_util::stream::{self, Stream, StreamExt};

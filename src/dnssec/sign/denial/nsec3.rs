@@ -8,14 +8,14 @@ use std::hash::Hash;
 use std::string::String;
 use std::vec::Vec;
 
-use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::OctetsFrom;
+use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use tracing::{debug, trace};
 
 use crate::base::iana::{Class, Nsec3HashAlgorithm, Rtype};
 use crate::base::name::{ToLabelIter, ToName};
 use crate::base::{CanonicalOrd, Name, NameBuilder, Record, Ttl};
-use crate::dnssec::common::{nsec3_hash, Nsec3HashError};
+use crate::dnssec::common::{Nsec3HashError, nsec3_hash};
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::records::{DefaultSorter, RecordsIter, Sorter};
 use crate::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};
@@ -257,7 +257,10 @@ where
             && cut.is_some()
             && !has_ds
         {
-            debug!("Excluding owner {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",owner_rrs.owner());
+            debug!(
+                "Excluding owner {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",
+                owner_rrs.owner()
+            );
             continue;
         }
 
@@ -342,7 +345,9 @@ where
         //       DS RRsets, and any RRSIG RRs associated with these RRsets are
         //       authoritative for this zone.
         if cut.is_none() || has_ds {
-            trace!("Adding RRSIG to the bitmap as the RRSET is authoritative (not at zone cut or has a DS RR)");
+            trace!(
+                "Adding RRSIG to the bitmap as the RRSET is authoritative (not at zone cut or has a DS RR)"
+            );
             bitmap.add(Rtype::RRSIG).unwrap();
         }
 
@@ -434,7 +439,7 @@ where
                 let soa_rr = rrset.first();
 
                 // Check that the RDATA for the SOA record can be parsed.
-                let ZoneRecordData::Soa(ref soa_data) = soa_rr.data() else {
+                let ZoneRecordData::Soa(soa_data) = soa_rr.data() else {
                     return Err(SigningError::SoaRecordCouldNotBeDetermined);
                 };
 
@@ -457,10 +462,14 @@ where
         }
 
         if distance_to_apex == 0 {
-            trace!("Adding NSEC3PARAM to the bitmap as we are at the apex and RRSIG RRs are expected to be added");
+            trace!(
+                "Adding NSEC3PARAM to the bitmap as we are at the apex and RRSIG RRs are expected to be added"
+            );
             bitmap.add(Rtype::NSEC3PARAM).unwrap();
             if config.assume_dnskeys_will_be_added {
-                trace!("Adding DNSKEY to the bitmap as we are at the apex and DNSKEY RRs are expected to be added");
+                trace!(
+                    "Adding DNSKEY to the bitmap as we are at the apex and DNSKEY RRs are expected to be added"
+                );
                 bitmap.add(Rtype::DNSKEY).unwrap();
             }
         }
@@ -583,7 +592,9 @@ where
             } else {
                 // This shouldn't happen. Could it maybe happen if the input
                 // data were unsorted?
-                unreachable!("All RTYPEs for a single owner name should have been combined into a single NSEC3 RR. Was the input NSEC3 canonically ordered?");
+                unreachable!(
+                    "All RTYPEs for a single owner name should have been combined into a single NSEC3 RR. Was the input NSEC3 canonically ordered?"
+                );
             }
         }
 

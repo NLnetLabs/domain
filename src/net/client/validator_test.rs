@@ -10,11 +10,11 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::vec::Vec;
 
-use crate::stelline::client::do_client_simple;
 use crate::stelline::client::CurrStepValue;
+use crate::stelline::client::do_client_simple;
 use crate::stelline::connect::Connect;
-use crate::stelline::parse_stelline::parse_file;
 use crate::stelline::parse_stelline::Config;
+use crate::stelline::parse_stelline::parse_file;
 
 use mock_instant::thread_local::MockClock;
 use rstest::rstest;
@@ -108,7 +108,9 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                         ta.add_u8(a.trim_matches('"').as_bytes()).unwrap();
                     }
                     _ => {
-                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value:?}");
+                        eprintln!(
+                            "Ignoring unknown server setting '{setting}' with value: {value:?}"
+                        );
                     }
                 }
             }

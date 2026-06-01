@@ -212,7 +212,7 @@ where
                     self.state = QueryState::GetUdpResponse(request);
                     continue;
                 }
-                QueryState::GetUdpResponse(ref mut request) => {
+                QueryState::GetUdpResponse(request) => {
                     let response = request.get_response().await?;
                     if response.header().tc() {
                         self.state = QueryState::StartTcpRequest;
@@ -226,7 +226,7 @@ where
                     self.state = QueryState::GetTcpResponse(request);
                     continue;
                 }
-                QueryState::GetTcpResponse(ref mut query) => {
+                QueryState::GetTcpResponse(query) => {
                     let response = query.get_response().await?;
                     return Ok(response);
                 }

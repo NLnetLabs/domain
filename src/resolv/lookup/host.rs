@@ -3,7 +3,7 @@
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
 use crate::base::name::{ParsedName, ToName, ToRelativeName};
-use crate::rdata::{Aaaa, A};
+use crate::rdata::{A, Aaaa};
 use crate::resolv::resolver::{Resolver, SearchNames};
 use octseq::octets::Octets;
 use std::io;

@@ -22,7 +22,7 @@ use ring::rsa::PublicKeyComponents;
 use ring::signature::{self, RsaParameters, UnparsedPublicKey};
 
 use super::common::{
-    rsa_encode, rsa_exponent_modulus, AlgorithmError, DigestType,
+    AlgorithmError, DigestType, rsa_encode, rsa_exponent_modulus,
 };
 
 use crate::base::iana::SecurityAlgorithm;

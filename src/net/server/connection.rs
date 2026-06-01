@@ -12,7 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use log::{log_enabled, Level};
+use log::{Level, log_enabled};
 use octseq::Octets;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
@@ -33,10 +33,10 @@ use crate::net::server::service::Service;
 use crate::net::server::util::{mk_error_response, to_pcap_text};
 use crate::utils::config::DefMinMax;
 
+use super::ServerCommand;
 use super::invoker::{InvokerStatus, ServiceInvoker};
 use super::message::{NonUdpTransportContext, TransportSpecificContext};
 use super::stream::Config as ServerConfig;
-use super::ServerCommand;
 
 /// Limit on the amount of time to allow between client requests.
 ///
@@ -695,7 +695,9 @@ where
                     //         message is a query (0), or a response (1)."
                     Ok(msg) if msg.header().qr() => {
                         // TO DO: Count this event?
-                        trace!("Ignoring received message because it is a reply, not a query.");
+                        trace!(
+                            "Ignoring received message because it is a reply, not a query."
+                        );
                         let response =
                             mk_error_response::<Buf::Output, Svc::Target>(
                                 &msg,
@@ -1083,13 +1085,17 @@ where
                 Ok(()) => {
                     let pending_writes = self.result_q_tx.max_capacity()
                         - self.result_q_tx.capacity();
-                    trace!("Queued message for sending: # pending writes={pending_writes}");
+                    trace!(
+                        "Queued message for sending: # pending writes={pending_writes}"
+                    );
                     self.metrics.set_num_pending_writes(pending_writes);
                     break;
                 }
 
                 Err(TrySendError::Closed(_)) => {
-                    error!("Unable to queue message for sending: connection is shutting down.");
+                    error!(
+                        "Unable to queue message for sending: connection is shutting down."
+                    );
                     break;
                 }
 
@@ -1099,7 +1105,9 @@ where
                         tokio::task::yield_now().await;
                         response = unused_response;
                     } else {
-                        error!("Unable to queue message for sending: queue is full.");
+                        error!(
+                            "Unable to queue message for sending: queue is full."
+                        );
                         break;
                     }
                 }

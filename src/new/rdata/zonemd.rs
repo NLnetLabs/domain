@@ -6,14 +6,14 @@ use core::{cmp::Ordering, fmt};
 
 use crate::{
     new::base::{
+        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
+        Serial,
         build::BuildInMessage,
         name::NameCompressor,
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError,
             SplitBytes, SplitBytesZC, TruncationError,
         },
-        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
-        Serial,
     },
     utils::dst::UnsizedCopy,
 };

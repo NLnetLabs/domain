@@ -187,7 +187,8 @@ where
             let ancount = answer.counts().ancount();
             let limit_reached = ancount == hard_rr_limit;
             trace!(
-                "ancount={ancount}, hard_rr_limit={hard_rr_limit}, limit_reached={limit_reached}");
+                "ancount={ancount}, hard_rr_limit={hard_rr_limit}, limit_reached={limit_reached}"
+            );
             limit_reached
         } else {
             false

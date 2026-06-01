@@ -4,7 +4,7 @@
 
 use proc_macro as pm;
 use proc_macro2::TokenStream;
-use quote::{format_ident, ToTokens};
+use quote::{ToTokens, format_ident};
 use syn::{Error, Ident, Result};
 
 mod impls;

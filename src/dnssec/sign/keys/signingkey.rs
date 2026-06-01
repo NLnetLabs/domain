@@ -1,5 +1,5 @@
-use crate::base::iana::SecurityAlgorithm;
 use crate::base::Name;
+use crate::base::iana::SecurityAlgorithm;
 use crate::crypto::sign::SignRaw;
 use crate::rdata::Dnskey;
 use std::fmt::Debug;

@@ -328,9 +328,9 @@ pub fn supported_algorithm(a: &SecurityAlgorithm) -> bool {
 #[cfg(feature = "std")]
 mod test {
     use super::*;
+    use crate::base::Ttl;
     use crate::base::iana::{Class, Rtype, SecurityAlgorithm};
     use crate::base::scan::{IterScanner, Scanner};
-    use crate::base::Ttl;
     use crate::dnssec::common::parse_from_bind;
     use crate::rdata::dnssec::Timestamp;
     use crate::rdata::{Mx, ZoneRecordData};

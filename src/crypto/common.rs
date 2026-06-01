@@ -181,7 +181,9 @@ impl PublicKey {
         return Ok(Self::Openssl(openssl::PublicKey::from_dnskey(dnskey)?));
 
         #[cfg(not(any(feature = "ring", feature = "openssl")))]
-        compile_error!("Either feature \"ring\" or \"openssl\" must be enabled for this crate.");
+        compile_error!(
+            "Either feature \"ring\" or \"openssl\" must be enabled for this crate."
+        );
     }
 
     /// Verify a signature.

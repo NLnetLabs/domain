@@ -11,8 +11,8 @@ use bytes::Bytes;
 use core::convert::Infallible;
 use core::{cmp, fmt};
 use octseq::builder::{
-    infallible, BuilderAppendError, EmptyBuilder, FreezeBuilder, FromBuilder,
-    OctetsBuilder, ShortBuf,
+    BuilderAppendError, EmptyBuilder, FreezeBuilder, FromBuilder,
+    OctetsBuilder, ShortBuf, infallible,
 };
 #[cfg(feature = "std")]
 use std::borrow::Cow;

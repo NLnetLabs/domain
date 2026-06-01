@@ -21,7 +21,7 @@ use domain::base::name::Name;
 use domain::base::opt::TcpKeepalive;
 use domain::base::record::Ttl;
 use domain::rdata::tsig::Time48;
-use domain::rdata::{Soa, A};
+use domain::rdata::{A, Soa};
 use domain::tsig;
 use domain::utils::base64;
 use ring::rand::SystemRandom;
@@ -191,9 +191,11 @@ fn tsig_server_dig() {
         .expect("failed to start dig");
     drop(join);
     assert!(output.status.success());
-    assert!(!String::from_utf8(output.stdout)
-        .unwrap()
-        .contains("tsig verify failure"));
+    assert!(
+        !String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("tsig verify failure")
+    );
 }
 
 /// Test the client sequence implementation against NSD.
@@ -350,9 +352,11 @@ fn tsig_server_sequence_dig() {
         .expect("failed to start dig");
     drop(join);
     assert!(output.status.success());
-    assert!(!String::from_utf8(output.stdout)
-        .unwrap()
-        .contains("tsig verify failure"));
+    assert!(
+        !String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("tsig verify failure")
+    );
 }
 
 //------------ Helpers ------------------------------------------------------

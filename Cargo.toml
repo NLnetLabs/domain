@@ -3,29 +3,32 @@ resolver = "3"
 members = [".", "./macros"]
 
 [workspace.package]
-version = "0.12.1"
-edition = "2021"
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
+
+version = "0.12.1"
+# The MSRV is at least 4 versions behind stable (about half a year).
+rust-version = "1.87.0"
+edition = "2024"
+
 homepage = "https://nlnetlabs.nl/projects/domain/"
 repository = "https://github.com/nlnetlabs/domain/"
 keywords = ["DNS", "domain"]
 license = "BSD-3-Clause"
 
-# The MSRV is at least 4 versions behind stable (about half a year).
-rust-version = "1.87.0"
-
 [package]
 name = "domain"
-version.workspace = true
-edition.workspace = true
+description = "A DNS library for Rust."
 authors.workspace = true
+
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+
 homepage.workspace = true
 repository.workspace = true
-rust-version.workspace = true
 keywords.workspace = true
 license.workspace = true
 
-description = "A DNS library for Rust."
 documentation = "https://docs.rs/domain"
 readme = "README.md"
 

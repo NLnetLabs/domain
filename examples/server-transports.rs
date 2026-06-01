@@ -1,5 +1,5 @@
 use core::fmt;
-use core::future::{ready, Future, Ready};
+use core::future::{Future, Ready, ready};
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use core::task::{Context, Poll};
 use core::time::Duration;
@@ -13,13 +13,13 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::vec::Vec;
 
-use futures_util::stream::{once, Empty, Once, Stream};
+use futures_util::stream::{Empty, Once, Stream, once};
 use octseq::{FreezeBuilder, Octets};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::time::Instant;
-use tokio_rustls::rustls;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_tfo::{TfoListener, TfoStream};
 use tracing_subscriber::EnvFilter;
@@ -44,7 +44,7 @@ use domain::net::server::service::{
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
-use domain::rdata::{Soa, A};
+use domain::rdata::{A, Soa};
 
 //----------- mk_answer() ----------------------------------------------------
 
@@ -241,7 +241,9 @@ fn name_to_ip(
 
     if out_answer.is_none() {
         let builder = mk_builder_for_target();
-        eprintln!("Refusing request, only requests for A records in IPv4 dotted quad format are accepted by this service.");
+        eprintln!(
+            "Refusing request, only requests for A records in IPv4 dotted quad format are accepted by this service."
+        );
         out_answer = Some(
             builder
                 .start_answer(request.message(), Rcode::REFUSED)
@@ -447,16 +449,22 @@ pub struct Stats {
 
 impl std::fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "# Reqs={} [UDP={}, IPv4={}, IPv6={}] Bytes [rx={}, tx={}] Speed [fastest={}, slowest={}]",
+        write!(
+            f,
+            "# Reqs={} [UDP={}, IPv4={}, IPv6={}] Bytes [rx={}, tx={}] Speed [fastest={}, slowest={}]",
             self.num_reqs,
             self.num_udp,
             self.num_ipv4,
             self.num_ipv6,
             self.num_req_bytes,
             self.num_resp_bytes,
-            self.fastest_req.map(|v| format!("{}μs", v.as_micros())).unwrap_or_else(|| "-".to_string()),
-            self.slowest_req.map(|v| format!("{}ms", v.as_millis())).unwrap_or_else(|| "-".to_string()),
-    )
+            self.fastest_req
+                .map(|v| format!("{}μs", v.as_micros()))
+                .unwrap_or_else(|| "-".to_string()),
+            self.slowest_req
+                .map(|v| format!("{}ms", v.as_millis()))
+                .unwrap_or_else(|| "-".to_string()),
+        )
     }
 }
 

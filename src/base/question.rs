@@ -149,7 +149,9 @@ impl<N: FromStr<Err = name::FromStrError>> FromStr for Question<N> {
         let class_or_qtype = match s.next() {
             Some(value) => value,
             None => {
-                return Err(PresentationErrorEnum::MissingClassAndQtype.into())
+                return Err(
+                    PresentationErrorEnum::MissingClassAndQtype.into()
+                );
             }
         };
         let res = match Class::from_str(class_or_qtype) {
@@ -157,13 +159,15 @@ impl<N: FromStr<Err = name::FromStrError>> FromStr for Question<N> {
                 let qtype = match s.next() {
                     Some(qtype) => qtype,
                     None => {
-                        return Err(PresentationErrorEnum::MissingQtype.into())
+                        return Err(
+                            PresentationErrorEnum::MissingQtype.into()
+                        );
                     }
                 };
                 match Rtype::from_str(qtype) {
                     Ok(qtype) => Self::new(qname, qtype, class),
                     Err(_) => {
-                        return Err(PresentationErrorEnum::BadQtype.into())
+                        return Err(PresentationErrorEnum::BadQtype.into());
                     }
                 }
             }
@@ -171,7 +175,7 @@ impl<N: FromStr<Err = name::FromStrError>> FromStr for Question<N> {
                 let qtype = match Rtype::from_str(class_or_qtype) {
                     Ok(qtype) => qtype,
                     Err(_) => {
-                        return Err(PresentationErrorEnum::BadQtype.into())
+                        return Err(PresentationErrorEnum::BadQtype.into());
                     }
                 };
                 let class = match s.next() {
@@ -181,7 +185,7 @@ impl<N: FromStr<Err = name::FromStrError>> FromStr for Question<N> {
                 match Class::from_str(class) {
                     Ok(class) => Self::new(qname, qtype, class),
                     Err(_) => {
-                        return Err(PresentationErrorEnum::BadClass.into())
+                        return Err(PresentationErrorEnum::BadClass.into());
                     }
                 }
             }

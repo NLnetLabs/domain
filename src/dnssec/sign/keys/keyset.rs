@@ -57,11 +57,11 @@
 // TODO:
 // - add support for undo/abort.
 
-use crate::base::iana::SecurityAlgorithm;
 use crate::base::Name;
+use crate::base::iana::SecurityAlgorithm;
 use crate::rdata::dnssec::Timestamp;
 use serde::{Deserialize, Serialize};
-use std::collections::{hash_map, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Add;
@@ -318,7 +318,7 @@ impl KeySet {
                         ksk_keystate.at_parent = value;
                     }
                     KeyType::Zsk(_) | KeyType::Include(_) => {
-                        return Err(Error::WrongKeyType)
+                        return Err(Error::WrongKeyType);
                     }
                 };
             }

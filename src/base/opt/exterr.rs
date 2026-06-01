@@ -5,10 +5,10 @@
 //!
 //! The option is defined in [RFC 8914](https://tools.ietf.org/html/rfc8914).
 
-use super::super::iana::exterr::{
-    ExtendedErrorCode, EDE_PRIVATE_RANGE_BEGIN,
-};
 use super::super::iana::OptionCode;
+use super::super::iana::exterr::{
+    EDE_PRIVATE_RANGE_BEGIN, ExtendedErrorCode,
+};
 use super::super::message_builder::OptBuilder;
 use super::super::wire::ParseError;
 use super::super::wire::{Compose, Composer};
