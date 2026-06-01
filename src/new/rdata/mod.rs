@@ -632,23 +632,31 @@ impl<N: BuildBytes> From<RecordData<'_, N>> for BoxedRecordData {
     /// Panics if the [`RecordData`] does not fit in a 64KiB buffer, or if the
     /// serialized bytes cannot be parsed back into `RecordData<'_, &Name>`.
     fn from(value: RecordData<'_, N>) -> Self {
-        // TODO: Determine the size of the record data upfront, and only
-        // allocate that much. Maybe as a new method on 'BuildBytes'...
-        let mut buffer = vec![0u8; 65535];
-        let rest_len = value
+        let mut buffer = vec![0u8; value.built_bytes_size()];
+        let rest = value
             .build_bytes(&mut buffer)
-            .expect("A 'RecordData' could not be built into a 64KiB buffer")
-            .len();
-        let len = buffer.len() - rest_len;
-        buffer.truncate(len);
+            .expect("Exactly the right size was allocated");
+        debug_assert!(
+            rest.is_empty(),
+            "Exactly the right size was allocated"
+        );
         let buffer: Box<[u8]> = buffer.into_boxed_slice();
 
         // Verify that the built bytes can be parsed correctly.
-        let _rdata: RecordData<'_, &Name> =
-            RecordData::parse_record_data_bytes(&buffer, value.rtype())
-                .expect("A serialized 'RecordData' could not be parsed back");
+        #[cfg(debug_assertions)]
+        {
+            let _rdata: RecordData<'_, &Name> =
+                RecordData::parse_record_data_bytes(&buffer, value.rtype())
+                    .expect(
+                        "A serialized 'RecordData' could not be parsed back",
+                    );
+        }
 
         // Construct the internal representation.
+        debug_assert!(
+            buffer.len() <= u16::MAX as usize,
+            "Record data must fit under 64KiB"
+        );
         let size = buffer.len() as u16;
         let data = Box::into_raw(buffer).cast::<u8>();
         let rtype = value.rtype();
