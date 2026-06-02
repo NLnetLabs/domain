@@ -8,6 +8,9 @@ New
 
 Improvements
 
+* Implemented `to_mnemonic_str` for `Rcode` and `OptCode` ([#668] and [#648]
+  by [@rossmacarthur])
+
 Bug fixes
 
 Other changes
