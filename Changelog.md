@@ -8,10 +8,16 @@ New
 
 Improvements
 
+* Implemented `to_mnemonic_str` for `Rcode` and `OptCode` ([#668] and [#648]
+  by [@rossmacarthur])
+
 Bug fixes
 
 Other changes
 
+[#648]: https://github.com/NLnetLabs/domain/pull/648
+[#668]: https://github.com/NLnetLabs/domain/pull/668
+[@rossmacarthur]: https://github.com/rossmacarthur
 
 ## 0.12.1
 
