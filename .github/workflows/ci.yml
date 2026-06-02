@@ -88,8 +88,13 @@ jobs:
   #
   # Validate that the documentation builds without any issues.
   build-doc:
-    name: Build documentation for validation
+    name: Check docs
+    strategy:
+      matrix: # "" -> use default features
+        features: ["", "--all-features"]
     runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
     steps:
 
     # Load the repository.
@@ -103,12 +108,8 @@ jobs:
         toolchain: stable
         cache: false
 
-    # Do the actual formatting check.
-    # `-D warnings` promotes all warnings to errors which leads to failure
     - name: Build documentation for validation
-      run: |
-        RUSTDOCFLAGS="-D warnings" \
-          cargo doc --no-deps --all-features
+      run: cargo doc --no-deps ${{ matrix.features }}
 
   # Determine MSRV
   # --------------
