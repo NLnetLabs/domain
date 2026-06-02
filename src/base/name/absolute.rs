@@ -170,11 +170,12 @@ impl<Octs> Name<Octs> {
     /// This function will work for any kind octets sequence that can be
     /// created from an octets slice. Since this will require providing the
     /// type parameter in some cases, there are shortcuts methods for specific
-    /// octets types: [`root_ref`], [`root_vec`], and [`root_bytes`].
+    /// octets types: [`root_ref`], [`root_vec`], and
+    #[cfg_attr(feature = "bytes", doc = " [`root_bytes`][Name::root_bytes].")]
+    #[cfg_attr(not(feature = "bytes"), doc = " `root_bytes`.")]
     ///
     /// [`root_ref`]: Name::root_ref
     /// [`root_vec`]: Name::root_vec
-    /// [`root_bytes`]: Name::root_bytes
     #[must_use]
     pub fn root() -> Self
     where

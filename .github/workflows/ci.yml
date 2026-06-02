@@ -104,8 +104,15 @@ jobs:
         cache: false
 
     # Do the actual formatting check.
-    # `-D warnings` promotes all warnings to errors which leads to failure
-    - name: Build documentation for validation
+    # `-D warnings` promotes all warnings to errors which leads to failure.
+    # No features explicitly enabled.
+    - name: Build documentation for validation (no feature flag)
+      run: |
+        RUSTDOCFLAGS="-D warnings" \
+          cargo doc --no-deps
+
+    # All features enabled.
+    - name: Build documentation for validation (--all-features)
       run: |
         RUSTDOCFLAGS="-D warnings" \
           cargo doc --no-deps --all-features
