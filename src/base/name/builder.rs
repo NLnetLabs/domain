@@ -4,10 +4,10 @@
 //! are re-exported by the parent module.
 
 use super::super::scan::{BadSymbol, Symbol, SymbolCharsError, Symbols};
+use super::Label;
 use super::absolute::Name;
 use super::relative::{RelativeName, RelativeNameError};
 use super::traits::{ToName, ToRelativeName};
-use super::Label;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::fmt;

@@ -4,6 +4,7 @@
 //!
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
+use crate::base::Ttl;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlgorithm, Rtype, SecurityAlgorithm};
 use crate::base::name::{FlattenInto, ParsedName, ToName};
@@ -14,7 +15,6 @@ use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
-use crate::base::Ttl;
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::convert::TryInto;
@@ -2500,7 +2500,7 @@ where
         while pos < self.buf.as_ref().len() {
             match self.buf.as_ref()[pos].cmp(&block) {
                 Ordering::Equal => {
-                    return Ok(&mut self.buf.as_mut()[pos..pos + 34])
+                    return Ok(&mut self.buf.as_mut()[pos..pos + 34]);
                 }
                 Ordering::Greater => {
                     // We need the length from before we add the new block
@@ -2923,7 +2923,8 @@ mod test {
                      KLZ02cRWXqM="
                 )
                 .unwrap()
-            ).unwrap()
+            )
+            .unwrap()
             .key_tag(),
             59944
         );

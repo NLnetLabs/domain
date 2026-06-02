@@ -5,11 +5,14 @@
 //! relatively good support for DSTs (e.g. they can be held by reference like
 //! any other type), it has some rough edges.  The standard library tries to
 //! paper over these with helpful functions and trait impls, but it does not
-//! account for custom DST types.  In particular, [`new::base`] introduces a
-//! large number of user-facing DSTs and needs to paper over the same rough
-//! edges for all of them.
-//!
-//! [`new::base`]: crate::new::base
+//! account for custom DST types.  In particular,
+#![cfg_attr(
+    feature = "unstable-new",
+    doc = " [`new::base`][crate::new::base]"
+)]
+#![cfg_attr(not(feature = "unstable-new"), doc = " `new::base`")]
+//! introduces a large number of user-facing DSTs and needs to paper over the
+//! same rough edges for all of them.
 //!
 //! ## Coping DSTs
 //!
@@ -18,7 +21,7 @@
 //! Copying a DST into new container (e.g. [`Box`]) requires explicit support
 //! from that container type.
 //!
-//! [`Box`]: https://doc.rust-lang.org/std/boxed/struct.Box.html
+//! [`Box`]: std::boxed::Box
 //!
 //! This module introduces the [`UnsizedCopy`] trait (and a derive macro) that
 //! types like [`str`] implement.  Container types that can support copying

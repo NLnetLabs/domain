@@ -170,11 +170,12 @@ impl<Octs> Name<Octs> {
     /// This function will work for any kind octets sequence that can be
     /// created from an octets slice. Since this will require providing the
     /// type parameter in some cases, there are shortcuts methods for specific
-    /// octets types: [`root_ref`], [`root_vec`], and [`root_bytes`].
+    /// octets types: [`root_ref`], [`root_vec`], and
+    #[cfg_attr(feature = "bytes", doc = " [`root_bytes`][Name::root_bytes].")]
+    #[cfg_attr(not(feature = "bytes"), doc = " `root_bytes`.")]
     ///
     /// [`root_ref`]: Name::root_ref
     /// [`root_vec`]: Name::root_vec
-    /// [`root_bytes`]: Name::root_bytes
     #[must_use]
     pub fn root() -> Self
     where
@@ -224,7 +225,7 @@ impl Name<[u8]> {
     /// Creates a domain name from an octet slice without checking,
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Name has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Creates a domain name from an octets slice.
@@ -610,7 +611,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     where
         Octs: Octets,
     {
-        Name::from_octets_unchecked(self.0.range(begin..))
+        unsafe { Name::from_octets_unchecked(self.0.range(begin..)) }
     }
 }
 
@@ -2015,7 +2016,7 @@ pub(crate) mod test {
     #[cfg(all(feature = "serde", feature = "std"))]
     #[test]
     fn ser_de() {
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         let name = Name::<Vec<u8>>::from_str("www.example.com.").unwrap();
         assert_tokens(

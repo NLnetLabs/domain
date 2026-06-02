@@ -1,11 +1,11 @@
 //! Zone tree related types.
 
-use core::future::{ready, Future};
+use core::future::{Future, ready};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use std::boxed::Box;
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -19,8 +19,8 @@ use super::traits::{ZoneDiff, ZoneDiffItem};
 use crate::base::name::Name;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
-use crate::base::{iana::Rtype, Ttl};
 use crate::base::{Serial, ToName};
+use crate::base::{Ttl, iana::Rtype};
 use crate::rdata::ZoneRecordData;
 
 //------------ Type Aliases --------------------------------------------------
@@ -378,7 +378,9 @@ impl InMemoryZoneDiff {
             .ok_or(ZoneDiffError::MissingEndSoa)?;
 
         if start_serial == end_serial || end_serial < start_serial {
-            trace!("Diff construction error: serial {start_serial} -> serial {end_serial}:\nremoved: {removed:#?}\nadded: {added:#?}\n");
+            trace!(
+                "Diff construction error: serial {start_serial} -> serial {end_serial}:\nremoved: {removed:#?}\nadded: {added:#?}\n"
+            );
             return Err(ZoneDiffError::InvalidSerialRange);
         }
 

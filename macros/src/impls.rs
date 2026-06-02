@@ -1,11 +1,11 @@
 //! Helpers for generating `impl` blocks.
 
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::{
-    punctuated::Punctuated, visit::Visit, ConstParam, GenericArgument,
-    GenericParam, Ident, Lifetime, LifetimeParam, Token, TypeParam,
-    TypeParamBound, WhereClause, WherePredicate,
+    ConstParam, GenericArgument, GenericParam, Ident, Lifetime,
+    LifetimeParam, Token, TypeParam, TypeParamBound, WhereClause,
+    WherePredicate, punctuated::Punctuated, visit::Visit,
 };
 
 //----------- ImplSkeleton ---------------------------------------------------

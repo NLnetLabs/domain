@@ -128,19 +128,34 @@ impl Display for RecordError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             RecordError::ClassMismatch(rec, zone_class) => {
-                write!(f, "The class of the record does not match the class {zone_class} of the zone: {rec}")
+                write!(
+                    f,
+                    "The class of the record does not match the class {zone_class} of the zone: {rec}"
+                )
             }
             RecordError::IllegalZoneCut(rec, existing_rtype) => {
-                write!(f, "Attempted to add zone cut records where non-zone cut records ({existing_rtype}) already exist: {rec}")
+                write!(
+                    f,
+                    "Attempted to add zone cut records where non-zone cut records ({existing_rtype}) already exist: {rec}"
+                )
             }
             RecordError::IllegalRecord(rec, existing_rtype) => {
-                write!(f, "Attempted to add a normal record where a {existing_rtype} record already exists: {rec}")
+                write!(
+                    f,
+                    "Attempted to add a normal record where a {existing_rtype} record already exists: {rec}"
+                )
             }
             RecordError::IllegalCname(rec, existing_rtype) => {
-                write!(f, "Attempted to add a CNAME record where a {existing_rtype} record already exists: {rec}")
+                write!(
+                    f,
+                    "Attempted to add a CNAME record where a {existing_rtype} record already exists: {rec}"
+                )
             }
             RecordError::MultipleCnames(rec) => {
-                write!(f, "Attempted to add a CNAME record a CNAME record already exists: {rec}")
+                write!(
+                    f,
+                    "Attempted to add a CNAME record a CNAME record already exists: {rec}"
+                )
             }
             RecordError::MalformedRecord(err) => {
                 write!(f, "The record could not be parsed: {err}")

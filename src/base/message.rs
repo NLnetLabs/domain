@@ -218,7 +218,7 @@ impl Message<[u8]> {
     /// undefined.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Message has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Checks that the slice can be used for a message.

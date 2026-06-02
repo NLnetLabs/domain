@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
+use crate::base::Name;
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::name::Label;
-use crate::base::Name;
 use crate::zonetree::answer::{Answer, AnswerAdditional, AnswerAuthority};
 use crate::zonetree::error::OutOfZone;
 use crate::zonetree::types::ZoneCut;
@@ -85,7 +85,7 @@ impl ReadZone {
         walk: WalkState,
     ) -> NodeAnswer {
         node.with_special(self.version, |special| match special {
-            Some(Special::Cut(ref cut)) => {
+            Some(Special::Cut(cut)) => {
                 if walk.enabled() {
                     walk.op(&cut.ns, true);
                     if let Some(ds) = &cut.ds {
@@ -414,10 +414,10 @@ impl NodeAnswer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::base::Ttl;
     use crate::base::iana::Class;
     use crate::base::name::OwnedLabel;
-    use crate::base::Ttl;
-    use crate::rdata::{ZoneRecordData, A};
+    use crate::rdata::{A, ZoneRecordData};
     use crate::zonetree::StoredName;
     use core::str::FromStr;
     use core::sync::atomic::{AtomicU8, Ordering};

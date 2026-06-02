@@ -12,12 +12,12 @@ use octseq::builder::FromBuilder;
 use octseq::{OctetsFrom, OctetsInto};
 use tracing::debug;
 
+use crate::base::Name;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
-use crate::base::Name;
 use crate::crypto::sign::SignRaw;
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::signingkey::SigningKey;
@@ -364,14 +364,14 @@ mod tests {
     use pretty_assertions::assert_eq;
     use rand::RngExt;
 
-    use crate::base::iana::SecurityAlgorithm;
     use crate::base::Serial;
+    use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::sign::{KeyPair, SignError, Signature};
     use crate::dnssec::sign::records::SortedRecords;
     use crate::dnssec::sign::test_util;
     use crate::dnssec::sign::test_util::*;
-    use crate::rdata::dnssec::Timestamp;
     use crate::rdata::Dnskey;
+    use crate::rdata::dnssec::Timestamp;
     use crate::zonetree::StoredName;
 
     use super::*;

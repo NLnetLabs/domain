@@ -1,10 +1,10 @@
 //! RFC 6891 and related EDNS message processing.
-use core::future::{ready, Ready};
+use core::future::{Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use futures_util::stream::{once, Once, Stream};
-use log::{log_enabled, Level};
+use futures_util::stream::{Once, Stream, once};
+use log::{Level, log_enabled};
 use octseq::Octets;
 use tracing::{debug, error, trace, warn};
 
@@ -113,7 +113,9 @@ where
             if let Some(opt) = iter.next() {
                 if iter.next().is_some() {
                     // More than one OPT RR received.
-                    debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
+                    debug!(
+                        "RFC 6891 6.1.1 violation: request contains more than one OPT RR."
+                    );
                     return ControlFlow::Break(mk_error_response(
                         request.message(),
                         OptRcode::FORMERR,
@@ -123,7 +125,9 @@ where
                 let opt = match opt {
                     Ok(opt) => opt,
                     Err(err) => {
-                        debug!("RFC 6891 violation: unable to parse OPT RR: {err}");
+                        debug!(
+                            "RFC 6891 violation: unable to parse OPT RR: {err}"
+                        );
                         return ControlFlow::Break(mk_error_response(
                             request.message(),
                             OptRcode::FORMERR,
@@ -138,7 +142,10 @@ where
                 //   "If a responder does not implement the VERSION level of
                 //    the request, then it MUST respond with RCODE=BADVERS."
                 if opt_rec.version() > EDNS_VERSION_ZERO {
-                    debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
+                    debug!(
+                        "RFC 6891 6.1.3 violation: request EDNS version {} > 0",
+                        opt_rec.version()
+                    );
                     return ControlFlow::Break(mk_error_response(
                         request.message(),
                         OptRcode::BADVERS,
@@ -155,7 +162,9 @@ where
                         if log_enabled!(Level::Debug)
                             && opt_rec.opt().tcp_keepalive().is_some()
                         {
-                            debug!("RFC 7828 3.2.1 violation: ignoring edns-tcp-keepalive option received via UDP");
+                            debug!(
+                                "RFC 7828 3.2.1 violation: ignoring edns-tcp-keepalive option received via UDP"
+                            );
                         }
 
                         // https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.3
@@ -176,7 +185,9 @@ where
                             && requestors_udp_payload_size
                                 < MINIMUM_RESPONSE_BYTE_LEN
                         {
-                            debug!("RFC 6891 6.2.3 violation: OPT RR class (requestor's UDP payload size) < {MINIMUM_RESPONSE_BYTE_LEN}");
+                            debug!(
+                                "RFC 6891 6.2.3 violation: OPT RR class (requestor's UDP payload size) < {MINIMUM_RESPONSE_BYTE_LEN}"
+                            );
                         }
 
                         // Clamp the lower bound of the size limit requested
@@ -212,8 +223,12 @@ where
                         };
 
                         if log_enabled!(Level::Trace) {
-                            trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
-                                opt_rec.udp_payload_size(), server_max_response_size_hint, negotiated_hint);
+                            trace!(
+                                "EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
+                                opt_rec.udp_payload_size(),
+                                server_max_response_size_hint,
+                                negotiated_hint
+                            );
                         }
 
                         ctx.set_max_response_size_hint(Some(negotiated_hint));
@@ -230,7 +245,9 @@ where
                             opt_rec.opt().tcp_keepalive()
                         {
                             if keep_alive.timeout().is_some() {
-                                debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
+                                debug!(
+                                    "RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout"
+                                );
                                 return ControlFlow::Break(
                                     mk_error_response(
                                         request.message(),
@@ -316,12 +333,16 @@ where
                                         },
                                     )
                                 {
-                                    warn!("Cannot add RFC 7828 edns-tcp-keepalive option to response: {err}");
+                                    warn!(
+                                        "Cannot add RFC 7828 edns-tcp-keepalive option to response: {err}"
+                                    );
                                 }
                             }
 
                             Err(err) => {
-                                warn!("Cannot add RFC 7828 edns-tcp-keepalive option to response: invalid timeout: {err}");
+                                warn!(
+                                    "Cannot add RFC 7828 edns-tcp-keepalive option to response: invalid timeout: {err}"
+                                );
                             }
                         }
                     }

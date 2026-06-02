@@ -197,7 +197,11 @@ impl Entry {
         allow_partial_match: bool,
     ) -> Result<(), DidNotMatch> {
         if !allow_partial_match && match_section.len() != msg_count as usize {
-            trace!("match_section: expected section length {} doesn't match message count {}", match_section.len(), msg_count);
+            trace!(
+                "match_section: expected section length {} doesn't match message count {}",
+                match_section.len(),
+                msg_count
+            );
             if !match_section.is_empty() {
                 trace!("expected sections:");
                 for section in match_section {
@@ -397,7 +401,9 @@ impl Entry {
 
         for (name, r, h) in flags {
             if r != h {
-                trace!("match_msg: {name} does not match, got {r:?}, expected {h:?}");
+                trace!(
+                    "match_msg: {name} does not match, got {r:?}, expected {h:?}"
+                );
                 return Err(DidNotMatch);
             }
         }

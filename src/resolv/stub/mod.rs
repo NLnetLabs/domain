@@ -24,9 +24,9 @@ use crate::net::client::redundant;
 use crate::net::client::request::{
     ComposeRequest, Error, RequestMessage, SendRequest,
 };
-use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
-use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
-use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
+use crate::resolv::lookup::addr::{FoundAddrs, lookup_addr};
+use crate::resolv::lookup::host::{FoundHosts, lookup_host, search_host};
+use crate::resolv::lookup::srv::{FoundSrvs, SrvError, lookup_srv};
 use crate::resolv::resolver::{Resolver, SearchNames};
 use bytes::Bytes;
 use futures_util::stream::{FuturesUnordered, StreamExt};
@@ -37,8 +37,8 @@ use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::string::ToString;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::vec::Vec;
 use std::{io, ops};
 #[cfg(feature = "resolv-sync")]

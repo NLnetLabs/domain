@@ -326,7 +326,7 @@ pub trait ConvertSymbols<Sym, Error> {
     /// If the method returns some data, it will be appended to the output
     /// octets sequence.
     fn process_symbol(&mut self, symbol: Sym)
-        -> Result<Option<&[u8]>, Error>;
+    -> Result<Option<&[u8]>, Error>;
 
     /// Process the end of token.
     ///

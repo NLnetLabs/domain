@@ -10,8 +10,8 @@ use super::server::do_server;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::base::message_builder::AdditionalBuilder;
 use crate::base::Message;
+use crate::base::message_builder::AdditionalBuilder;
 
 #[derive(Debug)]
 pub struct Connection {

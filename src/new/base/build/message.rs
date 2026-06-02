@@ -4,9 +4,9 @@ use core::fmt;
 
 use crate::{
     new::base::{
-        wire::{ParseBytesZC, U16},
         Header, HeaderFlags, Message, MessageItem, Question, Record,
         SectionCounts,
+        wire::{ParseBytesZC, U16},
     },
     new::edns::EdnsRecord,
 };
@@ -339,7 +339,7 @@ mod test {
     use crate::new::base::{
         HeaderFlags, QClass, QType, Question, RClass, RType, Record, TTL,
     };
-    use crate::new::rdata::{RecordData, A};
+    use crate::new::rdata::{A, RecordData};
 
     use super::{MessageBuilder, NameCompressor};
 

@@ -3,7 +3,7 @@
 use core::any::Any;
 
 use std::boxed::Box;
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;

@@ -15,7 +15,7 @@
 //!
 //!   dig @127.0.0.1 -p 8053 AXFR example.com
 
-use core::future::{ready, Future};
+use core::future::{Future, ready};
 use core::pin::Pin;
 use core::str::FromStr;
 
@@ -28,8 +28,8 @@ use std::time::Duration;
 
 use domain::rdata::{Soa, ZoneRecordData};
 use octseq::Octets;
-use rand::distr::Alphanumeric;
 use rand::RngExt;
+use rand::distr::Alphanumeric;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
@@ -186,11 +186,17 @@ async fn main() {
     eprintln!("Try:");
     eprintln!("  dig @127.0.0.1 -p 8053 example.com");
     eprintln!("  dig @127.0.0.1 -p 8053 example.com AXFR");
-    eprintln!("  dig @127.0.0.1 -p 8053 -y hmac-sha256:demo-key:zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8= example.com AXFR");
+    eprintln!(
+        "  dig @127.0.0.1 -p 8053 -y hmac-sha256:demo-key:zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8= example.com AXFR"
+    );
     eprintln!("  dig @127.0.0.1 -p 8053 +opcode=notify example.com SOA");
-    eprintln!("  cargo run --example ixfr-client --all-features -- 127.0.0.1:8053 example.com 2020080302");
+    eprintln!(
+        "  cargo run --example ixfr-client --all-features -- 127.0.0.1:8053 example.com 2020080302"
+    );
     eprintln!();
-    eprintln!("Tip: set env var RUST_LOG=info (or debug or trace) for more log output.");
+    eprintln!(
+        "Tip: set env var RUST_LOG=info (or debug or trace) for more log output."
+    );
 
     // Print some status information every 5 seconds
     tokio::spawn(async move {
@@ -309,7 +315,9 @@ impl Notifiable for DemoNotifyTarget {
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
     > {
-        eprintln!("Notify received from {source} of change to zone {apex_name} in class {class} with serial {serial:?}");
+        eprintln!(
+            "Notify received from {source} of change to zone {apex_name} in class {class} with serial {serial:?}"
+        );
 
         let res = match apex_name.to_string().to_lowercase().as_str() {
             "example.com" => Ok(()),

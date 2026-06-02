@@ -2,8 +2,8 @@
 
 use super::context::{Config, Error, ValidationState};
 use super::group::ValidatedGroup;
-use super::nsec::{nsec3_for_not_exists_no_ce, nsec_for_not_exists};
 use super::nsec::{Nsec3Cache, Nsec3NXStateNoCE, NsecNXState};
+use super::nsec::{nsec_for_not_exists, nsec3_for_not_exists_no_ce};
 use crate::base::iana::{Class, ExtendedErrorCode};
 use crate::base::name::Label;
 use crate::base::opt::ExtendedError;
@@ -283,7 +283,9 @@ fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
     }
 
     // Something weird.
-    panic!("Get child of closest encloser(ce), maybe target is not a decendent of ce?");
+    panic!(
+        "Get child of closest encloser(ce), maybe target is not a decendent of ce?"
+    );
 }
 
 /// Check that target name does not exist. This typically happens if there
@@ -343,7 +345,7 @@ pub async fn check_not_exists_for_wildcard(
             return (true, ValidationState::Insecure, None);
         }
         Nsec3NXStateNoCE::Bogus => {
-            return (false, ValidationState::Bogus, ede)
+            return (false, ValidationState::Bogus, ede);
         }
         Nsec3NXStateNoCE::Nothing => (), // Continue.
     }

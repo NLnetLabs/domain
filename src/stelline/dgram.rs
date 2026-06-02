@@ -9,8 +9,8 @@ use std::vec::Vec;
 
 use tokio::io::ReadBuf;
 
-use crate::base::message_builder::AdditionalBuilder;
 use crate::base::Message;
+use crate::base::message_builder::AdditionalBuilder;
 use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };

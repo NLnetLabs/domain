@@ -3,7 +3,7 @@ use core::ops::Deref;
 
 use std::boxed::Box;
 use std::collections::HashMap;
-use std::future::{ready, Future};
+use std::future::{Future, ready};
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::rc::Rc;

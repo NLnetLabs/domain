@@ -235,12 +235,12 @@ pub fn nsec_for_not_exists(
                 // proof non-existance.
                 // This NSEC record cannot prove non-existance.
                 return (
-		    NsecNXState::Exists,
-		    make_ede(
-			ExtendedErrorCode::DNSSEC_BOGUS,
-			"Found NSEC with DNAME or delegation while trying to proof non-existance",
-		    ),
-		);
+                    NsecNXState::Exists,
+                    make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "Found NSEC with DNAME or delegation while trying to proof non-existance",
+                    ),
+                );
             }
         }
 
@@ -378,7 +378,7 @@ fn nsec_closest_encloser(
     // longest common suffix for target and each of them and return the longest
     // result.
     let mut owner_encloser = Name::root(); // Assume the root if we can't find
-                                           // anything.
+    // anything.
     for n in nsec_owner.iter_suffixes() {
         if target.ends_with(&n) {
             owner_encloser = n;
@@ -387,7 +387,7 @@ fn nsec_closest_encloser(
     }
 
     let mut next_encloser: Name<Bytes> = Name::root(); // Assume the root if we can't find
-                                                       // anything.
+    // anything.
     for n in nsec.next_name().iter_suffixes() {
         if target.ends_with(&n) {
             next_encloser = n.to_name();
@@ -469,20 +469,25 @@ pub async fn nsec3_for_nodata(
             }
             Err((state, ede)) => {
                 match state {
-		    ValidationState::Bogus =>
-			// totest, NSEC3 with very high iteration count
-			return (Nsec3State::Bogus, ede),
-		    ValidationState::Insecure =>
-			// totest, NSEC3 with medium high iteration count
-			// With a high iteration count we don't compute the
-			// hash, so we just assume that the NSEC3 record
-			// proves whatever we want to have. But the 
-			// result is insecure.
-			return (Nsec3State::NoDataInsecure, ede),
-		    ValidationState::Secure
-		    | ValidationState::Indeterminate =>
-			panic!("get_checked_nsec3 should only return Bogus or Insecure"),
-		}
+                    ValidationState::Bogus =>
+                    // totest, NSEC3 with very high iteration count
+                    {
+                        return (Nsec3State::Bogus, ede);
+                    }
+                    ValidationState::Insecure =>
+                    // totest, NSEC3 with medium high iteration count
+                    // With a high iteration count we don't compute the
+                    // hash, so we just assume that the NSEC3 record
+                    // proves whatever we want to have. But the
+                    // result is insecure.
+                    {
+                        return (Nsec3State::NoDataInsecure, ede);
+                    }
+                    ValidationState::Secure
+                    | ValidationState::Indeterminate => panic!(
+                        "get_checked_nsec3 should only return Bogus or Insecure"
+                    ),
+                }
             }
         };
 
@@ -692,10 +697,10 @@ pub async fn nsec3_for_not_exists(
                     }
                 }
                 Err((ValidationState::Bogus, ede)) => {
-                    return (Nsec3NXState::Bogus, ede)
+                    return (Nsec3NXState::Bogus, ede);
                 }
                 Err((ValidationState::Insecure, ede)) => {
-                    return (Nsec3NXState::Insecure, ede)
+                    return (Nsec3NXState::Insecure, ede);
                 }
                 Err(_) => panic!(
                     "get_checked_nsec3 should on return Bogus or Insecure"
@@ -728,12 +733,12 @@ pub async fn nsec3_for_not_exists(
                     // proof non-existance.
                     // This NSEC3 record cannot prove non-existance.
                     return (
-			Nsec3NXState::Nothing,
-			make_ede(
-			    ExtendedErrorCode::DNSSEC_BOGUS,
-			    "Found NSEC3 with DNAME or delegation while trying to proof non-existance",
-			),
-		    );
+                        Nsec3NXState::Nothing,
+                        make_ede(
+                            ExtendedErrorCode::DNSSEC_BOGUS,
+                            "Found NSEC3 with DNAME or delegation while trying to proof non-existance",
+                        ),
+                    );
                 }
                 maybe_ce = n;
                 maybe_ce_exists = true;
@@ -823,20 +828,25 @@ pub async fn nsec3_for_not_exists_no_ce(
             }
             Err((state, ede)) => {
                 match state {
-		    ValidationState::Bogus =>
-			// totest, NSEC3 with very high iteration count
-			return (Nsec3NXStateNoCE::Bogus, ede),
-		    ValidationState::Insecure =>
-			// totest, NSEC3 with medium high iteration count
-			// With a high iteration count we don't compute the
-			// hash, so we just assume that the NSEC3 record
-			// proves whatever we want to have. But the 
-			// result is insecure.
-			return (Nsec3NXStateNoCE::DoesNotExistInsecure, ede),
-		    ValidationState::Secure
-		    | ValidationState::Indeterminate =>
-			panic!("get_checked_nsec3 should only return Bogus or Insecure"),
-		}
+                    ValidationState::Bogus =>
+                    // totest, NSEC3 with very high iteration count
+                    {
+                        return (Nsec3NXStateNoCE::Bogus, ede);
+                    }
+                    ValidationState::Insecure =>
+                    // totest, NSEC3 with medium high iteration count
+                    // With a high iteration count we don't compute the
+                    // hash, so we just assume that the NSEC3 record
+                    // proves whatever we want to have. But the
+                    // result is insecure.
+                    {
+                        return (Nsec3NXStateNoCE::DoesNotExistInsecure, ede);
+                    }
+                    ValidationState::Secure
+                    | ValidationState::Indeterminate => panic!(
+                        "get_checked_nsec3 should only return Bogus or Insecure"
+                    ),
+                }
             }
         };
 
@@ -1081,7 +1091,7 @@ fn get_checked_nsec3(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "NSEC3 with bad owner hash",
                 ),
-            ))
+            ));
         }
     };
 

@@ -3,9 +3,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
+use crate::base::Name;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
-use crate::base::Name;
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
@@ -399,7 +399,7 @@ impl Owners<Normal> {
             // Now see if A/AAAA records exists for the name in
             // this zone.
             for (_rtype, rrset) in
-                normal.records.iter().filter(|(&rtype, _)| rtype.is_glue())
+                normal.records.iter().filter(|(rtype, _)| rtype.is_glue())
             {
                 for rdata in rrset.data() {
                     let glue_record = StoredRecord::new(

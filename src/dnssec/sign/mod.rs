@@ -154,14 +154,14 @@ use crate::rdata::ZoneRecordData;
 
 use denial::config::DenialConfig;
 use denial::nsec::generate_nsecs;
-use denial::nsec3::{generate_nsec3s, Nsec3Records};
+use denial::nsec3::{Nsec3Records, generate_nsec3s};
 use error::SigningError;
 use keys::SigningKey;
 use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
 use records::{RecordsIter, Sorter};
-use signatures::rrsigs::{sign_sorted_zone_records, GenerateRrsigConfig};
+use signatures::rrsigs::{GenerateRrsigConfig, sign_sorted_zone_records};
 use traits::{SignableZone, SortedExtend};
 
 //------------ SignableZoneInOut ---------------------------------------------
@@ -427,13 +427,13 @@ where
             // Nothing to do.
         }
 
-        DenialConfig::Nsec(ref cfg) => {
+        DenialConfig::Nsec(cfg) => {
             let nsecs = generate_nsecs(apex_owner, owner_rrs, cfg)?;
 
             in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
         }
 
-        DenialConfig::Nsec3(ref cfg) => {
+        DenialConfig::Nsec3(cfg) => {
             // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
             // order." We store the NSEC3s as we create them and sort them
             // afterwards.

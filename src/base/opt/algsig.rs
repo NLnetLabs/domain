@@ -153,7 +153,7 @@ impl<Variant> Understood<Variant, [u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Understood has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Checks that a slice contains a correctly encoded value.

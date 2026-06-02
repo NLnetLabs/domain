@@ -1,7 +1,7 @@
 #![cfg(feature = "net")]
 
-use domain::stelline::client::do_client_simple;
 use domain::stelline::client::CurrStepValue;
+use domain::stelline::client::do_client_simple;
 use domain::stelline::connect::Connect;
 use domain::stelline::connection::Connection;
 use domain::stelline::dgram::Dgram;
@@ -157,7 +157,7 @@ fn tcp() {
 /// Regression test: Ensure responses are not lost when a stream closes.
 #[test]
 fn stream_immediate_eof() {
-    use domain::base::{iana::Rcode, MessageBuilder, Name, Rtype};
+    use domain::base::{MessageBuilder, Name, Rtype, iana::Rcode};
     use domain::rdata::A;
     use futures_util::FutureExt as _;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};

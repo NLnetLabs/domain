@@ -128,9 +128,7 @@ pub trait AsyncAccept {
     type StreamType;
 
     /// The type of [`std::future::Future`] that the trait impl returns.
-    type Future: std::future::Future<
-        Output = Result<Self::StreamType, Self::Error>,
-    >;
+    type Future: std::future::Future<Output = Result<Self::StreamType, Self::Error>>;
 
     /// Polls to accept a new incoming connection to this listener.
     ///

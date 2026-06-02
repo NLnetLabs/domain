@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use octseq::Octets;
-use tokio::sync::mpsc::{Receiver, UnboundedSender};
 use tokio::sync::Semaphore;
+use tokio::sync::mpsc::{Receiver, UnboundedSender};
 use tracing::{debug, error};
 
 use crate::base::iana::OptRcode;
@@ -116,7 +116,9 @@ where
                             //     to inform the client that a TCP query
                             //     should be initiated."
                             debug_assert!(self.must_fit_in_single_message);
-                            debug!("Responding to IXFR with single SOA because response does not fit in a single UDP reply");
+                            debug!(
+                                "Responding to IXFR with single SOA because response does not fit in a single UDP reply"
+                            );
 
                             let builder = mk_builder_for_target();
 
@@ -130,12 +132,16 @@ where
                         }
 
                         BatchReadyError::PushError(err) => {
-                            error!("Internal error: Failed to send RR to batcher: {err}");
+                            error!(
+                                "Internal error: Failed to send RR to batcher: {err}"
+                            );
                             return Err(OptRcode::SERVFAIL);
                         }
 
                         BatchReadyError::SendError => {
-                            debug!("Batcher was unable to send completed batch. Was the receiver dropped?");
+                            debug!(
+                                "Batcher was unable to send completed batch. Was the receiver dropped?"
+                            );
                             return Err(OptRcode::SERVFAIL);
                         }
                     }

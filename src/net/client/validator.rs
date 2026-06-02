@@ -379,12 +379,11 @@ where
                                         Ok(response_msg)
                                     } else {
                                         // Set AD if it was set in the request.
-                                        let msg = remove_dnssec(
+                                        remove_dnssec(
                                             response_msg,
                                             self.request_msg.header().ad(),
                                             false,
-                                        );
-                                        msg
+                                        )
                                     }
                                 }
                                 ValidationState::Bogus => {

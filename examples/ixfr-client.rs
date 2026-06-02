@@ -33,7 +33,9 @@ async fn main() {
     let qname = Name::<Vec<u8>>::from_str(&args[2]).unwrap();
     let soa_serial: u32 = args[3].parse().unwrap();
 
-    eprintln!("Requesting IXFR from {server_addr} for zone {qname} from serial {soa_serial}");
+    eprintln!(
+        "Requesting IXFR from {server_addr} for zone {qname} from serial {soa_serial}"
+    );
 
     let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
     let (tcp, transport) = stream::Connection::<

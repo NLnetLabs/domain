@@ -4,8 +4,8 @@ use core::iter::FusedIterator;
 
 use crate::new::{
     base::{
-        name::{NameBuf, RevNameBuf},
         Header, Message, MessageItem,
+        name::{NameBuf, RevNameBuf},
     },
     rdata::{Opt, RecordData},
 };

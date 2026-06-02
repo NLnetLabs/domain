@@ -654,7 +654,7 @@ impl UnparsedRecordData {
     pub const unsafe fn new_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'UnparsedRecordData' is 'repr(transparent)' to '[u8]', so
         // casting a '[u8]' into an 'UnparsedRecordData' is sound.
-        core::mem::transmute(bytes)
+        unsafe { core::mem::transmute(bytes) }
     }
 }
 
@@ -730,7 +730,7 @@ impl Clone for alloc::boxed::Box<UnparsedRecordData> {
 
 #[cfg(test)]
 mod test {
-    use super::{RClass, RType, Record, UnparsedRecordData, TTL};
+    use super::{RClass, RType, Record, TTL, UnparsedRecordData};
 
     use crate::new::base::{
         name::Name,

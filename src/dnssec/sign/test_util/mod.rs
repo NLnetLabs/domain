@@ -14,12 +14,12 @@ use crate::dnssec::sign::denial::nsec3::mk_hashed_nsec3_owner_name;
 use crate::rdata::dnssec::{RtypeBitmap, Timestamp};
 use crate::rdata::nsec3::OwnerHash;
 use crate::rdata::{
-    Aaaa, Dnskey, Ns, Nsec, Nsec3, Nsec3param, Rrsig, Soa, A,
+    A, Aaaa, Dnskey, Ns, Nsec, Nsec3, Nsec3param, Rrsig, Soa,
 };
 use crate::utils::base32;
 use crate::zonefile::inplace::{Entry, Zonefile};
-use crate::zonetree::types::StoredRecordData;
 use crate::zonetree::StoredName;
+use crate::zonetree::types::StoredRecordData;
 
 use super::denial::nsec3::GenerateNsec3Config;
 use super::records::SortedRecords;

@@ -5,22 +5,22 @@
 //! [RFC 8659]: https://www.rfc-editor.org/info/rfc8659
 
 use crate::base::{
+    CanonicalOrd, CharStr, ParseRecordData, RecordData, Rtype,
     charstr::DisplayQuoted,
     name::FlattenInto,
     rdata::ComposeRecordData,
     scan::{Scan, Scanner, ScannerError},
     wire::{Compose, Parse, ParseError},
     zonefile_fmt::{self, Formatter, ZonefileFmt},
-    CanonicalOrd, CharStr, ParseRecordData, RecordData, Rtype,
 };
 use core::{cmp::Ordering, fmt, hash};
+use octseq::{Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parser};
 #[cfg(feature = "serde")]
 use octseq::{
     builder::{EmptyBuilder, FromBuilder},
     serde::DeserializeOctets,
     serde::SerializeOctets,
 };
-use octseq::{Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parser};
 
 //------------ Caa ---------------------------------------------------------
 
@@ -389,7 +389,7 @@ impl<Octs> CaaTag<Octs> {
     /// The caller must ensure `octets` consists only of ASCII alphanumeric
     /// characters and is no longer than 255 octets, as required by RFC 8659.
     pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
-        CaaTag(CharStr::from_octets_unchecked(octets))
+        CaaTag(unsafe { CharStr::from_octets_unchecked(octets) })
     }
 }
 
@@ -409,8 +409,10 @@ impl CaaTag<[u8]> {
     /// alphanumeric characters and is not longer than 255 bytes.
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: CaaTag has repr(transparent)
-        &*(CharStr::from_slice_unchecked(slice) as *const CharStr<[u8]>
-            as *const Self)
+        unsafe {
+            &*(CharStr::from_slice_unchecked(slice) as *const CharStr<[u8]>
+                as *const Self)
+        }
     }
 
     fn check_slice(octets: &[u8]) -> Result<(), ParseError> {

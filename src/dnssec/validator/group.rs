@@ -11,8 +11,8 @@ use super::context::{
 };
 use super::utilities::{make_ede, map_dname, ttl_for_sig};
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::class::Class;
 use crate::base::iana::ExtendedErrorCode;
+use crate::base::iana::class::Class;
 use crate::base::name::ToName;
 use crate::base::opt::exterr::ExtendedError;
 use crate::base::rdata::ComposeRecordData;
@@ -390,7 +390,7 @@ impl Group {
                     None,
                     node.extended_error(),
                     None,
-                ))
+                ));
             }
         }
         let (state, wildcard, ede, _ttl, adjust_ttl) = self
@@ -432,7 +432,13 @@ impl Group {
             ValidationState::Insecure
             | ValidationState::Bogus
             | ValidationState::Indeterminate => {
-                return (state, None, node.extended_error(), node.ttl(), None)
+                return (
+                    state,
+                    None,
+                    node.extended_error(),
+                    node.ttl(),
+                    None,
+                );
             }
             ValidationState::Secure => (),
         }

@@ -42,7 +42,7 @@
 //!
 //! [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
 
-use core::future::{ready, Future, Ready};
+use core::future::{Future, Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 use core::pin::Pin;
@@ -52,7 +52,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures_util::stream::{once, Once, Stream};
+use futures_util::stream::{Once, Stream, once};
 use octseq::Octets;
 use tracing::{error, info, warn};
 
@@ -225,7 +225,8 @@ where
             .await
         {
             Err(NotifyError::NotAuthForZone) => {
-                warn!("Ignoring NOTIFY from {} for zone '{}': Not authoritative for zone",
+                warn!(
+                    "Ignoring NOTIFY from {} for zone '{}': Not authoritative for zone",
                     req.client_addr(),
                     q.qname()
                 );

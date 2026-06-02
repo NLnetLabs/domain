@@ -323,7 +323,7 @@ mod test {
     use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
     use crate::base::{Name, Record, Ttl};
     use crate::rdata::caa::{CaaFlags, CaaTag};
-    use crate::rdata::{Cds, Cname, Ds, Mx, Txt, A};
+    use crate::rdata::{A, Cds, Cname, Ds, Mx, Txt};
 
     fn create_record<Data>(data: Data) -> Record<&'static Name<[u8]>, Data> {
         let name = Name::from_slice(b"\x07example\x03com\x00").unwrap();
