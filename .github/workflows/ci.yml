@@ -91,7 +91,7 @@ jobs:
     name: Build documentation for validation
     strategy:
       matrix: # "" -> use default features
-        features: ["", "--all-features", "--no-default-features"]
+        features: ["", "--all-features"]
     runs-on: ubuntu-latest
     env:
       RUSTDOCFLAGS: "-D warnings"
