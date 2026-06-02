@@ -647,9 +647,9 @@ dependencies = [
 
 [[package]]
 name = "octseq"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df8a0b46f254482682d1e09d35af3e3e9cfec83e2617ebbfd9434c3d3bc8864e"
+checksum = "182eab3e1cd9cdc0ecf1ce3342d9844f3dc7d098f0694569bfdf327b612d69fd"
 dependencies = [
  "bytes",
  "heapless",
