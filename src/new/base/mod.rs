@@ -182,9 +182,7 @@
 //--- DNS messages
 
 mod message;
-pub use message::{
-    Header, HeaderFlags, Message, MessageItem, OpCode, SectionCounts,
-};
+pub use message::{Header, HeaderFlags, Message, MessageItem, SectionCounts};
 
 mod question;
 pub use question::{QClass, QType, Question};
@@ -215,6 +213,7 @@ pub mod wire;
 
 /// contains DNSParameter trait including default implementations
 mod parameters;
+pub use parameters::OpCode;
 
 //--- Compatibility exports
 

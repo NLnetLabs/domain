@@ -1,9 +1,7 @@
 //! DNS message headers.
 
 use core::fmt;
-use std::string::String;
 
-use crate::new::base::parameters::DNSParameter;
 use crate::new::edns::EdnsRecord;
 use crate::utils::dst::UnsizedCopy;
 
@@ -153,112 +151,6 @@ impl fmt::Display for Header {
             self.id.get(),
             self.counts
         )
-    }
-}
-
-//----------- OpCode ---------------------------------------------------------
-/// The type of a record.
-///
-/// Operation Code (OpCode)
-///
-/// IANA Assignments can be found under [DNS OpCodes].
-///
-/// [DNS OpCodes]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
-#[derive(Copy, Clone, PartialEq)]
-pub struct OpCode {
-    /// The operation code
-    pub code: u8,
-}
-
-impl OpCode {
-    /// Create a new [`OpCode`].
-    pub const fn new(value: u8) -> Self {
-        Self { code: value }
-    }
-
-    /// Query [RFC1035](https://www.iana.org/go/rfc1035)
-    pub const QUERY: Self = Self::new(0);
-
-    /// IQuery (Inverse Query, OBSOLETE)
-    /// [RFC3425](https://www.iana.org/go/rfc3425)
-    pub const IQUERY: Self = Self::new(1);
-
-    /// Status [RFC1035](https://www.iana.org/go/rfc1035)
-    pub const STATUS: Self = Self::new(2);
-
-    /// Notify [RFC1996](https://www.iana.org/go/rfc1996)
-    pub const NOTIFY: Self = Self::new(4);
-
-    /// Update [RFC2136](https://www.iana.org/go/rfc2136)
-    pub const UPDATE: Self = Self::new(5);
-
-    /// DNS Stateful Operations (DSO)
-    /// [RFC8490](https://www.iana.org/go/rfc8490)
-    pub const DSO: Self = Self::new(6);
-
-    /// Contains all Constants in a tuple (<NAME>, <VALUE>).
-    /// Should be generated automatically
-    const MAGIC_LIST: [(&'static str, u8); 6] = [
-        ("QUERY", 0),
-        ("IQUERY", 1),
-        ("STATUS", 2),
-        ("NOTIFY", 4),
-        ("UPDATE", 5),
-        ("DSO", 6),
-    ];
-}
-
-//--- DNSParameter
-impl DNSParameter for OpCode {
-    type INT = u8;
-    fn from_integer(value: Self::INT) -> Self {
-        OpCode { code: value }
-    }
-    fn from_mnemonic(_: &str) -> Option<Self> {
-        // `OpCode`s do not have mnemonics
-        None
-    }
-    fn get_integer(&self) -> Self::INT {
-        self.code
-    }
-    fn get_mnemonic(&self) -> Option<&'static str> {
-        // `OpCode`s do not have mnemonics
-        None
-    }
-    fn get_representation(&self) -> String {
-        match Self::MAGIC_LIST.iter().find(|e| e.1 == self.get_integer()) {
-            Some(r) => format!("OpCode::{}", r.0),
-            _ => format!("OpCode({})", self.get_integer()),
-        }
-    }
-    fn display_impl(&self) -> String {
-        self.display_integer()
-    }
-}
-
-//--- Conversion to and from 'u8'
-
-impl From<u8> for OpCode {
-    fn from(value: u8) -> Self {
-        Self::from_integer(value)
-    }
-}
-
-impl From<OpCode> for u8 {
-    fn from(value: OpCode) -> Self {
-        OpCode::get_integer(&value)
-    }
-}
-
-impl fmt::Debug for OpCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.get_representation())
-    }
-}
-
-impl fmt::Display for OpCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.display_impl())
     }
 }
 
@@ -788,6 +680,32 @@ where
             Self::Authority(this) => this.built_bytes_size(),
             Self::Additional(this) => this.built_bytes_size(),
             Self::Edns(this) => this.built_bytes_size(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    #[test]
+    fn parse_header() {
+        let mut header: Vec<u8> = Vec::new();
+        //                QR OpCod AA TC RD RA Z     RCode
+        let row2: u16 = 0b0__1001__1__0__0__0__0000__0000u16;
+
+        // to_be_bytes -> Network byte order
+        header.extend(0b1_01_001_0001_00001_0u16.to_be_bytes()); // random num
+        header.extend(row2.to_be_bytes()); // push other flags
+        header.extend(1u16.to_be_bytes()); // QDCOUNT
+        header.extend(2u16.to_be_bytes()); // ANCOUNT
+        header.extend(3u16.to_be_bytes()); // NSCOUNT
+        header.extend(4u16.to_be_bytes()); // ARCOUNT
+        println!("{:?}", header);
+        match Header::parse_bytes(&header) {
+            Ok(header) => println!("{:?}", header),
+            Err(e) => eprintln!("{:?}", e),
         }
     }
 }
