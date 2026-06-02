@@ -43,7 +43,7 @@ jiff           = { version = "0.2.1", default-features = false }
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 bumpalo        = { version = "3.12", optional = true }
 constant_time_eq = { version = "0.4.2", optional = true }
-octseq         = { version = "0.6.0", default-features = false }
+octseq         = { version = "0.6.1", default-features = false }
 rand           = { version = "0.10.1", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
 bytes          = { version = "1.2", optional = true, default-features = false }
@@ -60,7 +60,7 @@ proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to 
 ring           = { version = "0.17.2", optional = true }
 rustversion    = { version = "1", optional = true }
 secrecy        = { version = "0.10", optional = true }
-serde          = { version = "1.0.130", optional = true, features = ["derive"] }
+serde          = { version = "1.0.130", optional = true, default-features = false, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
 smallvec       = { version = "1.3", optional = true }
 tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync", "rt-multi-thread" ] }
@@ -73,15 +73,15 @@ tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-fil
 default     = ["std", "rand"]
 
 # Support for libraries
-alloc       = ["jiff/alloc"]
+alloc       = ["jiff/alloc", "octseq/alloc", "serde?/alloc"]
 bumpalo     = ["dep:bumpalo", "std"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 chrono      = ["dep:chrono"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 rand        = ["dep:rand"]
-serde       = ["std", "dep:serde", "octseq/serde"]
+serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
-std         = ["alloc", "dep:hashbrown", "bumpalo?/std", "bytes?/std", "octseq/std", "jiff/std"]
+std         = ["alloc", "dep:hashbrown", "bumpalo?/std", "bytes?/std", "octseq/std", "jiff/std", "serde?/std"]
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
