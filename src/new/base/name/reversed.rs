@@ -259,6 +259,21 @@ impl fmt::Debug for RevName {
     }
 }
 
+impl fmt::Display for RevName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        self.labels().try_for_each(|label| {
+            if !first {
+                f.write_str(".")?;
+            } else {
+                first = false;
+            }
+
+            fmt::Display::fmt(&label, f)
+        })
+    }
+}
+
 //--- Serialize
 
 #[cfg(feature = "serde")]
@@ -607,6 +622,12 @@ impl Hash for RevNameBuf {
 }
 
 impl fmt::Debug for RevNameBuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+impl fmt::Display for RevNameBuf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }

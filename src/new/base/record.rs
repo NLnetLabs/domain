@@ -416,7 +416,6 @@ impl From<RType> for u16 {
 }
 
 //--- Formatting
-
 impl fmt::Debug for RType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match *self {
@@ -443,6 +442,36 @@ impl fmt::Debug for RType {
             Self::ZONEMD => "RType::ZONEMD",
             Self::TSIG => "RType::TSIG",
             _ => return write!(f, "RType({})", self.code),
+        })
+    }
+}
+
+impl fmt::Display for RType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::A => "A",
+            Self::NS => "NS",
+            Self::CNAME => ":CNAME",
+            Self::SOA => "SOA",
+            Self::PTR => "PTR",
+            Self::HINFO => "HINFO",
+            Self::MX => "MX",
+            Self::TXT => "TXT",
+            Self::RP => "RP",
+            Self::AAAA => "AAAA",
+            Self::DNAME => "DNAME",
+            Self::OPT => "OPT",
+            Self::DS => "DS",
+            Self::RRSIG => "RRSIG",
+            Self::NSEC => "NSEC",
+            Self::DNSKEY => "DNSKEY",
+            Self::NSEC3 => "NSEC3",
+            Self::NSEC3PARAM => "NSEC3PARAM",
+            Self::CDS => "CDS",
+            Self::CDNSKEY => "CDNSKEY",
+            Self::ZONEMD => "ZONEMD",
+            Self::TSIG => "TSIG",
+            _ => return write!(f, "TYPE{}", self.code),
         })
     }
 }
@@ -501,6 +530,16 @@ impl fmt::Debug for RClass {
     }
 }
 
+impl fmt::Display for RClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::IN => "IN",
+            Self::CH => "CH",
+            _ => return write!(f, "CLASS{}", self.code),
+        })
+    }
+}
+
 //----------- TTL ------------------------------------------------------------
 
 /// How long a record can be cached.
@@ -547,6 +586,12 @@ impl From<TTL> for u32 {
 impl fmt::Debug for TTL {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TTL({})", self.value)
+    }
+}
+
+impl fmt::Display for TTL {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.value)
     }
 }
 
