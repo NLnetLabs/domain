@@ -2,10 +2,12 @@
 //!
 //! See [RFC 1982](https://datatracker.ietf.org/doc/html/rfc1982).
 
+use alloc::string::String;
 use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
+use super::parameters::DNSParameter;
 use super::wire::U32;
 
 //----------- Serial ---------------------------------------------------------
@@ -41,6 +43,31 @@ impl Serial {
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("The current time is after the Unix Epoch");
         Self::from(time.as_secs() as u32)
+    }
+}
+
+//--- DNSParameter
+impl DNSParameter for Serial {
+    type INT = u32;
+    fn from_integer(value: Self::INT) -> Self {
+        Serial(U32::new(value))
+    }
+    fn from_mnemonic(_: &str) -> Option<Self> {
+        // `OpCode`s do not have mnemonics
+        None
+    }
+    fn get_integer(&self) -> Self::INT {
+        self.0.get()
+    }
+    fn get_mnemonic(&self) -> Option<&'static str> {
+        // `OpCode`s do not have mnemonics
+        None
+    }
+    fn debug_impl(&self) -> String {
+        format!("Serial({})", self.get_integer())
+    }
+    fn display_impl(&self) -> String {
+        self.display_integer()
     }
 }
 

@@ -213,6 +213,7 @@ pub mod wire;
 
 /// contains DNSParameter trait including default implementations
 mod parameters;
+pub use parameters::DNSParameter;
 pub use parameters::OpCode;
 
 //--- Compatibility exports

@@ -1,8 +1,8 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
-/// https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
-pub(crate) trait DNSParameter
+/// <https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml>
+pub trait DNSParameter
 where
     Self: Sized,
 {
@@ -17,6 +17,7 @@ where
 
     /// converts integer into Self
     fn from_integer(value: Self::INT) -> Self;
+
     /// converts mnemonic str into Self if it exists
     fn from_mnemonic(value: &str) -> Option<Self>;
 
@@ -157,3 +158,21 @@ impl DNSParameter for OpCode {
 }
 
 dns_parameter_impl! {=> OpCode, u8;}
+
+#[cfg(test)]
+mod tests {
+
+use super::*;
+
+    #[test]
+    fn all_dns_parameter() {
+        use crate::new::base::{Serial, TTL};
+        use crate::new::base::parameters::DNSParameter;
+
+        let serial: Serial = Serial::from_integer(1);
+        assert_eq!(serial.display_impl(), "1");
+
+        let ttl: TTL = TTL::from_integer();
+        assert_eq!(serial.display_impl(), "1");
+    }
+}

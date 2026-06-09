@@ -1,10 +1,12 @@
 //! DNS records.
 
+use alloc::string::String;
 use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use crate::utils::dst::UnsizedCopy;
 
 use super::build::{BuildInMessage, NameCompressor};
+use super::parameters::DNSParameter;
 use super::parse::{ParseMessageBytes, SplitMessageBytes};
 use super::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SizePrefixed,
@@ -346,6 +348,61 @@ impl RType {
 
     /// The type of a `TSig` record.
     pub const TSIG: Self = Self::new(250);
+
+    const MAGIC_LIST: [(&'static str, u16); 22] = [
+        ("A", 1),
+        ("NS", 2),
+        ("CNAME", 5),
+        ("SOA", 6),
+        ("PTR", 12),
+        ("HINFO", 13),
+        ("MX", 15),
+        ("TXT", 16),
+        ("RP", 17),
+        ("AAAA", 28),
+        ("DNAME", 39),
+        ("OPT", 41),
+        ("DS", 43),
+        ("RRSIG", 46),
+        ("NSEC", 47),
+        ("DNSKEY", 48),
+        ("NSEC3", 50),
+        ("NSEC3PARAM", 51),
+        ("CDS", 59),
+        ("CDNSKEY", 60),
+        ("ZONEMD", 63),
+        ("TSIG", 250),
+    ];
+}
+
+impl DNSParameter for RType {
+    type INT = u16;
+    fn from_integer(value: Self::INT) -> Self {
+        RType {
+            code: U16::new(value),
+        }
+    }
+    fn from_mnemonic(_value: &str) -> Option<Self> {
+        unimplemented!("from_mnemonic is currently not available")
+    }
+    fn get_integer(&self) -> Self::INT {
+        self.code.get()
+    }
+    fn get_mnemonic(&self) -> Option<&'static str> {
+        match Self::MAGIC_LIST.iter().find(|e| e.1 == self.get_integer()) {
+            Some(r) => Some(r.0),
+            None => None,
+        }
+    }
+    fn debug_impl(&self) -> String {
+        match Self::MAGIC_LIST.iter().find(|e| e.1 == self.get_integer()) {
+            Some(r) => format!("RType::{}", r.0),
+            _ => format!("RType({})", self.get_integer()),
+        }
+    }
+    fn display_impl(&self) -> String {
+        self.display_mnemonic_fallback_integer()
+    }
 }
 
 //--- Interaction
@@ -487,6 +544,38 @@ impl RClass {
 
     /// The CHAOS class.
     pub const CH: Self = Self::new(3);
+
+    const MAGIC_LIST: [(&'static str, u16); 2] = [("IN", 1), ("CH", 3)];
+}
+
+impl DNSParameter for RClass {
+    type INT = u16;
+    fn from_integer(value: Self::INT) -> Self {
+        RClass {
+            code: U16::new(value),
+        }
+    }
+    fn from_mnemonic(_value: &str) -> Option<Self> {
+        unimplemented!("from_mnemonic is currently not available")
+    }
+    fn get_integer(&self) -> Self::INT {
+        self.code.get()
+    }
+    fn get_mnemonic(&self) -> Option<&'static str> {
+        match Self::MAGIC_LIST.iter().find(|e| e.1 == self.get_integer()) {
+            Some(r) => Some(r.0),
+            None => None,
+        }
+    }
+    fn debug_impl(&self) -> String {
+        match Self::MAGIC_LIST.iter().find(|e| e.1 == self.get_integer()) {
+            Some(r) => format!("RClass::{}", r.0),
+            _ => format!("RClass({})", self.get_integer()),
+        }
+    }
+    fn display_impl(&self) -> String {
+        self.display_mnemonic_fallback_integer()
+    }
 }
 
 //--- Formatting
