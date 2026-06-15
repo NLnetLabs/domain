@@ -882,6 +882,12 @@ impl fmt::Display for NameParseError {
 
 // -- Convert from old Name to new::base::NameBuf ----------------------------
 
+/// Upgrade a [`crate::base::Name`] into a
+/// [`crate::new::base::name::absolute::NameBuf`].
+///
+/// # Panics
+///
+/// The [`crate::base::Name`] slice has to contain a valid domain.
 #[allow(unused)]
 pub fn upgrade_name<Octs>(value: &crate::base::Name<Octs>) -> NameBuf
 where
@@ -901,7 +907,7 @@ mod tests {
             crate::base::Name::from_slice(b"\x07example\x03com\x00")
                 .expect("Invalid name");
 
-        let new_name: NameBuf = upgrade_name(&old_name);
+        let new_name: NameBuf = upgrade_name(old_name);
         assert_eq!(old_name.as_slice(), new_name.as_bytes())
     }
 }
