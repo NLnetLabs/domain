@@ -695,6 +695,8 @@ mod tests {
                 .expect("Invalid name");
 
         let new_name: RevNameBuf = upgrade_name(old_name);
-        assert_eq!(old_name.as_slice(), new_name.as_bytes())
+        let mut buf = vec![0; new_name.built_bytes_size()];
+        new_name.build_bytes(&mut buf).unwrap();
+        assert_eq!(old_name.as_slice(), buf);
     }
 }
