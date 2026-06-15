@@ -14,6 +14,7 @@ use super::wire::U32;
 ///
 /// [`Serial`] implements the "Serial number arithmetic" defined in [RFC1982]
 /// with a `SERIAL_BITS` value of 32.
+///
 /// [`Serial`] should not be used interchangably or be confused with the SOA
 /// Serial Number, which is a [`Serial`] but not the sole user of "Serial
 /// number arithmetic".
