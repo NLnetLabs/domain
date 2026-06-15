@@ -666,3 +666,29 @@ impl<'a> serde::Deserialize<'a> for std::boxed::Box<RevName> {
             .map(|this| this.unsized_copy_into())
     }
 }
+
+// -- Convert from old Name to new::base::RevNameBuf -------------------------
+
+#[allow(unused)]
+pub fn upgrade_name<Octs>(value: &crate::base::Name<Octs>) -> RevNameBuf
+where
+    Octs: AsRef<[u8]> + ?Sized,
+{
+    RevNameBuf::parse_bytes(value.as_slice())
+        .expect("Tried to upgrade invalid name")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_upgrade_revnamebuf() {
+        let old_name =
+            crate::base::Name::from_slice(b"\x07example\x03com\x00")
+                .expect("Invalid name");
+
+        let new_name: RevNameBuf = upgrade_name(&old_name);
+        assert_eq!(old_name.as_slice(), new_name.as_bytes())
+    }
+}

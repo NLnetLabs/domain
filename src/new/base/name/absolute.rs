@@ -879,3 +879,29 @@ impl fmt::Display for NameParseError {
         })
     }
 }
+
+// -- Convert from old Name to new::base::NameBuf ----------------------------
+
+#[allow(unused)]
+pub fn upgrade_name<Octs>(value: &crate::base::Name<Octs>) -> NameBuf
+where
+    Octs: AsRef<[u8]> + ?Sized,
+{
+    NameBuf::parse_bytes(value.as_slice())
+        .expect("Tried to upgrade invalid name")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_upgrade_name_to_namebuf() {
+        let old_name =
+            crate::base::Name::from_slice(b"\x07example\x03com\x00")
+                .expect("Invalid name");
+
+        let new_name: NameBuf = upgrade_name(&old_name);
+        assert_eq!(old_name.as_slice(), new_name.as_bytes())
+    }
+}
