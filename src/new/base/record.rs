@@ -456,6 +456,7 @@ impl fmt::Debug for RType {
 /// The mnemonics are consolidated by [IANA].
 ///
 /// ```
+/// # use domain::new::base::RType;
 /// // Known RType with mnemonic
 /// assert_eq!("A", format!("{}", RType::A));
 /// // Unknown RType
@@ -573,6 +574,7 @@ impl fmt::Debug for RClass {
 /// The mnemonics are consolidated by [IANA].
 ///
 /// ```
+/// # use domain::new::base::RClass;
 /// // Known RClass with mnemonic
 /// assert_eq!("IN", format!("{}", RClass::IN));
 /// // Unknown RClass
