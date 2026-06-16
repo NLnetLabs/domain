@@ -23,7 +23,7 @@ use crate::{
 
 use super::{
     CanonicalName, Label, LabelBuf, LabelIter, LabelParseError,
-    NameCompressor,
+    NameCompressor, RevNameBuf,
 };
 
 //----------- Name -----------------------------------------------------------
@@ -99,6 +99,11 @@ impl Name {
     pub const fn labels(&self) -> LabelIter<'_> {
         // SAFETY: A 'Name' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
+    }
+
+    /// Covert &[`Name`] into [`RevNameBuf`]
+    pub fn to_revname(&self) -> RevNameBuf {
+        NameBuf::copy_from(self).into()
     }
 }
 
@@ -909,5 +914,14 @@ mod tests {
 
         let new_name: NameBuf = upgrade_name(old_name);
         assert_eq!(old_name.as_slice(), new_name.as_bytes())
+    }
+
+    #[test]
+    fn test_to_revname() {
+        let namebuf: NameBuf = "example.com".parse().unwrap();
+        assert_eq!(
+            (&namebuf).to_revname().as_bytes(),
+            b"\x00\x03com\x07example",
+        );
     }
 }

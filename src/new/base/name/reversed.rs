@@ -110,6 +110,11 @@ impl RevName {
         // SAFETY: A 'RevName' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
     }
+
+    /// Covert &[`RevName`] into [`NameBuf`]
+    pub fn to_name(&self) -> NameBuf {
+        RevNameBuf::copy_from(self).into()
+    }
 }
 
 //--- Building in DNS messages
@@ -698,5 +703,14 @@ mod tests {
         let mut buf = vec![0; new_name.built_bytes_size()];
         new_name.build_bytes(&mut buf).unwrap();
         assert_eq!(old_name.as_slice(), buf);
+    }
+
+    #[test]
+    fn test_to_name() {
+        let revnamebuf: RevNameBuf = "example.com".parse().unwrap();
+        assert_eq!(
+            (&revnamebuf).to_name().as_bytes(),
+            b"\x07example\x03com\x00",
+        );
     }
 }
