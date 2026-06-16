@@ -680,13 +680,14 @@ impl<'a> serde::Deserialize<'a> for std::boxed::Box<RevName> {
 /// # Panics
 ///
 /// The [`crate::base::Name`] slice has to contain a valid domain.
-#[allow(unused)]
-pub fn upgrade_name<Octs>(value: &crate::base::Name<Octs>) -> RevNameBuf
+impl<Octs> From<&crate::base::Name<Octs>> for RevNameBuf
 where
     Octs: AsRef<[u8]> + ?Sized,
 {
-    RevNameBuf::parse_bytes(value.as_slice())
-        .expect("Tried to upgrade invalid name")
+    fn from(value: &crate::base::Name<Octs>) -> Self {
+        RevNameBuf::parse_bytes(value.as_slice())
+            .expect("Tried to upgrade invalid name")
+    }
 }
 
 #[cfg(test)]
@@ -699,7 +700,7 @@ mod tests {
             crate::base::Name::from_slice(b"\x07example\x03com\x00")
                 .expect("Invalid name");
 
-        let new_name: RevNameBuf = upgrade_name(old_name);
+        let new_name: RevNameBuf = old_name.into();
         let mut buf = vec![0; new_name.built_bytes_size()];
         new_name.build_bytes(&mut buf).unwrap();
         assert_eq!(old_name.as_slice(), buf);
