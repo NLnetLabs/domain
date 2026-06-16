@@ -527,6 +527,22 @@ impl RClass {
     pub const CH: Self = Self::new(3);
 }
 
+//--- Conversion to and from 'u16'
+
+impl From<u16> for RClass {
+    fn from(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+}
+
+impl From<RClass> for u16 {
+    fn from(value: RClass) -> Self {
+        value.code.get()
+    }
+}
+
 //--- Formatting
 
 impl fmt::Debug for RClass {
@@ -816,9 +832,28 @@ mod test {
     }
 
     #[test]
+    fn test_rclass_from() {
+        let rclass: RClass = 1.into();
+        assert_eq!(rclass, RClass::IN);
+
+        let number: u16 = rclass.into();
+        assert_eq!(number, 1);
+    }
+
+    #[test]
+    fn test_rtype_from() {
+        let rtype: RType = 6.into();
+        assert_eq!(rtype, RType::SOA);
+
+        let number: u16 = rtype.into();
+        assert_eq!(number, 6);
+    }
+
+    #[test]
     fn test_rclass_display() {
         assert_eq!("IN", format!("{}", RClass::IN));
         assert_eq!("CH", format!("{}", RClass::CH));
+        assert_eq!("CLASS42", format!("{}", RClass::from(42)));
     }
 
     #[test]
