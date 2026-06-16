@@ -447,11 +447,20 @@ impl fmt::Debug for RType {
     }
 }
 
-/// Return the associated name of [`RType`]. If [`RType`] is unknown,
-/// then the returned string contains the type in the unknown format as
-/// defined in Section 5 in [RFC3597].
+/// Format an [`RType`] in a human-readable way
 ///
-/// The names are consolidated by [IANA].
+/// Return the mnemonic of [`RType`]. If [`RType`] is unknown, then the
+/// returned string contains the type in the unknown format as defined in
+/// Section 5 in [RFC3597].
+///
+/// The mnemonics are consolidated by [IANA].
+///
+/// ```
+/// // Known RType with mnemonic
+/// assert_eq!("A", format!("{}", RType::A));
+/// // Unknown RType
+/// assert_eq!("TYPE265", format!("{}", RType::from(265)));
+/// ```
 ///
 /// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
 /// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
@@ -555,11 +564,20 @@ impl fmt::Debug for RClass {
     }
 }
 
-/// Return the associated name of [`RClass`]. If [`RClass`] is unknown,
-/// then the returned string contains the class in the unknown format as
-/// defined in Section 5 in [RFC3597].
+/// Format an [`RClass`] in a human-readable way
 ///
-/// The names are consolidated by [IANA].
+/// Return the mnemonic of [`RClass`]. If [`RClass`] is unknown, then the
+/// returned string contains the class in the unknown format as defined in
+/// Section 5 in [RFC3597].
+///
+/// The mnemonics are consolidated by [IANA].
+///
+/// ```
+/// // Known RClass with mnemonic
+/// assert_eq!("IN", format!("{}", RClass::IN));
+/// // Unknown RClass
+/// assert_eq!("CLASS42", format!("{}", RClass::from(42)));
+/// ```
 ///
 /// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
 /// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
