@@ -447,6 +447,44 @@ impl fmt::Debug for RType {
     }
 }
 
+/// Return the associated name of [`RType`]. If [`RType`] is unknown,
+/// then the returned string contains the type in the unknown format as
+/// defined in Section 5 in [RFC3597].
+///
+/// The names are consolidated by [IANA].
+///
+/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+impl fmt::Display for RType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::A => "A",
+            Self::NS => "NS",
+            Self::CNAME => "CNAME",
+            Self::SOA => "SOA",
+            Self::PTR => "PTR",
+            Self::HINFO => "HINFO",
+            Self::MX => "MX",
+            Self::TXT => "TXT",
+            Self::RP => "RP",
+            Self::AAAA => "AAAA",
+            Self::DNAME => "DNAME",
+            Self::OPT => "OPT",
+            Self::DS => "DS",
+            Self::RRSIG => "RRSIG",
+            Self::NSEC => "NSEC",
+            Self::DNSKEY => "DNSKEY",
+            Self::NSEC3 => "NSEC3",
+            Self::NSEC3PARAM => "NSEC3PARAM",
+            Self::CDS => "CDS",
+            Self::CDNSKEY => "CDNSKEY",
+            Self::ZONEMD => "ZONEMD",
+            Self::TSIG => "TSIG",
+            _ => return write!(f, "TYPE{}", self.code),
+        })
+    }
+}
+
 //----------- RClass ---------------------------------------------------------
 
 /// The class of a record.
@@ -497,6 +535,24 @@ impl fmt::Debug for RClass {
             Self::IN => "RClass::IN",
             Self::CH => "RClass::CH",
             _ => return write!(f, "RClass({})", self.code),
+        })
+    }
+}
+
+/// Return the associated name of [`RClass`]. If [`RClass`] is unknown,
+/// then the returned string contains the class in the unknown format as
+/// defined in Section 5 in [RFC3597].
+///
+/// The names are consolidated by [IANA].
+///
+/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+impl fmt::Display for RClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::IN => "IN",
+            Self::CH => "CH",
+            _ => return write!(f, "CLASS{}", self.code),
         })
     }
 }
@@ -757,5 +813,18 @@ mod test {
         let mut buffer = [0u8; 15];
         assert_eq!(record.build_bytes(&mut buffer), Ok(&mut [] as &mut [u8]));
         assert_eq!(buffer, &bytes[..15]);
+    }
+
+    #[test]
+    fn test_rclass_display() {
+        assert_eq!("IN", format!("{}", RClass::IN));
+        assert_eq!("CH", format!("{}", RClass::CH));
+    }
+
+    #[test]
+    fn test_rtype_display() {
+        assert_eq!("A", format!("{}", RType::A));
+        assert_eq!("MX", format!("{}", RType::MX));
+        assert_eq!("TYPE265", format!("{}", RType::from(265)));
     }
 }
