@@ -23,7 +23,7 @@ use crate::{
 
 use super::{
     CanonicalName, Label, LabelBuf, LabelIter, LabelParseError,
-    NameCompressor,
+    NameCompressor, RevNameBuf,
 };
 
 //----------- Name -----------------------------------------------------------
@@ -99,6 +99,11 @@ impl Name {
     pub const fn labels(&self) -> LabelIter<'_> {
         // SAFETY: A 'Name' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
+    }
+
+    /// Covert &[`Name`] into [`RevNameBuf`]
+    pub fn to_revname(&self) -> RevNameBuf {
+        NameBuf::copy_from(self).into()
     }
 }
 
@@ -877,5 +882,43 @@ impl fmt::Display for NameParseError {
                 "a label contained an invalid escape"
             }
         })
+    }
+}
+
+// -- Convert from old Name to new::base::NameBuf ----------------------------
+
+/// Upgrade a [`crate::base::Name`] into a
+/// [`crate::new::base::name::NameBuf`].
+impl<Octs> From<&crate::base::Name<Octs>> for NameBuf
+where
+    Octs: AsRef<[u8]> + ?Sized,
+{
+    fn from(value: &crate::base::Name<Octs>) -> Self {
+        NameBuf::parse_bytes(value.as_slice())
+            .expect("Tried to upgrade invalid name")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_upgrade_name_to_namebuf() {
+        let old_name =
+            crate::base::Name::from_slice(b"\x07example\x03com\x00")
+                .expect("Invalid name");
+
+        let new_name: NameBuf = old_name.into();
+        assert_eq!(old_name.as_slice(), new_name.as_bytes())
+    }
+
+    #[test]
+    fn test_to_revname() {
+        let namebuf: NameBuf = "example.com".parse().unwrap();
+        assert_eq!(
+            namebuf.to_revname().as_bytes(),
+            b"\x00\x03com\x07example",
+        );
     }
 }
