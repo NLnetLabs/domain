@@ -97,6 +97,7 @@ zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-new = []
+unstable-catalog = ["unstable-zonetree"]
 unstable-client-cache = ["unstable-client-transport", "moka"]
 unstable-client-transport = ["net", "tracing"]
 unstable-crypto = ["bytes", "std"]

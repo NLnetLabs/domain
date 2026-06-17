@@ -151,6 +151,8 @@
 //!
 //! Currently, the following unstable features exist:
 //!
+//! * `unstable-catalog`: reading and writing of catalog zones (RFC 9432);
+//!   primarily the `catalog` module.
 //! * `unstable-client-transport`: sending and receiving DNS messages from
 //!   a client perspective; primarily the `net::client` module.
 //! * `unstable-server-transport`: receiving and sending DNS messages from
@@ -206,6 +208,7 @@ extern crate self as domain;
 pub use core as __core;
 
 pub mod base;
+pub mod catalog;
 pub mod crypto;
 pub mod dep;
 pub mod dnssec;
