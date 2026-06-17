@@ -10,7 +10,7 @@ mod dnskey;
 pub use dnskey::{DNSKey, DNSKeyFlags};
 
 mod rrsig;
-pub use rrsig::RRSig;
+pub use rrsig::Rrsig;
 
 mod nsec;
 pub use nsec::{NSec, TypeBitmaps};

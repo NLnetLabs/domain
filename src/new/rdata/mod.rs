@@ -51,7 +51,7 @@
 //!
 //! Security related types:
 //! - [`DNSKey`]
-//! - [`RRSig`]
+//! - [`Rrsig`]
 //! - [`NSec`]
 //! - [`NSec3`]
 //! - [`NSec3Param`]
@@ -115,7 +115,7 @@ pub use rp::Rp;
 mod dnssec;
 pub use dnssec::{
     DNSKey, DNSKeyFlags, DigestType, Ds, NSec, NSec3, NSec3Flags,
-    NSec3HashAlg, NSec3Param, RRSig, SecAlg, TypeBitmaps,
+    NSec3HashAlg, NSec3Param, Rrsig, SecAlg, TypeBitmaps,
 };
 
 mod zonemd;
@@ -290,7 +290,7 @@ define_record_data! {
         Ds(&'a Ds) = DS,
 
         /// A cryptographic signature on a DNS record set.
-        RRSig(RRSig<'a>) = RRSIG,
+        Rrsig(Rrsig<'a>) = RRSIG,
 
         /// An indication of the non-existence of a set of DNS records (version 1).
         NSec(NSec<'a>) = NSEC,
@@ -331,7 +331,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
-            Self::RRSig(r) => RecordData::RRSig(r),
+            Self::Rrsig(r) => RecordData::Rrsig(r),
             Self::NSec(r) => RecordData::NSec(r),
             Self::DNSKey(r) => RecordData::DNSKey(r),
             Self::NSec3(r) => RecordData::NSec3(r),
@@ -360,7 +360,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
-            Self::RRSig(r) => RecordData::RRSig(r.clone()),
+            Self::Rrsig(r) => RecordData::Rrsig(r.clone()),
             Self::NSec(r) => RecordData::NSec(r.clone()),
             Self::DNSKey(r) => RecordData::DNSKey(r),
             Self::NSec3(r) => RecordData::NSec3(r.clone()),
@@ -395,7 +395,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::DName(r) => RecordData::DName(copy_to_bump(*r, bump)),
             Self::Opt(r) => RecordData::Opt(copy_to_bump(*r, bump)),
             Self::Ds(r) => RecordData::Ds(copy_to_bump(*r, bump)),
-            Self::RRSig(r) => RecordData::RRSig(r.clone_to_bump(bump)),
+            Self::Rrsig(r) => RecordData::Rrsig(r.clone_to_bump(bump)),
             Self::NSec(r) => RecordData::NSec(r.clone_to_bump(bump)),
             Self::DNSKey(r) => RecordData::DNSKey(copy_to_bump(*r, bump)),
             Self::NSec3(r) => RecordData::NSec3(r.clone_to_bump(bump)),
@@ -455,7 +455,7 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             }
             RType::DS => <&Ds>::parse_bytes(&contents[start..]).map(Self::Ds),
             RType::RRSIG => {
-                RRSig::parse_bytes(&contents[start..]).map(Self::RRSig)
+                Rrsig::parse_bytes(&contents[start..]).map(Self::Rrsig)
             }
             RType::NSEC => {
                 NSec::parse_bytes(&contents[start..]).map(Self::NSec)

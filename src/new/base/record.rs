@@ -550,6 +550,14 @@ impl fmt::Debug for TTL {
     }
 }
 
+//--- Compatibility with old base
+impl TTL {
+    /// Return the TTL value in seconds.
+    pub fn as_secs(&self) -> u32 {
+        self.value.into()
+    }
+}
+
 //----------- ParseRecordData ------------------------------------------------
 
 /// Parsing DNS record data.
