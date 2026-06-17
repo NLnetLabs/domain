@@ -506,6 +506,53 @@ impl Scan<'_> for RType {
         Err(ScanError::Custom("unrecognized record type"))
     }
 }
+/// Format an [`RType`] in a human-readable way
+///
+/// Return the mnemonic of [`RType`]. If [`RType`] is unknown, then the
+/// returned string contains the type in the unknown format as defined in
+/// Section 5 in [RFC3597].
+///
+/// The mnemonics are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::base::RType;
+/// // Known RType with mnemonic
+/// assert_eq!("A", format!("{}", RType::A));
+/// // Unknown RType
+/// assert_eq!("TYPE265", format!("{}", RType::from(265)));
+/// ```
+///
+/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+impl fmt::Display for RType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::A => "A",
+            Self::NS => "NS",
+            Self::CNAME => "CNAME",
+            Self::SOA => "SOA",
+            Self::PTR => "PTR",
+            Self::HINFO => "HINFO",
+            Self::MX => "MX",
+            Self::TXT => "TXT",
+            Self::RP => "RP",
+            Self::AAAA => "AAAA",
+            Self::DNAME => "DNAME",
+            Self::OPT => "OPT",
+            Self::DS => "DS",
+            Self::RRSIG => "RRSIG",
+            Self::NSEC => "NSEC",
+            Self::DNSKEY => "DNSKEY",
+            Self::NSEC3 => "NSEC3",
+            Self::NSEC3PARAM => "NSEC3PARAM",
+            Self::CDS => "CDS",
+            Self::CDNSKEY => "CDNSKEY",
+            Self::ZONEMD => "ZONEMD",
+            Self::TSIG => "TSIG",
+            _ => return write!(f, "TYPE{}", self.code),
+        })
+    }
+}
 
 //----------- RClass ---------------------------------------------------------
 
@@ -547,6 +594,22 @@ impl RClass {
 
     /// The CHAOS class.
     pub const CH: Self = Self::new(3);
+}
+
+//--- Conversion to and from 'u16'
+
+impl From<u16> for RClass {
+    fn from(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+}
+
+impl From<RClass> for u16 {
+    fn from(value: RClass) -> Self {
+        value.code.get()
+    }
 }
 
 //--- Formatting
@@ -591,6 +654,34 @@ impl Scan<'_> for RClass {
         }
 
         Err(ScanError::Custom("unrecognized record class"))
+    }
+}
+
+/// Format an [`RClass`] in a human-readable way
+///
+/// Return the mnemonic of [`RClass`]. If [`RClass`] is unknown, then the
+/// returned string contains the class in the unknown format as defined in
+/// Section 5 in [RFC3597].
+///
+/// The mnemonics are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::base::RClass;
+/// // Known RClass with mnemonic
+/// assert_eq!("IN", format!("{}", RClass::IN));
+/// // Unknown RClass
+/// assert_eq!("CLASS42", format!("{}", RClass::from(42)));
+/// ```
+///
+/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+impl fmt::Display for RClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::IN => "IN",
+            Self::CH => "CH",
+            _ => return write!(f, "CLASS{}", self.code),
+        })
     }
 }
 
@@ -854,7 +945,7 @@ impl Clone for alloc::boxed::Box<UnparsedRecordData> {
 
 #[cfg(test)]
 mod test {
-    use super::{RClass, RType, Record, UnparsedRecordData, TTL};
+    use super::{RClass, RType, Record, TTL, UnparsedRecordData};
 
     use crate::new::base::{
         name::Name,
@@ -957,5 +1048,37 @@ mod test {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn test_rclass_from() {
+        let rclass: RClass = 1.into();
+        assert_eq!(rclass, RClass::IN);
+
+        let number: u16 = rclass.into();
+        assert_eq!(number, 1);
+    }
+
+    #[test]
+    fn test_rtype_from() {
+        let rtype: RType = 6.into();
+        assert_eq!(rtype, RType::SOA);
+
+        let number: u16 = rtype.into();
+        assert_eq!(number, 6);
+    }
+
+    #[test]
+    fn test_rclass_display() {
+        assert_eq!("IN", format!("{}", RClass::IN));
+        assert_eq!("CH", format!("{}", RClass::CH));
+        assert_eq!("CLASS42", format!("{}", RClass::from(42)));
+    }
+
+    #[test]
+    fn test_rtype_display() {
+        assert_eq!("A", format!("{}", RType::A));
+        assert_eq!("MX", format!("{}", RType::MX));
+        assert_eq!("TYPE265", format!("{}", RType::from(265)));
     }
 }

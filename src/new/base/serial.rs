@@ -13,7 +13,16 @@ use super::wire::U32;
 
 //----------- Serial ---------------------------------------------------------
 
-/// A serial number.
+/// Serial number arithmetic.
+///
+/// [`Serial`] implements the "Serial number arithmetic" defined in [RFC1982]
+/// with a `SERIAL_BITS` value of 32.
+///
+/// [`Serial`] should not be used interchangably or be confused with the SOA
+/// Serial Number, which is a [`Serial`] but not the sole user of "Serial
+/// number arithmetic".
+///
+/// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982
 #[derive(
     Copy,
     Clone,
@@ -30,11 +39,23 @@ use super::wire::U32;
     UnsizedCopy,
 )]
 #[repr(transparent)]
-pub struct Serial(U32);
+pub struct Serial(pub U32);
 
 //--- Construction
 
 impl Serial {
+    /// Construct a new [`Serial`]
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Serial(U32::new(value))
+    }
+
+    /// Get [`u32`] value of [`Serial`]
+    #[must_use]
+    pub const fn get(&self) -> u32 {
+        self.0.get()
+    }
+
     /// Measure the current time (in seconds) in serial number space.
     #[cfg(feature = "std")]
     pub fn unix_time() -> Self {
@@ -56,9 +77,15 @@ impl Serial {
     /// instead of a [`u32`] because it is easier to understand and implement
     /// a non-negative check versus the upper range check.
     ///
+    /// Section 7 in [RFC1982] states, in particular for the SOA Serial
+    /// Number, but for any Serial number using a "SERIAL_BITS" value of 32:
+    /// "The maximum defined increment is 2147483647 (2^31 - 1)."
+    ///
     /// # Panics
     ///
     /// Panics if the number is negative.
+    ///
+    /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-7
     pub fn inc(self, num: i32) -> Self {
         assert!(num >= 0, "Cannot subtract from a `Serial`");
         self.0.get().wrapping_add_signed(num).into()
@@ -68,6 +95,10 @@ impl Serial {
 //--- Ordering
 
 impl PartialOrd for Serial {
+    /// The comparison of Serial Number values is defined in Section 3.2
+    /// [RFC1982].
+    ///
+    /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let (lhs, rhs) = (self.0.get(), other.0.get());
 
