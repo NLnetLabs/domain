@@ -695,13 +695,14 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn test_upgrade_revnamebuf() {
         let old_name =
             crate::base::Name::from_slice(b"\x07example\x03com\x00")
                 .expect("Invalid name");
 
         let new_name: RevNameBuf = old_name.into();
-        let mut buf = vec![0; new_name.built_bytes_size()];
+        let mut buf = alloc::vec![0; new_name.built_bytes_size()];
         new_name.build_bytes(&mut buf).unwrap();
         assert_eq!(old_name.as_slice(), buf);
     }

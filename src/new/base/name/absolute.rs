@@ -889,10 +889,6 @@ impl fmt::Display for NameParseError {
 
 /// Upgrade a [`crate::base::Name`] into a
 /// [`crate::new::base::name::NameBuf`].
-///
-/// # Panics
-///
-/// The [`crate::base::Name`] slice has to contain a valid domain.
 impl<Octs> From<&crate::base::Name<Octs>> for NameBuf
 where
     Octs: AsRef<[u8]> + ?Sized,
