@@ -4,6 +4,9 @@ use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use crate::utils::dst::UnsizedCopy;
 
+#[cfg(feature = "zonefile")]
+use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
 use super::build::{BuildInMessage, NameCompressor};
 use super::parse::{ParseMessageBytes, SplitMessageBytes};
 use super::wire::{
@@ -311,6 +314,9 @@ impl RType {
     /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
     pub const AAAA: Self = Self::new(28);
 
+    /// The type of an `Srv` record.
+    pub const SRV: Self = Self::new(33);
+
     /// The type of a [`DName`](crate::new::rdata::DName) record.
     pub const DNAME: Self = Self::new(39);
 
@@ -376,7 +382,7 @@ impl RType {
     /// - `NXT` (obsolete)
     /// - `NAPTR`
     /// - `KX`
-    /// - `SRV`
+    /// - [`SRV`](RType::SRV)
     /// - [`DNAME`](RType::DNAME)
     /// - `A6` (obsolete)
     /// - [`RRSIG`](RType::RRSIG)
@@ -393,6 +399,7 @@ impl RType {
                 | Self::PTR
                 | Self::MX
                 | Self::RP
+                | Self::SRV
                 | Self::DNAME
                 | Self::RRSIG
         )
@@ -430,6 +437,7 @@ impl fmt::Debug for RType {
             Self::TXT => "RType::TXT",
             Self::RP => "RType::RP",
             Self::AAAA => "RType::AAAA",
+            Self::SRV => "RType::SRV",
             Self::DNAME => "RType::DNAME",
             Self::OPT => "RType::OPT",
             Self::DS => "RType::DS",
@@ -447,6 +455,57 @@ impl fmt::Debug for RType {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RType {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let types = [
+            ("A", Self::A),
+            ("NS", Self::NS),
+            ("CNAME", Self::CNAME),
+            ("SOA", Self::SOA),
+            ("PTR", Self::PTR),
+            ("HINFO", Self::HINFO),
+            ("MX", Self::MX),
+            ("TXT", Self::TXT),
+            ("AAAA", Self::AAAA),
+            ("SRV", Self::SRV),
+            ("DNAME", Self::DNAME),
+            ("OPT", Self::OPT),
+            ("DS", Self::DS),
+            ("RRSIG", Self::RRSIG),
+            ("NSEC", Self::NSEC),
+            ("DNSKEY", Self::DNSKEY),
+            ("NSEC3", Self::NSEC3),
+            ("NSEC3PARAM", Self::NSEC3PARAM),
+        ];
+
+        let token = scanner.scan_plain_token()?;
+
+        for candidate in types {
+            if token.eq_ignore_ascii_case(candidate.0) {
+                return Ok(candidate.1);
+            }
+        }
+
+        if token
+            .get(..4)
+            .is_some_and(|t| t.eq_ignore_ascii_case("TYPE"))
+        {
+            return token[4..]
+                .parse::<u16>()
+                .map_err(|_| ScanError::Custom("invalid record type value"))
+                .map(Self::from);
+        }
+
+        Err(ScanError::Custom("unrecognized record type"))
+    }
+}
 /// Format an [`RType`] in a human-readable way
 ///
 /// Return the mnemonic of [`RType`]. If [`RType`] is unknown, then the
@@ -565,6 +624,39 @@ impl fmt::Debug for RClass {
     }
 }
 
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for RClass {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        let classes = [("IN", Self::IN), ("CH", Self::CH)];
+
+        let token = scanner.scan_plain_token()?;
+
+        for candidate in classes {
+            if token.eq_ignore_ascii_case(candidate.0) {
+                return Ok(candidate.1);
+            }
+        }
+
+        if token
+            .get(..5)
+            .is_some_and(|t| t.eq_ignore_ascii_case("CLASS"))
+        {
+            return token[5..]
+                .parse::<u16>()
+                .map_err(|_| ScanError::Custom("invalid record class value"))
+                .map(Self::new);
+        }
+
+        Err(ScanError::Custom("unrecognized record class"))
+    }
+}
+
 /// Format an [`RClass`] in a human-readable way
 ///
 /// Return the mnemonic of [`RClass`]. If [`RClass`] is unknown, then the
@@ -639,6 +731,37 @@ impl From<TTL> for u32 {
 impl fmt::Debug for TTL {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TTL({})", self.value)
+    }
+}
+
+//--- Parsing from the zonefile format
+
+#[cfg(feature = "zonefile")]
+impl Scan<'_> for TTL {
+    fn scan(
+        scanner: &mut Scanner<'_>,
+        _alloc: &'_ bumpalo::Bump,
+        _buffer: &mut std::vec::Vec<u8>,
+    ) -> Result<Self, ScanError> {
+        use core::num::IntErrorKind;
+
+        scanner
+            .scan_plain_token()?
+            .parse::<u32>()
+            .map_err(|err| {
+                ScanError::Custom(match err.kind() {
+                    IntErrorKind::PosOverflow => {
+                        "specified TTL will overflow"
+                    }
+                    IntErrorKind::InvalidDigit => {
+                        "TTLs can only contain digits"
+                    }
+                    IntErrorKind::NegOverflow => "TTLs must be non-negative",
+                    // We have already checked for other kinds of errors.
+                    _ => unreachable!(),
+                })
+            })
+            .map(Self::from)
     }
 }
 
@@ -849,6 +972,82 @@ mod test {
         let mut buffer = [0u8; 15];
         assert_eq!(record.build_bytes(&mut buffer), Ok(&mut [] as &mut [u8]));
         assert_eq!(buffer, &bytes[..15]);
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_rtype() {
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"A" as &[u8], Ok(RType::A)),
+            (b"TYPE1", Ok(RType::A)),
+            (b"TXT", Ok(RType::TXT)),
+            (
+                b"TYPE65536",
+                Err(ScanError::Custom("invalid record type value")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                RType::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_rclass() {
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"IN" as &[u8], Ok(RClass::IN)),
+            (b"CLASS1", Ok(RClass::IN)),
+            (
+                b"CLASS65536",
+                Err(ScanError::Custom("invalid record class value")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                RClass::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
+    }
+
+    #[cfg(feature = "zonefile")]
+    #[test]
+    fn scan_ttl() {
+        use crate::new::zonefile::scanner::{Scan, ScanError, Scanner};
+
+        let cases = [
+            (b"0" as &[u8], Ok(TTL::from(0))),
+            (b"65536", Ok(TTL::from(65536))),
+            (
+                b"42W",
+                Err(ScanError::Custom("TTLs can only contain digits")),
+            ),
+        ];
+
+        let alloc = bumpalo::Bump::new();
+        let mut buffer = std::vec::Vec::new();
+        for (input, expected) in cases {
+            let mut scanner = Scanner::new(input, None);
+            assert_eq!(
+                TTL::scan(&mut scanner, &alloc, &mut buffer),
+                expected
+            );
+        }
     }
 
     #[test]
