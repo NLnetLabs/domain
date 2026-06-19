@@ -53,28 +53,27 @@
 //!
 //! Currently, there are three different compressors. [`TreeCompressor`] stores
 //! all names it encountered in a binary tree. While it can handle any number
-//! of names, it does require an allocator and therefore cannot be used in a
-//! `no_std` environment. [`HashCompressor`] also requires allocation, but uses
-//! a fast and space efficient hash table (via the `hashbrown` crate) instead.
-//! [`StaticCompressor`], meanwhile, has a static table for up to 24 names. It
-//! is ineffective on large messages with lots of different names, but this is
-//! quite rare anyway.
+//! of names, it does require an allocator. [`HashCompressor`] also requires
+//! allocation, but uses a fast and space efficient hash table (via the
+//! `hashbrown` crate) instead. [`StaticCompressor`], meanwhile, has a static
+//! table for up to 24 names. It is ineffective on large messages with lots of
+//! different names, but this is quite rare anyway.
 //!
 //! # Example
 //!
 //! The following example builds a message with both name compression and
 //! the stream length and simply puts two A records into it.
 //!
-#![cfg_attr(feature = "std", doc = "```")]
-#![cfg_attr(not(feature = "std"), doc = "```ignore")]
-//! use std::str::FromStr;
+#![cfg_attr(feature = "alloc", doc = "```")]
+#![cfg_attr(not(feature = "alloc"), doc = "```ignore")]
+//! # use std::vec::Vec;
 //! use domain::base::{
 //!     Name, MessageBuilder, Rtype, StaticCompressor, StreamTarget
 //! };
 //! use domain::rdata::A;
 //!
 //! // Make a domain name we can use later on.
-//! let name = Name::<Vec<u8>>::from_str("example.com").unwrap();
+//! let name: Name<Vec<u8>> = "example.com".parse().unwrap();
 //!
 //! // Create a message builder wrapping a compressor wrapping a stream
 //! // target.
@@ -137,24 +136,22 @@ use super::opt::{ComposeOptData, OptHeader, OptRecord};
 use super::question::ComposeQuestion;
 use super::record::ComposeRecord;
 use super::wire::{Compose, Composer};
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use core::hash::BuildHasher;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
-#[cfg(feature = "std")]
-use hashbrown::HashTable;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
+use hashbrown::{DefaultHashBuilder, HashMap, HashTable};
+#[cfg(feature = "alloc")]
 use octseq::array::Array;
-#[cfg(any(feature = "std", feature = "bytes"))]
+#[cfg(any(feature = "alloc", feature = "bytes"))]
 use octseq::builder::infallible;
 use octseq::builder::{FreezeBuilder, OctetsBuilder, ShortBuf, Truncate};
 use octseq::octets::Octets;
-#[cfg(feature = "std")]
-use std::collections::{HashMap, hash_map::RandomState};
 
 //------------ MessageBuilder ------------------------------------------------
 
@@ -201,7 +198,7 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl MessageBuilder<Vec<u8>> {
     /// Creates a new message builder atop a `Vec<u8>`.
     #[must_use]
@@ -210,7 +207,7 @@ impl MessageBuilder<Vec<u8>> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl MessageBuilder<StreamTarget<Vec<u8>>> {
     /// Creates a new builder for a streamable message atop a `Vec<u8>`.
     #[must_use]
@@ -599,8 +596,8 @@ impl<Target: Composer> QuestionBuilder<Target> {
     ///
     /// In other words, the options are:
     ///
-    #[cfg_attr(feature = "std", doc = "```")]
-    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
+    #[cfg_attr(feature = "alloc", doc = "```")]
+    #[cfg_attr(not(feature = "alloc"), doc = "```ignore")]
     /// use domain::base::{Name, MessageBuilder, Question, Rtype};
     /// use domain::base::iana::Class;
     ///
@@ -851,8 +848,8 @@ impl<Target: Composer> AnswerBuilder<Target> {
     ///
     /// In other words, you can do the following things:
     ///
-    #[cfg_attr(feature = "std", doc = "```")]
-    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
+    #[cfg_attr(feature = "alloc", doc = "```")]
+    #[cfg_attr(not(feature = "alloc"), doc = "```ignore")]
     /// use domain::base::{Name, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
@@ -1116,8 +1113,8 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     ///
     /// In other words, you can do the following things:
     ///
-    #[cfg_attr(feature = "std", doc = "```")]
-    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
+    #[cfg_attr(feature = "alloc", doc = "```")]
+    #[cfg_attr(not(feature = "alloc"), doc = "```ignore")]
     /// use domain::base::{Name, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
@@ -1374,8 +1371,8 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     ///
     /// In other words, you can do the following things:
     ///
-    #[cfg_attr(feature = "std", doc = "```")]
-    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
+    #[cfg_attr(feature = "alloc", doc = "```")]
+    #[cfg_attr(not(feature = "alloc"), doc = "```ignore")]
     /// use domain::base::{Name, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
@@ -1846,7 +1843,7 @@ impl<Target: Composer> StreamTarget<Target> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl StreamTarget<Vec<u8>> {
     /// Creates a stream target atop an empty `Vec<u8>`.
     #[must_use]
@@ -2170,7 +2167,7 @@ impl<Target: FreezeBuilder> FreezeBuilder for StaticCompressor<Target> {
 /// you need to place it inside this type, _not_ the other way around.
 ///
 /// [`StreamTarget`]: struct.StreamTarget.html
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 pub struct TreeCompressor<Target> {
     /// The underlying octetsbuilder.
@@ -2189,7 +2186,7 @@ pub struct TreeCompressor<Target> {
 /// by adding this label to the name constructed so far.
 ///
 /// Each node also contains the position of that name in the message.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug, Default)]
 struct Node {
     /// The labels immediately to the left of this name and their nodes.
@@ -2199,7 +2196,7 @@ struct Node {
     value: Option<u16>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Node {
     fn drop_above(&mut self, len: u16) {
         self.value = match self.value {
@@ -2212,7 +2209,7 @@ impl Node {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target> TreeCompressor<Target> {
     /// Creates a new compressor from an underlying octets builder.
     pub fn new(target: Target) -> Self {
@@ -2288,21 +2285,21 @@ impl<Target> TreeCompressor<Target> {
 
 //--- AsRef, AsMut, and OctetsBuilder
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for TreeCompressor<Target> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: AsMut<[u8]>> AsMut<[u8]> for TreeCompressor<Target> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
     type AppendError = Target::AppendError;
 
@@ -2314,7 +2311,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: Composer> Composer for TreeCompressor<Target> {
     fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
@@ -2360,7 +2357,7 @@ impl<Target: Composer> Composer for TreeCompressor<Target> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: Composer> Truncate for TreeCompressor<Target> {
     fn truncate(&mut self, len: usize) {
         self.target.truncate(len);
@@ -2370,7 +2367,7 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: FreezeBuilder> FreezeBuilder for TreeCompressor<Target> {
     type Octets = Target::Octets;
 
@@ -2393,7 +2390,7 @@ impl<Target: FreezeBuilder> FreezeBuilder for TreeCompressor<Target> {
 /// you need to place it inside this type, _not_ the other way around.
 ///
 /// [`StreamTarget`]: struct.StreamTarget.html
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 pub struct HashCompressor<Target> {
     /// The underlying octetsbuilder.
@@ -2443,10 +2440,10 @@ pub struct HashCompressor<Target> {
     names: HashTable<HashEntry>,
 
     /// How names in the table are hashed.
-    hasher: RandomState,
+    hasher: DefaultHashBuilder,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Copy, Clone, Debug)]
 struct HashEntry {
     /// The position of the head label in the name.
@@ -2456,7 +2453,7 @@ struct HashEntry {
     tail: u16,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl HashEntry {
     /// Try constructing a [`HashEntry`].
     fn new(head: usize, tail: usize) -> Option<Self> {
@@ -2478,7 +2475,7 @@ impl HashEntry {
     }
 
     /// Compute the hash of this entry.
-    fn hash(&self, message: &[u8], hasher: &RandomState) -> u64 {
+    fn hash(&self, message: &[u8], hasher: &DefaultHashBuilder) -> u64 {
         hasher.hash_one((self.head(message), self.tail))
     }
 
@@ -2488,7 +2485,7 @@ impl HashEntry {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target> HashCompressor<Target> {
     /// Creates a new compressor from an underlying octets builder.
     pub fn new(target: Target) -> Self {
@@ -2528,21 +2525,21 @@ impl<Target> HashCompressor<Target> {
 
 //--- AsRef, AsMut, and OctetsBuilder
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for HashCompressor<Target> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: AsMut<[u8]>> AsMut<[u8]> for HashCompressor<Target> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: OctetsBuilder> OctetsBuilder for HashCompressor<Target> {
     type AppendError = Target::AppendError;
 
@@ -2554,7 +2551,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for HashCompressor<Target> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: Composer> Composer for HashCompressor<Target> {
     fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
@@ -2635,7 +2632,7 @@ impl<Target: Composer> Composer for HashCompressor<Target> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: Composer> Truncate for HashCompressor<Target> {
     fn truncate(&mut self, len: usize) {
         self.target.truncate(len);
@@ -2645,7 +2642,7 @@ impl<Target: Composer> Truncate for HashCompressor<Target> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<Target: FreezeBuilder> FreezeBuilder for HashCompressor<Target> {
     type Octets = Target::Octets;
 
@@ -2695,14 +2692,14 @@ impl core::error::Error for PushError {}
 //============ Testing =======================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod test {
     use super::*;
+    use crate::base::iana::Rtype;
     use crate::base::opt;
     use crate::base::{Name, Serial, Ttl};
     use crate::rdata::{A, Ns, Soa};
     use core::str::FromStr;
-    use std::println;
 
     #[test]
     fn message_builder() {
@@ -2828,7 +2825,8 @@ mod test {
         .unwrap();
 
         let msg = msg.finish();
-        println!("{:?}", msg);
+        #[cfg(feature = "std")]
+        std::println!("{:?}", msg);
         let msg = Message::from_octets(msg).unwrap();
         let opt = msg.opt().unwrap();
 
