@@ -1,7 +1,7 @@
 #[cfg(feature = "alloc")]
 use alloc::collections::BTreeSet;
-#[cfg(feature = "std")]
-use std::collections::HashSet;
+#[cfg(feature = "alloc")]
+use hashbrown::HashSet;
 
 use super::{
     ComposeSvcParamValue, LongSvcParam, ParseSvcParamValue, PushError,
@@ -140,7 +140,7 @@ macro_rules! values_enum {
             }
         }
 
-        #[cfg(feature = "std")]
+        #[cfg(feature = "alloc")]
         impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs>
         for AllValues<Octs>
         where
@@ -2012,7 +2012,7 @@ impl<Octs: AsRef<[u8]>> TlsSupportedGroups<Octs> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<SrcOcts, Octs> ScanSvcParamValue<SrcOcts, Octs>
     for TlsSupportedGroups<Octs>
 where
