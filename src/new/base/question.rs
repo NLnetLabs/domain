@@ -197,10 +197,10 @@ impl QType {
     /// The type of queries for [`Ds`](crate::new::rdata::Ds) records.
     pub const DS: Self = Self::new(43);
 
-    /// The type of queries for [`RRSig`](crate::new::rdata::RRSig) records.
+    /// The type of queries for [`Rrsig`](crate::new::rdata::Rrsig) records.
     pub const RRSIG: Self = Self::new(46);
 
-    /// The type of queries for [`NSec`](crate::new::rdata::NSec) records.
+    /// The type of queries for [`Nsec`](crate::new::rdata::Nsec) records.
     pub const NSEC: Self = Self::new(47);
 
     /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.

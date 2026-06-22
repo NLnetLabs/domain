@@ -320,10 +320,10 @@ impl RType {
     /// The type of a [`Ds`](crate::new::rdata::Ds) record.
     pub const DS: Self = Self::new(43);
 
-    /// The type of an [`RRSig`](crate::new::rdata::RRSig) record.
+    /// The type of an [`Rrsig`](crate::new::rdata::Rrsig) record.
     pub const RRSIG: Self = Self::new(46);
 
-    /// The type of an [`NSec`](crate::new::rdata::NSec) record.
+    /// The type of an [`Nsec`](crate::new::rdata::Nsec) record.
     pub const NSEC: Self = Self::new(47);
 
     /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.

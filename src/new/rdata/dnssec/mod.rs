@@ -13,7 +13,7 @@ mod rrsig;
 pub use rrsig::Rrsig;
 
 mod nsec;
-pub use nsec::{NSec, TypeBitmaps};
+pub use nsec::{Nsec, TypeBitmaps};
 
 mod nsec3;
 pub use nsec3::{NSec3, NSec3Flags, NSec3HashAlg, NSec3Param};
