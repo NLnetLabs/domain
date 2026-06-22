@@ -13,11 +13,11 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::ExtendedError;
 use crate::base::{Name, ToName};
 use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets, OctetsBuilder};
-use std::boxed::Box;
-use std::convert::Infallible;
-use std::future::{Future, ready};
-use std::pin::Pin;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::convert::Infallible;
+use core::future::{Future, ready};
+use core::pin::Pin;
 use tracing::trace;
 
 /// A service that routes requests to other services based on the Qname in the

@@ -662,7 +662,7 @@ impl<'a> serde::Deserialize<'a> for RevNameBuf {
 }
 
 #[cfg(feature = "serde")]
-impl<'a> serde::Deserialize<'a> for std::boxed::Box<RevName> {
+impl<'a> serde::Deserialize<'a> for alloc::boxed::Box<RevName> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'a>,

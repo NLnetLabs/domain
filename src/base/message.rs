@@ -1350,17 +1350,17 @@ impl core::error::Error for CopyRecordsError {}
 #[cfg(test)]
 mod test {
     use super::*;
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     use crate::base::message_builder::MessageBuilder;
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     use crate::base::name::Name;
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     use crate::rdata::{AllRecordData, Ns};
-    #[cfg(feature = "std")]
-    use std::vec::Vec;
+    #[cfg(feature = "alloc")]
+    use alloc::vec::Vec;
 
     // Helper for test cases
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn get_test_message() -> Message<Vec<u8>> {
         let msg = MessageBuilder::new_vec();
         let mut msg = msg.answer();
@@ -1387,7 +1387,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn canonical_name() {
         use crate::rdata::A;
 
@@ -1445,7 +1445,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn message_iterator() {
         let msg = get_test_message();
         let mut iter = msg.iter();
@@ -1460,7 +1460,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn copy_records() {
         let msg = get_test_message();
         let target = MessageBuilder::new_vec().question();

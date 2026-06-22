@@ -16,9 +16,9 @@ use crate::base::{
 use crate::dep::octseq::{OctetsFrom, OctetsInto};
 use crate::rdata::dnssec::Timestamp;
 use crate::rdata::{AllRecordData, Dname, Rrsig};
+use alloc::vec::Vec;
 use bytes::Bytes;
-use std::cmp::min;
-use std::vec::Vec;
+use core::cmp::min;
 
 //----------- Helper functions -----------------------------------------------
 

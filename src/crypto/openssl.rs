@@ -13,7 +13,7 @@
 
 use core::fmt;
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 use openssl::bn::{BigNum, BigNumContext};
 use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
@@ -384,8 +384,8 @@ impl PublicKey {
 #[cfg(feature = "unstable-crypto-sign")]
 /// Submodule for private keys and signing.
 pub mod sign {
-    use std::boxed::Box;
-    use std::vec::Vec;
+    use alloc::boxed::Box;
+    use alloc::vec::Vec;
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::sign::{
@@ -850,8 +850,9 @@ pub mod sign {
     #[cfg(test)]
     mod tests {
 
-        use std::string::ToString;
-        use std::vec::Vec;
+        use alloc::format;
+        use alloc::string::ToString;
+        use alloc::vec::Vec;
 
         use crate::base::iana::SecurityAlgorithm;
         use crate::crypto::sign::{GenerateParams, SecretKeyBytes, SignRaw};

@@ -1,7 +1,7 @@
 //! Data types for storing in-memory zone data by zone version.
 use crate::base::serial::Serial;
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
-use std::vec::Vec;
 
 //------------ Version -------------------------------------------------------
 

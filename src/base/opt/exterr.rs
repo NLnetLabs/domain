@@ -421,7 +421,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for LossyOctets<Octs> {
 
 //============ Tests =========================================================
 
-#[cfg(all(test, feature = "std", feature = "bytes"))]
+#[cfg(all(test, feature = "alloc", feature = "bytes"))]
 mod tests {
     use super::super::test::test_option_compose_parse;
     use super::*;
@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn display_lossy_octets() {
-        use std::string::ToString;
+        use alloc::string::ToString;
 
         assert_eq!(LossyOctets(b"foo").to_string(), "foo");
         assert_eq!(LossyOctets(b"foo\xe7").to_string(), "foo\u{fffd}");

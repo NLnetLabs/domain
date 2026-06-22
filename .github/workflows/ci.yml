@@ -177,6 +177,9 @@ jobs:
     - name: Check empty feature set
       run: cargo check --all-targets --no-default-features
 
+    - name: Check `alloc` without `std`
+      run: cargo check --all-targets --no-default-features --features alloc,unstable-new
+
     # Check the required feature flags for every example.
     - name: Check required features of examples
       run: |

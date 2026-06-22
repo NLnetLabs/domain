@@ -16,8 +16,12 @@ use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::{base16, base64};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 use core::cmp::Ordering;
 use core::convert::TryInto;
+#[cfg(feature = "std")]
+use core::time::Duration;
 use core::{cmp, fmt, hash, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
@@ -27,9 +31,7 @@ use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-#[cfg(feature = "std")]
-use std::vec::Vec;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -2386,10 +2388,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     RtypeBitmap::from_octets(octets).map_err(E::custom)
@@ -2470,7 +2472,7 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl RtypeBitmapBuilder<Vec<u8>> {
     #[must_use]
     pub fn new_vec() -> Self {
@@ -2730,7 +2732,7 @@ impl core::error::Error for IllegalSignatureTime {}
 //============ Test ==========================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 mod test {
     use super::*;
     use crate::base::iana::Rtype;
@@ -2738,8 +2740,9 @@ mod test {
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
 
     //--- Dnskey
 
@@ -2883,8 +2886,6 @@ mod test {
 
     #[test]
     fn rtype_bitmap_iter() {
-        use std::vec::Vec;
-
         let mut builder = RtypeBitmapBuilder::new_vec();
         let types = vec![
             Rtype::NS,

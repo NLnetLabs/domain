@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 /// Common service invoking logic for network servers.
 ///
 /// Used by [`stream::Connection`][net::server::stream::Connection] and
@@ -7,7 +8,6 @@ use core::default::Default;
 use core::future::Future;
 use core::pin::Pin;
 use core::time::Duration;
-use std::boxed::Box;
 
 use futures_util::StreamExt;
 use octseq::Octets;

@@ -193,7 +193,7 @@ mod test {
         test_compose_parse, test_rdlen, test_scan,
     };
     use crate::utils::base64::decode;
-    use std::vec::Vec;
+    use alloc::vec::Vec;
 
     #[test]
     // allow redundant_closure because because of lifetime shenanigans

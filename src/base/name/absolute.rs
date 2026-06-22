@@ -10,6 +10,8 @@ use super::builder::{FromStrError, NameBuilder, PushError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{NameIter, RelativeName};
 use super::traits::{FlattenInto, ToLabelIter, ToName};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
@@ -22,8 +24,6 @@ use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
-#[cfg(feature = "std")]
-use std::vec::Vec;
 
 //------------ Name ----------------------------------------------------------
 
@@ -44,10 +44,10 @@ use std::vec::Vec;
 /// using [`to_string`] or by using its [`Display`] implementation (which
 /// performs no allocations).
 ///
-/// [`FromStr`]: std::str::FromStr
-/// [`to_string`]: std::string::ToString::to_string
+/// [`FromStr`]: core::str::FromStr
+/// [`to_string`]: alloc::string::ToString::to_string
 /// [`ParsedName`]: crate::base::name::ParsedName
-/// [`Display`]: std::fmt::Display
+/// [`Display`]: core::fmt::Display
 #[derive(Clone)]
 #[repr(transparent)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -285,7 +285,7 @@ impl Name<&'static [u8]> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Name<Vec<u8>> {
     /// Creates a domain name for the root label only atop a `Vec<u8>`.
     #[must_use]
@@ -1049,10 +1049,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     Name::from_octets(octets).map_err(E::custom)
@@ -1245,7 +1245,7 @@ pub(crate) mod test {
         assert_to_name(&Name::from_octets(b"\0").unwrap());
         assert_to_name(&Name::from_octets(b"\0".as_ref()).unwrap());
 
-        #[cfg(feature = "std")]
+        #[cfg(feature = "alloc")]
         {
             assert_to_name(
                 &Name::from_octets(Vec::from(b"\0".as_ref())).unwrap(),
@@ -1266,7 +1266,7 @@ pub(crate) mod test {
     #[test]
     fn root() {
         assert_eq!(Name::root_ref().as_slice(), b"\0");
-        #[cfg(feature = "std")]
+        #[cfg(feature = "alloc")]
         {
             assert_eq!(Name::root_vec().as_slice(), b"\0");
         }
@@ -1280,7 +1280,7 @@ pub(crate) mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn from_slice() {
         // a simple good name
         assert_eq!(
@@ -1311,7 +1311,7 @@ pub(crate) mod test {
         assert!(Name::from_slice(&slice[..]).is_err());
 
         // name 255 long ok, 256 bad.
-        let mut buf = std::vec::Vec::new();
+        let mut buf = alloc::vec::Vec::new();
         for _ in 0..25 {
             buf.extend_from_slice(b"\x09123456789");
         }
@@ -1384,7 +1384,7 @@ pub(crate) mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn make_canonical() {
         let mut name = RelativeName::vec_from_str("wWw.exAmpLE.coM").unwrap();
         name.make_canonical();
@@ -1799,7 +1799,7 @@ pub(crate) mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn parse() {
         // Parse a correctly formatted name.
         let mut p = Parser::from_static(b"\x03www\x07example\x03com\0af");
@@ -1858,7 +1858,7 @@ pub(crate) mod test {
     // copies the underlying bytes.
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn compose_canonical() {
         use octseq::builder::infallible;
 
@@ -1872,14 +1872,14 @@ pub(crate) mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn from_str() {
         // Another simple test. `NameBuilder` does all the heavy lifting,
         // so we don’t need to test all the escape sequence shenanigans here.
         // Just check that we’ll always get a name, final dot or not, unless
         // the string is empty.
+        use alloc::vec::Vec;
         use core::str::FromStr;
-        use std::vec::Vec;
 
         assert_eq!(Name::<Vec<u8>>::from_str(".").unwrap().as_slice(), b"\0");
         assert_eq!(
@@ -1981,8 +1981,8 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn hash() {
+        use core::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
 
         let mut s1 = DefaultHasher::new();
         let mut s2 = DefaultHasher::new();
@@ -1998,9 +1998,10 @@ pub(crate) mod test {
     // Scan skipped for now.
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn display() {
-        use std::string::ToString;
+        use alloc::format;
+        use alloc::string::ToString;
 
         fn cmp(bytes: &[u8], fmt: &str, fmt_with_dot: &str) {
             let name = Name::from_octets(bytes).unwrap();
@@ -2013,7 +2014,7 @@ pub(crate) mod test {
         cmp(b"\x07example\x03com\0", "example.com", "example.com.");
     }
 
-    #[cfg(all(feature = "serde", feature = "std"))]
+    #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn ser_de() {
         use serde_test::{Configure, Token, assert_tokens};

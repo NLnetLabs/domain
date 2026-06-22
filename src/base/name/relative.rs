@@ -8,6 +8,8 @@ use super::builder::{FromStrError, NameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::traits::{ToLabelIter, ToRelativeName};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
@@ -20,8 +22,6 @@ use octseq::builder::{
 use octseq::octets::{Octets, OctetsFrom};
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
-#[cfg(feature = "std")]
-use std::vec::Vec;
 
 //------------ RelativeName --------------------------------------------------
 
@@ -217,7 +217,7 @@ impl RelativeName<&'static [u8]> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl RelativeName<Vec<u8>> {
     /// Creates an empty relative name atop a `Vec<u8>`.
     #[must_use]
@@ -873,10 +873,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     RelativeName::from_octets(octets).map_err(E::custom)
@@ -1111,7 +1111,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn impls() {
         fn assert_to_relative_name<T: ToRelativeName + ?Sized>(_: &T) {}
 
@@ -1146,7 +1146,7 @@ mod test {
         assert_eq!(RelativeName::empty_slice().as_slice(), b"");
         assert_eq!(RelativeName::empty_ref().as_slice(), b"");
 
-        #[cfg(feature = "std")]
+        #[cfg(feature = "alloc")]
         {
             assert_eq!(RelativeName::empty_vec().as_slice(), b"");
         }
@@ -1157,7 +1157,7 @@ mod test {
         assert_eq!(RelativeName::wildcard_slice().as_slice(), b"\x01*");
         assert_eq!(RelativeName::wildcard_ref().as_slice(), b"\x01*");
 
-        #[cfg(feature = "std")]
+        #[cfg(feature = "alloc")]
         {
             assert_eq!(RelativeName::wildcard_vec().as_slice(), b"\x01*");
         }
@@ -1171,7 +1171,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn from_slice() {
         // good names
         assert_eq!(RelativeName::from_slice(b"").unwrap().as_slice(), b"");
@@ -1238,7 +1238,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn from_str() {
         // empty name
         assert_eq!(RelativeName::vec_from_str("").unwrap().as_slice(), b"");
@@ -1256,7 +1256,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn into_absolute() {
         assert_eq!(
             RelativeName::from_octets(Vec::from(
@@ -1284,7 +1284,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn make_canonical() {
         let mut name = Name::vec_from_str("wWw.exAmpLE.coM.").unwrap();
         name.make_canonical();
@@ -1762,8 +1762,8 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn hash() {
+        use core::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
 
         let mut s1 = DefaultHasher::new();
         let mut s2 = DefaultHasher::new();
@@ -1777,9 +1777,9 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn display() {
-        use std::string::ToString;
+        use alloc::string::ToString;
 
         fn cmp(bytes: &[u8], fmt: &str) {
             let name = RelativeName::from_octets(bytes).unwrap();
@@ -1816,7 +1816,7 @@ mod test {
         assert_eq!(INVALID_NAME, RelativeNameErrorEnum::AbsoluteName.into());
     }
 
-    #[cfg(all(feature = "serde", feature = "std"))]
+    #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn ser_de() {
         use serde_test::{Configure, Token, assert_tokens};

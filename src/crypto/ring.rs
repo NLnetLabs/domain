@@ -12,8 +12,8 @@
 
 use core::fmt;
 
-use std::ptr;
-use std::vec::Vec;
+use alloc::vec::Vec;
+use core::ptr;
 
 use ring::digest;
 use ring::digest::SHA1_FOR_LEGACY_USE_ONLY;
@@ -292,9 +292,10 @@ impl PublicKey {
 #[cfg(feature = "unstable-crypto-sign")]
 /// Submodule for private keys and signing.
 pub mod sign {
-    use std::boxed::Box;
-    use std::sync::Arc;
-    use std::vec::Vec;
+    use alloc::boxed::Box;
+    use alloc::sync::Arc;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
     use secrecy::ExposeSecret;
 
@@ -725,7 +726,8 @@ pub mod sign {
     #[cfg(test)]
     mod test {
 
-        use std::vec::Vec;
+        use alloc::format;
+        use alloc::vec::Vec;
 
         use crate::base::iana::SecurityAlgorithm;
         use crate::crypto::ring::sign::KeyPair;

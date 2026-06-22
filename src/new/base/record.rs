@@ -822,6 +822,9 @@ impl Clone for alloc::boxed::Box<UnparsedRecordData> {
 
 #[cfg(test)]
 mod test {
+    #[cfg(feature = "alloc")]
+    use alloc::format;
+
     use super::{RClass, RType, Record, TTL, UnparsedRecordData};
 
     use crate::new::base::{
@@ -869,6 +872,7 @@ mod test {
         assert_eq!(number, 6);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_rclass_display() {
         assert_eq!("IN", format!("{}", RClass::IN));
@@ -876,6 +880,7 @@ mod test {
         assert_eq!("CLASS42", format!("{}", RClass::from(42)));
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_rtype_display() {
         assert_eq!("A", format!("{}", RType::A));

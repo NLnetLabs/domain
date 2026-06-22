@@ -1,8 +1,8 @@
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use core::fmt::Debug;
+use core::future::Future;
+use core::pin::Pin;
 
 use crate::base::iana::Class;
 use crate::zonefile::inplace;
@@ -46,7 +46,7 @@ use super::{ReadableZone, ZoneStore, parsed};
 /// [`ZoneStore::as_any()`] and attempt to [`Any::downcast_ref()`] to a
 /// [`ZoneStore`] implementing type that was used earlier.
 ///
-/// [`Any::downcast_ref()`]: std::any::Any
+/// [`Any::downcast_ref()`]: core::any::Any
 #[derive(Clone, Debug)]
 pub struct Zone {
     store: Arc<dyn ZoneStore>,

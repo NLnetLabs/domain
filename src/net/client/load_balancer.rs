@@ -52,20 +52,20 @@ use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::{Error, GetResponse, SendRequest};
 use crate::utils::config::DefMinMax;
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::Bytes;
+use core::cmp::Ordering;
+use core::fmt::{Debug, Formatter};
+use core::future::Future;
+use core::pin::Pin;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use octseq::Octets;
 use rand::{random, random_range};
-use std::boxed::Box;
-use std::cmp::Ordering;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::pin::Pin;
-use std::string::String;
-use std::string::ToString;
-use std::sync::Arc;
-use std::vec::Vec;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Duration, Instant, sleep_until};
 
@@ -390,7 +390,7 @@ impl GetResponse for Request {
 }
 
 impl Debug for Request {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -481,7 +481,7 @@ impl<Req> Debug for ChanReq<Req>
 where
     Req: Send + Sync,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("ChanReq").finish()
     }
 }
@@ -535,7 +535,7 @@ impl<Req: Debug> Debug for RequestReq<Req>
 where
     Req: Send + Sync,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("RequestReq")
             .field("id", &self.id)
             .field("request_msg", &self.request_msg)

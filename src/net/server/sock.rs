@@ -1,12 +1,12 @@
 //! Network socket abstractions.
+use core::net::SocketAddr;
+use core::task::{Context, Poll};
 use std::io;
-use std::net::SocketAddr;
-use std::task::{Context, Poll};
 
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use core::future::Future;
+use core::pin::Pin;
 use tokio::io::ReadBuf;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
@@ -127,8 +127,8 @@ pub trait AsyncAccept {
     /// The type of stream that the trait impl consumes.
     type StreamType;
 
-    /// The type of [`std::future::Future`] that the trait impl returns.
-    type Future: std::future::Future<Output = Result<Self::StreamType, Self::Error>>;
+    /// The type of [`core::future::Future`] that the trait impl returns.
+    type Future: core::future::Future<Output = Result<Self::StreamType, Self::Error>>;
 
     /// Polls to accept a new incoming connection to this listener.
     ///
@@ -142,7 +142,7 @@ pub trait AsyncAccept {
 impl AsyncAccept for TcpListener {
     type Error = io::Error;
     type StreamType = TcpStream;
-    type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Future = core::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
@@ -155,7 +155,7 @@ impl AsyncAccept for TcpListener {
             // is the plain implementation and users who want to set things
             // like TCP keep alive would need to provide their own impl? (just
             // as the serve example currently does).
-            res.map(|(stream, addr)| (std::future::ready(Ok(stream)), addr))
+            res.map(|(stream, addr)| (core::future::ready(Ok(stream)), addr))
         })
     }
 }

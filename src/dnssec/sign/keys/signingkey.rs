@@ -2,8 +2,8 @@ use crate::base::Name;
 use crate::base::iana::SecurityAlgorithm;
 use crate::crypto::sign::SignRaw;
 use crate::rdata::Dnskey;
-use std::fmt::Debug;
-use std::vec::Vec;
+use alloc::vec::Vec;
+use core::fmt::Debug;
 
 //----------- SigningKey -----------------------------------------------------
 

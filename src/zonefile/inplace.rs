@@ -12,6 +12,8 @@
 #![cfg(feature = "bytes")]
 #![cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
 
+#[cfg(feature = "alloc")]
+use alloc::format;
 use core::str::FromStr;
 use core::{fmt, str};
 
@@ -1577,15 +1579,15 @@ enum ItemCat {
 pub struct EntryError {
     msg: &'static str,
 
-    #[cfg(feature = "std")]
-    context: Option<std::string::String>,
+    #[cfg(feature = "alloc")]
+    context: Option<alloc::string::String>,
 }
 
 impl EntryError {
     fn bad_symbol(_err: SymbolOctetsError) -> Self {
         EntryError {
             msg: "bad symbol",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: Some(format!("{}", _err)),
         }
     }
@@ -1593,7 +1595,7 @@ impl EntryError {
     fn bad_charstr() -> Self {
         EntryError {
             msg: "bad charstr",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: None,
         }
     }
@@ -1601,7 +1603,7 @@ impl EntryError {
     fn bad_name() -> Self {
         EntryError {
             msg: "bad name",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: None,
         }
     }
@@ -1609,7 +1611,7 @@ impl EntryError {
     fn unbalanced_parens() -> Self {
         EntryError {
             msg: "unbalanced parens",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: None,
         }
     }
@@ -1617,7 +1619,7 @@ impl EntryError {
     fn missing_last_owner() -> Self {
         EntryError {
             msg: "missing last owner",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: None,
         }
     }
@@ -1625,7 +1627,7 @@ impl EntryError {
     fn missing_last_class() -> Self {
         EntryError {
             msg: "missing last class",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: None,
         }
     }
@@ -1633,7 +1635,7 @@ impl EntryError {
     fn missing_origin() -> Self {
         EntryError {
             msg: "missing origin",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: None,
         }
     }
@@ -1641,7 +1643,7 @@ impl EntryError {
     fn expected_rtype() -> Self {
         EntryError {
             msg: "expected rtype",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: None,
         }
     }
@@ -1649,7 +1651,7 @@ impl EntryError {
     fn unknown_control(ctrl: Str<Bytes>) -> Self {
         EntryError {
             msg: "unknown control",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: Some(format!("{}", ctrl)),
         }
     }
@@ -1657,7 +1659,7 @@ impl EntryError {
     fn different_class(expected_class: Class, found_class: Class) -> Self {
         EntryError {
             msg: "different class",
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: Some(format!("{found_class} != {expected_class}")),
         }
     }
@@ -1667,7 +1669,7 @@ impl ScannerError for EntryError {
     fn custom(msg: &'static str) -> Self {
         EntryError {
             msg,
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             context: None,
         }
     }
@@ -1700,7 +1702,7 @@ impl From<BadSymbol> for EntryError {
 impl fmt::Display for EntryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.msg)?;
-        #[cfg(feature = "std")]
+        #[cfg(feature = "alloc")]
         if let Some(context) = &self.context {
             write!(f, ": {}", context)?;
         }
@@ -1730,12 +1732,12 @@ impl core::error::Error for Error {}
 //============ Tests =========================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod test {
     use super::*;
     use crate::base::ParsedName;
+    use alloc::vec::Vec;
     use octseq::Parser;
-    use std::vec::Vec;
 
     fn with_entry(s: &str, op: impl FnOnce(EntryScanner<'_>)) {
         let mut zone = Zonefile::with_capacity(s.len());
@@ -1798,7 +1800,7 @@ mod test {
     struct TestCase {
         origin: Name<Bytes>,
         default_class: Option<Class>,
-        zonefile: std::string::String,
+        zonefile: alloc::string::String,
         result: Vec<Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>>>,
         #[serde(default)]
         allow_invalid: bool,

@@ -183,14 +183,23 @@
 #![allow(clippy::unknown_clippy_lints)]
 #![allow(clippy::uninlined_format_args)]
 #![warn(elided_lifetimes_in_paths)]
+//
+// To keep things as 'no_std' compatible as possible, we rely on the following
+// Clippy lints. These lints currently have some false positives, which are
+// most likely to pop with 'core::io'. It's okay to '#[allow]' in those cases.
+//
+// See:
+// - https://github.com/rust-lang/rust-clippy/issues/13158
+// - https://github.com/rust-lang/rust-clippy/pull/16964
+#![deny(clippy::std_instead_of_alloc)]
+#![deny(clippy::std_instead_of_core)]
+#![deny(clippy::alloc_instead_of_core)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
 #[cfg(feature = "std")]
-#[allow(unused_imports)] // Import macros even if unused.
-#[macro_use]
 extern crate std;
 
 // The 'domain-macros' crate introduces 'derive' macros which can be used by

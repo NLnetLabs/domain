@@ -3,16 +3,19 @@ use core::ops::Deref;
 use core::pin::Pin;
 use core::str::FromStr;
 
-use std::boxed::Box;
-use std::collections::{HashMap, VecDeque};
+use alloc::boxed::Box;
+use alloc::collections::VecDeque;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::net::SocketAddr;
+use core::result::Result;
+use core::time::Duration;
+use std::collections::HashMap;
+use std::eprintln;
 use std::fs::File;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::result::Result;
-use std::string::{String, ToString};
-use std::sync::Arc;
-use std::time::Duration;
-use std::vec::Vec;
 
 use rstest::rstest;
 use tracing::instrument;

@@ -5,11 +5,11 @@ use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
-use std::boxed::Box;
-use std::fmt::Display;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use core::fmt::Display;
+use core::net::SocketAddr;
 use std::io;
-use std::net::SocketAddr;
-use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use log::{Level, log_enabled};

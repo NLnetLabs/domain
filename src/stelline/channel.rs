@@ -4,16 +4,18 @@
 use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use core::time::Duration;
 
-use std::boxed::Box;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::cmp;
+use core::future::Future;
+use core::future::ready;
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+use core::pin::Pin;
+use core::task::{Context, Poll};
 use std::collections::HashMap;
-use std::future::Future;
-use std::future::ready;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
-use std::vec::Vec;
-use std::{cmp, io};
+use std::io;
+use std::sync::Mutex;
 
 use futures_util::FutureExt;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -535,7 +537,7 @@ impl Future for ClientServerChannelReadableFut {
 impl AsyncAccept for ClientServerChannel {
     type Error = io::Error;
     type StreamType = ClientServerChannel;
-    type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Future = core::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,

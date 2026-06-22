@@ -35,8 +35,8 @@ pub trait Composer:
     }
 }
 
-#[cfg(feature = "std")]
-impl Composer for std::vec::Vec<u8> {}
+#[cfg(feature = "alloc")]
+impl Composer for alloc::vec::Vec<u8> {}
 
 impl<const N: usize> Composer for octseq::array::Array<N> {}
 
@@ -267,7 +267,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized, const N: usize> Parse<'a, Octs>
 /// The actual parsing happens in the provided closure. Returns an error if
 /// the closure returns an error or if there is unparsed data left over after
 /// the closure returns. Otherwise returns whatever the closure returned.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub fn parse_slice<F, T>(data: &[u8], op: F) -> Result<T, ParseError>
 where
     F: FnOnce(&mut Parser<'_, [u8]>) -> Result<T, ParseError>,
@@ -286,13 +286,13 @@ where
 /// The actual composing happens in the provided closure.
 /// This function is mostly useful in testing so you can construct this vec
 /// directly inside an asserting.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub fn compose_vec(
     op: impl FnOnce(
-        &mut std::vec::Vec<u8>,
+        &mut alloc::vec::Vec<u8>,
     ) -> Result<(), core::convert::Infallible>,
-) -> std::vec::Vec<u8> {
-    let mut res = std::vec::Vec::new();
+) -> alloc::vec::Vec<u8> {
+    let mut res = alloc::vec::Vec::new();
     octseq::builder::infallible(op(&mut res));
     res
 }

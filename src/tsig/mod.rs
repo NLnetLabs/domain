@@ -57,9 +57,9 @@
 use core::{cmp, fmt, mem, str};
 
 #[cfg(feature = "std")]
-use std::collections::HashMap;
+use alloc::sync::Arc;
 #[cfg(feature = "std")]
-use std::sync::Arc;
+use std::collections::HashMap;
 
 use bytes::{Bytes, BytesMut};
 use constant_time_eq::constant_time_eq;
@@ -396,7 +396,6 @@ impl AsRef<Key> for Key {
 
 //--- Display
 
-#[cfg(feature = "std")]
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.name.fmt(f)

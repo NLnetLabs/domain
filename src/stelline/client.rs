@@ -1,15 +1,16 @@
 #![allow(clippy::type_complexity)]
 use core::ops::Deref;
 
-use std::boxed::Box;
+use alloc::boxed::Box;
+use alloc::rc::Rc;
+use alloc::vec::Vec;
+use core::future::{Future, ready};
+use core::net::IpAddr;
+use core::pin::Pin;
+use core::time::Duration;
 use std::collections::HashMap;
-use std::future::{Future, ready};
-use std::net::IpAddr;
-use std::pin::Pin;
-use std::rc::Rc;
+use std::dbg;
 use std::sync::Mutex;
-use std::time::Duration;
-use std::vec::Vec;
 
 use bytes::Bytes;
 #[cfg(all(feature = "std", test))]
@@ -39,8 +40,8 @@ pub struct StellineError<'a> {
     cause: StellineErrorCause,
 }
 
-impl std::fmt::Display for StellineError<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for StellineError<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
             "Stelline test failed at step {} with error: {}",
             self.step_value, self.cause
@@ -81,8 +82,8 @@ impl From<Error> for StellineErrorCause {
     }
 }
 
-impl std::fmt::Display for StellineErrorCause {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for StellineErrorCause {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             StellineErrorCause::ClientError(err) => {
                 f.write_fmt(format_args!("Client error: {err}"))
@@ -757,8 +758,8 @@ impl Default for CurrStepValue {
     }
 }
 
-impl std::fmt::Display for CurrStepValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for CurrStepValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{}", self.get()))
     }
 }

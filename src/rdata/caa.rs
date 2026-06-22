@@ -626,8 +626,9 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for CaaFlags {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
+    use alloc::string::ToString;
     use octseq::array::Array;
-    use std::string::ToString;
+    use std::format;
 
     #[test]
     fn caa_eq() {

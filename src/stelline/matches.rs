@@ -457,7 +457,7 @@ impl OrderedMultiMatcher<'_> {
 
 pub struct UnorderedMultiMatcher<'a> {
     entry: &'a Entry,
-    answers: std::vec::Vec<ZonefileEntry>,
+    answers: alloc::vec::Vec<ZonefileEntry>,
 }
 
 impl UnorderedMultiMatcher<'_> {

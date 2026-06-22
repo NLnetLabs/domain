@@ -518,8 +518,9 @@ mod test {
         Name,
         rdata::test::{test_compose_parse, test_rdlen, test_scan},
     };
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
+    use std::format;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...

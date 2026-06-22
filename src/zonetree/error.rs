@@ -1,8 +1,8 @@
 //! Zone related errors.
 
-use std::fmt::Display;
+use alloc::vec::Vec;
+use core::fmt::Display;
 use std::io;
-use std::vec::Vec;
 
 use bytes::Bytes;
 
@@ -212,7 +212,7 @@ impl<T> ZoneErrors<T> {
 impl<T> IntoIterator for ZoneErrors<T> {
     type Item = (StoredName, T);
 
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = alloc::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.errors.into_iter()

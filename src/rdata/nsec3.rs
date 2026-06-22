@@ -1206,10 +1206,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     Nsec3Salt::from_octets(octets).map_err(E::custom)
@@ -1581,10 +1581,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     OwnerHash::from_octets(octets).map_err(E::custom)
@@ -1665,7 +1665,7 @@ impl core::error::Error for OwnerHashError {}
 //============ Testing ======================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 mod test {
     use super::super::dnssec::RtypeBitmapBuilder;
     use super::*;
@@ -1673,7 +1673,8 @@ mod test {
         test_compose_parse, test_rdlen, test_scan,
     };
     use crate::base::zonefile_fmt::DisplayKind;
-    use std::vec::Vec;
+    use alloc::format;
+    use alloc::vec::Vec;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...

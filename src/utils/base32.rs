@@ -20,12 +20,12 @@
 //! [NSEC3]: ../../rdata/rfc5155/index.html
 
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
+#[cfg(feature = "alloc")]
+use alloc::string::String;
 use core::fmt;
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
-#[cfg(feature = "std")]
-use std::string::String;
 
 //------------ Re-exports ----------------------------------------------------
 
@@ -105,7 +105,7 @@ where
 }
 
 /// Encodes binary data in *base32hex* and returns the encoded data as a string.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub fn encode_string_hex<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
     let mut res = String::with_capacity((bytes.as_ref().len() / 5 + 1) * 8);
     display_hex(bytes, &mut res).unwrap();
@@ -187,10 +187,10 @@ pub mod serde {
                 self.0.visit_borrowed_bytes(value)
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value)
             }
@@ -521,7 +521,7 @@ const ENCODE_HEX_ALPHABET: [char; 32] = [
 //============ Test ==========================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod test {
     use super::*;
 
@@ -530,7 +530,7 @@ mod test {
     fn decode_str_hex() {
         use super::DecodeError;
 
-        fn decode_hex(s: &str) -> Result<std::vec::Vec<u8>, DecodeError> {
+        fn decode_hex(s: &str) -> Result<alloc::vec::Vec<u8>, DecodeError> {
             super::decode_hex(s)
         }
 

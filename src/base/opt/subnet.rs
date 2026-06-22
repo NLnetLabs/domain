@@ -367,13 +367,13 @@ fn normalize_prefix_len(addr: IpAddr, len: u8) -> u8 {
 
 //============ Testing =======================================================
 
-#[cfg(all(test, feature = "std", feature = "bytes"))]
+#[cfg(all(test, feature = "alloc", feature = "bytes"))]
 mod tests {
     use super::super::test::test_option_compose_parse;
     use super::*;
+    use alloc::vec::Vec;
     use core::str::FromStr;
     use octseq::builder::infallible;
-    use std::vec::Vec;
 
     macro_rules! check {
         ($name:ident, $addr:expr, $prefix:expr, $exp:expr, $ok:expr) => {
