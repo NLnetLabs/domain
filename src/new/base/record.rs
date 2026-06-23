@@ -4,6 +4,7 @@ use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use crate::utils::dst::UnsizedCopy;
 
+use super::super::rdata::{BoxedRecordData, RecordData};
 use super::build::{BuildInMessage, NameCompressor};
 use super::parse::{ParseMessageBytes, SplitMessageBytes};
 use super::wire::{
@@ -823,6 +824,36 @@ impl AsRef<[u8]> for UnparsedRecordData {
 impl Clone for alloc::boxed::Box<UnparsedRecordData> {
     fn clone(&self) -> Self {
         (*self).unsized_copy_into()
+    }
+}
+
+//
+// --- Functions to make it easier to transition from old base.
+// These functions should be marked as deprecated when most of the initial
+// migration to new base has completed.
+impl<'a, N> Record<N, RecordData<'a, N>> {
+    /// Constructor that is more compatible with old base that takes
+    /// RecordData.
+    pub fn old_new(
+        rname: N,
+        rclass: RClass,
+        ttl: TTL,
+        rdata: RecordData<'a, N>,
+    ) -> Self {
+        Self::new(rname, rdata.rtype(), rclass, ttl, rdata)
+    }
+}
+
+impl<'a, N> Record<N, BoxedRecordData> {
+    /// Constructor that is more compatible with old base that takes
+    /// BoxedRecordData.
+    pub fn old_new_box(
+        rname: N,
+        rclass: RClass,
+        ttl: TTL,
+        rdata: BoxedRecordData,
+    ) -> Self {
+        Self::new(rname, rdata.rtype(), rclass, ttl, rdata)
     }
 }
 
