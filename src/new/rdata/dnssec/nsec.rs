@@ -104,9 +104,14 @@ impl TypeBitmaps {
         })
         .flat_map(move |(num, bits, _)| {
             bits.iter().enumerate().flat_map(move |(i, &b)| {
-                (0..8).filter(move |&j| ((b >> j) & 1) != 0).map(move |j| {
-                    RType::from(u16::from_be_bytes([num, (i * 8 + j) as u8]))
-                })
+                (0..8).filter(move |&j| ((b >> (7 - j)) & 1) != 0).map(
+                    move |j| {
+                        RType::from(u16::from_be_bytes([
+                            num,
+                            (i * 8 + j) as u8,
+                        ]))
+                    },
+                )
             })
         })
     }
@@ -193,5 +198,39 @@ impl Clone for alloc::boxed::Box<TypeBitmaps> {
 impl Hash for TypeBitmaps {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&self.octets)
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod tests {
+    use crate::new::base::{RType, wire::ParseBytesZC};
+
+    use super::TypeBitmaps;
+
+    /// Test that [`TypeBitmaps`] parses correctly.
+    #[test]
+    fn type_bitmaps_parse() {
+        let bytes = b"\x00\x06\x40\x01\x00\x00\x00\x03\
+                     \x04\x1b\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x20";
+
+        let bitmaps = TypeBitmaps::parse_bytes_by_ref(bytes).unwrap();
+
+        let expected = [
+            RType::A,     // 0x0001
+            RType::MX,    // 0x000F
+            RType::RRSIG, // 0x002E
+            RType::NSEC,  // 0x002F
+            RType::from(0x04D2),
+        ];
+
+        assert!(
+            bitmaps.types().eq(expected),
+            "{bitmaps:?} did not match expectation {expected:?}"
+        );
     }
 }
