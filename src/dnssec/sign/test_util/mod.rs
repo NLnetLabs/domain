@@ -1,8 +1,8 @@
 use core::str::FromStr;
 
+use alloc::string::ToString;
+use alloc::vec::Vec;
 use std::io::Read;
-use std::string::ToString;
-use std::vec::Vec;
 
 use bytes::Bytes;
 

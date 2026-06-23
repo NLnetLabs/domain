@@ -10,6 +10,8 @@ use super::chain::{Chain, LongChainError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{NameIter, RelativeName};
 use super::traits::ToLabelIter;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::{fmt, hash, str};
@@ -18,8 +20,6 @@ use octseq::builder::{
 };
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
-#[cfg(feature = "std")]
-use std::vec::Vec;
 
 //------------ UncertainName ------------------------------------------------
 
@@ -122,7 +122,7 @@ impl<Octets> UncertainName<Octets> {
     /// If you have a string, you can also use the [`FromStr`] trait, which
     /// really does the same thing.
     ///
-    /// [`FromStr`]: std::str::FromStr
+    /// [`FromStr`]: core::str::FromStr
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
@@ -163,7 +163,7 @@ impl UncertainName<&'static [u8]> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl UncertainName<Vec<u8>> {
     /// Creates an empty relative name atop a `Vec<u8>`.
     #[must_use]
@@ -509,10 +509,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     UncertainName::from_octets(octets).map_err(E::custom)
@@ -642,11 +642,11 @@ impl core::error::Error for UncertainDnameError {}
 //============ Testing =======================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod test {
     use super::*;
-    use std::str::FromStr;
-    use std::string::String;
+    use alloc::string::String;
+    use core::str::FromStr;
 
     #[test]
     fn from_str() {

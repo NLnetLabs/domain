@@ -1,7 +1,7 @@
 use core::cmp::min;
 use core::fmt::{Debug, Display};
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 

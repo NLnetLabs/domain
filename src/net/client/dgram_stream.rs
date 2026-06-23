@@ -12,12 +12,12 @@ use crate::net::client::protocol::{
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use bytes::Bytes;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use core::fmt::Debug;
+use core::future::Future;
+use core::pin::Pin;
 
 //------------ Config ---------------------------------------------------------
 

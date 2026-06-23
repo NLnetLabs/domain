@@ -6,7 +6,7 @@
 use core::fmt::Display;
 use core::ops::Deref;
 
-use std::time::Duration;
+use core::time::Duration;
 
 use crate::base::StreamTarget;
 use crate::base::iana::Rcode;
@@ -45,7 +45,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// use core::future::Ready;
 /// use core::pin::Pin;
 ///
-/// use std::task::{Context, Poll};
+/// use core::task::{Context, Poll};
 ///
 /// use futures_util::stream::{once, Once, Stream};
 ///
@@ -104,7 +104,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// impl Service<Vec<u8>, ()> for MyAsyncBlockService {
 ///     type Target = Vec<u8>;
 ///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
-///     type Future = Pin<Box<dyn std::future::Future<Output = Self::Stream> + Send>>;
+///     type Future = Pin<Box<dyn core::future::Future<Output = Self::Stream> + Send>>;
 ///
 ///     fn call(
 ///         &self,
@@ -117,7 +117,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// //------------ A named Future service example -----------------------------
 /// struct MyFut(Request<Vec<u8>, ()>);
 ///
-/// impl std::future::Future for MyFut {
+/// impl core::future::Future for MyFut {
 ///     type Output = Once<Ready<ServiceResult<Vec<u8>>>>;
 ///
 ///     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -139,7 +139,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// The above are minimalist examples to illustrate what you need to do, but
 /// lacking any actual useful behaviour. They also only demonstrate returning
 /// a response stream containing a single immediately available value via
-/// `futures_util::stream::Once` and `std::future::Ready`.
+/// `futures_util::stream::Once` and `core::future::Ready`.
 ///
 /// In your own [`Service`] impl you would implement actual business logic
 /// returning single or multiple responses synchronously or asynchronously as

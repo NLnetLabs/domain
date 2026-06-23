@@ -4,14 +4,17 @@ use core::future::ready;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering;
 
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::sync::Arc;
+use alloc::sync::Weak;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::fmt;
+use core::future::Future;
+use core::pin::Pin;
+use std::io;
 use std::sync::Mutex;
-use std::sync::Weak;
-use std::vec::Vec;
-use std::{fmt, io};
 
 use futures_util::future::Either;
 use parking_lot::RwLock;
@@ -357,7 +360,7 @@ fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
 /// for Rust <1.70.0 when [`Arc::into_inner()`] did not exist yet.
 #[rustversion::before(1.70.0)]
 fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
-    // From: https://doc.rust-lang.org/std/sync/struct.Arc.html#method.into_inner
+    // From: https://doc.rust-lang.org/alloc/sync/struct.Arc.html#method.into_inner
     //
     // "If Arc::into_inner is called on every clone of this Arc, it is
     // guaranteed that exactly one of the calls returns the inner value. This

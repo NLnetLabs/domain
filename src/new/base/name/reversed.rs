@@ -110,6 +110,11 @@ impl RevName {
         // SAFETY: A 'RevName' always contains valid encoded labels.
         unsafe { LabelIter::new_unchecked(self.as_bytes()) }
     }
+
+    /// Covert &[`RevName`] into [`NameBuf`]
+    pub fn to_name(&self) -> NameBuf {
+        RevNameBuf::copy_from(self).into()
+    }
 }
 
 //--- Building in DNS messages
@@ -657,12 +662,57 @@ impl<'a> serde::Deserialize<'a> for RevNameBuf {
 }
 
 #[cfg(feature = "serde")]
-impl<'a> serde::Deserialize<'a> for std::boxed::Box<RevName> {
+impl<'a> serde::Deserialize<'a> for alloc::boxed::Box<RevName> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'a>,
     {
         RevNameBuf::deserialize(deserializer)
             .map(|this| this.unsized_copy_into())
+    }
+}
+
+// -- Convert from old Name to new::base::RevNameBuf -------------------------
+
+/// Upgrade a [`crate::base::Name`] into a
+/// [`crate::new::base::name::reversed::RevNameBuf`].
+///
+/// # Panics
+///
+/// The [`crate::base::Name`] slice has to contain a valid domain.
+impl<Octs> From<&crate::base::Name<Octs>> for RevNameBuf
+where
+    Octs: AsRef<[u8]> + ?Sized,
+{
+    fn from(value: &crate::base::Name<Octs>) -> Self {
+        RevNameBuf::parse_bytes(value.as_slice())
+            .expect("Tried to upgrade invalid name")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn test_upgrade_revnamebuf() {
+        let old_name =
+            crate::base::Name::from_slice(b"\x07example\x03com\x00")
+                .expect("Invalid name");
+
+        let new_name: RevNameBuf = old_name.into();
+        let mut buf = alloc::vec![0; new_name.built_bytes_size()];
+        new_name.build_bytes(&mut buf).unwrap();
+        assert_eq!(old_name.as_slice(), buf);
+    }
+
+    #[test]
+    fn test_to_name() {
+        let revnamebuf: RevNameBuf = "example.com".parse().unwrap();
+        assert_eq!(
+            revnamebuf.to_name().as_bytes(),
+            b"\x07example\x03com\x00",
+        );
     }
 }

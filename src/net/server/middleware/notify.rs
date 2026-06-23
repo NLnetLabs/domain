@@ -47,9 +47,9 @@ use core::marker::PhantomData;
 use core::ops::ControlFlow;
 use core::pin::Pin;
 
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::sync::Arc;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use core::fmt::Debug;
 
 use bytes::Bytes;
 use futures_util::stream::{Once, Stream, once};

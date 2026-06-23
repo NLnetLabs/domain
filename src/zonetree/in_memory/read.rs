@@ -1,7 +1,7 @@
 //! Read access to in-memory zones.
 use core::iter;
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use bytes::Bytes;
 
@@ -253,7 +253,7 @@ impl ReadZone {
                 walk.push(*label);
                 self.query_node(
                     node,
-                    std::iter::empty(),
+                    core::iter::empty(),
                     qtype,
                     walk.clone(),
                 );
@@ -419,9 +419,9 @@ mod tests {
     use crate::base::name::OwnedLabel;
     use crate::rdata::{A, ZoneRecordData};
     use crate::zonetree::StoredName;
+    use alloc::boxed::Box;
     use core::str::FromStr;
     use core::sync::atomic::{AtomicU8, Ordering};
-    use std::boxed::Box;
 
     #[test]
     fn should_walk_below_ents() {

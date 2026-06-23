@@ -1,7 +1,8 @@
-use std::borrow::ToOwned;
-use std::boxed::Box;
-use std::sync::{Arc, Mutex};
-use std::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use std::sync::Mutex;
 
 use crate::base::NameBuilder;
 use crate::base::name::OwnedLabel;

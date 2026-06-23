@@ -78,6 +78,9 @@ use core::{
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
 
+#[cfg(feature = "alloc")]
+use alloc::vec;
+
 use crate::{
     new::base::{
         CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,

@@ -26,6 +26,8 @@
 use super::cmp::CanonicalOrd;
 use super::scan::{BadSymbol, Scanner, Symbol, SymbolCharsError};
 use super::wire::{Compose, ParseError};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::{cmp, fmt, hash, mem, str};
@@ -36,8 +38,6 @@ use octseq::{
     EmptyBuilder, FromBuilder, IntoBuilder, Octets, OctetsBuilder,
     OctetsFrom, Parser, ShortBuf, Truncate,
 };
-#[cfg(feature = "std")]
-use std::vec::Vec;
 
 //------------ CharStr -------------------------------------------------------
 
@@ -49,7 +49,7 @@ use std::vec::Vec;
 /// content in a familiar way.
 ///
 /// As per [RFC 1035], character strings compare ignoring ASCII case.
-/// `CharStr`’s implementations of the `std::cmp` traits act accordingly.
+/// `CharStr`’s implementations of the `core::cmp` traits act accordingly.
 ///
 /// # Presentation format
 ///
@@ -311,7 +311,7 @@ impl CharStr<[u8]> {
     /// simply via [`CharStr::append_from_str`] without having to provide a
     /// type argument.
     ///
-    /// [`FromStr`]: std::str::FromStr
+    /// [`FromStr`]: core::str::FromStr
     fn append_from_str(
         s: &str,
         target: &mut impl OctetsBuilder,
@@ -661,10 +661,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     CharStr::from_octets(octets).map_err(E::custom)
@@ -757,7 +757,7 @@ impl<Builder: OctetsBuilder + AsRef<[u8]>> CharStrBuilder<Builder> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl CharStrBuilder<Vec<u8>> {
     /// Creates a new empty characater string builder atop an octets vec.
     #[must_use]
@@ -1211,9 +1211,10 @@ impl core::error::Error for PresentationError {}
 //============ Testing =======================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod test {
     use super::*;
+    use alloc::{format, vec};
     use octseq::builder::infallible;
 
     type CharStrRef<'a> = CharStr<&'a [u8]>;
@@ -1242,7 +1243,7 @@ mod test {
 
     #[test]
     fn from_str() {
-        use std::str::{FromStr, from_utf8};
+        use core::str::{FromStr, from_utf8};
 
         type Cs = CharStr<Vec<u8>>;
 
@@ -1319,7 +1320,7 @@ mod test {
 
     #[test]
     fn ord() {
-        use std::cmp::Ordering::*;
+        use core::cmp::Ordering::*;
 
         is_ord(b"abc", b"ABC", Equal);
         is_ord(b"abc", b"a", Greater);

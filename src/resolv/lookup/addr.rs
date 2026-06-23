@@ -5,9 +5,9 @@ use crate::base::message::RecordIter;
 use crate::base::name::{Name, ParsedName};
 use crate::rdata::Ptr;
 use crate::resolv::resolver::Resolver;
+use core::net::IpAddr;
 use octseq::octets::Octets;
 use std::io;
-use std::net::IpAddr;
 
 //------------ Octets128 -----------------------------------------------------
 

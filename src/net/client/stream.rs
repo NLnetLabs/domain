@@ -14,16 +14,17 @@ use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
 use crate::base::{ParsedName, Serial};
 use crate::rdata::AllRecordData;
 use crate::utils::config::DefMinMax;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::{Bytes, BytesMut};
 use core::cmp;
+use core::fmt::Debug;
+use core::future::Future;
+use core::pin::Pin;
+use core::time::Duration;
 use octseq::Octets;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::vec::Vec;
+use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
@@ -334,7 +335,7 @@ impl GetResponse for Request {
 }
 
 impl Debug for Request {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -391,7 +392,7 @@ impl GetResponseMulti for RequestMulti {
 }
 
 impl Debug for RequestMulti {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -529,7 +530,7 @@ enum ConnState {
 }
 
 //--- Display
-impl std::fmt::Display for ConnState {
+impl core::fmt::Display for ConnState {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ConnState::Active(instant) => f.write_fmt(format_args!(

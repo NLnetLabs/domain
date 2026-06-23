@@ -494,7 +494,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::vec::Vec;
+    use alloc::vec::Vec;
 
     use bytes::Bytes;
     use futures_util::stream::StreamExt;

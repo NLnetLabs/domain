@@ -623,10 +623,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     Txt::from_octets(octets).map_err(E::custom)
@@ -923,13 +923,13 @@ impl fmt::Display for TxtAppendError {
 //============ Testing =======================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 mod test {
     use super::*;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
-    use std::vec::Vec;
+    use alloc::{format, vec::Vec};
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
@@ -1062,7 +1062,7 @@ mod test {
         assert_eq!(records[0], records[2]);
     }
 
-    #[cfg(all(feature = "serde", feature = "std"))]
+    #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn txt_ser_de() {
         use serde_test::{Configure, Token, assert_tokens};
@@ -1109,7 +1109,7 @@ mod test {
         );
     }
 
-    #[cfg(all(feature = "serde", feature = "std"))]
+    #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn txt_de_str() {
         use serde_test::{Configure, Token, assert_de_tokens};

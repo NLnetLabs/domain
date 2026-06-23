@@ -694,10 +694,10 @@ mod test {
         test_compose_parse, test_rdlen, test_scan,
     };
     use crate::utils::base64::decode;
+    use alloc::string::ToString;
+    use alloc::vec::Vec;
+    use core::net::{Ipv4Addr, Ipv6Addr};
     use core::str::FromStr;
-    use std::net::{Ipv4Addr, Ipv6Addr};
-    use std::string::ToString;
-    use std::vec::Vec;
 
     #[test]
     // allow redundant_closure because of lifetime shenanigans

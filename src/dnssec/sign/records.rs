@@ -6,8 +6,8 @@ use core::marker::{PhantomData, Send};
 use core::ops::Deref;
 use core::slice::Iter;
 
-use std::vec::Vec;
-use std::{fmt, slice};
+use alloc::vec::Vec;
+use alloc::{fmt, slice};
 
 use crate::base::Ttl;
 use crate::base::cmp::CanonicalOrd;

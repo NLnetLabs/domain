@@ -314,10 +314,10 @@ pub trait Formatter: FormatWriter {
 
 impl<T: FormatWriter> Formatter for T {}
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(all(test, feature = "alloc"))]
 mod test {
-    use std::string::ToString as _;
-    use std::vec::Vec;
+    use alloc::string::ToString as _;
+    use alloc::vec::Vec;
 
     use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
     use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};

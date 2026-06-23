@@ -959,7 +959,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn split_first() {
         fn split_first_wec(mut name: ParsedName<&[u8]>) {
             assert_eq!(
@@ -991,7 +991,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn parent() {
         fn parent_wec(mut name: ParsedName<&[u8]>) {
             assert_eq!(
@@ -1014,9 +1014,9 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn parse_and_skip() {
-        use std::vec::Vec;
+        use alloc::vec::Vec;
 
         fn name_eq(parsed: ParsedName<&[u8]>, name: ParsedName<&[u8]>) {
             assert_eq!(parsed.octets, name.octets);
@@ -1144,10 +1144,10 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn compose() {
+        use alloc::vec::Vec;
         use octseq::builder::infallible;
-        use std::vec::Vec;
 
         fn step(name: ParsedName<&[u8]>, result: &[u8]) {
             let mut buf = Vec::new();

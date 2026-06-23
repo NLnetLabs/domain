@@ -21,7 +21,7 @@
 //! Copying a DST into new container (e.g. [`Box`]) requires explicit support
 //! from that container type.
 //!
-//! [`Box`]: std::boxed::Box
+//! [`Box`]: https://doc.rust-lang.org/alloc/boxed/struct.Box.html
 //!
 //! This module introduces the [`UnsizedCopy`] trait (and a derive macro) that
 //! types like [`str`] implement.  Container types that can support copying
@@ -316,27 +316,28 @@ pub trait UnsizedCopyFrom: Sized {
     fn unsized_copy_from(value: &Self::Source) -> Self;
 }
 
-#[cfg(feature = "std")]
-impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for std::boxed::Box<T> {
+#[cfg(feature = "alloc")]
+impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for alloc::boxed::Box<T> {
     type Source = T;
 
     fn unsized_copy_from(value: &Self::Source) -> Self {
-        use std::alloc;
+        use alloc::alloc::{alloc, handle_alloc_error};
+        use core::alloc::Layout;
 
-        let layout = alloc::Layout::for_value(value);
-        let ptr = unsafe { alloc::alloc(layout) };
+        let layout = Layout::for_value(value);
+        let ptr = unsafe { alloc(layout) };
         if ptr.is_null() {
-            alloc::handle_alloc_error(layout);
+            handle_alloc_error(layout);
         }
         let src = value as *const _ as *const u8;
         unsafe { core::ptr::copy_nonoverlapping(src, ptr, layout.size()) };
         let ptr = value.ptr_with_addr(ptr.cast()).cast_mut();
-        unsafe { std::boxed::Box::from_raw(ptr) }
+        unsafe { alloc::boxed::Box::from_raw(ptr) }
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for std::rc::Rc<T> {
+#[cfg(feature = "alloc")]
+impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for alloc::rc::Rc<T> {
     type Source = T;
 
     fn unsized_copy_from(value: &Self::Source) -> Self {
@@ -353,22 +354,22 @@ impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for std::rc::Rc<T> {
         // is (currently) a nightly-only trait.  However, we can use the
         // existing 'std' types which happen to implement it.
         let size = core::mem::size_of_val(value);
-        let rc: std::rc::Rc<[MaybeUninit<AlignedU8<T::Alignment>>]> =
+        let rc: alloc::rc::Rc<[MaybeUninit<AlignedU8<T::Alignment>>]> =
             (0..size).map(|_| MaybeUninit::uninit()).collect();
 
         let src = value as *const _ as *const u8;
-        let dst = std::rc::Rc::into_raw(rc).cast_mut();
+        let dst = alloc::rc::Rc::into_raw(rc).cast_mut();
         // SAFETY: 'rc' was just constructed and has never been copied.  Thus,
         //   its contents can be mutated without violating any references.
         unsafe { core::ptr::copy_nonoverlapping(src, dst.cast(), size) };
 
         let ptr = value.ptr_with_addr(dst.cast());
-        unsafe { std::rc::Rc::from_raw(ptr) }
+        unsafe { alloc::rc::Rc::from_raw(ptr) }
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for std::sync::Arc<T> {
+#[cfg(feature = "alloc")]
+impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for alloc::sync::Arc<T> {
     type Source = T;
 
     fn unsized_copy_from(value: &Self::Source) -> Self {
@@ -385,22 +386,22 @@ impl<T: ?Sized + UnsizedCopy> UnsizedCopyFrom for std::sync::Arc<T> {
         // is (currently) a nightly-only trait.  However, we can use the
         // existing 'std' types which happen to implement it.
         let size = core::mem::size_of_val(value);
-        let arc: std::sync::Arc<[MaybeUninit<AlignedU8<T::Alignment>>]> =
+        let arc: alloc::sync::Arc<[MaybeUninit<AlignedU8<T::Alignment>>]> =
             (0..size).map(|_| MaybeUninit::uninit()).collect();
 
         let src = value as *const _ as *const u8;
-        let dst = std::sync::Arc::into_raw(arc).cast_mut();
+        let dst = alloc::sync::Arc::into_raw(arc).cast_mut();
         // SAFETY: 'arc' was just constructed and has never been copied.  Thus,
         //   its contents can be mutated without violating any references.
         unsafe { core::ptr::copy_nonoverlapping(src, dst.cast(), size) };
 
         let ptr = value.ptr_with_addr(dst.cast());
-        unsafe { std::sync::Arc::from_raw(ptr) }
+        unsafe { alloc::sync::Arc::from_raw(ptr) }
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: UnsizedCopy> UnsizedCopyFrom for std::vec::Vec<T> {
+#[cfg(feature = "alloc")]
+impl<T: UnsizedCopy> UnsizedCopyFrom for alloc::vec::Vec<T> {
     type Source = [T];
 
     fn unsized_copy_from(value: &Self::Source) -> Self {
@@ -418,8 +419,8 @@ impl<T: UnsizedCopy> UnsizedCopyFrom for std::vec::Vec<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl UnsizedCopyFrom for std::string::String {
+#[cfg(feature = "alloc")]
+impl UnsizedCopyFrom for alloc::string::String {
     type Source = str;
 
     fn unsized_copy_from(value: &Self::Source) -> Self {
@@ -441,7 +442,7 @@ pub fn copy_to_bump<'a, T: ?Sized + UnsizedCopy>(
     value: &T,
     bump: &'a bumpalo::Bump,
 ) -> &'a mut T {
-    let layout = std::alloc::Layout::for_value(value);
+    let layout = core::alloc::Layout::for_value(value);
     let ptr = bump.alloc_layout(layout).as_ptr();
     let src = value as *const _ as *const u8;
     unsafe { core::ptr::copy_nonoverlapping(src, ptr, layout.size()) };

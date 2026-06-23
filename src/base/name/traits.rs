@@ -6,6 +6,8 @@ use super::absolute::Name;
 use super::chain::{Chain, LongChainError};
 use super::label::Label;
 use super::relative::RelativeName;
+#[cfg(feature = "alloc")]
+use alloc::borrow::Cow;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::convert::Infallible;
@@ -14,8 +16,6 @@ use octseq::builder::{
     BuilderAppendError, EmptyBuilder, FreezeBuilder, FromBuilder,
     OctetsBuilder, ShortBuf, infallible,
 };
-#[cfg(feature = "std")]
-use std::borrow::Cow;
 
 //------------ ToLabelIter ---------------------------------------------------
 
@@ -215,8 +215,8 @@ pub trait ToName: ToLabelIter {
     ///
     /// [`as_flat_slice`]: ToName::as_flat_slice
     /// [`to_name`]: ToName::to_name
-    #[cfg(feature = "std")]
-    fn to_cow(&self) -> Name<std::borrow::Cow<'_, [u8]>> {
+    #[cfg(feature = "alloc")]
+    fn to_cow(&self) -> Name<alloc::borrow::Cow<'_, [u8]>> {
         let octets = self
             .as_flat_slice()
             .map(Cow::Borrowed)
@@ -225,8 +225,8 @@ pub trait ToName: ToLabelIter {
     }
 
     /// Returns the domain name assembled into a `Vec<u8>`.
-    #[cfg(feature = "std")]
-    fn to_vec(&self) -> Name<std::vec::Vec<u8>> {
+    #[cfg(feature = "alloc")]
+    fn to_vec(&self) -> Name<alloc::vec::Vec<u8>> {
         self.to_name()
     }
 
@@ -501,8 +501,8 @@ pub trait ToRelativeName: ToLabelIter {
     ///
     /// [`as_flat_slice`]: ToRelativeName::as_flat_slice
     /// [`to_relative_name`]: ToRelativeName::to_relative_name
-    #[cfg(feature = "std")]
-    fn to_cow(&self) -> RelativeName<std::borrow::Cow<'_, [u8]>> {
+    #[cfg(feature = "alloc")]
+    fn to_cow(&self) -> RelativeName<alloc::borrow::Cow<'_, [u8]>> {
         let octets = self
             .as_flat_slice()
             .map(Cow::Borrowed)
@@ -511,8 +511,8 @@ pub trait ToRelativeName: ToLabelIter {
     }
 
     /// Returns the domain name assembled into a `Vec<u8>`.
-    #[cfg(feature = "std")]
-    fn to_vec(&self) -> RelativeName<std::vec::Vec<u8>> {
+    #[cfg(feature = "alloc")]
+    fn to_vec(&self) -> RelativeName<alloc::vec::Vec<u8>> {
         self.to_relative_name()
     }
 

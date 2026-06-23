@@ -37,16 +37,17 @@ use crate::net::client::request::{
 use crate::rdata::{AllRecordData, Dnskey, Ds, ZoneRecordData};
 use crate::utils::config::DefMinMax;
 use crate::zonefile::inplace;
+use alloc::collections::VecDeque;
+use alloc::string::ToString;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::Bytes;
+use core::cmp::min;
+use core::fmt;
+use core::fmt::Debug;
+use core::time::Duration;
 use moka::future::Cache;
-use std::cmp::min;
-use std::collections::VecDeque;
-use std::fmt::Debug;
-use std::string::ToString;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::vec::Vec;
-use std::{error, fmt};
+use std::time::Instant;
 
 //----------- Config ---------------------------------------------------------
 
@@ -2361,8 +2362,8 @@ impl fmt::Display for Error {
     }
 }
 
-impl error::Error for Error {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+impl core::error::Error for Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Error::FormError => None,
             Error::InplaceError(err) => Some(err),

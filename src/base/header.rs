@@ -125,13 +125,13 @@ impl Header {
     /// incoming responses to their queries.
     ///
     /// When choosing an ID for an outgoing message, make sure it is random
-    /// to avoid spoofing by guessing the message ID. If `std` support
+    /// to avoid spoofing by guessing the message ID. If `rand` support
     /// is enabled, the method
     #[cfg_attr(
-        feature = "std",
+        feature = "rand",
         doc = "[`set_random_id`][Self::set_random_id]"
     )]
-    #[cfg_attr(not(feature = "std"), doc = "`set_random_id`")]
+    #[cfg_attr(not(feature = "rand"), doc = "`set_random_id`")]
     /// can be used for this purpose.
     #[must_use]
     pub fn id(self) -> u16 {
@@ -960,10 +960,13 @@ impl core::error::Error for CountOverflow {}
 mod test {
     use super::*;
 
+    #[cfg(feature = "alloc")]
+    use alloc::format;
+
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn for_slice() {
-        use std::vec::Vec;
+        use alloc::vec::Vec;
 
         let header = b"\x01\x02\x00\x00\x12\x34\x56\x78\x9a\xbc\xde\xf0";
         let mut vec = Vec::from(&header[..]);
@@ -1119,7 +1122,7 @@ mod test {
         assert!(c.inc_arcount().is_err());
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     #[test]
     fn flags_display() {
         let f = Flags::new();
@@ -1140,7 +1143,7 @@ mod test {
         assert_eq!(format!("{}", f), "RD CD");
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     #[test]
     fn flags_from_str() {
         let f1 = Flags::from_str("").unwrap();

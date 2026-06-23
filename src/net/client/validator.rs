@@ -53,8 +53,8 @@
 //! # use domain::net::client::validator;
 //! # use domain::dnssec::validator::anchor::TrustAnchors;
 //! # use domain::dnssec::validator::context::ValidationContext;
-//! # use std::net::{IpAddr, SocketAddr};
-//! # use std::str::FromStr;
+//! # use core::net::{IpAddr, SocketAddr};
+//! # use core::str::FromStr;
 //! # use std::sync::Arc;
 //! #
 //! # async fn g() {
@@ -115,14 +115,14 @@ use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
 use crate::rdata::AllRecordData;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::Bytes;
-use std::boxed::Box;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::marker::PhantomData;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::vec::Vec;
+use core::fmt::{Debug, Formatter};
+use core::future::Future;
+use core::marker::PhantomData;
+use core::pin::Pin;
 
 //------------ Config ---------------------------------------------------------
 

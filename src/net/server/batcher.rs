@@ -40,8 +40,8 @@
 //! [CallbackBatcher]: CallbackBatcher  
 use core::marker::PhantomData;
 
-use std::fmt::Debug;
-use std::sync::Arc;
+use alloc::sync::Arc;
+use core::fmt::Debug;
 
 use octseq::Octets;
 use tracing::trace;
@@ -340,8 +340,10 @@ mod tests {
     use super::*;
     use crate::base::{MessageBuilder, Name};
     use crate::rdata::Txt;
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::sync::atomic::{AtomicU64, Ordering};
-    use std::vec::Vec;
+    use std::eprintln;
 
     #[test]
     fn batch_of_zero() {

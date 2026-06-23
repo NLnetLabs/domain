@@ -40,16 +40,16 @@ use crate::net::client::request::{
 };
 use crate::rdata::AllRecordData;
 use crate::utils::config::DefMinMax;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::Bytes;
+use core::cmp::min;
+use core::fmt::{Debug, Formatter};
+use core::future::Future;
+use core::pin::Pin;
+use core::time::Duration;
 use moka::future::Cache;
-use std::boxed::Box;
-use std::cmp::min;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
-use std::vec::Vec;
 use tokio::time::Instant;
 
 /// Configuration limit for the maximum number of entries in the cache.

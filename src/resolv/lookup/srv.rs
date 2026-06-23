@@ -7,13 +7,15 @@ use crate::base::name::{Name, ToName, ToRelativeName};
 use crate::base::wire::ParseError;
 use crate::rdata::{A, Aaaa, Srv};
 use crate::resolv::resolver::Resolver;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::fmt;
+use core::net::{IpAddr, SocketAddr};
+use core::{mem, ops};
 use futures_util::stream::{self, Stream, StreamExt};
 use octseq::octets::Octets;
 use rand::distr::{Distribution, Uniform};
-use std::net::{IpAddr, SocketAddr};
-use std::vec::Vec;
-use std::{io, mem, ops};
+use std::io;
 
 // Look up SRV record. Three outcomes:
 //
@@ -129,7 +131,7 @@ impl FoundSrvs {
     pub fn into_srvs(self) -> impl Iterator<Item = Srv<Name<OctetsVec>>> {
         let (left, right) = match self.items {
             Ok(ok) => (Some(ok.into_iter()), None),
-            Err(err) => (None, Some(std::iter::once(err))),
+            Err(err) => (None, Some(core::iter::once(err))),
         };
         left.into_iter()
             .flatten()

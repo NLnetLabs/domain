@@ -46,7 +46,7 @@ where
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
                 match v.try_into() {
                     Ok(u8_value) => Ok(T::from(u8_value)),
-                    Err(e) => Err(E::custom(format!(
+                    Err(e) => Err(E::custom(format_args!(
                         "value too big, expected u8: {e}"
                     ))),
                 }
@@ -84,7 +84,7 @@ where
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
                 match v.try_into() {
                     Ok(u16_value) => Ok(T::from(u16_value)),
-                    Err(e) => Err(E::custom(format!(
+                    Err(e) => Err(E::custom(format_args!(
                         "value too big, expected u16: {e}"
                     ))),
                 }
@@ -122,7 +122,7 @@ where
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<T, E> {
                 match v.try_into() {
                     Ok(u32_value) => Ok(T::from(u32_value)),
-                    Err(e) => Err(E::custom(format!(
+                    Err(e) => Err(E::custom(format_args!(
                         "value too big, expected u32: {e}"
                     ))),
                 }

@@ -144,9 +144,9 @@ use core::hash::Hash;
 use core::marker::PhantomData;
 use core::ops::Deref;
 
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::fmt::Debug;
 
 use crate::base::{CanonicalOrd, ToName};
 use crate::base::{Name, Record};
@@ -178,7 +178,7 @@ use traits::{SignableZone, SortedExtend};
 /// Prefer signing via the [`SignableZone`] or [`SignableZoneInPlace`] traits
 /// as they handle the construction of this type and calling [`sign_zone()`].
 ///
-/// [`Cow`]: std::borrow::Cow
+/// [`Cow`]: alloc::borrow::Cow
 /// [`SignableZoneInPlace`]: crate::dnssec::sign::traits::SignableZoneInPlace
 pub enum SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
 where
@@ -442,7 +442,7 @@ where
 
             // Add the generated NSEC3 records.
             in_out.sorted_extend(
-                std::iter::once(Record::from_record(nsec3param))
+                core::iter::once(Record::from_record(nsec3param))
                     .chain(nsec3s.into_iter().map(Record::from_record)),
             );
         }

@@ -1,14 +1,17 @@
+use core::fmt::Debug;
 use core::future::{Future, Ready, ready};
 use core::ops::ControlFlow;
 use core::pin::Pin;
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use std::borrow::ToOwned;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::sync::Arc;
-use std::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use alloc::{format, vec};
+
+use std::eprintln;
 
 use bytes::Bytes;
 use futures_util::stream::Once;

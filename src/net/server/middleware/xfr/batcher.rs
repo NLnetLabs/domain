@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use octseq::Octets;
 use tokio::sync::mpsc::UnboundedSender;
@@ -31,7 +31,7 @@ pub enum BatchReadyError {
 
 //--- Display
 
-impl std::fmt::Display for BatchReadyError {
+impl core::fmt::Display for BatchReadyError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             BatchReadyError::MustFitInSingleMessage => {
