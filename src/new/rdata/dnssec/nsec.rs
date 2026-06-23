@@ -201,8 +201,43 @@ impl Hash for TypeBitmaps {
     }
 }
 
-//============ Tests =========================================================
+//
+// --- Functions to make it easier to transition from old base.
+// These functions should be marked as deprecated when most of the initial
+// migration to new base has completed.
+impl<'a> Nsec<'a> {
+    /// Constructor for Nsec.
+    pub fn new(next: &'a Name, types: &'a TypeBitmaps) -> Self {
+        Self { next, types }
+    }
 
+    /// Return the RRtypes that are present.
+    pub fn types(&self) -> &TypeBitmaps {
+        self.types
+    }
+
+    /// Return the name of the next NSEC record in the chain.
+    pub fn next_name(&self) -> &Name {
+        self.next
+    }
+}
+
+impl TypeBitmaps {
+    /// Return an iterator for TypeBitmaps
+    pub fn iter(&self) -> impl Iterator<Item = RType> {
+        self.types()
+    }
+
+    /// Return whether the type bitmap contains a specific RRtype.
+    pub fn contains(&self, rtype: RType) -> bool {
+        // This is very inefficient.
+        self.types().any(|t| t == rtype)
+    }
+}
+
+// TODO: implement IntoIterator for TypeBitmaps.
+
+//============ Tests =========================================================
 #[cfg(test)]
 mod tests {
     use crate::new::base::{RType, wire::ParseBytesZC};
