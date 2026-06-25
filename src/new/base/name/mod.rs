@@ -135,7 +135,7 @@ pub trait CanonicalName: BuildBytes + Ord {
         let rest = self.build_bytes(bytes)?.len();
 
         // Find the built bytes and lowercase them.
-        let (bytes, rest) = bytes.split_at_mut(rest);
+        let (bytes, rest) = bytes.split_at_mut(bytes.len() - rest);
         bytes.make_ascii_lowercase();
 
         Ok(rest)
@@ -233,4 +233,34 @@ impl_canonical_name_for_deref! {
     impl[N: ?Sized + CanonicalName] CanonicalName for alloc::rc::Rc<N>;
     #[cfg(feature = "alloc")]
     impl[N: ?Sized + CanonicalName] CanonicalName for alloc::sync::Arc<N>;
+}
+
+#[cfg(feature = "alloc")]
+#[cfg(test)]
+mod tests {
+
+    use crate::new::base::name::CanonicalName;
+    use crate::new::base::wire::BuildBytes;
+
+    use super::NameBuf;
+
+    use alloc::vec;
+
+    #[test]
+    fn test_build_lowercased_bytes_simple() {
+        let name: NameBuf = "E.com".parse().unwrap();
+        let mut buf = vec![0u8; name.built_bytes_size()];
+        assert!(name.build_lowercased_bytes(&mut buf).unwrap().is_empty());
+        assert_eq!(buf, buf.to_ascii_lowercase());
+    }
+
+    #[test]
+    fn test_build_lowercased_bytes_too_long_buffer() {
+        let name: NameBuf = "E.com".parse().unwrap();
+        let mut buf = vec![0u8; 100];
+        let rest = name.build_lowercased_bytes(&mut buf).unwrap();
+
+        assert_eq!(rest.len(), 93);
+        assert_eq!(buf[..7], b"\x01e\x03com\x00"[..]);
+    }
 }
