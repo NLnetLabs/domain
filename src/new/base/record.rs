@@ -12,6 +12,85 @@ use super::wire::{
     SplitBytes, SplitBytesZC, TruncationError, U16, U32,
 };
 
+//----------- Marco ----------------------------------------------------------
+/// Enum Type implementation
+///
+/// This Macros is used to write boilerplate `match` functions which turn the
+/// Self type into the mnemonic and vice versa.
+///
+/// Uses existing struct with a `::new()` function to implement:
+/// - get_mnemonic()
+/// - from_mnemonic()
+#[macro_export]
+macro_rules! enum_type{
+    ( $(#[$attr:meta])* =>
+      $enumtype:ident;
+      $( $(#[$variant_attr:meta])*
+    ( $variant:ident => $value:expr, $mnemonic:expr) )* ) => {
+        // create constants
+        impl $enumtype {
+            $(
+                $(#[$variant_attr])*
+                pub const $variant: $enumtype = $enumtype::new($value);
+            )*
+        }
+
+        // create conversion functions
+        impl $enumtype{
+            /// Returns mnemonic representation of this type if defined.
+            #[must_use]
+            pub fn get_mnemonic(&self) -> Option<&'static str> {
+                let mnemonic = match self {
+                $(
+                    &$enumtype::$variant => Some($mnemonic),
+                )*
+                    _ => None, // default case if mnemonic is unknown
+                };
+                return mnemonic;
+            }
+
+            /// Returns Self if mnemonic is recognised.
+            #[must_use]
+            pub fn from_mnemonic(mnemonic: &str) -> Option<Self> {
+                let rtype = match mnemonic.to_uppercase().as_str() {
+                $(
+                     $mnemonic => Some($enumtype::$variant),
+                )*
+                    _ => None, // default case if mnemonic is unknown
+                };
+                return rtype;
+            }
+        }
+    }
+}
+
+/// From for Enum Type implementation
+///
+/// This macro implements conversions from the primitive type into the enum
+/// type and vice versa.
+///
+/// Uses existing struct with a `::new()` function to implement:
+/// - fn from(value: $inttype) -> $enumtype
+/// - fn from(value: $enumtype) -> $inttype
+#[macro_export]
+macro_rules! enum_type_from_and_to_primative {
+    ( $(#[$attr:meta])* =>
+      $enumtype:ident, $inttype:ident;) => {
+        //--- Conversion to and from primative
+        impl From<$inttype> for $enumtype {
+            fn from(value: $inttype) -> Self {
+                Self::new(value)
+            }
+        }
+
+        impl From<$enumtype> for $inttype {
+            fn from(value: $enumtype) -> Self {
+                value.code.get()
+            }
+        }
+    };
+}
+
 //----------- Record ---------------------------------------------------------
 
 /// A DNS record.
@@ -281,72 +360,77 @@ impl RType {
             code: U16::new(value),
         }
     }
+}
 
+// [`RType`] implementation using Macro. See macro for implementation details
+enum_type! {
+    =>
+    RType;
     /// The type of an [`A`](crate::new::rdata::A) record.
-    pub const A: Self = Self::new(1);
+    (A => 1, "A")
 
     /// The type of an [`Ns`](crate::new::rdata::Ns) record.
-    pub const NS: Self = Self::new(2);
+    (NS => 2, "NS")
 
     /// The type of a [`CName`](crate::new::rdata::CName) record.
-    pub const CNAME: Self = Self::new(5);
+    (CNAME => 5, "CNAME")
 
     /// The type of an [`Soa`](crate::new::rdata::Soa) record.
-    pub const SOA: Self = Self::new(6);
+    (SOA => 6, "SOA")
 
     /// The type of a [`Ptr`](crate::new::rdata::Ptr) record.
-    pub const PTR: Self = Self::new(12);
+    (PTR => 12, "PTR")
 
     /// The type of a [`HInfo`](crate::new::rdata::HInfo) record.
-    pub const HINFO: Self = Self::new(13);
+    (HINFO => 13, "HINFO")
 
     /// The type of a [`Mx`](crate::new::rdata::Mx) record.
-    pub const MX: Self = Self::new(15);
+    (MX => 15, "MX")
 
     /// The type of a [`Txt`](crate::new::rdata::Txt) record.
-    pub const TXT: Self = Self::new(16);
+    (TXT => 16, "TXT")
 
     /// The type of an [`Rp`](crate::new::rdata::Rp) record.
-    pub const RP: Self = Self::new(17);
+    (RP => 17, "RP")
 
     /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
-    pub const AAAA: Self = Self::new(28);
+    (AAAA => 28, "AAAA")
 
     /// The type of a [`DName`](crate::new::rdata::DName) record.
-    pub const DNAME: Self = Self::new(39);
+    (DNAME => 39, "DNAME")
 
     /// The type of an [`Opt`](crate::new::rdata::Opt) record.
-    pub const OPT: Self = Self::new(41);
+    (OPT => 41, "OPT")
 
     /// The type of a [`Ds`](crate::new::rdata::Ds) record.
-    pub const DS: Self = Self::new(43);
+    (DS => 43, "DS")
 
     /// The type of an [`Rrsig`](crate::new::rdata::Rrsig) record.
-    pub const RRSIG: Self = Self::new(46);
+    (RRSIG => 46, "RRSIG")
 
     /// The type of an [`Nsec`](crate::new::rdata::Nsec) record.
-    pub const NSEC: Self = Self::new(47);
+    (NSEC => 47, "NSEC")
 
     /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.
-    pub const DNSKEY: Self = Self::new(48);
+    (DNSKEY => 48, "DNSKEY")
 
     /// The type of an [`Nsec3`](crate::new::rdata::Nsec3) record.
-    pub const NSEC3: Self = Self::new(50);
+    (NSEC3 => 50, "NSEC3")
 
     /// The type of an [`Nsec3Param`](crate::new::rdata::Nsec3Param) record.
-    pub const NSEC3PARAM: Self = Self::new(51);
+    (NSEC3PARAM => 51, "NSEC3PARAM")
 
     /// The type of a `Cds` record.
-    pub const CDS: Self = Self::new(59);
+    (CDS => 59, "CDS")
 
     /// The type of a `CDNSKey` record.
-    pub const CDNSKEY: Self = Self::new(60);
+    (CDNSKEY => 60, "CDNSKEY")
 
     /// The type of a [`ZoneMD`](crate::new::rdata::ZoneMD) record.
-    pub const ZONEMD: Self = Self::new(63);
+    (ZONEMD => 63, "ZONEMD")
 
     /// The type of a `TSig` record.
-    pub const TSIG: Self = Self::new(250);
+    (TSIG => 250, "TSIG")
 }
 
 //--- Interaction
@@ -402,49 +486,16 @@ impl RType {
 
 //--- Conversion to and from 'u16'
 
-impl From<u16> for RType {
-    fn from(value: u16) -> Self {
-        Self {
-            code: U16::new(value),
-        }
-    }
-}
-
-impl From<RType> for u16 {
-    fn from(value: RType) -> Self {
-        value.code.get()
-    }
-}
+enum_type_from_and_to_primative!(=> RType, u16;);
 
 //--- Formatting
 
 impl fmt::Debug for RType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::A => "RType::A",
-            Self::NS => "RType::NS",
-            Self::CNAME => "RType::CNAME",
-            Self::SOA => "RType::SOA",
-            Self::PTR => "RType::PTR",
-            Self::HINFO => "RType::HINFO",
-            Self::MX => "RType::MX",
-            Self::TXT => "RType::TXT",
-            Self::RP => "RType::RP",
-            Self::AAAA => "RType::AAAA",
-            Self::DNAME => "RType::DNAME",
-            Self::OPT => "RType::OPT",
-            Self::DS => "RType::DS",
-            Self::RRSIG => "RType::RRSIG",
-            Self::NSEC => "RType::NSEC",
-            Self::DNSKEY => "RType::DNSKEY",
-            Self::NSEC3 => "RType::NSEC3",
-            Self::NSEC3PARAM => "RType::NSEC3PARAM",
-            Self::CDS => "RType::CDS",
-            Self::CDNSKEY => "RType::CDNSKEY",
-            Self::ZONEMD => "RType::ZONEMD",
-            Self::TSIG => "RType::TSIG",
-            _ => return write!(f, "RType({})", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "RType::{}", m),
+            None => write!(f, "RType({})", self.code),
+        }
     }
 }
 
@@ -468,31 +519,10 @@ impl fmt::Debug for RType {
 /// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
 impl fmt::Display for RType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::A => "A",
-            Self::NS => "NS",
-            Self::CNAME => "CNAME",
-            Self::SOA => "SOA",
-            Self::PTR => "PTR",
-            Self::HINFO => "HINFO",
-            Self::MX => "MX",
-            Self::TXT => "TXT",
-            Self::RP => "RP",
-            Self::AAAA => "AAAA",
-            Self::DNAME => "DNAME",
-            Self::OPT => "OPT",
-            Self::DS => "DS",
-            Self::RRSIG => "RRSIG",
-            Self::NSEC => "NSEC",
-            Self::DNSKEY => "DNSKEY",
-            Self::NSEC3 => "NSEC3",
-            Self::NSEC3PARAM => "NSEC3PARAM",
-            Self::CDS => "CDS",
-            Self::CDNSKEY => "CDNSKEY",
-            Self::ZONEMD => "ZONEMD",
-            Self::TSIG => "TSIG",
-            _ => return write!(f, "TYPE{}", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "{}", m),
+            None => write!(f, "TYPE{}", self.code),
+        }
     }
 }
 
@@ -530,39 +560,29 @@ impl RClass {
             code: U16::new(value),
         }
     }
+}
 
+enum_type! {
+    =>
+    RClass;
     /// The Internet class.
-    pub const IN: Self = Self::new(1);
-
+    (IN => 1, "IN")
     /// The CHAOS class.
-    pub const CH: Self = Self::new(3);
+    (CH => 3, "CH")
 }
 
 //--- Conversion to and from 'u16'
 
-impl From<u16> for RClass {
-    fn from(value: u16) -> Self {
-        Self {
-            code: U16::new(value),
-        }
-    }
-}
-
-impl From<RClass> for u16 {
-    fn from(value: RClass) -> Self {
-        value.code.get()
-    }
-}
+enum_type_from_and_to_primative!(=> RClass, u16;);
 
 //--- Formatting
 
 impl fmt::Debug for RClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::IN => "RClass::IN",
-            Self::CH => "RClass::CH",
-            _ => return write!(f, "RClass({})", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "RClass::{}", m),
+            None => write!(f, "RClass({})", self.code),
+        }
     }
 }
 
@@ -586,11 +606,10 @@ impl fmt::Debug for RClass {
 /// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
 impl fmt::Display for RClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::IN => "IN",
-            Self::CH => "CH",
-            _ => return write!(f, "CLASS{}", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "{}", m),
+            None => write!(f, "CLASS{}", self.code),
+        }
     }
 }
 
