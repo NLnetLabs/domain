@@ -108,6 +108,15 @@ impl Name {
     }
 }
 
+impl<T: ?Sized> AsMut<T> for Name
+where
+    [u8]: AsMut<T>,
+{
+    fn as_mut(&mut self) -> &mut T {
+        self.0.as_mut()
+    }
+}
+
 //--- Canonical operations
 
 impl CanonicalName for Name {

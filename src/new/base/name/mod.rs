@@ -144,6 +144,18 @@ pub trait CanonicalName: BuildBytes + Ord {
         Ok(rest)
     }
 
+    /// Change a domain name into lowercased labels.
+    ///
+    /// Changes the characters in the domain name to the lowercased form.
+    fn make_canonical(&mut self)
+    where
+        Self: AsMut<[u8]>,
+    {
+        // A label can be at most 63 bytes. Therefore the length indicator can
+        // never be changed due to a confusion with a uppercase letter.
+        self.as_mut().make_ascii_lowercase();
+    }
+
     /// Compare domain names as if they were in the wire format.
     ///
     /// This is equivalent to serializing both domain names in the wire format
@@ -245,6 +257,7 @@ mod tests {
     use crate::new::base::name::CanonicalName;
     use crate::new::base::wire::BuildBytes;
 
+    use super::Name;
     use super::NameBuf;
 
     use alloc::vec;
@@ -265,5 +278,27 @@ mod tests {
 
         assert_eq!(rest.len(), 93);
         assert_eq!(buf[..7], b"\x01e\x03com\x00"[..]);
+    }
+
+    #[test]
+    fn test_make_canonical_ref_name() {
+        let namebuf_lowercase: NameBuf = "example.com".parse().unwrap();
+        let mut namebuf_different_cases: NameBuf =
+            "ExAmPlE.cOm".parse().unwrap();
+
+        let name_lowercase: &Name = &namebuf_lowercase;
+        let name_different_cases: &mut Name = &mut namebuf_different_cases;
+
+        assert_ne!(
+            name_lowercase.as_bytes(),
+            name_different_cases.as_bytes()
+        );
+
+        name_different_cases.make_canonical();
+
+        assert_eq!(
+            name_lowercase.as_bytes(),
+            name_different_cases.as_bytes()
+        );
     }
 }
