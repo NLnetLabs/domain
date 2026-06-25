@@ -206,10 +206,10 @@ impl QType {
     /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.
     pub const DNSKEY: Self = Self::new(48);
 
-    /// The type of queries for [`NSec3`](crate::new::rdata::NSec3) records.
+    /// The type of queries for [`Nsec3`](crate::new::rdata::Nsec3) records.
     pub const NSEC3: Self = Self::new(50);
 
-    /// The type of queries for [`NSec3Param`](crate::new::rdata::NSec3Param) records.
+    /// The type of queries for [`Nsec3Param`](crate::new::rdata::Nsec3Param) records.
     pub const NSEC3PARAM: Self = Self::new(51);
 
     /// The type of querios for `Cds` records.

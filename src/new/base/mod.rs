@@ -275,8 +275,8 @@ pub mod compat {
         #[deprecated = "use 'crate::new::rdata::DigestType' instead."]
         pub use digestalg::DigestAlg;
 
-        #[deprecated = "use 'crate::new::rdata::NSec3HashAlg' instead."]
-        pub use nsec3::Nsec3HashAlg;
+        #[deprecated = "use 'crate::new::rdata::Nsec3HashAlgorithm' instead."]
+        pub use nsec3::Nsec3HashAlgorithm;
 
         #[deprecated = "use 'crate::new::edns::OptionCode' instead."]
         pub use opt::OptionCode;
@@ -301,8 +301,8 @@ pub mod compat {
         }
 
         pub mod nsec3 {
-            #[deprecated = "use 'crate::new::rdata::NSec3HashAlg' instead."]
-            pub use crate::new::rdata::NSec3HashAlg as Nsec3HashAlg;
+            #[deprecated = "use 'crate::new::rdata::Nsec3HashAlgorithm' instead."]
+            pub use crate::new::rdata::Nsec3HashAlgorithm;
         }
 
         pub mod opt {

@@ -16,7 +16,7 @@ mod nsec;
 pub use nsec::{Nsec, TypeBitmaps};
 
 mod nsec3;
-pub use nsec3::{NSec3, NSec3Flags, NSec3HashAlg, NSec3Param};
+pub use nsec3::{Nsec3, Nsec3Flags, Nsec3HashAlgorithm, Nsec3Param};
 
 mod ds;
 pub use ds::{DigestType, Ds};

@@ -53,8 +53,8 @@
 //! - [`DNSKey`]
 //! - [`Rrsig`]
 //! - [`Nsec`]
-//! - [`NSec3`]
-//! - [`NSec3Param`]
+//! - [`Nsec3`]
+//! - [`Nsec3Param`]
 //! - [`Ds`]
 //! - [`ZoneMD`]
 //!
@@ -117,8 +117,8 @@ pub use rp::Rp;
 
 mod dnssec;
 pub use dnssec::{
-    DNSKey, DNSKeyFlags, DigestType, Ds, NSec3, NSec3Flags, NSec3HashAlg,
-    NSec3Param, Nsec, Rrsig, SecAlg, TypeBitmaps,
+    DNSKey, DNSKeyFlags, DigestType, Ds, Nsec3, Nsec3Flags, Nsec3HashAlgorithm,
+    Nsec3Param, Nsec, Rrsig, SecAlg, TypeBitmaps,
 };
 
 mod zonemd;
@@ -302,10 +302,10 @@ define_record_data! {
         DNSKey(&'a DNSKey) = DNSKEY,
 
         /// An indication of the non-existence of a set of DNS records (version 3).
-        NSec3(NSec3<'a>) = NSEC3,
+        Nsec3(Nsec3<'a>) = NSEC3,
 
-        /// Parameters for computing [`NSec3`] records.
-        NSec3Param(&'a NSec3Param) = NSEC3PARAM,
+        /// Parameters for computing [`Nsec3`] records.
+        Nsec3Param(&'a Nsec3Param) = NSEC3PARAM,
 
         /// A message digest of the enclosing zone.
         ZoneMD(&'a ZoneMD) = ZONEMD;
@@ -337,8 +337,8 @@ impl<'a, N> RecordData<'a, N> {
             Self::Rrsig(r) => RecordData::Rrsig(r),
             Self::Nsec(r) => RecordData::Nsec(r),
             Self::DNSKey(r) => RecordData::DNSKey(r),
-            Self::NSec3(r) => RecordData::NSec3(r),
-            Self::NSec3Param(r) => RecordData::NSec3Param(r),
+            Self::Nsec3(r) => RecordData::Nsec3(r),
+            Self::Nsec3Param(r) => RecordData::Nsec3Param(r),
             Self::ZoneMD(r) => RecordData::ZoneMD(r),
             Self::Unknown(rt, rd) => RecordData::Unknown(rt, rd),
         }
@@ -366,8 +366,8 @@ impl<'a, N> RecordData<'a, N> {
             Self::Rrsig(r) => RecordData::Rrsig(r.clone()),
             Self::Nsec(r) => RecordData::Nsec(r.clone()),
             Self::DNSKey(r) => RecordData::DNSKey(r),
-            Self::NSec3(r) => RecordData::NSec3(r.clone()),
-            Self::NSec3Param(r) => RecordData::NSec3Param(r),
+            Self::Nsec3(r) => RecordData::Nsec3(r.clone()),
+            Self::Nsec3Param(r) => RecordData::Nsec3Param(r),
             Self::ZoneMD(r) => RecordData::ZoneMD(r),
             Self::Unknown(rt, rd) => RecordData::Unknown(*rt, rd),
         }
@@ -401,9 +401,9 @@ impl<'a, N> RecordData<'a, N> {
             Self::Rrsig(r) => RecordData::Rrsig(r.clone_to_bump(bump)),
             Self::Nsec(r) => RecordData::Nsec(r.clone_to_bump(bump)),
             Self::DNSKey(r) => RecordData::DNSKey(copy_to_bump(*r, bump)),
-            Self::NSec3(r) => RecordData::NSec3(r.clone_to_bump(bump)),
-            Self::NSec3Param(r) => {
-                RecordData::NSec3Param(copy_to_bump(*r, bump))
+            Self::Nsec3(r) => RecordData::Nsec3(r.clone_to_bump(bump)),
+            Self::Nsec3Param(r) => {
+                RecordData::Nsec3Param(copy_to_bump(*r, bump))
             }
             Self::ZoneMD(r) => RecordData::ZoneMD(copy_to_bump(*r, bump)),
             Self::Unknown(rt, rd) => {
@@ -467,11 +467,11 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
                 <&DNSKey>::parse_bytes(&contents[start..]).map(Self::DNSKey)
             }
             RType::NSEC3 => {
-                NSec3::parse_bytes(&contents[start..]).map(Self::NSec3)
+                Nsec3::parse_bytes(&contents[start..]).map(Self::Nsec3)
             }
             RType::NSEC3PARAM => {
-                <&NSec3Param>::parse_bytes(&contents[start..])
-                    .map(Self::NSec3Param)
+                <&Nsec3Param>::parse_bytes(&contents[start..])
+                    .map(Self::Nsec3Param)
             }
             RType::ZONEMD => {
                 <&ZoneMD>::parse_bytes(&contents[start..]).map(Self::ZoneMD)

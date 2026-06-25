@@ -229,9 +229,16 @@ impl TypeBitmaps {
     }
 
     /// Return whether the type bitmap contains a specific RRtype.
+    // This is very inefficient. It should iterate over the bitmaps and
+    // then directly check the relevant bit.
     pub fn contains(&self, rtype: RType) -> bool {
         // This is very inefficient.
         self.types().any(|t| t == rtype)
+    }
+
+    /// Return whether the type bitmap is empty.
+    pub fn is_empty(&self) -> bool {
+	self.types().next().is_none()
     }
 }
 
