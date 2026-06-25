@@ -34,6 +34,7 @@
 //! <code>Box&lt;[Name]&gt;</code> respectively. There are more efficient
 //! alternatives in some cases; see [`name`].
 //!
+//! [`name`]: domain::new::base::name
 //! [Name]: name::Name
 //! [RevName]: name::RevName
 //! [`NameBuf`]: name::NameBuf
