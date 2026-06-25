@@ -2,10 +2,10 @@
 
 use alloc::fmt;
 use core::cmp::Ordering;
+#[cfg(feature = "std")]
 use std::cmp;
-use std::time::Duration;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+#[cfg(feature = "std")]
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use domain_macros::*;
 
@@ -350,6 +350,7 @@ impl ZonefileFmt for Timestamp {
 
 //--- PartialOrd and CanonicalOrd
 
+#[cfg(feature = "std")]
 impl cmp::PartialOrd for Timestamp {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         self.0.partial_cmp(&other.0)
