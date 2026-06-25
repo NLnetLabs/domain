@@ -117,8 +117,8 @@ pub use rp::Rp;
 
 mod dnssec;
 pub use dnssec::{
-    DNSKey, DNSKeyFlags, DigestType, Ds, Nsec3, Nsec3Flags, Nsec3HashAlgorithm,
-    Nsec3Param, Nsec, Rrsig, SecAlg, TypeBitmaps,
+    DNSKey, DNSKeyFlags, DigestType, Ds, Nsec, Nsec3, Nsec3Flags,
+    Nsec3HashAlgorithm, Nsec3Param, Rrsig, SecAlg, TypeBitmaps,
 };
 
 mod zonemd;

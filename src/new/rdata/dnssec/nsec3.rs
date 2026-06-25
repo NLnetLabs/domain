@@ -295,8 +295,22 @@ impl fmt::Debug for Nsec3Flags {
 // migration to new base has completed.
 impl<'a> Nsec3<'a> {
     /// Constructor for Nsec3.
-    pub fn new(hash_algorithm: Nsec3HashAlgorithm, flags: Nsec3Flags, iterations: u16, salt: &'a SizePrefixed<u8, [u8]>, next_owner: &'a SizePrefixed<u8, [u8]>, types: &'a TypeBitmaps) -> Self {
-        Self { algorithm: hash_algorithm, flags, iterations: iterations.into(), salt, next: next_owner, types }
+    pub fn new(
+        hash_algorithm: Nsec3HashAlgorithm,
+        flags: Nsec3Flags,
+        iterations: u16,
+        salt: &'a SizePrefixed<u8, [u8]>,
+        next_owner: &'a SizePrefixed<u8, [u8]>,
+        types: &'a TypeBitmaps,
+    ) -> Self {
+        Self {
+            algorithm: hash_algorithm,
+            flags,
+            iterations: iterations.into(),
+            salt,
+            next: next_owner,
+            types,
+        }
     }
 
     /// Return the RRtypes that are present.
@@ -315,27 +329,26 @@ impl<'a> Nsec3<'a> {
 impl Nsec3Param {
     /// Return the hash algorithm.
     pub fn hash_algorithm(&self) -> Nsec3HashAlgorithm {
-	self.algorithm
+        self.algorithm
     }
 
     /// Return the flags.
     pub fn flags(&self) -> Nsec3Flags {
-	self.flags
+        self.flags
     }
 
     /// Return whether the opt-out flag is set.
     pub fn opt_out_flag(&self) -> bool {
-	self.flags.is_optout()
+        self.flags.is_optout()
     }
 
     /// Return the number of extra hash iterations.
     pub fn iterations(&self) -> u16 {
-	self.iterations.into()
+        self.iterations.into()
     }
 
     /// Return the salt.
     pub fn salt(&self) -> &SizePrefixed<u8, [u8]> {
-	&self.salt
+        &self.salt
     }
 }
-

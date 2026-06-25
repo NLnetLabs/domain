@@ -238,7 +238,7 @@ impl TypeBitmaps {
 
     /// Return whether the type bitmap is empty.
     pub fn is_empty(&self) -> bool {
-	self.types().next().is_none()
+        self.types().next().is_none()
     }
 }
 
