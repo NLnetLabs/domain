@@ -1,11 +1,10 @@
 //! The RRSIG record data type.
 
 use alloc::fmt;
-use core::cmp::Ordering;
+use core::cmp::{self, Ordering};
+use core::time::Duration;
 #[cfg(feature = "std")]
-use std::cmp;
-#[cfg(feature = "std")]
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use domain_macros::*;
 

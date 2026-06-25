@@ -844,7 +844,7 @@ impl<'a, N> Record<N, RecordData<'a, N>> {
     }
 }
 
-impl<'a, N> Record<N, BoxedRecordData> {
+impl<N> Record<N, BoxedRecordData> {
     /// Constructor that is more compatible with old base that takes
     /// BoxedRecordData.
     pub fn old_new_box(
