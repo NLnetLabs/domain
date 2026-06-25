@@ -1,7 +1,10 @@
 //! The RRSIG record data type.
 
 use alloc::fmt;
-use core::cmp::{self, Ordering};
+#[cfg(feature = "std")]
+use core::cmp;
+use core::cmp::Ordering;
+#[cfg(feature = "std")]
 use core::time::Duration;
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
