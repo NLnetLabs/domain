@@ -866,4 +866,20 @@ mod test {
         assert_eq!("MX", format!("{}", RType::MX));
         assert_eq!("TYPE265", format!("{}", RType::from(265)));
     }
+
+    #[test]
+    fn test_rtype_from_mnemonic() {
+        assert_eq!(RType::from_mnemonic("A").unwrap(), RType::A);
+        assert_eq!(RType::from_mnemonic("MX").unwrap(), RType::MX);
+        // Make sure from_mnemonic does NOT parse unknown format.
+        assert!(RType::from_mnemonic("TYPE10").is_none());
+    }
+
+    #[test]
+    fn test_rclass_from_mnemonic() {
+        assert_eq!(RClass::from_mnemonic("IN").unwrap(), RClass::IN);
+        assert_eq!(RClass::from_mnemonic("CH").unwrap(), RClass::CH);
+        // Make sure from_mnemonic does NOT parse unknown format.
+        assert!(RClass::from_mnemonic("CLASS10").is_none());
+    }
 }

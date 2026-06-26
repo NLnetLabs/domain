@@ -436,4 +436,20 @@ mod test {
         assert_eq!("MX", format!("{}", QType::MX));
         assert_eq!("TYPE265", format!("{}", QType::from(265)));
     }
+
+    #[test]
+    fn test_rtype_from_mnemonic() {
+        assert_eq!(QType::from_mnemonic("A").unwrap(), QType::A);
+        assert_eq!(QType::from_mnemonic("MX").unwrap(), QType::MX);
+        // Make sure from_mnemonic does NOT parse unknown format.
+        assert!(QType::from_mnemonic("TYPE10").is_none());
+    }
+
+    #[test]
+    fn test_rclass_from_mnemonic() {
+        assert_eq!(QClass::from_mnemonic("IN").unwrap(), QClass::IN);
+        assert_eq!(QClass::from_mnemonic("CH").unwrap(), QClass::CH);
+        // Make sure from_mnemonic does NOT parse unknown format.
+        assert!(QClass::from_mnemonic("CLASS10").is_none());
+    }
 }
