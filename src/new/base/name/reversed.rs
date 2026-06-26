@@ -227,7 +227,17 @@ impl Ord for RevName {
         // preceded by their length octets, but a longer label can be less
         // than a shorter one if its first bytes are less. We are forced to
         // compare lexicographically over labels.
-        self.labels().cmp(that.labels())
+        if self.as_bytes().eq_ignore_ascii_case(that.as_bytes()) {
+            return Ordering::Equal;
+        }
+        for (l, r) in core::iter::zip(self.labels(), that.labels()) {
+            if !l.as_bytes().eq_ignore_ascii_case(r.as_bytes()) {
+                let l_chars = l.as_bytes()[1..].to_ascii_lowercase();
+                let r_chars = r.as_bytes()[1..].to_ascii_lowercase();
+                return l_chars.cmp(&r_chars);
+            }
+        }
+        self.len().cmp(&that.len())
     }
 }
 
@@ -714,5 +724,88 @@ mod tests {
             revnamebuf.to_name().as_bytes(),
             b"\x07example\x03com\x00",
         );
+    }
+
+    #[cfg(feature = "std")] // remove std println
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_sort_revname() {
+        let aa_com: &RevName = &"aa.com".parse::<RevNameBuf>().unwrap();
+        let aaa_com: &RevName = &"aaa.com".parse::<RevNameBuf>().unwrap();
+        let bb_com: &RevName = &"bb.com".parse::<RevNameBuf>().unwrap();
+        let c0_com: &RevName = &"c0.com".parse::<RevNameBuf>().unwrap();
+        let c_acom: &RevName = &"c.acom".parse::<RevNameBuf>().unwrap();
+        let c_com0: &RevName = &"c.com0".parse::<RevNameBuf>().unwrap();
+        let c_com: &RevName = &"c.com".parse::<RevNameBuf>().unwrap();
+
+        let mut name_list = alloc::vec![
+            aa_com, aaa_com, bb_com, c0_com, c_acom, c_com, c_com0,
+        ];
+        let expected_name_list = alloc::vec![
+            c_acom, aa_com, aaa_com, bb_com, c_com, c0_com, c_com0
+        ];
+
+        name_list.sort();
+        for n in &name_list {
+            std::println!("{n:?}");
+        }
+        assert_eq!(name_list, expected_name_list);
+    }
+    #[cfg(feature = "std")] // remove
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_sort_revname_rfc4034() {
+        let name_1: &RevName = &"example".parse::<RevNameBuf>().unwrap();
+        let name_2: &RevName = &"a.example".parse::<RevNameBuf>().unwrap();
+        let name_3: &RevName =
+            &"yljkjljk.a.example".parse::<RevNameBuf>().unwrap();
+        let name_4: &RevName = &"Z.a.example".parse::<RevNameBuf>().unwrap();
+        let name_5: &RevName =
+            &"zABC.a.EXAMPLE".parse::<RevNameBuf>().unwrap();
+        let name_6: &RevName = &"z.example".parse::<RevNameBuf>().unwrap();
+        // let name_7: &RevName =
+        //     &"\x0001.z.example".parse::<RevNameBuf>().unwrap();
+        let name_8: &RevName = &"*.z.example".parse::<RevNameBuf>().unwrap();
+        // let name_9: &RevName =
+        //     &"\x0200.z.example".parse::<RevNameBuf>().unwrap();
+
+        let mut name_list = alloc::vec![
+            /*name_7,*/ name_8, /*name_9,*/
+            name_1, name_2, name_3, name_4, name_5, name_6,
+        ];
+        let expected_name_list = alloc::vec![
+            name_1, name_2, name_3, name_4, name_5, name_6,
+            /*name_7,*/ name_8, /*name_9,*/
+        ];
+
+        name_list.sort();
+        for n in &name_list {
+            std::println!("{n:?}");
+        }
+        std::println!();
+        assert_eq!(name_list, expected_name_list);
+    }
+
+    // remove this -- example for testing only
+    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_sort_revname2() {
+        let name_a: &RevName =
+            &"nt2ent.example".parse::<RevNameBuf>().unwrap();
+        let name_b: &RevName =
+            &"txt.nt2ent.example".parse::<RevNameBuf>().unwrap();
+        let name_c: &RevName =
+            &"not-auth.example".parse::<RevNameBuf>().unwrap();
+        let name_d: &RevName =
+            &"delegation1.example".parse::<RevNameBuf>().unwrap();
+
+        let mut name_list = alloc::vec![name_a, name_b, name_c, name_d];
+
+        name_list.sort();
+        for n in name_list {
+            std::println!("{n:?}");
+        }
+        std::println!();
     }
 }
