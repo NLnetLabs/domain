@@ -182,6 +182,9 @@
 
 //--- DNS messages
 
+#[macro_use]
+mod macros;
+
 mod message;
 pub use message::{Header, HeaderFlags, Message, MessageItem, SectionCounts};
 

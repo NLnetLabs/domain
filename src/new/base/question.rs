@@ -2,7 +2,6 @@
 
 use core::fmt;
 
-use crate::{enum_type, enum_type_from_and_to_primative};
 use domain_macros::*;
 
 use super::{
@@ -243,7 +242,7 @@ enum_type! {
 
 //--- Conversion to and from 'u16'
 
-enum_type_from_and_to_primative!(=> QType, u16;);
+enum_type_from_and_to_primitive!(=> QType, u16;);
 
 //--- Formatting
 
@@ -273,7 +272,7 @@ impl fmt::Debug for QType {
 /// ```
 ///
 /// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
-/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
 impl fmt::Display for QType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.get_mnemonic() {
@@ -330,7 +329,8 @@ enum_type! {
 
 //--- Conversion to and from 'u16'
 
-enum_type_from_and_to_primative!(=> QClass, u16;);
+enum_type_from_and_to_primitive!(=> QClass, u16;);
+
 //--- Formatting
 
 impl fmt::Debug for QClass {
@@ -342,7 +342,7 @@ impl fmt::Debug for QClass {
     }
 }
 
-/// Format an [`QClass`] in a human-readable way
+/// Format a [`QClass`] in a human-readable way
 ///
 /// Return the mnemonic of [`QClass`]. If [`QClass`] is unknown, then the
 /// returned string contains the class in the unknown format as defined in
@@ -359,7 +359,7 @@ impl fmt::Debug for QClass {
 /// ```
 ///
 /// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
-/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
 impl fmt::Display for QClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.get_mnemonic() {
