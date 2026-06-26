@@ -36,12 +36,17 @@ macro_rules! enum_type{
             /// Returns Self if mnemonic is recognised.
             #[must_use]
             pub fn from_mnemonic(mnemonic: &str) -> Option<Self> {
-                match mnemonic.to_uppercase().as_str() {
+                let types = [
                 $(
-                     $mnemonic => Some($enumtype::$variant),
+                    ($mnemonic, Self::$variant),
                 )*
-                    _ => None, // default case if mnemonic is unknown
+                ];
+                for candidate in types {
+                    if mnemonic.eq_ignore_ascii_case(candidate.0) {
+                        return Some(candidate.1)
+                    }
                 }
+                None
             }
         }
     }
