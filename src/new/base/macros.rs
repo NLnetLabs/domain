@@ -1,4 +1,5 @@
-//----------- Macros ---------------------------------------------------------
+//! Macros for Enum Types
+
 /// DNS Enum Type implementation
 ///
 /// This Macros is used to write boilerplate `match` functions which turn the
@@ -52,7 +53,7 @@ macro_rules! enum_type{
     }
 }
 
-/// From for Enum Type implementation
+/// From implementation for DNS Enum Type
 ///
 /// This macro implements conversions from the primitive type into the enum
 /// type and vice versa.
