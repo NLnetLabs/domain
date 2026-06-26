@@ -242,8 +242,9 @@ impl Ord for Label {
     /// two labels have all the same bytes, the shorter label is lesser; if
     /// they are the same length, they are equal.
     fn cmp(&self, other: &Self) -> Ordering {
-        let this = self.as_bytes().iter().map(u8::to_ascii_lowercase);
-        let that = other.as_bytes().iter().map(u8::to_ascii_lowercase);
+        let this = self.as_bytes().iter().skip(1).map(u8::to_ascii_lowercase);
+        let that =
+            other.as_bytes().iter().skip(1).map(u8::to_ascii_lowercase);
         this.cmp(that)
     }
 }

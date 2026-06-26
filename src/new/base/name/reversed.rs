@@ -227,17 +227,7 @@ impl Ord for RevName {
         // preceded by their length octets, but a longer label can be less
         // than a shorter one if its first bytes are less. We are forced to
         // compare lexicographically over labels.
-        if self.as_bytes().eq_ignore_ascii_case(that.as_bytes()) {
-            return Ordering::Equal;
-        }
-        for (l, r) in core::iter::zip(self.labels(), that.labels()) {
-            if !l.as_bytes().eq_ignore_ascii_case(r.as_bytes()) {
-                let l_chars = l.as_bytes()[1..].to_ascii_lowercase();
-                let r_chars = r.as_bytes()[1..].to_ascii_lowercase();
-                return l_chars.cmp(&r_chars);
-            }
-        }
-        self.len().cmp(&that.len())
+        self.labels().cmp(that.labels())
     }
 }
 
