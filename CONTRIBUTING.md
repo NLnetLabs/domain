@@ -5,6 +5,18 @@ _domain_ crate.
 
 This is a first draft version. Feel free to, er, contribute to it.
 
+## Code of Conduct
+
+This project and everyone participating in it is governed by the [NLnet Labs
+Code of Conduct]. By participating, you are expected to uphold this code.
+
+[NLnet Labs Code of Conduct]: https://www.nlnetlabs.nl/conduct
+
+## LLM Policy
+
+To contribute to this project, must comply with the [NLnet Labs LLM Policy].
+
+[NLnet Labs LLM Policy]: https://www.nlnetlabs.nl/llm-policy
 
 ## Submitting contributions
 
