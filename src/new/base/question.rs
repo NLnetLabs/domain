@@ -190,6 +190,9 @@ impl QType {
     /// The type of queries for [`Aaaa`](crate::new::rdata::Aaaa) records.
     pub const AAAA: Self = Self::new(28);
 
+    /// The type of queries for [`Srv`](crate::new::rdata::Srv) records.
+    pub const SRV: Self = Self::new(33);
+
     /// The type of queries for [`DName`](crate::new::rdata::DName) records.
     pub const DNAME: Self = Self::new(39);
 
@@ -267,6 +270,7 @@ impl fmt::Debug for QType {
             Self::TXT => "QType::TXT",
             Self::RP => "QType::RP",
             Self::AAAA => "QType::AAAA",
+            Self::SRV => "QType::SRV",
             Self::DNAME => "QType::DNAME",
             Self::OPT => "QType::OPT",
             Self::DS => "QType::DS",
