@@ -223,22 +223,22 @@ impl NameCompressor {
             // chance that we aren't consistent with label boundaries.
 
             // TODO(1.80): Use 'slice::split_at_checked()'.
-            if entry.len() < first.as_bytes().len()
-                || !entry[entry.len() - first.as_bytes().len()..]
-                    .eq_ignore_ascii_case(first.as_bytes())
+            if entry.len() < first.encoding().len()
+                || !entry[entry.len() - first.encoding().len()..]
+                    .eq_ignore_ascii_case(first.encoding())
             {
                 continue;
             }
-            entry = &entry[..entry.len() - first.as_bytes().len()];
+            entry = &entry[..entry.len() - first.encoding().len()];
 
             for label in name_labels.clone() {
-                if entry.len() < label.as_bytes().len()
-                    || !entry[entry.len() - label.as_bytes().len()..]
-                        .eq_ignore_ascii_case(label.as_bytes())
+                if entry.len() < label.encoding().len()
+                    || !entry[entry.len() - label.encoding().len()..]
+                        .eq_ignore_ascii_case(label.encoding())
                 {
                     break;
                 }
-                entry = &entry[..entry.len() - label.as_bytes().len()];
+                entry = &entry[..entry.len() - label.encoding().len()];
             }
 
             // Suffixes from 'entry' that were also in 'name' have been
@@ -550,7 +550,7 @@ impl NameCompressor {
         const SEED2: u64 = 0x13198a2e03707344;
         const M: u64 = 0xa4093822299f31d0;
 
-        let bytes = label.as_bytes();
+        let bytes = label.encoding();
         let len = bytes.len();
         let mut s = (SEED1, SEED2);
 

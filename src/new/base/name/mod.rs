@@ -83,10 +83,13 @@ use super::wire::{BuildBytes, TruncationError};
 //--- Submodules
 
 mod label;
-pub use label::{Label, LabelBuf, LabelIter, LabelParseError};
+pub use label::{
+    Label, LabelBuf, LabelIter, LabelParseError, LabelSplitError, label,
+    label_buf,
+};
 
 mod absolute;
-pub use absolute::{Name, NameBuf, NameParseError};
+pub use absolute::{Name, NameBuf, NameParseError, NameSplitError};
 
 mod reversed;
 pub use reversed::{RevName, RevNameBuf};

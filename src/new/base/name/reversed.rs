@@ -12,6 +12,7 @@ use core::{
 use crate::{
     new::base::{
         build::{BuildInMessage, NameCompressor},
+        name::NameSplitError,
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
             BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
@@ -139,9 +140,9 @@ impl BuildInMessage for RevName {
             let labels = unsafe { LabelIter::new_unchecked(rest) };
             for label in labels {
                 let label_buffer;
-                let offset = buffer.len() - label.as_bytes().len();
+                let offset = buffer.len() - label.encoding().len();
                 (buffer, label_buffer) = buffer.split_at_mut(offset);
-                label_buffer.copy_from_slice(label.as_bytes());
+                label_buffer.copy_from_slice(label.encoding());
             }
 
             // Add the top bits and the 12-byte offset for the message header.
@@ -173,9 +174,9 @@ impl BuildBytes for RevName {
         // Write out the labels in the name in reverse.
         for label in self.labels() {
             let label_buffer;
-            let offset = buffer.len() - label.as_bytes().len();
+            let offset = buffer.len() - label.encoding().len();
             (buffer, label_buffer) = buffer.split_at_mut(offset);
-            label_buffer.copy_from_slice(label.as_bytes());
+            label_buffer.copy_from_slice(label.encoding());
         }
 
         Ok(rest)
@@ -620,9 +621,38 @@ impl fmt::Debug for RevNameBuf {
 //--- Parsing from strings
 
 impl RevNameBuf {
-    /// Parse a domain name from the zonefile format.
-    pub fn parse_str(s: &[u8]) -> Result<(Self, &[u8]), NameParseError> {
-        NameBuf::parse_str(s).map(|(this, rest)| (this.into(), rest))
+    /// Parse a printed domain name.
+    ///
+    /// This will parse a domain name from the format used by [`impl Display
+    /// for RevName`]. This is a subset of the syntax of the zone file format.
+    /// See the examples here to understand how this implementation works.
+    ///
+    /// This function is a direct inverse of [`impl Display for RevNameBuf`],
+    /// but it cannot be used to parse a domain name embedded within a larger
+    /// string. For that, see [`RevNameBuf::split_str()`].
+    //
+    // TODO: Doc tests
+    pub fn parse_str(s: &[u8]) -> Result<Self, NameParseError> {
+        NameBuf::parse_str(s).map(Self::from)
+    }
+
+    /// Parse a printed domain name from a larger string.
+    ///
+    /// This will parse a domain name from the format used by [`impl Display
+    /// for RevName`]. This is a subset of the syntax of the zone file format.
+    /// See the examples here to understand how this implementation works.
+    ///
+    /// This function is designed for use when parsing domain names embedded
+    /// within some larger string (e.g. a zone file). The string may be
+    /// buffered, so only a part of it is provided; the string is considered
+    /// to be infinitely long. A domain name is only parsed successfully
+    /// once a delimiting byte (one that lies _after_ it) is found. As such,
+    /// this function is **not** a perfect inverse of [`impl Display for
+    /// RevNameBuf`]. For such an inverse, see [`RevNameBuf::parse_str()`].
+    //
+    // TODO: Doc tests
+    pub fn split_str(s: &[u8]) -> Result<(Self, &[u8]), NameSplitError> {
+        NameBuf::split_str(s).map(|(this, rest)| (this.into(), rest))
     }
 }
 
@@ -631,11 +661,7 @@ impl FromStr for RevNameBuf {
 
     /// Parse a name from a string.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match Self::parse_str(s.as_bytes()) {
-            Ok((this, &[])) => Ok(this),
-            Ok(_) => Err(NameParseError::InvalidChar),
-            Err(err) => Err(err),
-        }
+        Self::parse_str(s.as_bytes())
     }
 }
 

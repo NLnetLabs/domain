@@ -12,6 +12,7 @@ use core::{
 use crate::{
     new::base::{
         build::BuildInMessage,
+        name::LabelSplitError,
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
@@ -576,7 +577,7 @@ impl NameBuf {
     ///
     /// This is an internal convenience function used while building buffers.
     fn append_label(&mut self, label: &Label) {
-        self.append_bytes(label.as_bytes());
+        self.append_bytes(label.encoding());
     }
 }
 
@@ -667,30 +668,136 @@ impl fmt::Debug for NameBuf {
 //--- Parsing from strings
 
 impl NameBuf {
-    /// Parse a domain name from the zonefile format.
-    pub fn parse_str(mut s: &[u8]) -> Result<(Self, &[u8]), NameParseError> {
+    /// Parse a printed domain name.
+    ///
+    /// This will parse a domain name from the format used by [`impl Display
+    /// for Name`]. This is a subset of the syntax of the zone file format.
+    /// See the examples here to understand how this implementation works.
+    ///
+    /// This function is a direct inverse of [`impl Display for NameBuf`],
+    /// but it cannot be used to parse a domain name embedded within a larger
+    /// string. For that, see [`NameBuf::split_str()`].
+    //
+    // TODO: Doc tests
+    pub fn parse_str(mut s: &[u8]) -> Result<Self, NameParseError> {
         // The buffer we'll fill into.
         let mut this = Self::empty();
 
         // Parse label by label.
-        loop {
-            let (label, rest) = LabelBuf::parse_str(s)?;
+        let absolute = loop {
+            let (label, rest) = match LabelBuf::split_str(s) {
+                Ok((label, rest)) => (label, rest),
+                Err(LabelSplitError::Overlong) => {
+                    return Err(NameParseError::Overlong);
+                }
+                Err(LabelSplitError::InvalidChar) => {
+                    return Err(NameParseError::InvalidChar);
+                }
+                Err(LabelSplitError::InvalidEscape) => {
+                    return Err(NameParseError::InvalidEscape);
+                }
+                Err(LabelSplitError::ShortInput) => {
+                    // Parsing the label reached the end of the input;
+                    // Re-parse with the knowledge that this is the complete
+                    // input.
+                    (LabelBuf::parse_str(s)?, &[] as _)
+                }
+            };
 
-            if 255 - this.size < 1 + label.as_bytes().len() as u8 {
+            if 255 - this.size < label.encoding().len() as u8 {
                 return Err(NameParseError::Overlong);
             }
             this.append_label(&label);
 
-            match *rest {
-                [b' ' | b'\n' | b'\r' | b'\t', ..] | [] => {
-                    s = rest;
-                    break;
+            // Try continuing.
+            let [b'.', ref rest @ ..] = *rest else {
+                if !rest.is_empty() {
+                    // `rest` contained a character that was not valid for
+                    // `Label`, and was also not a `.`.
+                    return Err(NameParseError::InvalidChar);
                 }
-                [b'.', ref rest @ ..] => s = rest,
-                _ => return Err(NameParseError::InvalidChar),
+
+                break label.is_root();
+            };
+
+            if label.is_root() {
+                // `.` after the root label.
+                return Err(NameParseError::EmptyLabel);
             }
+
+            s = rest;
+            continue;
+        };
+
+        // TODO: If we require `absolute`, this function can only be used
+        // with `.`-suffixed domain names. If we don't, this function stops
+        // parsing a proper subset of the zone file format (since unsuffixed
+        // names would be processed differently in the zone file format).
+        //
+        // For now, we require `absolute`. It's the conservative choice.
+        if !absolute {
+            return Err(NameParseError::Relative);
         }
-        this.append_label(Label::ROOT);
+
+        Ok(this)
+    }
+
+    /// Parse a printed domain name from a larger string.
+    ///
+    /// This will parse a domain name from the format used by [`impl Display
+    /// for Name`]. This is a subset of the syntax of the zone file format.
+    /// See the examples here to understand how this implementation works.
+    ///
+    /// This function is designed for use when parsing domain names embedded
+    /// within some larger string (e.g. a zone file). The string may be
+    /// buffered, so only a part of it is provided; the string is considered
+    /// to be infinitely long. A domain name is only parsed successfully once
+    /// a delimiting byte (one that lies _after_ it) is found. As such, this
+    /// function is **not** a perfect inverse of [`impl Display for NameBuf`].
+    /// For such an inverse, see [`NameBuf::parse_str()`].
+    //
+    // TODO: Doc tests
+    pub fn split_str(mut s: &[u8]) -> Result<(Self, &[u8]), NameSplitError> {
+        // The buffer we'll fill into.
+        let mut this = Self::empty();
+
+        // Parse label by label.
+        let absolute = loop {
+            let (label, rest) = LabelBuf::split_str(s)?;
+
+            if 255 - this.size < label.encoding().len() as u8 {
+                return Err(NameSplitError::Overlong);
+            }
+            this.append_label(&label);
+
+            // Try continuing.
+            let [b'.', ref rest @ ..] = *rest else {
+                debug_assert!(
+                    !rest.is_empty(),
+                    "`LabelBuf::split_str()` fails without a delimiting character"
+                );
+
+                break label.is_root();
+            };
+
+            if label.is_root() {
+                // `.` after the root label.
+                return Err(NameSplitError::EmptyLabel);
+            }
+
+            s = rest;
+            continue;
+        };
+
+        // TODO: If we require `absolute`, this function can only be used
+        // with `.`-suffixed domain names. If we don't, this function stops
+        // parsing a proper subset of the zone file format (since unsuffixed
+        // names would be processed differently in the zone file format).
+        //
+        // For now, we require `absolute`. It's the conservative choice.
+        if !absolute {
+            return Err(NameSplitError::Relative);
+        }
 
         Ok((this, s))
     }
@@ -699,13 +806,11 @@ impl NameBuf {
 impl FromStr for NameBuf {
     type Err = NameParseError;
 
-    /// Parse a name from a string.
+    /// Parse a printed domain name.
+    ///
+    /// See [`NameBuf::parse_str()`].
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match Self::parse_str(s.as_bytes()) {
-            Ok((this, &[])) => Ok(this),
-            Ok(_) => Err(NameParseError::InvalidChar),
-            Err(err) => Err(err),
-        }
+        Self::parse_str(s.as_bytes())
     }
 }
 
@@ -836,14 +941,35 @@ impl<'a> serde::Deserialize<'a> for alloc::boxed::Box<Name> {
 
 /// An error in parsing a [`Name`] from a string.
 ///
-/// This can be returned by [`NameBuf::from_str()`]. It is not used when
-/// parsing names from the zonefile format, which uses a different mechanism.
+/// This can be returned by [`NameBuf::parse_str()`] and
+/// [`NameBuf::from_str()`]. It is not used when parsing names from the
+/// zonefile format, which uses a different mechanism.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NameParseError {
     /// The name was too large.
     ///
     /// Valid names are between 1 and 255 bytes, inclusive.
     Overlong,
+
+    /// The name was relative.
+    ///
+    /// The name did not end with a `.`, making it unclear whether it is an
+    /// absolute domain name or a relative one. Domain names that do not end
+    /// with a `.` are interpreted differently within zone files, and hence
+    /// they are not allowed here.
+    Relative,
+
+    /// An empty label was discovered.
+    ///
+    /// The name contained two consecutive `.`s, which would imply an empty
+    /// label followed by more content. This is not allowed; empty labels are
+    /// interpreted as root labels, and they must terminate domain names.
+    EmptyLabel,
+
+    /// A label in the name was too large.
+    ///
+    /// Valid labels are between 1 and 63 bytes, inclusive.
+    OverlongLabel,
 
     /// The name contained an invalid character.
     ///
@@ -854,13 +980,29 @@ pub enum NameParseError {
     /// - Correctly escaped characters
     InvalidChar,
 
-    /// A label in the name could not be parsed.
-    Label(LabelParseError),
+    /// A partial escape was used.
+    ///
+    /// An escape must be `\\DDD`, where `DDD` are 3 ASCII decimal digits
+    /// representing an unsigned 8-bit integer; or `\\X`, where `X` is a
+    /// graphical, non-digit ASCII character.
+    PartialEscape,
+
+    /// An invalid escape was used.
+    ///
+    /// An escape must be `\\DDD`, where `DDD` are 3 ASCII decimal digits
+    /// representing an unsigned 8-bit integer; or `\\X`, where `X` is a
+    /// graphical, non-digit ASCII character.
+    InvalidEscape,
 }
 
 impl From<LabelParseError> for NameParseError {
-    fn from(value: LabelParseError) -> Self {
-        Self::Label(value)
+    fn from(error: LabelParseError) -> Self {
+        match error {
+            LabelParseError::Overlong => Self::OverlongLabel,
+            LabelParseError::InvalidChar => Self::InvalidChar,
+            LabelParseError::PartialEscape => Self::PartialEscape,
+            LabelParseError::InvalidEscape => Self::InvalidEscape,
+        }
     }
 }
 
@@ -870,16 +1012,106 @@ impl fmt::Display for NameParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Overlong => "the domain name was too long",
-            Self::InvalidChar | Self::Label(LabelParseError::InvalidChar) => {
+            Self::Relative => "the domain name did not end with `.`",
+            Self::EmptyLabel => "the domain name contained an empty label",
+            Self::OverlongLabel => "a label in the domain name was too long",
+            Self::InvalidChar => {
                 "the domain name contained an invalid character"
             }
-            Self::Label(LabelParseError::Overlong) => "a label was too long",
-            Self::Label(LabelParseError::Empty) => "a label was empty",
-            Self::Label(LabelParseError::PartialEscape) => {
-                "a label contained an incomplete escape"
+            Self::PartialEscape => {
+                "the domain name contained an incomplete escape"
             }
-            Self::Label(LabelParseError::InvalidEscape) => {
-                "a label contained an invalid escape"
+            Self::InvalidEscape => {
+                "the domain name contained an invalid escape"
+            }
+        })
+    }
+}
+
+//------------ NameSplitError ------------------------------------------------
+
+/// An error in parsing a [`Name`] from a larger string.
+///
+/// This can be returned by [`NameBuf::split_str()`]. It is not used when
+/// parsing names from the zonefile format, which uses a different mechanism.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NameSplitError {
+    /// The name was too large.
+    ///
+    /// Valid names are between 1 and 255 bytes, inclusive.
+    Overlong,
+
+    /// The name was relative.
+    ///
+    /// The name did not end with a `.`, making it unclear whether it is an
+    /// absolute domain name or a relative one. Domain names that do not end
+    /// with a `.` are interpreted differently within zone files, and hence
+    /// they are not allowed here.
+    Relative,
+
+    /// An empty label was discovered.
+    ///
+    /// The name contained two consecutive `.`s, which would imply an empty
+    /// label followed by more content. This is not allowed; empty labels are
+    /// interpreted as root labels, and they must terminate domain names.
+    EmptyLabel,
+
+    /// A label in the name was too large.
+    ///
+    /// Valid labels are between 1 and 63 bytes, inclusive.
+    OverlongLabel,
+
+    /// The name contained an invalid character.
+    ///
+    /// Valid names contain any of the following characters:
+    /// - ASCII alphanumeric characters
+    /// - `-`, `_`, `*` (within labels)
+    /// - `.` (between labels)
+    /// - Correctly escaped characters
+    InvalidChar,
+
+    /// An invalid escape was used.
+    ///
+    /// An escape must be `\\DDD`, where `DDD` are 3 ASCII decimal digits
+    /// representing an unsigned 8-bit integer; or `\\X`, where `X` is a
+    /// graphical, non-digit ASCII character.
+    InvalidEscape,
+
+    /// The input was too short to parse the domain name.
+    ///
+    /// The input did not sufficiently delimit the domain name. More input (if
+    /// any) needs to be collected to correctly parse the entire domain name.
+    ShortInput,
+}
+
+impl From<LabelSplitError> for NameSplitError {
+    fn from(error: LabelSplitError) -> Self {
+        match error {
+            LabelSplitError::Overlong => Self::Overlong,
+            LabelSplitError::InvalidChar => Self::InvalidChar,
+            LabelSplitError::InvalidEscape => Self::InvalidEscape,
+            LabelSplitError::ShortInput => Self::ShortInput,
+        }
+    }
+}
+
+impl core::error::Error for NameSplitError {}
+
+impl fmt::Display for NameSplitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Overlong => "the domain name was too long",
+            Self::Relative => "the domain name did not end with `.`",
+            Self::EmptyLabel => "the domain name contained an empty label",
+            Self::OverlongLabel => "a label in the domain name was too long",
+            Self::InvalidChar => {
+                "the domain name contained an invalid character"
+            }
+            Self::InvalidEscape => {
+                "the domain name contained an invalid escape"
+            }
+            Self::ShortInput => {
+                "the input was too short to parse the domain name"
             }
         })
     }
