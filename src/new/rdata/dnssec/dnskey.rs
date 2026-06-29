@@ -8,12 +8,12 @@ use core::{
 
 use crate::{
     new::base::{
-        CanonicalRecordData,
+        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
         build::BuildInMessage,
         name::NameCompressor,
         wire::{
-            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes,
-            SplitBytesZC, TruncationError, U16,
+            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError,
+            SplitBytes, SplitBytesZC, TruncationError, U16,
         },
     },
     utils::dst::UnsizedCopy,
@@ -92,6 +92,22 @@ impl Eq for DNSKey {}
 impl Hash for DNSKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.as_bytes())
+    }
+}
+
+//--- Parsing record data
+
+impl<'a> ParseRecordData<'a> for &'a DNSKey {}
+
+impl<'a> ParseRecordDataBytes<'a> for &'a DNSKey {
+    fn parse_record_data_bytes(
+        bytes: &'a [u8],
+        rtype: RType,
+    ) -> Result<Self, ParseError> {
+        match rtype {
+            RType::DNSKEY => Self::parse_bytes(bytes),
+            _ => Err(ParseError),
+        }
     }
 }
 
