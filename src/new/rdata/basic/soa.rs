@@ -71,8 +71,8 @@ use crate::new::base::{
 /// #
 /// // Build a 'Soa' manually:
 /// let manual: Soa<RevNameBuf> = Soa {
-///     mname: "ns.example.org".parse().unwrap(),
-///     rname: "admin.example.org".parse().unwrap(),
+///     mname: "ns.example.org.".parse().unwrap(),
+///     rname: "admin.example.org.".parse().unwrap(),
 ///     serial: 42.into(),
 ///     refresh: 3600.into(),
 ///     retry: 600.into(),

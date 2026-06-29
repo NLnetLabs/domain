@@ -1147,7 +1147,7 @@ mod tests {
 
     #[test]
     fn test_to_revname() {
-        let namebuf: NameBuf = "example.com".parse().unwrap();
+        let namebuf: NameBuf = "example.com.".parse().unwrap();
         assert_eq!(
             namebuf.to_revname().as_bytes(),
             b"\x00\x03com\x07example",

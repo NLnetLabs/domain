@@ -62,7 +62,7 @@
 //! use domain::new::base::name;
 //!
 //! let name_buf: name::NameBuf =
-//!     "www.nlnetlabs.nl".parse().unwrap();
+//!     "www.nlnetlabs.nl.".parse().unwrap();
 //! let name_ref: &name::Name = &name_buf;
 //!
 //! println!("NameBuf {}, &Name {}", name_buf, name_ref);
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_build_lowercased_bytes_simple() {
-        let name: NameBuf = "E.com".parse().unwrap();
+        let name: NameBuf = "E.com.".parse().unwrap();
         let mut buf = vec![0u8; name.built_bytes_size()];
         assert!(name.build_lowercased_bytes(&mut buf).unwrap().is_empty());
         assert_eq!(buf, buf.to_ascii_lowercase());
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_build_lowercased_bytes_too_long_buffer() {
-        let name: NameBuf = "E.com".parse().unwrap();
+        let name: NameBuf = "E.com.".parse().unwrap();
         let mut buf = vec![0u8; 100];
         let rest = name.build_lowercased_bytes(&mut buf).unwrap();
 

@@ -1521,7 +1521,7 @@ pub use crate::new_base_name_label as label;
 ///
 /// // Escapes in the label are not processed.
 /// let foo: LabelBuf = label_buf!("ex\x0Amp\\e");
-/// assert_eq!(foo.encoding(), b"\x07ex\x0Am\\e");
+/// assert_eq!(foo.encoding(), b"\x07ex\x0Amp\\e");
 ///
 /// // You can use byte strings to avoid UTF-8 validity.
 /// // Due to macro limitations, you need to disambiguate this from

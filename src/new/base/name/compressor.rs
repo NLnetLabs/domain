@@ -631,8 +631,8 @@ mod tests {
         let mut compressor = NameCompressor::new();
 
         // The TLD is different, so they cannot be compressed together.
-        let a: NameBuf = "example.org".parse().unwrap();
-        let b: NameBuf = "example.com".parse().unwrap();
+        let a: NameBuf = "example.org.".parse().unwrap();
+        let b: NameBuf = "example.com.".parse().unwrap();
 
         let mut off = 0;
         off = a
@@ -657,8 +657,8 @@ mod tests {
         let mut compressor = NameCompressor::new();
 
         // Only the TLD will be shared.
-        let a: NameBuf = "example.org".parse().unwrap();
-        let b: NameBuf = "unequal.org".parse().unwrap();
+        let a: NameBuf = "example.org.".parse().unwrap();
+        let b: NameBuf = "unequal.org.".parse().unwrap();
 
         let mut off = 0;
         off = a
@@ -683,8 +683,8 @@ mod tests {
         let mut compressor = NameCompressor::new();
 
         // The TLD should be shared, even if it differs in case.
-        let a: NameBuf = "example.org".parse().unwrap();
-        let b: NameBuf = "unequal.ORG".parse().unwrap();
+        let a: NameBuf = "example.org.".parse().unwrap();
+        let b: NameBuf = "unequal.ORG.".parse().unwrap();
 
         let mut off = 0;
         off = a

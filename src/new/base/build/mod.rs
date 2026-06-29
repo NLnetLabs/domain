@@ -36,14 +36,14 @@
 //!
 //! // Add a question for an A record.
 //! builder.push_question(&Question {
-//!     qname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!     qname: "www.example.org.".parse::<RevNameBuf>().unwrap(),
 //!     qtype: QType::A,
 //!     qclass: QClass::IN,
 //! }).unwrap();
 //!
 //! // Add an answer.
 //! builder.push_answer(&Record {
-//!     rname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!     rname: "www.example.org.".parse::<RevNameBuf>().unwrap(),
 //!     rtype: RType::A,
 //!     rclass: RClass::IN,
 //!     ttl: 3600.into(),

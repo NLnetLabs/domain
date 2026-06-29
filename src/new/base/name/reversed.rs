@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn test_to_name() {
-        let revnamebuf: RevNameBuf = "example.com".parse().unwrap();
+        let revnamebuf: RevNameBuf = "example.com.".parse().unwrap();
         assert_eq!(
             revnamebuf.to_name().as_bytes(),
             b"\x07example\x03com\x00",
