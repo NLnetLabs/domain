@@ -178,7 +178,7 @@ impl Label {
     /// ```
     /// # use domain::new::base::name::Label;
     /// #
-    /// let mut encoded: [u8; _] = *b"\x07example";
+    /// let mut encoded: [u8; 8] = *b"\x07example";
     /// let label: &mut Label = unsafe {
     ///     Label::from_mut_bytes_unchecked(&mut encoded)
     /// };
@@ -1684,8 +1684,8 @@ mod tests {
 
     #[test]
     fn parsing() {
-        let good: [&[u8]; _] = [
-            b"\x00abc",
+        let good = [
+            b"\x00abc" as &[u8],
             b"\x07example\x03org\x00",
             b"\x07f\x00\x00&\x8Fbar-foo",
             b"\x3Fthis is a label of the longest valid length and it's surprising(ly big)",
@@ -1720,8 +1720,8 @@ mod tests {
             assert_eq!(<&Label>::parse_bytes(short_input), Err(ParseError));
         }
 
-        let bad: [&[u8]; _] = [
-            b"\x40this is not a valid label but it would be if 64 was a valid label length",
+        let bad = [
+            b"\x40this is not a valid label but it would be if 64 was a valid label length" as &[u8],
         ];
 
         for input in bad {
