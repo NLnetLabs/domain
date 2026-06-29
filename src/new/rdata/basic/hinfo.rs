@@ -5,7 +5,7 @@ use core::cmp::Ordering;
 use crate::new::base::build::{
     BuildInMessage, NameCompressor, TruncationError,
 };
-use crate::new::base::parse::ParseMessageBytes;
+use crate::new::base::parse::{ParseMessageBytes, parse_without_compression};
 use crate::new::base::wire::{
     BuildBytes, ParseBytes, ParseError, SplitBytes,
 };
@@ -198,10 +198,7 @@ impl<'a> ParseMessageBytes<'a> for HInfo<'a> {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        contents
-            .get(start..)
-            .ok_or(ParseError)
-            .and_then(Self::parse_bytes)
+        parse_without_compression(contents, start)
     }
 }
 
