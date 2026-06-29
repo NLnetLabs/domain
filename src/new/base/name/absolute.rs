@@ -14,8 +14,8 @@ use crate::{
         build::BuildInMessage,
         parse::{ParseMessageBytes, SplitMessageBytes},
         wire::{
-            AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
-            TruncationError,
+            AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError,
+            SplitBytes, SplitBytesZC, TruncationError,
         },
     },
     utils::dst::{UnsizedCopy, UnsizedCopyFrom},
@@ -124,17 +124,19 @@ impl CanonicalName for Name {
 
 //--- Parsing from bytes
 
-impl<'a> ParseBytes<'a> for &'a Name {
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        match Self::split_bytes(bytes) {
+unsafe impl ParseBytesZC for Name {
+    fn parse_bytes_by_ref(bytes: &[u8]) -> Result<&Self, ParseError> {
+        match Self::split_bytes_by_ref(bytes) {
             Ok((this, &[])) => Ok(this),
             _ => Err(ParseError),
         }
     }
 }
 
-impl<'a> SplitBytes<'a> for &'a Name {
-    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
+unsafe impl SplitBytesZC for Name {
+    fn split_bytes_by_ref(
+        bytes: &[u8],
+    ) -> Result<(&Self, &[u8]), ParseError> {
         let mut offset = 0usize;
         while offset < 255 {
             match *bytes.get(offset..).ok_or(ParseError)? {
