@@ -45,6 +45,9 @@ use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 /// label) or [`<&Label>::parse_bytes()`] (when the input ends right after
 /// the label).
 ///
+/// [`<&Label>::split_bytes()`]: #method.split_bytes
+/// [`<&Label>::parse_bytes()`]: #method.parse_bytes
+///
 /// The [`label`] macro is helpful for writing tests, and it shows up in many
 /// of the tests and examples here. It constructs a label from a hard-coded
 /// (byte) string literal.
@@ -108,6 +111,8 @@ use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 /// to access the underlying bytes, because it is unclear whether the
 /// implementation should include the length octet with those bytes.
 ///
+/// [`AsRef<[u8]>`]: core::convert::AsRef
+///
 /// The preferred ways to access the bytes are [`Self::encoding()`] (which
 /// explicitly includes the length octet) and [`Self::contents()`] (which
 /// explicitly does not).
@@ -143,7 +148,9 @@ impl Label {
     /// This can be used to cast a label encoded in the wire format into the
     /// [`Label`] type without copying.
     ///
-    /// For a checked, safe version, use [`Label::parse_bytes()`].
+    /// For a checked, safe version, use [`<&Label>::parse_bytes()`].
+    ///
+    /// [`<&Label>::parse_bytes()`]: #method.parse_bytes
     ///
     /// ```
     /// # use domain::new::base::name::Label;
@@ -207,6 +214,8 @@ impl Label {
     }
 
     /// Copy the label into a [`Box<Label>`].
+    ///
+    /// [`Box<Label>`]: https://doc.rust-lang.org/stable/std/boxed/struct.Box.html
     ///
     /// This is a concrete, inherent version of [`Self::unsized_copy_into()`].
     #[must_use]
@@ -465,7 +474,7 @@ impl Eq for Label {}
 impl PartialOrd for Label {
     /// Determine the order between two labels.
     ///
-    /// See [`impl Ord for Label`].
+    /// See [`Label::cmp()`].
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -543,8 +552,8 @@ impl fmt::Display for Label {
     /// clear how they should be formatted on their own. See the examples
     /// here to understand how this implementation works.
     ///
-    /// To parse a label _from_ this format, see [`impl FromStr for
-    /// LabelBuf`]. [`Label`] cannot implement [`FromStr`] itself.
+    /// To parse a label _from_ this format, see [`LabelBuf::from_str()`].
+    /// [`Label`] cannot implement [`FromStr`] itself.
     ///
     /// The root label is printed as an empty string. Labels are usually
     /// delimited by `.`s when printing domain names, so this should be
@@ -637,14 +646,19 @@ impl serde::Serialize for Label {
     /// understanding of the terms here.
     ///
     /// Labels are serialized as `newtype_struct`s of name `Label`. For
-    /// human-readable formats (e.g. JSON and TOML), they are serialized as
-    /// per [`impl Display for Label`]. For compact formats (e.g. Postcard),
-    /// they are serialized as byte slices (specifically [`Self::contents()`],
-    /// excluding the length octet).
+    /// human-readable formats (e.g. JSON and TOML), they are serialized
+    /// as per [`<Label as Display>::fmt()`]. For compact formats (e.g.
+    /// Postcard), they are serialized as byte slices (specifically
+    /// [`Self::contents()`], excluding the length octet).
     ///
-    /// To deserialize a label, see [`impl Deserialize for LabelBuf`] or
-    /// [`impl Deserialize for Box<Label>`]. They use exactly the same format.
-    /// [`Label`] cannot implement [`Deserialize`] itself.
+    /// [`<Label as Display>::fmt()`]: #method.fmt
+    ///
+    /// To deserialize a label, see [`LabelBuf::deserialize()`] or
+    /// [`<Box<Label>>::deserialize()`]. They use exactly the same format.
+    /// [`Label`] cannot implement [`serde::Deserialize`] itself.
+    ///
+    /// [`LabelBuf::deserialize()`]: struct.LabelBuf.html#method.deserialize
+    /// [`<Box<Label>>::deserialize()`]: #method.deserialize
     ///
     /// ```
     /// # use serde_test::{Configure, Token, assert_ser_tokens};
@@ -1048,6 +1062,7 @@ impl AsMut<Label> for LabelBuf {
 //--- Forwarding equality, comparison, and hashing
 
 impl PartialEq for LabelBuf {
+    /// See [`Label::eq()`].
     fn eq(&self, that: &Self) -> bool {
         **self == **that
     }
@@ -1056,18 +1071,21 @@ impl PartialEq for LabelBuf {
 impl Eq for LabelBuf {}
 
 impl PartialOrd for LabelBuf {
+    /// See [`Label::partial_cmp()`].
     fn partial_cmp(&self, that: &Self) -> Option<Ordering> {
         Some(self.cmp(that))
     }
 }
 
 impl Ord for LabelBuf {
+    /// See [`Label::cmp()`].
     fn cmp(&self, that: &Self) -> Ordering {
         (**self).cmp(&**that)
     }
 }
 
 impl Hash for LabelBuf {
+    /// See [`Label::hash()`].
     fn hash<H: Hasher>(&self, state: &mut H) {
         (**self).hash(state)
     }
@@ -1076,7 +1094,9 @@ impl Hash for LabelBuf {
 //--- Forwarding formatting
 
 impl fmt::Display for LabelBuf {
-    /// See [`impl Display for Label`].
+    /// See [`<Label as Display>::fmt()`].
+    ///
+    /// [`<Label as Display>::fmt()`]: struct.Label.html#method.fmt
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
@@ -1097,12 +1117,14 @@ impl fmt::Debug for LabelBuf {
 impl LabelBuf {
     /// Parse a printed label.
     ///
-    /// This will parse a label from the format used by [`impl Display for
-    /// Label`]. Labels are usually parsed as part of a domain name, and it
-    /// is not entirely clear how they should be parsed on their own. See the
-    /// examples here to understand how this implementation works.
+    /// This will parse a label from the format used by [`<Label as
+    /// Display>::fmt()`]. Labels are usually parsed as part of a domain name,
+    /// and it is not entirely clear how they should be parsed on their own.
+    /// See the examples here to understand how this implementation works.
     ///
-    /// This function is a direct inverse of [`impl Display for LabelBuf`],
+    /// [`<Label as Display>::fmt()`]: struct.Label.html#method.fmt
+    ///
+    /// This function is a direct inverse of [`<Label as Display>::fmt()`],
     /// but it cannot be used to parse a label embedded within a larger
     /// string. For that, see [`LabelBuf::split_str()`].
     ///
@@ -1167,18 +1189,20 @@ impl LabelBuf {
 
     /// Parse a printed label from a larger string.
     ///
-    /// This will parse a label from the format used by [`impl Display for
-    /// Label`]. Labels are usually parsed as part of a domain name, and it
-    /// is not entirely clear how they should be parsed on their own. See the
-    /// examples here to understand how this implementation works.
+    /// This will parse a label from the format used by [`<Label as
+    /// Display>::fmt()`]. Labels are usually parsed as part of a domain name,
+    /// and it is not entirely clear how they should be parsed on their own.
+    /// See the examples here to understand how this implementation works.
+    ///
+    /// [`<Label as Display>::fmt()`]: struct.Label.html#method.fmt
     ///
     /// This function is designed for use when parsing labels embedded within
     /// some larger string (e.g. a zone file). The string may be buffered,
     /// so only a part of it is provided; the string is considered to be
     /// infinitely long. A label is only parsed successfully once a delimiting
     /// byte (one that lies _after_ it) is found. As such, this function is
-    /// **not** a perfect inverse of [`impl Display for Label`]. For such an
-    /// inverse, see [`LabelBuf::parse_str()`].
+    /// **not** a perfect inverse of [`<Label as Display>::fmt()`]. For such
+    /// an inverse, see [`LabelBuf::parse_str()`].
     ///
     /// ```
     /// # use domain::new::base::name::{LabelBuf, LabelSplitError, label_buf};
@@ -1257,7 +1281,9 @@ impl FromStr for LabelBuf {
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for LabelBuf {
-    /// See [`impl Serialize for Label`].
+    /// See [`Label::serialize()`].
+    ///
+    /// [`Label::serialize()`]: struct.Label.html#method.serialize
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1374,7 +1400,9 @@ impl<'a> serde::Deserialize<'a> for LabelBuf {
 impl<'a> serde::Deserialize<'a> for alloc::boxed::Box<Label> {
     /// Deserialize a label and allocate it on the heap.
     ///
-    /// See [`impl Deserialize for LabelBuf`].
+    /// See [`LabelBuf::deserialize()`].
+    ///
+    /// [`LabelBuf::deserialize()`]: struct.LabelBuf.html#method.deserialize
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'a>,
