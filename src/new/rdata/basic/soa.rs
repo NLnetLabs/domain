@@ -4,7 +4,10 @@ use core::cmp::Ordering;
 
 use crate::new::base::build::{BuildInMessage, NameCompressor};
 use crate::new::base::name::CanonicalName;
-use crate::new::base::parse::{ParseMessageBytes, SplitMessageBytes};
+use crate::new::base::parse::{
+    ParseMessageBytes, SplitMessageBytes, parse_without_compression,
+    split_without_compression,
+};
 use crate::new::base::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
     Serial, wire::*,
@@ -290,11 +293,11 @@ impl<'a, N: SplitMessageBytes<'a>> ParseMessageBytes<'a> for Soa<N> {
     ) -> Result<Self, ParseError> {
         let (mname, rest) = N::split_message_bytes(contents, start)?;
         let (rname, rest) = N::split_message_bytes(contents, rest)?;
-        let (&serial, rest) = <&Serial>::split_message_bytes(contents, rest)?;
-        let (&refresh, rest) = <&U32>::split_message_bytes(contents, rest)?;
-        let (&retry, rest) = <&U32>::split_message_bytes(contents, rest)?;
-        let (&expire, rest) = <&U32>::split_message_bytes(contents, rest)?;
-        let &minimum = <&U32>::parse_message_bytes(contents, rest)?;
+        let (&serial, rest) = split_without_compression(contents, rest)?;
+        let (&refresh, rest) = split_without_compression(contents, rest)?;
+        let (&retry, rest) = split_without_compression(contents, rest)?;
+        let (&expire, rest) = split_without_compression(contents, rest)?;
+        let &minimum = parse_without_compression(contents, rest)?;
 
         Ok(Self {
             mname,
