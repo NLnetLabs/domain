@@ -4,6 +4,8 @@ use core::fmt;
 
 use domain_macros::*;
 
+use crate::new::base::parse::split_without_compression;
+
 use super::{
     build::{BuildInMessage, NameCompressor, TruncationError},
     parse::{ParseMessageBytes, SplitMessageBytes},
@@ -79,8 +81,8 @@ where
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let (qname, rest) = N::split_message_bytes(contents, start)?;
-        let (&qtype, rest) = <&QType>::split_message_bytes(contents, rest)?;
-        let (&qclass, rest) = <&QClass>::split_message_bytes(contents, rest)?;
+        let (&qtype, rest) = split_without_compression(contents, rest)?;
+        let (&qclass, rest) = split_without_compression(contents, rest)?;
         Ok((Self::new(qname, qtype, qclass), rest))
     }
 }

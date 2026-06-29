@@ -2,6 +2,7 @@
 
 use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
+use crate::new::base::parse::split_without_compression;
 use crate::utils::dst::UnsizedCopy;
 
 use super::build::{BuildInMessage, NameCompressor};
@@ -131,12 +132,12 @@ where
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let (rname, rest) = N::split_message_bytes(contents, start)?;
-        let (&rtype, rest) = <&RType>::split_message_bytes(contents, rest)?;
-        let (&rclass, rest) = <&RClass>::split_message_bytes(contents, rest)?;
-        let (&ttl, rest) = <&TTL>::split_message_bytes(contents, rest)?;
+        let (&rtype, rest) = split_without_compression(contents, rest)?;
+        let (&rclass, rest) = split_without_compression(contents, rest)?;
+        let (&ttl, rest) = split_without_compression(contents, rest)?;
         let rdata_start = rest;
-        let (_, rest) =
-            <&SizePrefixed<U16, [u8]>>::split_message_bytes(contents, rest)?;
+        let (_, rest): (&SizePrefixed<U16, [u8]>, _) =
+            split_without_compression(contents, rest)?;
         let rdata =
             D::parse_record_data(&contents[..rest], rdata_start + 2, rtype)?;
 
