@@ -144,18 +144,6 @@ pub trait CanonicalName: BuildBytes + Ord {
         Ok(rest)
     }
 
-    /// Change a domain name into lowercased labels.
-    ///
-    /// Changes the characters in the domain name to the lowercased form.
-    fn make_canonical(&mut self)
-    where
-        Self: AsMut<[u8]>,
-    {
-        // A label can be at most 63 bytes. Therefore the length indicator can
-        // never be changed due to a confusion with a uppercase letter.
-        self.as_mut().make_ascii_lowercase();
-    }
-
     /// Compare domain names as if they were in the wire format.
     ///
     /// This is equivalent to serializing both domain names in the wire format
