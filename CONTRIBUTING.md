@@ -14,7 +14,7 @@ Code of Conduct]. By participating, you are expected to uphold this code.
 
 ## LLM Policy
 
-To contribute to this project, must comply with the [NLnet Labs LLM Policy].
+Before contributing to this project, please be aware of the [NLnet Labs LLM Policy].
 
 [NLnet Labs LLM Policy]: https://www.nlnetlabs.nl/llm-policy
 
