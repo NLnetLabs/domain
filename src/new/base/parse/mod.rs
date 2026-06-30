@@ -313,8 +313,7 @@ impl<'a> ParseMessageBytes<'a> for alloc::string::String {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        parse_without_compression::<&str>(contents, start)
-            .map(|s| s.into())
+        parse_without_compression::<&str>(contents, start).map(|s| s.into())
     }
 }
 
