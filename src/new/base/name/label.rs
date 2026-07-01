@@ -838,7 +838,7 @@ impl LabelBuf {
     ///
     /// # Errors
     ///
-    /// Returns [`TruncationError`] if the byte does not fill in the buffer.
+    /// Returns [`TruncationError`] if the byte does not fit in the buffer.
     /// The buffer will be unmodified.
     pub const fn push(&mut self, byte: u8) -> Result<(), TruncationError> {
         let len = self.data[0] as usize;
