@@ -394,6 +394,7 @@ impl Label {
     #[must_use]
     pub const fn contents(&self) -> &[u8] {
         // TODO: direct slicing is not possible in `const` yet.
+        //   See <https://github.com/rust-lang/rust/issues/143775>.
         // SAFETY: A `Label` always has a length octet.
         unsafe { self.0.split_at_unchecked(1).1 }
     }
@@ -793,6 +794,7 @@ impl LabelBuf {
         }
 
         // TODO: direct slicing is not possible in `const` yet.
+        //   See <https://github.com/rust-lang/rust/issues/143775>.
         // SAFETY:
         // - `1 + len <= 64 = data.len()`.
         // - `new_len = len + bytes.len() < 64`.
