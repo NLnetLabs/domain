@@ -75,7 +75,7 @@ use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 ///
 /// // You may see `label!` used in examples here.
 /// // It generates a `&'static Label` for hard-coded labels.
-/// assert_eq!(label, label!("example"));
+/// assert_eq!(label, label!(b"example"));
 /// #
 /// # Ok::<(), ParseError>(())
 /// ```
@@ -91,7 +91,7 @@ use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 /// # use domain::new::base::wire::ParseBytes;
 /// # use domain::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 /// #
-/// let label: &Label = label!("example");
+/// let label: &Label = label!(b"example");
 ///
 /// // Copy into a fixed-size buffer (ideal for modification):
 /// let buffer: LabelBuf = label.to_buf();
@@ -241,7 +241,7 @@ impl Label {
     /// ```
     /// # use domain::new::base::name::label_buf;
     /// #
-    /// let mut buffer = label_buf!("eXAMpLE");
+    /// let mut buffer = label_buf!(b"eXAMpLE");
     /// buffer.make_lowercase();
     /// assert_eq!(buffer.contents(), b"example");
     /// ```
@@ -369,7 +369,7 @@ impl Label {
     /// ```
     /// # use domain::new::base::name::label;
     /// #
-    /// let label = label!("example");
+    /// let label = label!(b"example");
     /// assert_eq!(label.as_wire(), b"\x07example");
     /// assert_eq!(label.contents(), b"example");
     /// ```
@@ -387,7 +387,7 @@ impl Label {
     /// ```
     /// # use domain::new::base::name::label;
     /// #
-    /// let label = label!("example");
+    /// let label = label!(b"example");
     /// assert_eq!(label.contents(), b"example");
     /// assert_eq!(label.as_wire(), b"\x07example");
     /// ```
@@ -408,7 +408,7 @@ impl Label {
     /// # use domain::new::base::name::{Label, label_buf};
     /// # use domain::new::base::wire::ParseBytes;
     /// #
-    /// let mut buffer = label_buf!("example");
+    /// let mut buffer = label_buf!(b"example");
     /// let label: &mut Label = buffer.as_mut_label();
     /// assert_eq!(label.contents_mut(), b"example");
     /// ```
@@ -446,9 +446,9 @@ impl PartialEq for Label {
     /// ```
     /// # use domain::new::base::name::label;
     /// #
-    /// let a = label!("example");
-    /// let b = label!("eXAMpLE");
-    /// let c = label!("unrelated");
+    /// let a = label!(b"example");
+    /// let b = label!(b"eXAMpLE");
+    /// let c = label!(b"unrelated");
     /// assert_eq!(a, b);
     /// assert_ne!(a.contents(), b.contents());
     /// assert_ne!(a, c);
@@ -494,9 +494,9 @@ impl Ord for Label {
     /// ```
     /// # use domain::new::base::name::label;
     /// #
-    /// let a = label!("example");
-    /// let b = label!("example-");
-    /// let c = label!("org");
+    /// let a = label!(b"example");
+    /// let b = label!(b"example-");
+    /// let c = label!(b"org");
     /// assert!(a < b);
     /// assert!(a < c);
     /// assert!(b < c);
@@ -525,8 +525,8 @@ impl Hash for Label {
     /// # use domain::new::base::name::label;
     /// #
     /// # let hasher = RandomState::default();
-    /// let a = label!("example");
-    /// let b = label!("eXAMpLE");
+    /// let a = label!(b"example");
+    /// let b = label!(b"eXAMpLE");
     /// assert_eq!(a, b);
     /// assert_ne!(a.contents(), b.contents());
     /// assert_eq!(hasher.hash_one(a), hasher.hash_one(b));
@@ -591,21 +591,21 @@ impl fmt::Display for Label {
     /// # use domain::new::base::name::{Label, label};
     /// #
     /// // The simple case is pretty simple.
-    /// assert_eq!(label!("example").to_string(), "example");
+    /// assert_eq!(label!(b"example").to_string(), "example");
     ///
     /// // Uppercase characters are printed as such.
-    /// assert_eq!(label!("eXAMplE").to_string(), "eXAMplE");
+    /// assert_eq!(label!(b"eXAMplE").to_string(), "eXAMplE");
     ///
     /// // The root label is an empty string.
     /// assert_eq!(Label::ROOT.to_string(), "");
     ///
     /// // Non-ASCII characters are escaped.
-    /// let label = label!(b b"helloworld\xF0\x9F\x8F\xB3\xEF\xB8\x8F\xE2\x80\x8D\xE2\x9A\xA7\xEF\xB8\x8F");
+    /// let label = label!(b"helloworld\xF0\x9F\x8F\xB3\xEF\xB8\x8F\xE2\x80\x8D\xE2\x9A\xA7\xEF\xB8\x8F");
     /// assert_eq!(label.to_string(),
     ///     r"helloworld\240\159\143\179\239\184\143\226\128\141\226\154\167\239\184\143");
     ///
     /// // Uncommon and non-printable ASCII characters are escaped too.
-    /// let label = label!("\x00\x0A!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~\x7F");
+    /// let label = label!(b"\x00\x0A!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~\x7F");
     /// assert_eq!(label.to_string(),
     ///     r##"\000\010!\"#$%&'\(\)*+,-\.\/\:\;\<\=\>\?\@\[\\\]^_`{|}~\127"##);
     /// ```
@@ -660,11 +660,11 @@ impl serde::Serialize for Label {
     /// # use serde_test::{Configure, Token, assert_ser_tokens};
     /// # use domain::new::base::name::label;
     /// #
-    /// assert_ser_tokens(&label!("example\x7Fabc").readable(), &[
+    /// assert_ser_tokens(&label!(b"example\x7Fabc").readable(), &[
     ///     Token::NewtypeStruct { name: "Label" },
     ///     Token::String("example\\127abc"),
     /// ]);
-    /// assert_ser_tokens(&label!("example\x7Fabc").compact(), &[
+    /// assert_ser_tokens(&label!(b"example\x7Fabc").compact(), &[
     ///     Token::NewtypeStruct { name: "Label" },
     ///     Token::Bytes(b"example\x7Fabc"),
     /// ]);
@@ -728,7 +728,7 @@ impl LabelBuf {
     /// # use domain::new::base::name::{LabelBuf, label};
     /// # use domain::new::base::wire::ParseBytes;
     /// #
-    /// let buffer: LabelBuf = LabelBuf::copy_from(label!("example"));
+    /// let buffer: LabelBuf = LabelBuf::copy_from(label!(b"example"));
     /// assert_eq!(buffer.as_wire(), b"\x07example");
     /// ```
     #[must_use]
@@ -1081,11 +1081,11 @@ impl LabelBuf {
     /// #
     /// assert_eq!(
     ///     LabelBuf::parse_str(b"example"),
-    ///     Ok(label_buf!("example")));
+    ///     Ok(label_buf!(b"example")));
     ///
     /// assert_eq!(
     ///     LabelBuf::parse_str(b"foo\\.b\\010r"),
-    ///     Ok(label_buf!("foo.b\x0Ar")));
+    ///     Ok(label_buf!(b"foo.b\x0Ar")));
     ///
     /// // An empty input is parsed as the root label.
     /// assert_eq!(
@@ -1161,11 +1161,11 @@ impl LabelBuf {
     /// #
     /// assert_eq!(
     ///     LabelBuf::split_str(b"example.com."),
-    ///     Ok((label_buf!("example"), &b".com."[..])));
+    ///     Ok((label_buf!(b"example"), &b".com."[..])));
     ///
     /// assert_eq!(
     ///     LabelBuf::split_str(b"foo\\.b\\010r.com."),
-    ///     Ok((label_buf!("foo.b\x0Ar"), &b".com."[..])));
+    ///     Ok((label_buf!(b"foo.b\x0Ar"), &b".com."[..])));
     ///
     /// // Even though this looks like a valid label, there is no delimiting
     /// // byte, so it cannot be parsed successfully.
@@ -1177,7 +1177,7 @@ impl LabelBuf {
     /// // non-ASCII character can serve as the delimiting byte.
     /// assert_eq!(
     ///     LabelBuf::split_str(b"com:22"),
-    ///     Ok((label_buf!("com"), &b":22"[..])));
+    ///     Ok((label_buf!(b"com"), &b":22"[..])));
     /// ```
     pub fn split_str(mut s: &[u8]) -> Result<(Self, &[u8]), LabelSplitError> {
         // The buffer we'll fill into.
@@ -1449,39 +1449,25 @@ impl fmt::Debug for LabelIter<'_> {
 ///
 /// This is a convenience function for writing example-based tests; it
 /// provides a simple, convenient way to build [`Label`]s with hard-coded
-/// values.
+/// values. It takes a byte slice and returns a label with those contents.
 ///
 /// ```
 /// # use domain::new::base::name::{Label, label};
 /// #
-/// let foo: &'static Label = label!("example");
+/// let foo: &'static Label = label!(b"example");
 /// assert_eq!(foo.as_wire(), b"\x07example");
 ///
 /// // Escapes in the label are not processed.
-/// let foo: &'static Label = label!("ex\x0Amp\\e");
+/// let foo: &'static Label = label!(b"ex\x0Amp\\e");
 /// assert_eq!(foo.as_wire(), b"\x07ex\x0Amp\\e");
 ///
-/// // You can use byte strings to avoid UTF-8 validity.
-/// // Due to macro limitations, you need to disambiguate this from
-/// // a regular string literal by prepending a `b` token.
-/// let foo: &'static Label = label!(b b"ex\xFFmple");
+/// // You can pass non-UTF-8 content.
+/// let foo: &'static Label = label!(b"ex\xFFmple");
 /// assert_eq!(foo.as_wire(), b"\x07ex\xFFmple");
 /// ```
 #[doc(hidden)]
 #[macro_export]
 macro_rules! new_base_name_label {
-    // Both match arms work the same way, so we could combine them into a
-    // single thing that forwards to `label_buf!()`. But the RustDoc shows
-    // the macro's match arm rules, so it's better to keep them explicit.
-    //
-    (b $value:literal) => {
-        const {
-            const BUFFER: &$crate::new::base::name::LabelBuf =
-        &$crate::new::base::name::label_buf!(b $value);
-            BUFFER.as_label()
-        }
-    };
-
     ($value:literal) => {
         const {
             const BUFFER: &$crate::new::base::name::LabelBuf =
@@ -1496,39 +1482,29 @@ pub use crate::new_base_name_label as label;
 ///
 /// This is a convenience function for writing example-based tests; it
 /// provides a simple, convenient way to build [`LabelBuf`]s with hard-coded
-/// values.
+/// values. It takes a byte slice and returns a label with those contents.
 ///
 /// ```
 /// # use domain::new::base::name::{LabelBuf, label_buf};
 /// #
-/// let foo: LabelBuf = label_buf!("example");
+/// let foo: LabelBuf = label_buf!(b"example");
 /// assert_eq!(foo.as_wire(), b"\x07example");
 ///
 /// // Escapes in the label are not processed.
-/// let foo: LabelBuf = label_buf!("ex\x0Amp\\e");
+/// let foo: LabelBuf = label_buf!(b"ex\x0Amp\\e");
 /// assert_eq!(foo.as_wire(), b"\x07ex\x0Amp\\e");
 ///
-/// // You can use byte strings to avoid UTF-8 validity.
-/// // Due to macro limitations, you need to disambiguate this from
-/// // a regular string literal by prepending a `b` token.
-/// let foo: LabelBuf = label_buf!(b b"ex\xFFmple");
+/// // You can pass non-UTF-8 content.
+/// let foo: LabelBuf = label_buf!(b"ex\xFFmple");
 /// assert_eq!(foo.as_wire(), b"\x07ex\xFFmple");
 /// ```
 #[doc(hidden)]
 #[macro_export]
 macro_rules! new_base_name_label_buf {
-    (b $value:literal) => {
-        const {
-            let mut buffer = $crate::new::base::name::LabelBuf::new();
-            assert!(buffer.append($value).is_ok());
-            buffer
-        }
-    };
-
     ($value:literal) => {
         const {
             let mut buffer = $crate::new::base::name::LabelBuf::new();
-            assert!(buffer.append($value.as_bytes()).is_ok());
+            assert!(buffer.append($value).is_ok());
             buffer
         }
     };
