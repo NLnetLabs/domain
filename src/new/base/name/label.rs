@@ -138,6 +138,16 @@ impl Label {
         // SAFETY: This is a correctly encoded label.
         unsafe { Self::from_bytes_unchecked(&[1, b'*']) }
     };
+
+    /// Printable ASCII characters that can appear in labels printed in zone
+    /// files without escaping.
+    ///
+    /// Rationale is described in [`Label#zone-file-formatting`].
+    const UNESCAPED_ZONEFILE_CHARS: &[u8] = b"\
+        ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+        abcdefghijklmnopqrstuvwxyz\
+        0123456789\
+        !#$%&'*+,-^_`{|}~";
 }
 
 //--- Construction
@@ -601,9 +611,7 @@ impl fmt::Display for Label {
     /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.contents().iter().try_for_each(|&byte| {
-            if byte.is_ascii_alphanumeric()
-                || b"!#$%&'*+,-^_`{|}~".contains(&byte)
-            {
+            if Label::UNESCAPED_ZONEFILE_CHARS.contains(&byte) {
                 write!(f, "{}", byte as char)
             } else if byte.is_ascii_graphic() {
                 write!(f, "\\{}", byte as char)
@@ -1096,8 +1104,7 @@ impl LabelBuf {
                 return Ok(this);
             };
             s = rest;
-            if b.is_ascii_alphanumeric() || b"!#$%&'*+,-^_`{|}~".contains(&b)
-            {
+            if Label::UNESCAPED_ZONEFILE_CHARS.contains(&b) {
                 // A regular label character.
                 this.push(b).map_err(|_| LabelParseError::Overlong)?;
             } else if b == b'\\' {
@@ -1174,8 +1181,7 @@ impl LabelBuf {
                 return Err(LabelSplitError::ShortInput);
             };
             s = rest;
-            if b.is_ascii_alphanumeric() || b"!#$%&'*+,-^_`{|}~".contains(&b)
-            {
+            if Label::UNESCAPED_ZONEFILE_CHARS.contains(&b) {
                 // A regular label character.
                 this.push(b).map_err(|_| LabelSplitError::Overlong)?;
             } else if b == b'\\' {
