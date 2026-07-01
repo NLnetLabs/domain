@@ -350,23 +350,6 @@ impl Label {
         matches!(self.0, [1, b'*'])
     }
 
-    /// Whether the label is "empty" (i.e. the root label).
-    ///
-    /// This is an alias for [`Self::is_root()`], offered for uniformity with
-    /// other types that implement `len()`.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.is_root()
-    }
-
-    /// The length of the label.
-    ///
-    /// This count does not include the length octet.
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.0[0] as usize
-    }
-
     /// The encoding of the label in the DNS wire format.
     ///
     /// This includes the length octet. It is also accessible via
