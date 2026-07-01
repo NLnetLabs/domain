@@ -215,7 +215,7 @@ impl Label {
 
     /// Copy the label into a [`Box<Label>`].
     ///
-    /// [`Box<Label>`]: https://doc.rust-lang.org/stable/std/boxed/struct.Box.html
+    /// [`Box<Label>`]: alloc::boxed::Box
     ///
     /// This is a concrete, inherent version of [`Self::unsized_copy_into()`].
     #[must_use]
