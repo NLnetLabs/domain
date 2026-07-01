@@ -1251,6 +1251,25 @@ impl serde::Serialize for LabelBuf {
 
 #[cfg(feature = "serde")]
 impl<'a> serde::Deserialize<'a> for LabelBuf {
+    /// Deserialize a label.
+    ///
+    /// See [`Label::serialize()`] for a discussion of the format.
+    ///
+    /// [`Label::serialize()`]: struct.Label.html#method.serialize
+    ///
+    /// ```
+    /// # use serde_test::{Configure, Token, assert_tokens};
+    /// # use domain::new::base::name::label_buf;
+    /// #
+    /// assert_tokens(&label_buf!(b"example\x7Fabc").readable(), &[
+    ///     Token::NewtypeStruct { name: "Label" },
+    ///     Token::String("example\\127abc"),
+    /// ]);
+    /// assert_tokens(&label_buf!(b"example\x7Fabc").compact(), &[
+    ///     Token::NewtypeStruct { name: "Label" },
+    ///     Token::Bytes(b"example\x7Fabc"),
+    /// ]);
+    /// ```
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'a>,
@@ -1310,18 +1329,20 @@ impl<'a> serde::Deserialize<'a> for LabelBuf {
                     &self,
                     f: &mut fmt::Formatter<'_>,
                 ) -> fmt::Result {
-                    f.write_str("a label, in the DNS wire format")
+                    f.write_str("the contents of a DNS label")
                 }
 
                 fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
                 where
                     E: serde::de::Error,
                 {
-                    LabelBuf::parse_bytes(v).map_err(|_| {
+                    let mut buf = LabelBuf::new();
+                    buf.append(v).map_err(|_| {
                         E::custom(
                             "misformatted label for the DNS wire format",
                         )
-                    })
+                    })?;
+                    Ok(buf)
                 }
             }
 
