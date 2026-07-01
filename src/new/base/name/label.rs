@@ -770,8 +770,6 @@ impl LabelBuf {
     ///
     /// The length octet will be adjusted automatically.
     ///
-    /// For more complex use cases, consider [`Self::spare_capacity_mut()`].
-    ///
     /// ```
     /// # use domain::new::base::name::LabelBuf;
     /// #
@@ -821,8 +819,7 @@ impl LabelBuf {
     ///
     /// The length octet will be adjusted automatically.
     ///
-    /// Also see [`Self::append()`]. For more complex use cases, consider
-    /// [`Self::spare_capacity_mut()`].
+    /// Also see [`Self::append()`].
     ///
     /// ```
     /// # use domain::new::base::name::LabelBuf;
@@ -872,51 +869,6 @@ impl LabelBuf {
         let len = self.data[0] as usize;
         assert!(new_len <= len, "Label is shorter than desired length");
         self.data[0] = new_len as u8;
-    }
-
-    /// Access the uninitialized portion of the buffer.
-    ///
-    /// The bytes _after_ the encoded label are returned. These can be
-    /// modified and then included in the label using [`Self::set_len()`].
-    /// This is analogous to [`Vec::spare_capacity_mut()`].
-    ///
-    /// [`Vec::spare_capacity_mut()`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html#method.spare_capacity_mut
-    ///
-    /// ```
-    /// # use domain::new::base::name::LabelBuf;
-    /// # use domain::new::base::wire::ParseBytes;
-    /// #
-    /// let mut buffer = LabelBuf::new();
-    /// buffer.spare_capacity_mut()[..7].copy_from_slice(b"example");
-    /// buffer.set_len(7);
-    /// assert_eq!(buffer.encoding(), b"\x07example");
-    /// ```
-    #[must_use]
-    pub const fn spare_capacity_mut(&mut self) -> &mut [u8] {
-        let size = self.data[0];
-        // TODO: direct slicing is not possible in `const` yet.
-        // SAFETY: `size < 64` so `1 + size` fits within `self.data`.
-        unsafe { self.data.split_at_mut_unchecked(1 + size as usize).1 }
-    }
-
-    /// Set the length of the buffer.
-    ///
-    /// This should be used in conjunction with
-    /// [`Self::spare_capacity_mut()`]; see its documentation. This is
-    /// analogous to [`Vec::set_len()`].
-    ///
-    /// [`Vec::set_len()`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html#method.set_len
-    ///
-    /// Prefer [`Self::truncate()`] for truncating the label.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `len >= 64`.
-    pub const fn set_len(&mut self, len: usize) {
-        // TODO: Include `len` in the assert message once it is `const`-safe
-        // to do so.
-        assert!(len < 64, "Invalid length for label");
-        self.data[0] = len as u8;
     }
 }
 
