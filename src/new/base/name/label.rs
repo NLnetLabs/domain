@@ -421,6 +421,11 @@ impl Label {
     /// ```
     #[must_use]
     pub const fn contents_mut(&mut self) -> &mut [u8] {
+        // NOTE: `Label`'s only safety invariant is that the length octet is
+        // well-formed (it is consistent with the slice length and is less
+        // than 64). No matter what the caller does with the returned bytes,
+        // they cannot violate that invariant.
+        //
         // TODO: slicing is not possible in `const` yet.
         // SAFETY: A `Label` always has a length octet.
         unsafe { self.0.split_at_mut_unchecked(1).1 }
