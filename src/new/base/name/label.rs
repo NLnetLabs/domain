@@ -69,9 +69,9 @@ use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 /// let input = b"\x07example";
 /// let label: &Label = <&Label>::parse_bytes(input)?;
 /// assert_eq!(label.contents(), b"example");
-/// assert_eq!(label.encoding(), b"\x07example");
+/// assert_eq!(label.as_wire(), b"\x07example");
 /// // `label` is not a copy of the input; it refers to the same address.
-/// assert_eq!(label.encoding().as_ptr(), input.as_ptr());
+/// assert_eq!(label.as_wire().as_ptr(), input.as_ptr());
 ///
 /// // You may see `label!` used in examples here.
 /// // It generates a `&'static Label` for hard-coded labels.
@@ -113,7 +113,7 @@ use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 ///
 /// [`AsRef<[u8]>`]: core::convert::AsRef
 ///
-/// The preferred ways to access the bytes are [`Self::encoding()`] (which
+/// The preferred ways to access the bytes are [`Self::as_wire()`] (which
 /// explicitly includes the length octet) and [`Self::contents()`] (which
 /// explicitly does not).
 ///
@@ -273,7 +273,7 @@ impl BuildInMessage for Label {
         start: usize,
         _compressor: &mut NameCompressor,
     ) -> Result<usize, TruncationError> {
-        let bytes = self.encoding();
+        let bytes = self.as_wire();
         let end = start + bytes.len();
         contents
             .get_mut(start..end)
@@ -313,7 +313,7 @@ impl<'a> ParseBytes<'a> for &'a Label {
 
 /// Serializing a [`Label`] as bytes.
 ///
-/// Labels are serialized exactly as [`Label::encoding()`], their encoding in
+/// Labels are serialized exactly as [`Label::as_wire()`], their encoding in
 /// the DNS wire format: a one-byte length octet (between 0 and 63, inclusive)
 /// followed by that many bytes.
 impl BuildBytes for Label {
@@ -321,11 +321,11 @@ impl BuildBytes for Label {
         &self,
         bytes: &'b mut [u8],
     ) -> Result<&'b mut [u8], TruncationError> {
-        self.encoding().build_bytes(bytes)
+        self.as_wire().build_bytes(bytes)
     }
 
     fn built_bytes_size(&self) -> usize {
-        self.encoding().len()
+        self.as_wire().len()
     }
 }
 
@@ -377,18 +377,18 @@ impl Label {
     /// # use domain::new::base::name::label;
     /// #
     /// let label = label!("example");
-    /// assert_eq!(label.encoding(), b"\x07example");
+    /// assert_eq!(label.as_wire(), b"\x07example");
     /// assert_eq!(label.contents(), b"example");
     /// ```
     #[must_use]
-    pub const fn encoding(&self) -> &[u8] {
+    pub const fn as_wire(&self) -> &[u8] {
         &self.0
     }
 
     /// The contents of the label.
     ///
     /// This does not include the length octet. If you need the length octet,
-    /// use [`Self::encoding()`]. Use [`Self::contents_mut()`] for a mutable
+    /// use [`Self::as_wire()`]. Use [`Self::contents_mut()`] for a mutable
     /// view.
     ///
     /// ```
@@ -396,7 +396,7 @@ impl Label {
     /// #
     /// let label = label!("example");
     /// assert_eq!(label.contents(), b"example");
-    /// assert_eq!(label.encoding(), b"\x07example");
+    /// assert_eq!(label.as_wire(), b"\x07example");
     /// ```
     #[must_use]
     pub const fn contents(&self) -> &[u8] {
@@ -443,7 +443,7 @@ impl PartialEq for Label {
     ///
     /// Labels are compared ASCII-case-insensitively, as is conventional for
     /// DNS. For a case-sensitive comparison, you can compare the byte slices
-    /// (from [`Self::contents()`], not [`Self::encoding()`]!) manually.
+    /// (from [`Self::contents()`], not [`Self::as_wire()`]!) manually.
     ///
     /// ```
     /// # use domain::new::base::name::label;
@@ -463,7 +463,7 @@ impl PartialEq for Label {
         // We don't need to include it, because the lengths of the slices will
         // be checked already. But it is probably more efficient this way.
         // Maybe we'll benchmark it one day and find out.
-        self.encoding().eq_ignore_ascii_case(other.encoding())
+        self.as_wire().eq_ignore_ascii_case(other.as_wire())
     }
 }
 
@@ -490,8 +490,8 @@ impl Ord for Label {
     /// label is a prefix of the other (i.e. all their corresponding bytes are
     /// equal, but one has fewer bytes), it is considered less than the other.
     ///
-    /// For a case-sensitive comparison, you can compare the byte slices
-    /// (from [`Self::contents()`], not [`Self::encoding()`]!) manually.
+    /// For a case-sensitive comparison, you can compare the byte slices (from
+    /// [`Self::contents()`], not [`Self::as_wire()`]!) manually.
     ///
     /// ```
     /// # use domain::new::base::name::label;
@@ -536,7 +536,7 @@ impl Hash for Label {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // NOTE: The length octet is unaffected by `to_ascii_lowercase()`
         // because it is strictly less than 64.
-        for &byte in self.encoding() {
+        for &byte in self.as_wire() {
             state.write_u8(byte.to_ascii_lowercase())
         }
     }
@@ -733,11 +733,11 @@ impl LabelBuf {
     /// # use domain::new::base::wire::ParseBytes;
     /// #
     /// let buffer: LabelBuf = LabelBuf::copy_from(label!("example"));
-    /// assert_eq!(buffer.encoding(), b"\x07example");
+    /// assert_eq!(buffer.as_wire(), b"\x07example");
     /// ```
     #[must_use]
     pub const fn copy_from(label: &Label) -> Self {
-        let bytes = label.encoding();
+        let bytes = label.as_wire();
         let mut data = [0u8; 64];
         // TODO: `for` loops and slicing aren't `const` yet.
         let mut index = 0usize;
@@ -776,7 +776,7 @@ impl LabelBuf {
     /// let mut buffer = LabelBuf::new();
     /// buffer.append(b"hello").unwrap();
     /// buffer.append(b"world").unwrap();
-    /// assert_eq!(buffer.encoding(), b"\x0Ahelloworld");
+    /// assert_eq!(buffer.as_wire(), b"\x0Ahelloworld");
     /// ```
     ///
     /// # Errors
@@ -828,7 +828,7 @@ impl LabelBuf {
     /// buffer.append(b"hello").unwrap();
     /// buffer.push(b'4').unwrap();
     /// buffer.push(b'2').unwrap();
-    /// assert_eq!(buffer.encoding(), b"\x07hello42");
+    /// assert_eq!(buffer.as_wire(), b"\x07hello42");
     /// ```
     ///
     /// # Errors
@@ -855,9 +855,9 @@ impl LabelBuf {
     /// #
     /// let mut buffer = LabelBuf::new();
     /// buffer.append(b"example");
-    /// assert_eq!(buffer.encoding(), b"\x07example");
+    /// assert_eq!(buffer.as_wire(), b"\x07example");
     /// buffer.truncate(4);
-    /// assert_eq!(buffer.encoding(), b"\x04exam");
+    /// assert_eq!(buffer.as_wire(), b"\x04exam");
     /// ```
     ///
     /// # Panics
@@ -1450,17 +1450,17 @@ impl fmt::Debug for LabelIter<'_> {
 /// # use domain::new::base::name::{Label, label};
 /// #
 /// let foo: &'static Label = label!("example");
-/// assert_eq!(foo.encoding(), b"\x07example");
+/// assert_eq!(foo.as_wire(), b"\x07example");
 ///
 /// // Escapes in the label are not processed.
 /// let foo: &'static Label = label!("ex\x0Amp\\e");
-/// assert_eq!(foo.encoding(), b"\x07ex\x0Amp\\e");
+/// assert_eq!(foo.as_wire(), b"\x07ex\x0Amp\\e");
 ///
 /// // You can use byte strings to avoid UTF-8 validity.
 /// // Due to macro limitations, you need to disambiguate this from
 /// // a regular string literal by prepending a `b` token.
 /// let foo: &'static Label = label!(b b"ex\xFFmple");
-/// assert_eq!(foo.encoding(), b"\x07ex\xFFmple");
+/// assert_eq!(foo.as_wire(), b"\x07ex\xFFmple");
 /// ```
 #[doc(hidden)]
 #[macro_export]
@@ -1497,17 +1497,17 @@ pub use crate::new_base_name_label as label;
 /// # use domain::new::base::name::{LabelBuf, label_buf};
 /// #
 /// let foo: LabelBuf = label_buf!("example");
-/// assert_eq!(foo.encoding(), b"\x07example");
+/// assert_eq!(foo.as_wire(), b"\x07example");
 ///
 /// // Escapes in the label are not processed.
 /// let foo: LabelBuf = label_buf!("ex\x0Amp\\e");
-/// assert_eq!(foo.encoding(), b"\x07ex\x0Amp\\e");
+/// assert_eq!(foo.as_wire(), b"\x07ex\x0Amp\\e");
 ///
 /// // You can use byte strings to avoid UTF-8 validity.
 /// // Due to macro limitations, you need to disambiguate this from
 /// // a regular string literal by prepending a `b` token.
 /// let foo: LabelBuf = label_buf!(b b"ex\xFFmple");
-/// assert_eq!(foo.encoding(), b"\x07ex\xFFmple");
+/// assert_eq!(foo.as_wire(), b"\x07ex\xFFmple");
 /// ```
 #[doc(hidden)]
 #[macro_export]
@@ -1648,9 +1648,9 @@ mod tests {
             let expected_len = input[0] as usize + 1;
             assert_eq!(<&Label>::parse_bytes(input), Err(ParseError));
             let (actual, rest) = <&Label>::split_bytes(input).unwrap();
-            assert_eq!(actual.encoding().len(), expected_len);
-            assert_eq!(actual.encoding().as_ptr(), input.as_ptr());
-            assert_eq!(actual.encoding().len() + rest.len(), input.len());
+            assert_eq!(actual.as_wire().len(), expected_len);
+            assert_eq!(actual.as_wire().as_ptr(), input.as_ptr());
+            assert_eq!(actual.as_wire().len() + rest.len(), input.len());
             assert_eq!(
                 rest.as_ptr(),
                 input.as_ptr().wrapping_add(expected_len)
@@ -1659,12 +1659,12 @@ mod tests {
             // Try parsing input that _only_ contains a label.
             let min_input = &input[..expected_len];
             let (actual, rest) = <&Label>::split_bytes(min_input).unwrap();
-            assert_eq!(actual.encoding().as_ptr(), min_input.as_ptr());
-            assert_eq!(actual.encoding().len(), min_input.len());
+            assert_eq!(actual.as_wire().as_ptr(), min_input.as_ptr());
+            assert_eq!(actual.as_wire().len(), min_input.len());
             assert_eq!(rest, &[] as &[u8]);
             let actual = <&Label>::parse_bytes(min_input).unwrap();
-            assert_eq!(actual.encoding().as_ptr(), min_input.as_ptr());
-            assert_eq!(actual.encoding().len(), min_input.len());
+            assert_eq!(actual.as_wire().as_ptr(), min_input.as_ptr());
+            assert_eq!(actual.as_wire().len(), min_input.len());
 
             // Try parsing input that's a byte too short.
             let short_input = &input[..expected_len - 1];

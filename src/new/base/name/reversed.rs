@@ -140,9 +140,9 @@ impl BuildInMessage for RevName {
             let labels = unsafe { LabelIter::new_unchecked(rest) };
             for label in labels {
                 let label_buffer;
-                let offset = buffer.len() - label.encoding().len();
+                let offset = buffer.len() - label.as_wire().len();
                 (buffer, label_buffer) = buffer.split_at_mut(offset);
-                label_buffer.copy_from_slice(label.encoding());
+                label_buffer.copy_from_slice(label.as_wire());
             }
 
             // Add the top bits and the 12-byte offset for the message header.
@@ -174,9 +174,9 @@ impl BuildBytes for RevName {
         // Write out the labels in the name in reverse.
         for label in self.labels() {
             let label_buffer;
-            let offset = buffer.len() - label.encoding().len();
+            let offset = buffer.len() - label.as_wire().len();
             (buffer, label_buffer) = buffer.split_at_mut(offset);
-            label_buffer.copy_from_slice(label.encoding());
+            label_buffer.copy_from_slice(label.as_wire());
         }
 
         Ok(rest)

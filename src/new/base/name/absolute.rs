@@ -577,7 +577,7 @@ impl NameBuf {
     ///
     /// This is an internal convenience function used while building buffers.
     fn append_label(&mut self, label: &Label) {
-        self.append_bytes(label.encoding());
+        self.append_bytes(label.as_wire());
     }
 }
 
@@ -704,7 +704,7 @@ impl NameBuf {
                 }
             };
 
-            if 255 - this.size < label.encoding().len() as u8 {
+            if 255 - this.size < label.as_wire().len() as u8 {
                 return Err(NameParseError::Overlong);
             }
             this.append_label(&label);
@@ -765,7 +765,7 @@ impl NameBuf {
         let absolute = loop {
             let (label, rest) = LabelBuf::split_str(s)?;
 
-            if 255 - this.size < label.encoding().len() as u8 {
+            if 255 - this.size < label.as_wire().len() as u8 {
                 return Err(NameSplitError::Overlong);
             }
             this.append_label(&label);
