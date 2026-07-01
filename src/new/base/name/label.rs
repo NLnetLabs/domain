@@ -1083,6 +1083,10 @@ impl LabelBuf {
     ///     LabelBuf::parse_str(b"example"),
     ///     Ok(label_buf!("example")));
     ///
+    /// assert_eq!(
+    ///     LabelBuf::parse_str(b"foo\\.b\\010r"),
+    ///     Ok(label_buf!("foo.b\x0Ar")));
+    ///
     /// // An empty input is parsed as the root label.
     /// assert_eq!(
     ///     LabelBuf::parse_str(b""),
@@ -1112,17 +1116,18 @@ impl LabelBuf {
                 let &[b, ref rest @ ..] = s else {
                     return Err(LabelParseError::PartialEscape);
                 };
-                s = rest;
                 let value = if b.is_ascii_digit() {
-                    let digits = rest
-                        .get(..3)
+                    let (digits, rest) = s
+                        .split_at_checked(3)
                         .ok_or(LabelParseError::PartialEscape)?;
+                    s = rest;
                     let digits = core::str::from_utf8(digits)
                         .map_err(|_| LabelParseError::InvalidEscape)?;
                     digits
                         .parse()
                         .map_err(|_| LabelParseError::InvalidEscape)?
                 } else if b.is_ascii_graphic() {
+                    s = rest;
                     b
                 } else {
                     return Err(LabelParseError::InvalidEscape);
@@ -1158,6 +1163,10 @@ impl LabelBuf {
     ///     LabelBuf::split_str(b"example.com."),
     ///     Ok((label_buf!("example"), &b".com."[..])));
     ///
+    /// assert_eq!(
+    ///     LabelBuf::split_str(b"foo\\.b\\010r.com."),
+    ///     Ok((label_buf!("foo.b\x0Ar"), &b".com."[..])));
+    ///
     /// // Even though this looks like a valid label, there is no delimiting
     /// // byte, so it cannot be parsed successfully.
     /// assert_eq!(
@@ -1189,16 +1198,18 @@ impl LabelBuf {
                 let &[b, ref rest @ ..] = s else {
                     return Err(LabelSplitError::ShortInput);
                 };
-                s = rest;
                 let value = if b.is_ascii_digit() {
-                    let digits =
-                        rest.get(..3).ok_or(LabelSplitError::ShortInput)?;
+                    let (digits, rest) = s
+                        .split_at_checked(3)
+                        .ok_or(LabelSplitError::ShortInput)?;
+                    s = rest;
                     let digits = core::str::from_utf8(digits)
                         .map_err(|_| LabelSplitError::InvalidEscape)?;
                     digits
                         .parse()
                         .map_err(|_| LabelSplitError::InvalidEscape)?
                 } else if b.is_ascii_graphic() {
+                    s = rest;
                     b
                 } else {
                     return Err(LabelSplitError::InvalidEscape);
