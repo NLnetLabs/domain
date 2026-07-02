@@ -4,7 +4,7 @@ use core::cmp::Ordering;
 
 use crate::new::base::build::{BuildInMessage, NameCompressor};
 use crate::new::base::name::CanonicalName;
-use crate::new::base::parse::{ParseMessageBytes, SplitMessageBytes};
+use crate::new::base::parse::{ParseMessageBytes, split_without_compression};
 use crate::new::base::wire::*;
 use crate::new::base::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
@@ -160,8 +160,7 @@ impl<'a, N: ParseMessageBytes<'a>> ParseMessageBytes<'a> for Mx<N> {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        let (&preference, rest) =
-            <&U16>::split_message_bytes(contents, start)?;
+        let (&preference, rest) = split_without_compression(contents, start)?;
         let exchange = N::parse_message_bytes(contents, rest)?;
         Ok(Self {
             preference,

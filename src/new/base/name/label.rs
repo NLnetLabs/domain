@@ -10,10 +10,15 @@ use core::{
     str::FromStr,
 };
 
-use crate::new::base::build::{BuildInMessage, NameCompressor};
-use crate::new::base::parse::{ParseMessageBytes, SplitMessageBytes};
+use crate::new::base::parse::{
+    ParseMessageBytes, SplitMessageBytes, split_without_compression,
+};
 use crate::new::base::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes, TruncationError,
+};
+use crate::new::base::{
+    build::{BuildInMessage, NameCompressor},
+    parse::parse_without_compression,
 };
 use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 
@@ -260,7 +265,7 @@ impl<'a> ParseMessageBytes<'a> for &'a Label {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        Self::parse_bytes(&contents[start..])
+        parse_without_compression(contents, start)
     }
 }
 
@@ -269,8 +274,7 @@ impl<'a> SplitMessageBytes<'a> for &'a Label {
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        Self::split_bytes(&contents[start..])
-            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
+        split_without_compression(contents, start)
     }
 }
 
@@ -877,7 +881,7 @@ impl ParseMessageBytes<'_> for LabelBuf {
         contents: &'_ [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        Self::parse_bytes(&contents[start..])
+        parse_without_compression(contents, start)
     }
 }
 
@@ -886,8 +890,7 @@ impl SplitMessageBytes<'_> for LabelBuf {
         contents: &'_ [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        Self::split_bytes(&contents[start..])
-            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
+        split_without_compression(contents, start)
     }
 }
 

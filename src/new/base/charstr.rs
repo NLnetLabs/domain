@@ -6,6 +6,9 @@ use core::hash::{Hash, Hasher};
 use core::ops::{Deref, DerefMut};
 use core::str::FromStr;
 
+use crate::new::base::parse::{
+    parse_without_compression, split_without_compression,
+};
 use crate::utils::dst::{UnsizedCopy, UnsizedCopyFrom};
 
 use super::{
@@ -78,8 +81,7 @@ impl<'a> SplitMessageBytes<'a> for &'a CharStr {
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        Self::split_bytes(&contents[start..])
-            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
+        split_without_compression(contents, start)
     }
 }
 
@@ -88,7 +90,7 @@ impl<'a> ParseMessageBytes<'a> for &'a CharStr {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        Self::parse_bytes(&contents[start..])
+        parse_without_compression(contents, start)
     }
 }
 
@@ -286,8 +288,7 @@ impl SplitMessageBytes<'_> for CharStrBuf {
         contents: &'_ [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        <&CharStr>::split_message_bytes(contents, start)
-            .map(|(this, rest)| (Self::copy_from(this), rest))
+        split_without_compression(contents, start)
     }
 }
 
@@ -296,7 +297,7 @@ impl ParseMessageBytes<'_> for CharStrBuf {
         contents: &'_ [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        <&CharStr>::parse_message_bytes(contents, start).map(Self::copy_from)
+        parse_without_compression(contents, start)
     }
 }
 

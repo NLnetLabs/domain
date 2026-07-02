@@ -8,9 +8,8 @@ use crate::new::base::build::{
     AsBytes, BuildBytes, BuildInMessage, NameCompressor,
 };
 use crate::new::base::name::{CanonicalName, Name};
-use crate::new::base::wire::{
-    ParseBytes, ParseError, SplitBytes, TruncationError,
-};
+use crate::new::base::parse::{ParseMessageBytes, parse_without_compression};
+use crate::new::base::wire::*;
 use crate::new::base::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
 };
@@ -104,6 +103,8 @@ use crate::utils::dst::UnsizedCopy;
     Hash,
     AsBytes,
     BuildBytes,
+    ParseBytesZC,
+    SplitBytesZC,
     UnsizedCopy,
 )]
 #[repr(transparent)]
@@ -150,18 +151,14 @@ impl BuildInMessage for DName {
     }
 }
 
-//--- Parsing from bytes
+//--- Parsing from DNS messages
 
-impl<'a> ParseBytes<'a> for &'a DName {
-    fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        <&Name>::parse_bytes(bytes).map(DName::new)
-    }
-}
-
-impl<'a> SplitBytes<'a> for &'a DName {
-    fn split_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), ParseError> {
-        <&Name>::split_bytes(bytes)
-            .map(|(name, rest)| (DName::new(name), rest))
+impl<'a> ParseMessageBytes<'a> for &'a DName {
+    fn parse_message_bytes(
+        contents: &'a [u8],
+        start: usize,
+    ) -> Result<Self, ParseError> {
+        parse_without_compression(contents, start)
     }
 }
 

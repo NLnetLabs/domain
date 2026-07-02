@@ -2,6 +2,7 @@
 
 use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
+use crate::new::base::parse::split_without_compression;
 use crate::utils::dst::UnsizedCopy;
 
 use super::build::{BuildInMessage, NameCompressor};
@@ -131,12 +132,12 @@ where
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let (rname, rest) = N::split_message_bytes(contents, start)?;
-        let (&rtype, rest) = <&RType>::split_message_bytes(contents, rest)?;
-        let (&rclass, rest) = <&RClass>::split_message_bytes(contents, rest)?;
-        let (&ttl, rest) = <&TTL>::split_message_bytes(contents, rest)?;
+        let (&rtype, rest) = split_without_compression(contents, rest)?;
+        let (&rclass, rest) = split_without_compression(contents, rest)?;
+        let (&ttl, rest) = split_without_compression(contents, rest)?;
         let rdata_start = rest;
-        let (_, rest) =
-            <&SizePrefixed<U16, [u8]>>::split_message_bytes(contents, rest)?;
+        let (_, rest): (&SizePrefixed<U16, [u8]>, _) =
+            split_without_compression(contents, rest)?;
         let rdata =
             D::parse_record_data(&contents[..rest], rdata_start + 2, rtype)?;
 
@@ -311,6 +312,9 @@ impl RType {
     /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
     pub const AAAA: Self = Self::new(28);
 
+    /// The type of an [`Srv`](crate::new::rdata::Srv) record.
+    pub const SRV: Self = Self::new(33);
+
     /// The type of a [`DName`](crate::new::rdata::DName) record.
     pub const DNAME: Self = Self::new(39);
 
@@ -376,7 +380,7 @@ impl RType {
     /// - `NXT` (obsolete)
     /// - `NAPTR`
     /// - `KX`
-    /// - `SRV`
+    /// - [`SRV`](RType::SRV)
     /// - [`DNAME`](RType::DNAME)
     /// - `A6` (obsolete)
     /// - [`RRSIG`](RType::RRSIG)
@@ -393,6 +397,7 @@ impl RType {
                 | Self::PTR
                 | Self::MX
                 | Self::RP
+                | Self::SRV
                 | Self::DNAME
                 | Self::RRSIG
         )
@@ -430,6 +435,7 @@ impl fmt::Debug for RType {
             Self::TXT => "RType::TXT",
             Self::RP => "RType::RP",
             Self::AAAA => "RType::AAAA",
+            Self::SRV => "RType::SRV",
             Self::DNAME => "RType::DNAME",
             Self::OPT => "RType::OPT",
             Self::DS => "RType::DS",
@@ -478,6 +484,7 @@ impl fmt::Display for RType {
             Self::TXT => "TXT",
             Self::RP => "RP",
             Self::AAAA => "AAAA",
+            Self::SRV => "SRV",
             Self::DNAME => "DNAME",
             Self::OPT => "OPT",
             Self::DS => "DS",

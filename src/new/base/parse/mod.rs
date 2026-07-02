@@ -259,13 +259,16 @@ impl<'a> ParseMessageBytes<'a> for u8 {
     }
 }
 
-impl<'a, T: ?Sized + ParseBytesZC> ParseMessageBytes<'a> for &'a T {
-    fn parse_message_bytes(
-        contents: &'a [u8],
-        start: usize,
-    ) -> Result<Self, ParseError> {
-        T::parse_bytes_by_ref(&contents[start..])
-    }
+/// Parse bytes from a DNS message, without name compression.
+///
+/// This allows a type implementing [`ParseBytes`] to be used where
+/// [`ParseMessageBytes`] is necessary. An explicit conversion step is needed
+/// because some types implement both with traits, with differing semantics.
+pub fn parse_without_compression<'a, T: ParseBytes<'a>>(
+    contents: &'a [u8],
+    start: usize,
+) -> Result<T, ParseError> {
+    T::parse_bytes(&contents[start..])
 }
 
 impl<'a, T: SplitMessageBytes<'a>, const N: usize> ParseMessageBytes<'a>
@@ -310,7 +313,7 @@ impl<'a> ParseMessageBytes<'a> for alloc::string::String {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        <&str>::parse_message_bytes(contents, start).map(|s| s.into())
+        parse_without_compression::<&str>(contents, start).map(|s| s.into())
     }
 }
 
@@ -348,14 +351,19 @@ impl<'a> SplitMessageBytes<'a> for u8 {
     }
 }
 
-impl<'a, T: ?Sized + SplitBytesZC> SplitMessageBytes<'a> for &'a T {
-    fn split_message_bytes(
-        contents: &'a [u8],
-        start: usize,
-    ) -> Result<(Self, usize), ParseError> {
-        T::split_bytes_by_ref(&contents[start..])
-            .map(|(this, rest)| (this, contents.len() - rest.len()))
-    }
+/// Parse a value from the start of a byte sequence within a DNS message,
+/// without name compression.
+///
+/// This allows a type implementing [`SplitBytes`] to be used where
+/// [`SplitMessageBytes`] is necessary. An explicit conversion step is needed
+/// because some types implement both with traits, with differing semantics.
+pub fn split_without_compression<'a, T: SplitBytes<'a>>(
+    contents: &'a [u8],
+    start: usize,
+) -> Result<(T, usize), ParseError> {
+    let (result, rest) = T::split_bytes(&contents[start..])?;
+    let end = contents.len() - rest.len();
+    Ok((result, end))
 }
 
 impl<'a, T: SplitMessageBytes<'a>, const N: usize> SplitMessageBytes<'a>
