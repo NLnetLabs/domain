@@ -159,90 +159,91 @@ impl QType {
 
 //--- Associated Constants
 
-enum_type! {
-    =>
-    QType;
-    /// The type of queries for [`A`](crate::new::rdata::A) records.
-    (A => 1, "A")
+define_known_values! (
+    QType::(pub TYPES, pub MNEMONICS) = [
+        /// The type of queries for [`A`](crate::new::rdata::A) records.
+        A = Self::new(1),
 
-    /// The type of queries for [`Ns`](crate::new::rdata::Ns) records.
-    (NS => 2, "NS")
+        /// The type of queries for [`Ns`](crate::new::rdata::Ns) records.
+        NS = Self::new(2),
 
-    /// The type of queries for [`CName`](crate::new::rdata::CName) records.
-    (CNAME => 5, "CNAME")
+        /// The type of queries for [`CName`](crate::new::rdata::CName) records.
+        CNAME = Self::new(5),
 
-    /// The type of queries for [`Soa`](crate::new::rdata::Soa) records.
-    (SOA => 6, "SOA")
+        /// The type of queries for [`Soa`](crate::new::rdata::Soa) records.
+        SOA = Self::new(6),
 
-    /// The type of queries for [`Ptr`](crate::new::rdata::Ptr) records.
-    (PTR => 12, "PTR")
+        /// The type of queries for [`Ptr`](crate::new::rdata::Ptr) records.
+        PTR = Self::new(12),
 
-    /// The type of queries for [`HInfo`](crate::new::rdata::HInfo) records.
-    (HINFO => 13, "HINFO")
+        /// The type of queries for [`HInfo`](crate::new::rdata::HInfo) records.
+        HINFO = Self::new(13),
 
-    /// The type of queries for [`Mx`](crate::new::rdata::Mx) records.
-    (MX => 15, "MX")
+        /// The type of queries for [`Mx`](crate::new::rdata::Mx) records.
+        MX = Self::new(15),
 
-    /// The type of queries for [`Txt`](crate::new::rdata::Txt) records.
-    (TXT => 16, "TXT")
+        /// The type of queries for [`Txt`](crate::new::rdata::Txt) records.
+        TXT = Self::new(16),
 
-    /// The type of queries for [`Rp`](crate::new::rdata::Rp) records.
-    (RP => 17, "RP")
+        /// The type of queries for [`Rp`](crate::new::rdata::Rp) records.
+        RP = Self::new(17),
 
-    /// The type of queries for [`Aaaa`](crate::new::rdata::Aaaa) records.
-    (AAAA => 28, "AAAA")
+        /// The type of queries for [`Aaaa`](crate::new::rdata::Aaaa) records.
+        AAAA = Self::new(28),
 
-    /// The type of queries for [`DName`](crate::new::rdata::DName) records.
-    (DNAME => 39, "DNAME")
+        /// The type of queries for [`DName`](crate::new::rdata::DName) records.
+        DNAME = Self::new(39),
 
-    /// The type of queries for [`Opt`](crate::new::rdata::Opt) records.
-    (OPT => 41, "OPT")
+        /// The type of queries for [`Opt`](crate::new::rdata::Opt) records.
+        OPT = Self::new(41),
 
-    /// The type of queries for [`Ds`](crate::new::rdata::Ds) records.
-    (DS => 43, "DS")
+        /// The type of queries for [`Ds`](crate::new::rdata::Ds) records.
+        DS = Self::new(43),
 
-    /// The type of queries for [`Rrsig`](crate::new::rdata::Rrsig) records.
-    (RRSIG => 46, "RRSIG")
+        /// The type of queries for [`RRSig`](crate::new::rdata::RRSig) records.
+        RRSIG = Self::new(46),
 
-    /// The type of queries for [`Nsec`](crate::new::rdata::Nsec) records.
-    (NSEC => 47, "NSEC")
+        /// The type of queries for [`NSec`](crate::new::rdata::NSec) records.
+        NSEC = Self::new(47),
 
-    /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.
-    (DNSKEY => 48, "DNSKEY")
+        /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.
+        DNSKEY = Self::new(48),
 
-    /// The type of queries for [`Nsec3`](crate::new::rdata::Nsec3) records.
-    (NSEC3 => 50, "NSEC3")
+        /// The type of queries for [`NSec3`](crate::new::rdata::NSec3) records.
+        NSEC3 = Self::new(50),
 
-    /// The type of queries for [`Nsec3Param`](crate::new::rdata::Nsec3Param) records.
-    (NSEC3PARAM => 51, "NSEC3PARAM")
+        /// The type of queries for [`NSec3Param`](crate::new::rdata::NSec3Param) records.
+        NSEC3PARAM = Self::new(51),
 
-    /// The type of queries for `Cds` records.
-    (CDS => 59, "CDS")
+        /// The type of queries for `Cds` records.
+        CDS = Self::new(59),
 
-    /// The type of queries for `CDNSKey` records.
-    (CDNSKEY => 60, "CDNSKEY")
+        /// The type of queries for `CDNSKey` records.
+        CDNSKEY = Self::new(60),
 
-    /// The type of queries for [`ZoneMD`](crate::new::rdata::ZoneMD) records.
-    (ZONEMD => 63, "ZONEMD")
+        /// The type of queries for [`ZoneMD`](crate::new::rdata::ZoneMD) records.
+        ZONEMD = Self::new(63),
 
-    /// The type of queries for `TSig` records.
-    (TSIG => 250, "TSIG")
+        /// The type of queries for `TSig` records.
+        TSIG = Self::new(250),
 
-    //----- QType specific
+        //----- QType specific
 
-    /// The type of requests for incremental zone transfers (IXFRs).
-    (IXFR => 251, "IXFR")
+        /// The type of requests for incremental zone transfers (IXFRs).
+        IXFR = Self::new(251),
 
-    /// The type of requests for authoritative zone transfers (AXFRs).
-    (AXFR => 252, "AXFR")
+        /// The type of requests for authoritative zone transfers (AXFRs).
+        AXFR = Self::new(252),
 
-    /// The type of queries for all available records.
-    (ANY => 255, "ANY")
-}
+        /// The type of queries for all available records.
+        ANY = Self::new(255),
+    ];
+
+);
 
 //--- Conversion to and from 'u16'
 
-enum_type_from_and_to_primitive!(=> QType, u16;);
+enum_type_from_and_to_primitive!(QType, u16);
 
 //--- Formatting
 
@@ -318,18 +319,18 @@ impl QClass {
     }
 }
 
-enum_type! {
-    =>
-    QClass;
-    /// The type of queries in the Internet class.
-    (IN => 1, "IN")
-    /// The type of queries in the CHAOS class.
-    (CH => 3, "CH")
-}
+define_known_values! (
+    QClass::(pub TYPES, pub MNEMONICS) = [
+        /// The Internet class.
+        IN = Self::new(1),
+        /// The CHAOS class.
+        CH = Self::new(3),
+    ];
+);
 
 //--- Conversion to and from 'u16'
 
-enum_type_from_and_to_primitive!(=> QClass, u16;);
+enum_type_from_and_to_primitive!(QClass, u16);
 
 //--- Formatting
 

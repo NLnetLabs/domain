@@ -284,75 +284,76 @@ impl RType {
 }
 
 // [`RType`] implementation using Macro. See macro for implementation details
-enum_type! {
-    =>
-    RType;
-    /// The type of an [`A`](crate::new::rdata::A) record.
-    (A => 1, "A")
+define_known_values! (
+    RType::(pub TYPES, pub MNEMONICS) = [
+        /// The type of an [`A`](crate::new::rdata::A) record.
+        A = Self::new(1),
 
-    /// The type of an [`Ns`](crate::new::rdata::Ns) record.
-    (NS => 2, "NS")
+        /// The type of an [`Ns`](crate::new::rdata::Ns) record.
+        NS = Self::new(2),
 
-    /// The type of a [`CName`](crate::new::rdata::CName) record.
-    (CNAME => 5, "CNAME")
+        /// The type of a [`CName`](crate::new::rdata::CName) record.
+        CNAME = Self::new(5),
 
-    /// The type of an [`Soa`](crate::new::rdata::Soa) record.
-    (SOA => 6, "SOA")
+        /// The type of an [`Soa`](crate::new::rdata::Soa) record.
+        SOA = Self::new(6),
 
-    /// The type of a [`Ptr`](crate::new::rdata::Ptr) record.
-    (PTR => 12, "PTR")
+        /// The type of a [`Ptr`](crate::new::rdata::Ptr) record.
+        PTR = Self::new(12),
 
-    /// The type of a [`HInfo`](crate::new::rdata::HInfo) record.
-    (HINFO => 13, "HINFO")
+        /// The type of a [`HInfo`](crate::new::rdata::HInfo) record.
+        HINFO = Self::new(13),
 
-    /// The type of a [`Mx`](crate::new::rdata::Mx) record.
-    (MX => 15, "MX")
+        /// The type of a [`Mx`](crate::new::rdata::Mx) record.
+        MX = Self::new(15),
 
-    /// The type of a [`Txt`](crate::new::rdata::Txt) record.
-    (TXT => 16, "TXT")
+        /// The type of a [`Txt`](crate::new::rdata::Txt) record.
+        TXT = Self::new(16),
 
-    /// The type of an [`Rp`](crate::new::rdata::Rp) record.
-    (RP => 17, "RP")
+        /// The type of an [`Rp`](crate::new::rdata::Rp) record.
+        RP = Self::new(17),
 
-    /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
-    (AAAA => 28, "AAAA")
+        /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
+        AAAA = Self::new(28),
 
-    /// The type of a [`DName`](crate::new::rdata::DName) record.
-    (DNAME => 39, "DNAME")
+        /// The type of a [`DName`](crate::new::rdata::DName) record.
+        DNAME = Self::new(39),
 
-    /// The type of an [`Opt`](crate::new::rdata::Opt) record.
-    (OPT => 41, "OPT")
+        /// The type of an [`Opt`](crate::new::rdata::Opt) record.
+        OPT = Self::new(41),
 
-    /// The type of a [`Ds`](crate::new::rdata::Ds) record.
-    (DS => 43, "DS")
+        /// The type of a [`Ds`](crate::new::rdata::Ds) record.
+        DS = Self::new(43),
 
-    /// The type of an [`Rrsig`](crate::new::rdata::Rrsig) record.
-    (RRSIG => 46, "RRSIG")
+        /// The type of an [`RRSig`](crate::new::rdata::RRSig) record.
+        RRSIG = Self::new(46),
 
-    /// The type of an [`Nsec`](crate::new::rdata::Nsec) record.
-    (NSEC => 47, "NSEC")
+        /// The type of an [`NSec`](crate::new::rdata::NSec) record.
+        NSEC = Self::new(47),
 
-    /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.
-    (DNSKEY => 48, "DNSKEY")
+        /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.
+        DNSKEY = Self::new(48),
 
-    /// The type of an [`Nsec3`](crate::new::rdata::Nsec3) record.
-    (NSEC3 => 50, "NSEC3")
+        /// The type of an [`NSec3`](crate::new::rdata::NSec3) record.
+        NSEC3 = Self::new(50),
 
-    /// The type of an [`Nsec3Param`](crate::new::rdata::Nsec3Param) record.
-    (NSEC3PARAM => 51, "NSEC3PARAM")
+        /// The type of an [`NSec3Param`](crate::new::rdata::NSec3Param) record.
+        NSEC3PARAM = Self::new(51),
 
-    /// The type of a `Cds` record.
-    (CDS => 59, "CDS")
+        /// The type of a `Cds` record.
+        CDS = Self::new(59),
 
-    /// The type of a `CDNSKey` record.
-    (CDNSKEY => 60, "CDNSKEY")
+        /// The type of a `CDNSKey` record.
+        CDNSKEY = Self::new(60),
 
-    /// The type of a [`ZoneMD`](crate::new::rdata::ZoneMD) record.
-    (ZONEMD => 63, "ZONEMD")
+        /// The type of a [`ZoneMD`](crate::new::rdata::ZoneMD) record.
+        ZONEMD = Self::new(63),
 
-    /// The type of a `TSig` record.
-    (TSIG => 250, "TSIG")
-}
+        /// The type of a `TSig` record.
+        TSIG = Self::new(250),
+    ];
+
+);
 
 //--- Interaction
 
@@ -407,7 +408,7 @@ impl RType {
 
 //--- Conversion to and from 'u16'
 
-enum_type_from_and_to_primitive!(=> RType, u16;);
+enum_type_from_and_to_primitive!(RType, u16);
 
 //--- Formatting
 
@@ -482,19 +483,18 @@ impl RClass {
         }
     }
 }
-
-enum_type! {
-    =>
-    RClass;
-    /// The Internet class.
-    (IN => 1, "IN")
-    /// The CHAOS class.
-    (CH => 3, "CH")
-}
+define_known_values! (
+    RClass::(pub TYPES, pub MNEMONICS) = [
+        /// The Internet class.
+        IN = Self::new(1),
+        /// The CHAOS class.
+        CH = Self::new(3),
+    ];
+);
 
 //--- Conversion to and from 'u16'
 
-enum_type_from_and_to_primitive!(=> RClass, u16;);
+enum_type_from_and_to_primitive!(RClass, u16);
 
 //--- Formatting
 
