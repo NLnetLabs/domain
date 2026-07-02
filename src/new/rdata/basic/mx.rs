@@ -61,7 +61,7 @@ use crate::new::base::{
 /// // Build an 'Mx' manually:
 /// let manual: Mx<RevNameBuf> = Mx {
 ///     preference: 10.into(),
-///     exchange: "example.org".parse().unwrap(),
+///     exchange: "example.org.".parse().unwrap(),
 /// };
 ///
 /// let bytes = b"\x00\x0A\x07example\x03org\x00";

@@ -57,8 +57,8 @@ use crate::new::base::{
 /// #
 /// // Build an 'Rp' manually:
 /// let manual: Rp<RevNameBuf> = Rp {
-///     mailbox: "postmaster.example.org".parse().unwrap(),
-///     texts: "findme.example.org".parse().unwrap(),
+///     mailbox: "postmaster.example.org.".parse().unwrap(),
+///     texts: "findme.example.org.".parse().unwrap(),
 /// };
 ///
 /// // Its wire format serialization looks like:

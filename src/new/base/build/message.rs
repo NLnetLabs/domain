@@ -371,7 +371,7 @@ mod test {
         );
 
         let question = Question::<RevNameBuf> {
-            qname: "www.example.org".parse().unwrap(),
+            qname: "www.example.org.".parse().unwrap(),
             qtype: QType::A,
             qclass: QClass::IN,
         };
@@ -393,7 +393,7 @@ mod test {
         );
 
         let record = Record::<RevNameBuf, _> {
-            rname: "www.example.org".parse().unwrap(),
+            rname: "www.example.org.".parse().unwrap(),
             rtype: RType::A,
             rclass: RClass::IN,
             ttl: TTL::from(42),

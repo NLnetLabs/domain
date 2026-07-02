@@ -69,7 +69,7 @@ use crate::new::base::{
 /// #
 /// // Build an 'Ns' manually:
 /// let manual: Ns<RevNameBuf> = Ns {
-///     server: "example.org".parse().unwrap(),
+///     server: "example.org.".parse().unwrap(),
 /// };
 ///
 /// // Its wire format serialization looks like:

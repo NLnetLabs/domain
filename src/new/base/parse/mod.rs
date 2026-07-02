@@ -42,12 +42,12 @@
 //! // A parsed version of the same message.
 //! let items = [
 //!     MessageItem::Question(Question {
-//!         qname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!         qname: "www.example.org.".parse::<RevNameBuf>().unwrap(),
 //!         qtype: QType::A,
 //!         qclass: QClass::IN,
 //!     }),
 //!     MessageItem::Answer(Record {
-//!         rname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!         rname: "www.example.org.".parse::<RevNameBuf>().unwrap(),
 //!         rtype: RType::A,
 //!         rclass: RClass::IN,
 //!         ttl: 3600.into(),
@@ -119,7 +119,7 @@
 //! (question, offset) = <Question<RevNameBuf>>
 //!     ::split_message_bytes(&message.contents, offset).unwrap();
 //!
-//! assert_eq!(question.qname, "www.example.org".parse().unwrap());
+//! assert_eq!(question.qname, "www.example.org.".parse().unwrap());
 //! assert_eq!(question.qtype, QType::A);
 //! assert_eq!(question.qclass, QClass::IN);
 //!
@@ -128,7 +128,7 @@
 //! (answer, offset) = <Record<RevNameBuf, RecordData<'_, NameBuf>>>
 //!     ::split_message_bytes(&message.contents, offset).unwrap();
 //!
-//! assert_eq!(answer.rname, "www.example.org".parse().unwrap());
+//! assert_eq!(answer.rname, "www.example.org.".parse().unwrap());
 //! assert_eq!(answer.rtype, RType::A);
 //! assert_eq!(answer.rclass, RClass::IN);
 //! assert_eq!(answer.ttl.value.get(), 3600);

@@ -69,7 +69,7 @@ use crate::utils::dst::UnsizedCopy;
 /// # use domain::utils::dst::UnsizedCopy;
 /// #
 /// // Parse a 'Name' and build a 'DName' from there:
-/// let name = "example.org".parse::<NameBuf>().unwrap();
+/// let name = "example.org.".parse::<NameBuf>().unwrap();
 /// let dname = DName::new(&name);
 ///
 /// // Parse a 'DName' from the DNS wire format:

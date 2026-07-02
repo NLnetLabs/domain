@@ -25,12 +25,12 @@ use super::wire::{
 ///     base::name::RevNameBuf,
 ///     rdata::CName<base::name::NameBuf>,
 /// > = base::Record {
-///     rname: "www.nlnetlabs.nl".parse().unwrap(),
+///     rname: "www.nlnetlabs.nl.".parse().unwrap(),
 ///     rtype: base::RType::CNAME,
 ///     rclass: base::RClass::IN,
 ///     ttl: base::TTL::from(3600),
 ///     rdata: rdata::CName {
-///         name: "nlnetlabs.nl".parse().unwrap(),
+///         name: "nlnetlabs.nl.".parse().unwrap(),
 ///     },
 /// };
 ///

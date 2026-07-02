@@ -134,7 +134,7 @@
 //!
 //! // Add a question for an A record.
 //! builder.push_question(&Question {
-//!     qname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!     qname: "www.example.org.".parse::<RevNameBuf>().unwrap(),
 //!     qtype: QType::A,
 //!     qclass: QClass::IN,
 //! }).unwrap();

@@ -223,22 +223,22 @@ impl NameCompressor {
             // chance that we aren't consistent with label boundaries.
 
             // TODO(1.80): Use 'slice::split_at_checked()'.
-            if entry.len() < first.as_bytes().len()
-                || !entry[entry.len() - first.as_bytes().len()..]
-                    .eq_ignore_ascii_case(first.as_bytes())
+            if entry.len() < first.as_wire().len()
+                || !entry[entry.len() - first.as_wire().len()..]
+                    .eq_ignore_ascii_case(first.as_wire())
             {
                 continue;
             }
-            entry = &entry[..entry.len() - first.as_bytes().len()];
+            entry = &entry[..entry.len() - first.as_wire().len()];
 
             for label in name_labels.clone() {
-                if entry.len() < label.as_bytes().len()
-                    || !entry[entry.len() - label.as_bytes().len()..]
-                        .eq_ignore_ascii_case(label.as_bytes())
+                if entry.len() < label.as_wire().len()
+                    || !entry[entry.len() - label.as_wire().len()..]
+                        .eq_ignore_ascii_case(label.as_wire())
                 {
                     break;
                 }
-                entry = &entry[..entry.len() - label.as_bytes().len()];
+                entry = &entry[..entry.len() - label.as_wire().len()];
             }
 
             // Suffixes from 'entry' that were also in 'name' have been
@@ -550,7 +550,7 @@ impl NameCompressor {
         const SEED2: u64 = 0x13198a2e03707344;
         const M: u64 = 0xa4093822299f31d0;
 
-        let bytes = label.as_bytes();
+        let bytes = label.as_wire();
         let len = bytes.len();
         let mut s = (SEED1, SEED2);
 
@@ -631,8 +631,8 @@ mod tests {
         let mut compressor = NameCompressor::new();
 
         // The TLD is different, so they cannot be compressed together.
-        let a: NameBuf = "example.org".parse().unwrap();
-        let b: NameBuf = "example.com".parse().unwrap();
+        let a: NameBuf = "example.org.".parse().unwrap();
+        let b: NameBuf = "example.com.".parse().unwrap();
 
         let mut off = 0;
         off = a
@@ -657,8 +657,8 @@ mod tests {
         let mut compressor = NameCompressor::new();
 
         // Only the TLD will be shared.
-        let a: NameBuf = "example.org".parse().unwrap();
-        let b: NameBuf = "unequal.org".parse().unwrap();
+        let a: NameBuf = "example.org.".parse().unwrap();
+        let b: NameBuf = "unequal.org.".parse().unwrap();
 
         let mut off = 0;
         off = a
@@ -683,8 +683,8 @@ mod tests {
         let mut compressor = NameCompressor::new();
 
         // The TLD should be shared, even if it differs in case.
-        let a: NameBuf = "example.org".parse().unwrap();
-        let b: NameBuf = "unequal.ORG".parse().unwrap();
+        let a: NameBuf = "example.org.".parse().unwrap();
+        let b: NameBuf = "unequal.ORG.".parse().unwrap();
 
         let mut off = 0;
         off = a
