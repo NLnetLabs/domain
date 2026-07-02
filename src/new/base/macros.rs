@@ -74,50 +74,6 @@ macro_rules! define_known_values {
         }
     };
 }
-macro_rules! enum_type{
-    ( $(#[$attr:meta])* =>
-      $enumtype:ident;
-      $( $(#[$variant_attr:meta])*
-    ( $variant:ident => $value:expr, $mnemonic:expr) )* ) => {
-        // create constants
-        impl $enumtype {
-            $(
-                $(#[$variant_attr])*
-                pub const $variant: $enumtype = $enumtype::new($value);
-            )*
-        }
-
-        // create conversion functions
-        impl $enumtype{
-            /// Returns mnemonic representation of this type if defined.
-            #[must_use]
-            pub fn get_mnemonic(&self) -> Option<&'static str> {
-                match self {
-                $(
-                    &$enumtype::$variant => Some($mnemonic),
-                )*
-                    _ => None, // default case if mnemonic is unknown
-                }
-            }
-
-            /// Returns Self if mnemonic is recognised.
-            #[must_use]
-            pub fn from_mnemonic(mnemonic: &str) -> Option<Self> {
-                let types = [
-                $(
-                    ($mnemonic, Self::$variant),
-                )*
-                ];
-                for candidate in types {
-                    if mnemonic.eq_ignore_ascii_case(candidate.0) {
-                        return Some(candidate.1)
-                    }
-                }
-                None
-            }
-        }
-    }
-}
 
 /// From implementation for DNS Enum Type
 ///

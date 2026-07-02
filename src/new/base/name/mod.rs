@@ -270,9 +270,9 @@ mod tests {
 
     #[test]
     fn test_make_canonical_ref_name() {
-        let namebuf_lowercase: NameBuf = "example.com".parse().unwrap();
+        let namebuf_lowercase: NameBuf = "example.com.".parse().unwrap();
         let mut namebuf_different_cases: NameBuf =
-            "ExAmPlE.cOm".parse().unwrap();
+            "ExAmPlE.cOm.".parse().unwrap();
 
         let name_lowercase: &Name = &namebuf_lowercase;
         let name_different_cases: &mut Name = &mut namebuf_different_cases;

@@ -325,19 +325,19 @@ define_known_values! (
         /// The type of a [`Ds`](crate::new::rdata::Ds) record.
         DS = Self::new(43),
 
-        /// The type of an [`RRSig`](crate::new::rdata::RRSig) record.
+        /// The type of an [`Rrsig`](crate::new::rdata::Rrsig) record.
         RRSIG = Self::new(46),
 
-        /// The type of an [`NSec`](crate::new::rdata::NSec) record.
+        /// The type of an [`Nsec`](crate::new::rdata::Nsec) record.
         NSEC = Self::new(47),
 
         /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.
         DNSKEY = Self::new(48),
 
-        /// The type of an [`NSec3`](crate::new::rdata::NSec3) record.
+        /// The type of an [`Nsec3`](crate::new::rdata::Nsec3) record.
         NSEC3 = Self::new(50),
 
-        /// The type of an [`NSec3Param`](crate::new::rdata::NSec3Param) record.
+        /// The type of an [`Nsec3Param`](crate::new::rdata::Nsec3Param) record.
         NSEC3PARAM = Self::new(51),
 
         /// The type of a `Cds` record.

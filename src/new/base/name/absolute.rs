@@ -1161,11 +1161,11 @@ mod tests {
 
     #[test]
     fn test_to_name_cmp() {
-        let namebuf1: NameBuf = "example.com".parse().unwrap();
-        let namebuf2: NameBuf = "example.com".parse().unwrap();
+        let namebuf1: NameBuf = "example.com.".parse().unwrap();
+        let namebuf2: NameBuf = "example.com.".parse().unwrap();
         assert_eq!(namebuf1, namebuf2);
 
-        let namebuf2: NameBuf = "EXAMPLE.com".parse().unwrap();
+        let namebuf2: NameBuf = "EXAMPLE.com.".parse().unwrap();
         assert_eq!(namebuf1, namebuf2);
     }
 }

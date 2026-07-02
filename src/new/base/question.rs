@@ -200,19 +200,19 @@ define_known_values! (
         /// The type of queries for [`Ds`](crate::new::rdata::Ds) records.
         DS = Self::new(43),
 
-        /// The type of queries for [`RRSig`](crate::new::rdata::RRSig) records.
+        /// The type of queries for [`Rrsig`](crate::new::rdata::Rrsig) records.
         RRSIG = Self::new(46),
 
-        /// The type of queries for [`NSec`](crate::new::rdata::NSec) records.
+        /// The type of queries for [`Nsec`](crate::new::rdata::Nsec) records.
         NSEC = Self::new(47),
 
         /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.
         DNSKEY = Self::new(48),
 
-        /// The type of queries for [`NSec3`](crate::new::rdata::NSec3) records.
+        /// The type of queries for [`Nsec3`](crate::new::rdata::Nsec3) records.
         NSEC3 = Self::new(50),
 
-        /// The type of queries for [`NSec3Param`](crate::new::rdata::NSec3Param) records.
+        /// The type of queries for [`Nsec3Param`](crate::new::rdata::Nsec3Param) records.
         NSEC3PARAM = Self::new(51),
 
         /// The type of queries for `Cds` records.
