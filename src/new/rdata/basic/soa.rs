@@ -210,10 +210,10 @@ pub struct Soa<N> {
     /// The meaning of this field has changed over time. According to [RFC
     /// 2308, section 4], it is the time for which a negative response (i.e.
     /// that a certain record does not exist) should be cached. [RFC 4035,
-    /// section 2.3] likewise states that the [`NSec`] records for a zone
+    /// section 2.3] likewise states that the [`Nsec`] records for a zone
     /// should have a TTL of this value.
     ///
-    /// [`NSec`]: crate::new::rdata::NSec
+    /// [`Nsec`]: crate::new::rdata::Nsec
     /// [RFC 2308, section 4]: https://datatracker.ietf.org/doc/html/rfc2308#section-4
     /// [RFC 4035, section 2.3]: https://datatracker.ietf.org/doc/html/rfc4035#section-2.3
     pub minimum: U32,

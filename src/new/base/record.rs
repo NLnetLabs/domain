@@ -4,6 +4,7 @@ use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use crate::utils::dst::UnsizedCopy;
 
+use super::super::rdata::{BoxedRecordData, RecordData};
 use super::build::{BuildInMessage, NameCompressor};
 use super::parse::{ParseMessageBytes, SplitMessageBytes};
 use super::wire::{
@@ -320,19 +321,19 @@ impl RType {
     /// The type of a [`Ds`](crate::new::rdata::Ds) record.
     pub const DS: Self = Self::new(43);
 
-    /// The type of an [`RRSig`](crate::new::rdata::RRSig) record.
+    /// The type of an [`Rrsig`](crate::new::rdata::Rrsig) record.
     pub const RRSIG: Self = Self::new(46);
 
-    /// The type of an [`NSec`](crate::new::rdata::NSec) record.
+    /// The type of an [`Nsec`](crate::new::rdata::Nsec) record.
     pub const NSEC: Self = Self::new(47);
 
     /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.
     pub const DNSKEY: Self = Self::new(48);
 
-    /// The type of an [`NSec3`](crate::new::rdata::NSec3) record.
+    /// The type of an [`Nsec3`](crate::new::rdata::Nsec3) record.
     pub const NSEC3: Self = Self::new(50);
 
-    /// The type of an [`NSec3Param`](crate::new::rdata::NSec3Param) record.
+    /// The type of an [`Nsec3Param`](crate::new::rdata::Nsec3Param) record.
     pub const NSEC3PARAM: Self = Self::new(51);
 
     /// The type of a `Cds` record.
@@ -642,6 +643,14 @@ impl fmt::Debug for TTL {
     }
 }
 
+//--- Compatibility with old base
+impl TTL {
+    /// Return the TTL value in seconds.
+    pub fn as_secs(&self) -> u32 {
+        self.value.into()
+    }
+}
+
 //----------- ParseRecordData ------------------------------------------------
 
 /// Parsing DNS record data.
@@ -815,6 +824,36 @@ impl AsRef<[u8]> for UnparsedRecordData {
 impl Clone for alloc::boxed::Box<UnparsedRecordData> {
     fn clone(&self) -> Self {
         (*self).unsized_copy_into()
+    }
+}
+
+//
+// --- Functions to make it easier to transition from old base.
+// These functions should be marked as deprecated when most of the initial
+// migration to new base has completed.
+impl<'a, N> Record<N, RecordData<'a, N>> {
+    /// Constructor that is more compatible with old base that takes
+    /// RecordData.
+    pub fn old_new(
+        rname: N,
+        rclass: RClass,
+        ttl: TTL,
+        rdata: RecordData<'a, N>,
+    ) -> Self {
+        Self::new(rname, rdata.rtype(), rclass, ttl, rdata)
+    }
+}
+
+impl<N> Record<N, BoxedRecordData> {
+    /// Constructor that is more compatible with old base that takes
+    /// BoxedRecordData.
+    pub fn old_new_box(
+        rname: N,
+        rclass: RClass,
+        ttl: TTL,
+        rdata: BoxedRecordData,
+    ) -> Self {
+        Self::new(rname, rdata.rtype(), rclass, ttl, rdata)
     }
 }
 
