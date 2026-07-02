@@ -10,6 +10,8 @@ Improvements
 
 * Implemented `to_mnemonic_str` for `Rcode` and `OptCode` ([#668] and [#648]
   by [@rossmacarthur])
+* Add methods to new base for RRSIG, NSEC, and NSEC3 to make new base 
+  more compatible with current domain. ([#679]).
 
 Bug fixes
 
@@ -17,6 +19,7 @@ Other changes
 
 [#648]: https://github.com/NLnetLabs/domain/pull/648
 [#668]: https://github.com/NLnetLabs/domain/pull/668
+[#679]: https://github.com/NLnetLabs/domain/pull/679
 [@rossmacarthur]: https://github.com/rossmacarthur
 
 ## 0.12.1
