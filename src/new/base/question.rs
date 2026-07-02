@@ -148,8 +148,6 @@ pub struct QType {
     pub code: U16,
 }
 
-//--- Associated Constants
-
 impl QType {
     /// Create a new [`QType`].
     const fn new(value: u16) -> Self {
@@ -157,131 +155,131 @@ impl QType {
             code: U16::new(value),
         }
     }
-
-    /// The type of queries for [`A`](crate::new::rdata::A) records.
-    pub const A: Self = Self::new(1);
-
-    /// The type of queries for [`Ns`](crate::new::rdata::Ns) records.
-    pub const NS: Self = Self::new(2);
-
-    /// The type of queries for [`CName`](crate::new::rdata::CName) records.
-    pub const CNAME: Self = Self::new(5);
-
-    /// The type of queries for [`Soa`](crate::new::rdata::Soa) records.
-    pub const SOA: Self = Self::new(6);
-
-    /// The type of queries for [`Ptr`](crate::new::rdata::Ptr) records.
-    pub const PTR: Self = Self::new(12);
-
-    /// The type of queries for [`HInfo`](crate::new::rdata::HInfo) records.
-    pub const HINFO: Self = Self::new(13);
-
-    /// The type of queries for [`Mx`](crate::new::rdata::Mx) records.
-    pub const MX: Self = Self::new(15);
-
-    /// The type of queries for [`Txt`](crate::new::rdata::Txt) records.
-    pub const TXT: Self = Self::new(16);
-
-    /// The type of queries for [`Rp`](crate::new::rdata::Rp) records.
-    pub const RP: Self = Self::new(17);
-
-    /// The type of queries for [`Aaaa`](crate::new::rdata::Aaaa) records.
-    pub const AAAA: Self = Self::new(28);
-
-    /// The type of queries for [`DName`](crate::new::rdata::DName) records.
-    pub const DNAME: Self = Self::new(39);
-
-    /// The type of queries for [`Opt`](crate::new::rdata::Opt) records.
-    pub const OPT: Self = Self::new(41);
-
-    /// The type of queries for [`Ds`](crate::new::rdata::Ds) records.
-    pub const DS: Self = Self::new(43);
-
-    /// The type of queries for [`Rrsig`](crate::new::rdata::Rrsig) records.
-    pub const RRSIG: Self = Self::new(46);
-
-    /// The type of queries for [`Nsec`](crate::new::rdata::Nsec) records.
-    pub const NSEC: Self = Self::new(47);
-
-    /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.
-    pub const DNSKEY: Self = Self::new(48);
-
-    /// The type of queries for [`Nsec3`](crate::new::rdata::Nsec3) records.
-    pub const NSEC3: Self = Self::new(50);
-
-    /// The type of queries for [`Nsec3Param`](crate::new::rdata::Nsec3Param) records.
-    pub const NSEC3PARAM: Self = Self::new(51);
-
-    /// The type of querios for `Cds` records.
-    pub const CDS: Self = Self::new(59);
-
-    /// The type of querios for `CDNSKey` records.
-    pub const CDNSKEY: Self = Self::new(60);
-
-    /// The type of querios for [`ZoneMD`](crate::new::rdata::ZoneMD) records.
-    pub const ZONEMD: Self = Self::new(63);
-
-    /// The type of querios for `TSig` records.
-    pub const TSIG: Self = Self::new(250);
-
-    /// The type of requests for incremental zone transfers (IXFRs).
-    pub const IXFR: Self = Self::new(251);
-
-    /// The type of requests for authoritative zone transfers (AXFRs).
-    pub const AXFR: Self = Self::new(252);
-
-    /// The type of queries for all available records.
-    pub const ANY: Self = Self::new(255);
 }
+
+//--- Associated Constants
+
+define_known_values! (
+    QType::(pub TYPES, pub MNEMONICS) = [
+        /// The type of queries for [`A`](crate::new::rdata::A) records.
+        A = Self::new(1),
+
+        /// The type of queries for [`Ns`](crate::new::rdata::Ns) records.
+        NS = Self::new(2),
+
+        /// The type of queries for [`CName`](crate::new::rdata::CName) records.
+        CNAME = Self::new(5),
+
+        /// The type of queries for [`Soa`](crate::new::rdata::Soa) records.
+        SOA = Self::new(6),
+
+        /// The type of queries for [`Ptr`](crate::new::rdata::Ptr) records.
+        PTR = Self::new(12),
+
+        /// The type of queries for [`HInfo`](crate::new::rdata::HInfo) records.
+        HINFO = Self::new(13),
+
+        /// The type of queries for [`Mx`](crate::new::rdata::Mx) records.
+        MX = Self::new(15),
+
+        /// The type of queries for [`Txt`](crate::new::rdata::Txt) records.
+        TXT = Self::new(16),
+
+        /// The type of queries for [`Rp`](crate::new::rdata::Rp) records.
+        RP = Self::new(17),
+
+        /// The type of queries for [`Aaaa`](crate::new::rdata::Aaaa) records.
+        AAAA = Self::new(28),
+
+        /// The type of queries for [`DName`](crate::new::rdata::DName) records.
+        DNAME = Self::new(39),
+
+        /// The type of queries for [`Opt`](crate::new::rdata::Opt) records.
+        OPT = Self::new(41),
+
+        /// The type of queries for [`Ds`](crate::new::rdata::Ds) records.
+        DS = Self::new(43),
+
+        /// The type of queries for [`Rrsig`](crate::new::rdata::Rrsig) records.
+        RRSIG = Self::new(46),
+
+        /// The type of queries for [`Nsec`](crate::new::rdata::Nsec) records.
+        NSEC = Self::new(47),
+
+        /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.
+        DNSKEY = Self::new(48),
+
+        /// The type of queries for [`Nsec3`](crate::new::rdata::Nsec3) records.
+        NSEC3 = Self::new(50),
+
+        /// The type of queries for [`Nsec3Param`](crate::new::rdata::Nsec3Param) records.
+        NSEC3PARAM = Self::new(51),
+
+        /// The type of queries for `Cds` records.
+        CDS = Self::new(59),
+
+        /// The type of queries for `CDNSKey` records.
+        CDNSKEY = Self::new(60),
+
+        /// The type of queries for [`ZoneMD`](crate::new::rdata::ZoneMD) records.
+        ZONEMD = Self::new(63),
+
+        /// The type of queries for `TSig` records.
+        TSIG = Self::new(250),
+
+        //----- QType specific
+
+        /// The type of requests for incremental zone transfers (IXFRs).
+        IXFR = Self::new(251),
+
+        /// The type of requests for authoritative zone transfers (AXFRs).
+        AXFR = Self::new(252),
+
+        /// The type of queries for all available records.
+        ANY = Self::new(255),
+    ];
+
+);
 
 //--- Conversion to and from 'u16'
 
-impl From<u16> for QType {
-    fn from(value: u16) -> Self {
-        Self {
-            code: U16::new(value),
-        }
-    }
-}
-
-impl From<QType> for u16 {
-    fn from(value: QType) -> Self {
-        value.code.get()
-    }
-}
+enum_type_from_and_to_primitive!(QType, u16);
 
 //--- Formatting
 
 impl fmt::Debug for QType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::A => "QType::A",
-            Self::NS => "QType::NS",
-            Self::CNAME => "QType::CNAME",
-            Self::SOA => "QType::SOA",
-            Self::PTR => "QType::PTR",
-            Self::HINFO => "QType::HINFO",
-            Self::MX => "QType::MX",
-            Self::TXT => "QType::TXT",
-            Self::RP => "QType::RP",
-            Self::AAAA => "QType::AAAA",
-            Self::DNAME => "QType::DNAME",
-            Self::OPT => "QType::OPT",
-            Self::DS => "QType::DS",
-            Self::RRSIG => "QType::RRSIG",
-            Self::NSEC => "QType::NSEC",
-            Self::DNSKEY => "QType::DNSKEY",
-            Self::NSEC3 => "QType::NSEC3",
-            Self::NSEC3PARAM => "QType::NSEC3PARAM",
-            Self::CDS => "QType::CDS",
-            Self::CDNSKEY => "QType::CDNSKEY",
-            Self::ZONEMD => "QType::ZONEMD",
-            Self::TSIG => "QType::TSIG",
-            Self::IXFR => "QType::IXFR",
-            Self::AXFR => "QType::AXFR",
-            Self::ANY => "QType::ANY",
-            _ => return write!(f, "QType({})", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "QType::{}", m),
+            None => write!(f, "QType({})", self.code),
+        }
+    }
+}
+
+/// Format an [`QType`] in a human-readable way
+///
+/// Return the mnemonic of [`QType`]. If [`QType`] is unknown, then the
+/// returned string contains the type in the unknown format as defined in
+/// Section 5 in [RFC3597].
+///
+/// The mnemonics are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::base::QType;
+/// // Known QType with mnemonic
+/// assert_eq!("A", format!("{}", QType::A));
+/// // Unknown QType
+/// assert_eq!("TYPE265", format!("{}", QType::from(265)));
+/// ```
+///
+/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
+impl fmt::Display for QType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "{}", m),
+            None => write!(f, "TYPE{}", self.code),
+        }
     }
 }
 
@@ -319,23 +317,56 @@ impl QClass {
             code: U16::new(value),
         }
     }
-
-    /// The type of queries in the Internet class.
-    pub const IN: Self = Self::new(1);
-
-    /// The type of queries in the CHAOS class.
-    pub const CH: Self = Self::new(3);
 }
+
+define_known_values! (
+    QClass::(pub TYPES, pub MNEMONICS) = [
+        /// The Internet class.
+        IN = Self::new(1),
+        /// The CHAOS class.
+        CH = Self::new(3),
+    ];
+);
+
+//--- Conversion to and from 'u16'
+
+enum_type_from_and_to_primitive!(QClass, u16);
 
 //--- Formatting
 
 impl fmt::Debug for QClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::IN => "QClass::IN",
-            Self::CH => "QClass::CH",
-            _ => return write!(f, "QClass({})", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "QClass::{}", m),
+            None => write!(f, "QClass({})", self.code),
+        }
+    }
+}
+
+/// Format a [`QClass`] in a human-readable way
+///
+/// Return the mnemonic of [`QClass`]. If [`QClass`] is unknown, then the
+/// returned string contains the class in the unknown format as defined in
+/// Section 5 in [RFC3597].
+///
+/// The mnemonics are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::base::QClass;
+/// // Known QClass with mnemonic
+/// assert_eq!("IN", format!("{}", QClass::IN));
+/// // Unknown QClass
+/// assert_eq!("CLASS42", format!("{}", QClass::from(42)));
+/// ```
+///
+/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
+impl fmt::Display for QClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "{}", m),
+            None => write!(f, "CLASS{}", self.code),
+        }
     }
 }
 
@@ -344,6 +375,9 @@ impl fmt::Debug for QClass {
 #[cfg(test)]
 mod test {
     use super::{QClass, QType, Question};
+
+    #[cfg(feature = "alloc")]
+    use alloc::format;
 
     use crate::new::base::{
         name::Name,
@@ -368,5 +402,55 @@ mod test {
             Ok(&mut [] as &mut [u8])
         );
         assert_eq!(buffer, &bytes[..9]);
+    }
+
+    #[test]
+    fn test_qclass_from() {
+        let qclass: QClass = 1.into();
+        assert_eq!(qclass, QClass::IN);
+
+        let number: u16 = qclass.into();
+        assert_eq!(number, 1);
+    }
+
+    #[test]
+    fn test_qtype_from() {
+        let qtype: QType = 6.into();
+        assert_eq!(qtype, QType::SOA);
+
+        let number: u16 = qtype.into();
+        assert_eq!(number, 6);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_rclass_display() {
+        assert_eq!("IN", format!("{}", QClass::IN));
+        assert_eq!("CH", format!("{}", QClass::CH));
+        assert_eq!("CLASS42", format!("{}", QClass::from(42)));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_rtype_display() {
+        assert_eq!("A", format!("{}", QType::A));
+        assert_eq!("MX", format!("{}", QType::MX));
+        assert_eq!("TYPE265", format!("{}", QType::from(265)));
+    }
+
+    #[test]
+    fn test_rtype_from_mnemonic() {
+        assert_eq!(QType::from_mnemonic("A").unwrap(), QType::A);
+        assert_eq!(QType::from_mnemonic("MX").unwrap(), QType::MX);
+        // Make sure from_mnemonic does NOT parse unknown format.
+        assert!(QType::from_mnemonic("TYPE10").is_none());
+    }
+
+    #[test]
+    fn test_rclass_from_mnemonic() {
+        assert_eq!(QClass::from_mnemonic("IN").unwrap(), QClass::IN);
+        assert_eq!(QClass::from_mnemonic("CH").unwrap(), QClass::CH);
+        // Make sure from_mnemonic does NOT parse unknown format.
+        assert!(QClass::from_mnemonic("CLASS10").is_none());
     }
 }

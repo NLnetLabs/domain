@@ -106,6 +106,11 @@ impl Name {
     pub fn to_revname(&self) -> RevNameBuf {
         NameBuf::copy_from(self).into()
     }
+
+    /// Put all ascii letters into their lowercase equivalent
+    pub fn make_canonical(&mut self) {
+        self.0.make_ascii_lowercase();
+    }
 }
 
 //--- Canonical operations
@@ -1152,5 +1157,15 @@ mod tests {
             namebuf.to_revname().as_bytes(),
             b"\x00\x03com\x07example",
         );
+    }
+
+    #[test]
+    fn test_to_name_cmp() {
+        let namebuf1: NameBuf = "example.com.".parse().unwrap();
+        let namebuf2: NameBuf = "example.com.".parse().unwrap();
+        assert_eq!(namebuf1, namebuf2);
+
+        let namebuf2: NameBuf = "EXAMPLE.com.".parse().unwrap();
+        assert_eq!(namebuf1, namebuf2);
     }
 }

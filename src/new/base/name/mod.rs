@@ -245,6 +245,7 @@ mod tests {
     use crate::new::base::name::CanonicalName;
     use crate::new::base::wire::BuildBytes;
 
+    use super::Name;
     use super::NameBuf;
 
     use alloc::vec;
@@ -265,5 +266,27 @@ mod tests {
 
         assert_eq!(rest.len(), 93);
         assert_eq!(buf[..7], b"\x01e\x03com\x00"[..]);
+    }
+
+    #[test]
+    fn test_make_canonical_ref_name() {
+        let namebuf_lowercase: NameBuf = "example.com.".parse().unwrap();
+        let mut namebuf_different_cases: NameBuf =
+            "ExAmPlE.cOm.".parse().unwrap();
+
+        let name_lowercase: &Name = &namebuf_lowercase;
+        let name_different_cases: &mut Name = &mut namebuf_different_cases;
+
+        assert_ne!(
+            name_lowercase.as_bytes(),
+            name_different_cases.as_bytes()
+        );
+
+        name_different_cases.make_canonical();
+
+        assert_eq!(
+            name_lowercase.as_bytes(),
+            name_different_cases.as_bytes()
+        );
     }
 }
