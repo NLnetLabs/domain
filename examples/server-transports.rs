@@ -268,7 +268,7 @@ fn query(
     count: Arc<AtomicU8>,
 ) -> ServiceResult<Vec<u8>> {
     let cnt = count
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+        .try_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
             Some(if x > 0 { x - 1 } else { 0 })
         })
         .unwrap();
