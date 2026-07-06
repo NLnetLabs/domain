@@ -263,6 +263,8 @@ fn name_to_ip(
 /// The function signature is slightly simpler to write than when not using
 /// [`service_fn`] and supports passing in meta data without any extra
 /// boilerplate.
+#[allow(deprecated)] // fetch_update will be try_update but our MSRV is too
+// low for that.
 fn query(
     request: Request<Vec<u8>, ()>,
     count: Arc<AtomicU8>,
