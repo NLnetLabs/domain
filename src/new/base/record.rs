@@ -4,7 +4,10 @@ use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
 use crate::utils::dst::UnsizedCopy;
 
-use super::super::rdata::{BoxedRecordData, RecordData};
+#[cfg(feature = "alloc")]
+use super::super::rdata::BoxedRecordData;
+use super::super::rdata::RecordData;
+
 use super::build::{BuildInMessage, NameCompressor};
 use super::parse::{ParseMessageBytes, SplitMessageBytes};
 use super::wire::{
@@ -844,6 +847,7 @@ impl<'a, N> Record<N, RecordData<'a, N>> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<N> Record<N, BoxedRecordData> {
     /// Constructor that is more compatible with old base that takes
     /// BoxedRecordData.
