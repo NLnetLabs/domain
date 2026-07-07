@@ -203,6 +203,7 @@ pub use charstr::{CharStr, CharStrBuf, CharStrParseError};
 
 mod serial;
 pub use serial::Serial;
+pub use serial::{SeqNumberU32, SoaSerial, Timestamp};
 
 //--- Wire format
 
