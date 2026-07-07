@@ -175,7 +175,7 @@ jobs:
     # check --all-features --all-targets' execution.  Due to the minimal
     # dependency set, it still runs fairly quickly.
     - name: Check empty feature set
-      run: cargo check --all-targets --no-default-features
+      run: cargo check --all-targets --no-default-features --features unstable-new
 
     - name: Check `alloc` without `std`
       run: cargo check --all-targets --no-default-features --features alloc,unstable-new

@@ -1,9 +1,9 @@
 //! The RRSIG record data type.
 
-use alloc::fmt;
 #[cfg(feature = "std")]
 use core::cmp;
 use core::cmp::Ordering;
+use core::fmt;
 #[cfg(feature = "std")]
 use core::time::Duration;
 #[cfg(feature = "std")]
