@@ -167,6 +167,13 @@ impl Clone for alloc::boxed::Box<CharStr> {
 
 //--- Equality
 
+/// [Section 2.3.3 of RFC1035] (Character Case) states:
+///
+/// > For all parts of the DNS that are part of the official protocol, all
+/// > comparisons between character strings (e.g., labels, domain names, etc.)
+/// > are done in a case-insensitive manner.
+///
+/// [Section 2.3.3 of RFC1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-2.3.3
 impl PartialEq for CharStr {
     fn eq(&self, other: &Self) -> bool {
         self.octets.eq_ignore_ascii_case(&other.octets)
