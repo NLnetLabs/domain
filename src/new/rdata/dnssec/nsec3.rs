@@ -183,6 +183,11 @@ impl Hash for Nsec3Param {
 //----------- Nsec3HashAlgorithm ---------------------------------------------
 
 /// The hash algorithm used with [`Nsec3`] records.
+///
+/// IANA maintains [the registry][iana-nsec3hashalgorithm] of assignments for
+/// NSEC3 Hash Algorithms.
+///
+/// [iana-nsec3hashalgorithm]: https://www.iana.org/assignments/dnssec-nsec3-parameters/dnssec-nsec3-parameters.xhtml#dnssec-nsec3-parameters-3
 #[derive(
     Copy,
     Clone,
@@ -205,21 +210,81 @@ pub struct Nsec3HashAlgorithm {
     pub code: u8,
 }
 
+impl Nsec3HashAlgorithm {
+    /// Create a new [`Nsec3HashAlgorithm`].
+    pub const fn new(value: u8) -> Self {
+        Self { code: value }
+    }
+}
+
 //--- Associated Constants
 
-impl Nsec3HashAlgorithm {
-    /// The SHA-1 algorithm.
-    pub const SHA1: Self = Self { code: 1 };
-}
+// The Nsec3 Hash Algorithms have no official mnemonics. Therefore the list of
+// names is NOT called "MNEMONICS" and it is NOT public.
+known_values_define! (
+    Nsec3HashAlgorithm::(pub ALGS, NAMES) = [
+        /// The SHA-1 algorithm.
+        "SHA1" as SHA1 = Self { code: 1 },
+    ];
+);
+
+//--- Conversion to and from 'u8'
+
+known_values_from_and_to_primitive!(Nsec3HashAlgorithm, u8);
 
 //--- Formatting
 
+/// Format a [`Nsec3HashAlgorithm`] for debugging.
+///
+/// The output displays the mnemonic, if known, and the code associated to the
+/// [`Nsec3HashAlgorithm`].
+///
+/// ```
+/// # use domain::new::rdata::Nsec3HashAlgorithm;
+/// // Known Nsec3 Hash Algorithm.
+/// assert_eq!(
+///     "Nsec3HashAlgorithm::SHA1(1)",
+///     format!("{:?}", Nsec3HashAlgorithm::SHA1)
+/// );
+/// // Unknown Nsec3 Hash Algorithm.
+/// assert_eq!(
+///     "Nsec3HashAlgorithm(42)",
+///     format!("{:?}", Nsec3HashAlgorithm::from(42))
+/// );
+/// ```
 impl fmt::Debug for Nsec3HashAlgorithm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::SHA1 => "Nsec3HashAlgorithm::SHA1",
-            _ => return write!(f, "Nsec3HashAlgorithm({})", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "Nsec3HashAlgorithm::{}({})", m, self.code),
+            None => write!(f, "Nsec3HashAlgorithm({})", self.code),
+        }
+    }
+}
+
+/// Format a [`Nsec3HashAlgorithm`] in a human-readable way.
+///
+/// [Section 4.3 of RFC5155] states:
+///
+/// > The presentation format of the RDATA portion is as follows:
+/// >   o  The Hash Algorithm field is represented as an unsigned decimal
+/// >      integer.  The value has a maximum of 255.
+/// > ...
+///
+/// The algorithms are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::rdata::Nsec3HashAlgorithm;
+/// // Known Nsec3 Hash Algorithm, but still represented as number.
+/// assert_eq!("1", format!("{}", Nsec3HashAlgorithm::SHA1));
+/// // Unknown Nsec3 Hash Algorithm.
+/// assert_eq!("42", format!("{}", Nsec3HashAlgorithm::from(42)));
+/// ```
+///
+/// [Section 4.3 of RFC5155]: https://datatracker.ietf.org/doc/html/rfc5155#section-4.3
+/// [IANA]: https://www.iana.org/assignments/dnssec-nsec3-parameters/dnssec-nsec3-parameters.xhtml#dnssec-nsec3-parameters-3
+impl fmt::Display for Nsec3HashAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.code)
     }
 }
 
@@ -350,5 +415,27 @@ impl Nsec3Param {
     /// Return the salt.
     pub fn salt(&self) -> &SizePrefixed<u8, [u8]> {
         &self.salt
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::new::rdata::Nsec3HashAlgorithm;
+
+    #[test]
+    fn test_nsec3_hash_algorithm_from() {
+        let nsec3_hash_algorithm: Nsec3HashAlgorithm = 1.into();
+        assert_eq!(nsec3_hash_algorithm, Nsec3HashAlgorithm::SHA1);
+
+        let number: u8 = nsec3_hash_algorithm.into();
+        assert_eq!(number, 1);
+    }
+
+    #[test]
+    fn test_nsec3_hash_algorithm_from_mnemonic() {
+        assert_eq!(
+            Nsec3HashAlgorithm::from_mnemonic("SHA1").unwrap(),
+            Nsec3HashAlgorithm::SHA1
+        );
     }
 }
