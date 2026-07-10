@@ -332,32 +332,88 @@ pub struct ZoneMDScheme {
     pub code: u8,
 }
 
+impl ZoneMDScheme {
+    /// Create a new [`ZoneMDScheme`].
+    pub const fn new(value: u8) -> Self {
+        Self { code: value }
+    }
+}
+
 //--- Associated Constants
 
-impl ZoneMDScheme {
-    /// The SIMPLE scheme.
-    ///
-    /// SIMPLE is, as expected, a simple scheme for computing the ZONEMD
-    /// digest. It is specified by [RFC 8976, section 3.3.1]. At present,
-    /// implementations are required to support it.
-    ///
-    /// [RFC 8976, section 3.3.1]: https://www.rfc-editor.org/rfc/rfc8976.html#section-3.3.1
-    ///
-    /// SIMPLE includes glue records and occluded data in the zone, sorts it
-    /// in DNSSEC canonical order, and passes the entire zone (i.e. records
-    /// serialized in the DNSSEC canonical wire format, concatenated together)
-    /// into a single invocation of the hash function.
-    pub const SIMPLE: Self = Self { code: 1 };
-}
+// [`ZoneMDScheme`] implementation using macro. See macro for implementation
+// details.
+known_values_define! (
+    ZoneMDScheme::(pub SCHEMES, pub MNEMONICS) = [
+        /// The SIMPLE scheme.
+        ///
+        /// SIMPLE is, as expected, a simple scheme for computing the ZONEMD
+        /// digest. It is specified by [RFC 8976, section 3.3.1]. At present,
+        /// implementations are required to support it.
+        ///
+        /// [RFC 8976, section 3.3.1]: https://www.rfc-editor.org/rfc/rfc8976.html#section-3.3.1
+        ///
+        /// SIMPLE includes glue records and occluded data in the zone, sorts
+        /// it in DNSSEC canonical order, and passes the entire zone (i.e.
+        /// records serialized in the DNSSEC canonical wire format,
+        /// concatenated together) into a single invocation of the hash
+        /// function.
+        "SIMPLE" as SIMPLE = Self { code: 1 },
+    ];
+);
+
+//--- Conversion to and from 'u8'
+
+known_values_from_and_to_primitive!(ZoneMDScheme, u8);
 
 //--- Formatting
 
+/// Format a [`ZoneMDScheme`] for debugging.
+///
+/// The output displays the mnemonic, if known, and the code associated to the
+/// [`ZoneMDScheme`].
+///
+/// ```
+/// # use domain::new::rdata::ZoneMDScheme;
+/// // Known ZoneMD Scheme.
+/// assert_eq!(
+///     "ZoneMDScheme::SIMPLE(1)",
+///     format!("{:?}", ZoneMDScheme::SIMPLE)
+/// );
+/// // Unknown ZoneMD Scheme.
+/// assert_eq!("ZoneMDScheme(42)", format!("{:?}", ZoneMDScheme::from(42)));
+/// ```
 impl fmt::Debug for ZoneMDScheme {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::SIMPLE => "ZoneMDScheme::SIMPLE",
-            _ => return write!(f, "ZoneMDScheme({})", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "ZoneMDScheme::{}({})", m, self.code),
+            None => write!(f, "ZoneMDScheme({})", self.code),
+        }
+    }
+}
+
+/// Format a [`ZoneMDScheme`] in a human-readable way.
+///
+/// The [`ZoneMDScheme`] is always displayed as its defined number. [Section
+/// 2.3 of RFC8976] defines the presentation format as follows:
+///
+/// > The Scheme field is represented as an unsigned decimal integer.
+///
+/// The schemes are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::rdata::ZoneMDScheme;
+/// // Known ZoneMD Scheme, but still represented as number.
+/// assert_eq!("1", format!("{}", ZoneMDScheme::SIMPLE));
+/// // Unknown ZoneMD Scheme.
+/// assert_eq!("42", format!("{}", ZoneMDScheme::from(42)));
+/// ```
+///
+/// [Section 2.3 of RFC8976]: https://datatracker.ietf.org/doc/html/rfc8976#name-zonemd-presentation-format
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#zonemd-schemes
+impl fmt::Display for ZoneMDScheme {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.code)
     }
 }
 
@@ -421,5 +477,27 @@ impl fmt::Debug for ZoneMDHashAlg {
             Self::SHA512 => "ZoneMDHashAlg::SHA512",
             _ => return write!(f, "ZoneMDHashAlg({})", self.code),
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::new::rdata::ZoneMDScheme;
+
+    #[test]
+    fn test_zonemd_scheme_from() {
+        let zonemd_scheme: ZoneMDScheme = 1.into();
+        assert_eq!(zonemd_scheme, ZoneMDScheme::SIMPLE);
+
+        let number: u8 = zonemd_scheme.into();
+        assert_eq!(number, 1);
+    }
+
+    #[test]
+    fn test_zonemd_scheme_from_mnemonic() {
+        assert_eq!(
+            ZoneMDScheme::from_mnemonic("SIMPLE").unwrap(),
+            ZoneMDScheme::SIMPLE
+        );
     }
 }
