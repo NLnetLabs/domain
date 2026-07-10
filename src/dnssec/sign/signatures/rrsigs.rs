@@ -11,7 +11,7 @@ use core::fmt::Debug;
 
 use octseq::builder::FromBuilder;
 use octseq::{OctetsFrom, OctetsInto};
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::base::Name;
 use crate::base::cmp::CanonicalOrd;
@@ -199,7 +199,7 @@ where
                     &mut reusable_scratch,
                 )?;
                 rrsigs.push(rrsig_rr);
-                debug!(
+                trace!(
                     "Signed {} RRSET at {} with keytag {}",
                     rrset.rtype(),
                     rrset.owner(),
