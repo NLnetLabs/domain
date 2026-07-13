@@ -1,0 +1,61 @@
+// Tell GitHub how to extract inline annotations from the output of various
+// Rust tools. Copied from `actions-rust-lang/setup-rust-toolchain`.
+//
+// Permalink to copied version:
+// https://github.com/actions-rust-lang/setup-rust-toolchain/blob/166cdcfd11aee3cb47222f9ddb555ce30ddb9659/rust.json
+//
+// # License (MIT)
+// 
+// Copyright (c) 2022 actions-rust-lang
+// 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+{
+    "problemMatcher": [
+        {
+            "owner": "rustfmt",
+            "severity": "warning",
+            "pattern": [
+                {
+                    "regexp": "^(Diff in (.+))(?: at line |:)(\\d+):$",
+                    "message": 1,
+                    "file": 2,
+                    "line": 3
+                }
+            ]
+        },
+        {
+            "owner": "clippy",
+            "pattern": [
+                {
+                    "regexp": "^(?:\\x1b\\[[\\d;]+m)*(warning|warn|error)(?:\\x1b\\[[\\d;]+m)*(\\[(.*)\\])?(?:\\x1b\\[[\\d;]+m)*:(?:\\x1b\\[[\\d;]+m)* ([^\\x1b]*)(?:\\x1b\\[[\\d;]+m)*$",
+                    "severity": 1,
+                    "message": 4,
+                    "code": 3
+                },
+                {
+                    "regexp": "^(?:\\x1b\\[[\\d;]+m)*\\s*(?:\\x1b\\[[\\d;]+m)*\\s*--> (?:\\x1b\\[[\\d;]+m)*(.*):(\\d*):(\\d*)(?:\\x1b\\[[\\d;]+m)*$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3
+                }
+            ]
+        }
+    ]
+}
