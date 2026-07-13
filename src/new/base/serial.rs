@@ -70,6 +70,14 @@ const POW_2_32: u64 = 0x1_0000_0000;
 /// number adheres to the mathematical properties of the "Serial Number
 /// Arithmetics" see [RFC1982] with an unsigned 32 bit integer.
 ///
+/// Basic operations performed with a [`SoaSerial`].
+/// ```
+/// # use domain::new::base::SoaSerial;
+/// let soa_serial: SoaSerial = SoaSerial::new(u32::MAX).increment();
+/// let value: u32 = soa_serial.get();
+/// assert_eq!(value, 0);
+/// ```
+///
 /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982
 /// [RFC1035]: https://datatracker.ietf.org/doc/html/rfc1035
 #[derive(
@@ -140,6 +148,11 @@ impl PartialOrd for SoaSerial {
 /// All mentioned versioning strategies do not need special formatting or
 /// computation. The string representation is therefore equivelent to the
 /// decimal number representation.
+///
+/// ```
+/// # use domain::new::base::SoaSerial;
+/// assert_eq!(format!("{}", SoaSerial::new(42)), "42");
+/// ```
 impl fmt::Display for SoaSerial {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.get())
@@ -151,6 +164,11 @@ impl fmt::Display for SoaSerial {
 /// Construct [`SoaSerial`] from [`u32`].
 ///
 /// Equivalent to [`SoaSerial::get()`].
+///
+/// ```
+/// # use domain::new::base::SoaSerial;
+/// assert_eq!(42u32, SoaSerial::new(42).into());
+/// ```
 impl From<SoaSerial> for u32 {
     fn from(value: SoaSerial) -> u32 {
         value.get()
@@ -160,6 +178,11 @@ impl From<SoaSerial> for u32 {
 /// The raw [`u32`] underlying this [`SoaSerial`].
 ///
 /// Equivalent to [`SoaSerial::new()`].
+///
+/// ```
+/// # use domain::new::base::SoaSerial;
+/// assert_eq!(SoaSerial::new(42), 42.into());
+/// ```
 impl From<u32> for SoaSerial {
     fn from(value: u32) -> Self {
         SoaSerial::new(value)
@@ -185,6 +208,14 @@ impl From<u32> for SoaSerial {
 /// The mathematical operations are done using the [`SeqNumberU32`]. The
 /// number adheres to the mathematical properties of the "Serial Number
 /// Arithmetics" see [RFC1982] with an unsigned 32 bit integer.
+///
+/// Basic operations performed with a [`Timestamp`].
+/// ```
+/// # use domain::new::base::Timestamp;
+/// let timestamp: Timestamp = Timestamp::new(42);
+/// let value: u32 = timestamp.as_seconds();
+/// assert_eq!(value, 42);
+/// ```
 ///
 /// [`Cookie`]: crate::new::edns::Cookie
 /// [`Rrsig`]: domain::new::rdata::Rrsig
@@ -226,6 +257,15 @@ impl Timestamp {
     }
 
     /// Measure system time since Unix Epoch modulo 2^32.
+    /// ```
+    /// # use domain::new::base::Timestamp;
+    /// # use std::time::{SystemTime, UNIX_EPOCH};
+    /// let now = Timestamp::now();
+    /// assert_eq!(
+    ///     now.as_seconds(),
+    ///     (UNIX_EPOCH.elapsed().unwrap().as_secs() % 0x1_0000_0000) as u32
+    /// );
+    /// ```
     #[cfg(feature = "std")]
     #[must_use]
     pub fn now() -> Self {
@@ -321,6 +361,11 @@ impl PartialOrd for Timestamp {
 /// More details about the display variations can be found in Section 3.2 of
 /// [RFC4034].
 ///
+/// ```
+/// # use domain::new::base::Timestamp;
+/// assert_eq!(format!("{}", Timestamp::new(42)), "42");
+/// ```
+///
 /// [RFC4034]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.2
 impl fmt::Display for Timestamp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -333,6 +378,11 @@ impl fmt::Display for Timestamp {
 /// Construct [`Timestamp`] from [`u32`].
 ///
 /// Equivalent to [`Timestamp::as_seconds()`].
+///
+/// ```
+/// # use domain::new::base::Timestamp;
+/// assert_eq!(42u32, Timestamp::new(42).into());
+/// ```
 impl From<Timestamp> for u32 {
     fn from(value: Timestamp) -> u32 {
         value.as_seconds()
@@ -342,6 +392,11 @@ impl From<Timestamp> for u32 {
 /// The raw [`u32`] underlying this [`Timestamp`].
 ///
 /// Equivalent to [`Timestamp::new()`].
+///
+/// ```
+/// # use domain::new::base::Timestamp;
+/// assert_eq!(Timestamp::new(42), 42.into());
+/// ```
 impl From<u32> for Timestamp {
     fn from(value: u32) -> Self {
         Timestamp::new(value)
@@ -352,6 +407,13 @@ impl From<u32> for Timestamp {
 ///
 /// Precision is lost during the conversion because of the smaller storage
 /// primitive.
+/// ```
+/// # use domain::new::base::Timestamp;
+/// let ts = Timestamp::from(
+///     jiff::Timestamp::new(u32::MAX as i64 + 10, 0).unwrap(),
+/// );
+/// assert_eq!(ts.as_seconds(), 9);
+/// ```
 impl From<jiff::Timestamp> for Timestamp {
     fn from(value: jiff::Timestamp) -> Self {
         Timestamp::new(value.as_second().rem_euclid(POW_2_32 as i64) as u32)
@@ -385,6 +447,13 @@ impl From<Timestamp> for crate::rdata::dnssec::Timestamp {
 /// on a Serial; addition and comparision.
 ///
 /// The type is used as a backend for [`SoaSerial`] and [`Timestamp`].
+///
+/// ```
+/// # use domain::new::base::SeqNumberU32;
+/// let seq_number: SeqNumberU32 = SeqNumberU32::new(u32::MAX).increment();
+/// let value: u32 = seq_number.get();
+/// assert_eq!(value, 0);
+/// ```
 ///
 /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982
 #[derive(
@@ -457,7 +526,41 @@ impl PartialOrd for SeqNumberU32 {
     ///                         or
     ///                         this < other and (this - other) > 2^31
     ///                         // 10 < u32::MAX and u32::MAX - 1 > 2^31
+    ///```
+    /// # use domain::new::base::SeqNumberU32;
+    /// # use std::cmp::Ordering;
+    /// assert_eq!(
+    ///     SeqNumberU32::new(42).partial_cmp(&SeqNumberU32::new(42)),
+    ///     Some(Ordering::Equal)
+    /// );
+    /// assert_eq!(
+    ///     SeqNumberU32::new(42).partial_cmp(&SeqNumberU32::new(43)),
+    ///     Some(Ordering::Less)
+    /// );
     ///
+    /// // Here the lower absolute number has already wrapped around and thus
+    /// // larger than the `u32::MAX`.
+    /// assert_eq!(
+    ///     SeqNumberU32::new(u32::MAX).partial_cmp(&SeqNumberU32::new(43)),
+    ///     Some(Ordering::Less)
+    /// );
+    ///
+    /// # // Get all the edge cases
+    /// # assert_eq!(
+    /// #     SeqNumberU32::new(0).partial_cmp(&SeqNumberU32::new((1 << 31) - 1)),
+    /// #     Some(Ordering::Less)
+    /// # );
+    ///
+    /// # assert_eq!(
+    /// #     SeqNumberU32::new(0).partial_cmp(&SeqNumberU32::new((1 << 31) + 1)),
+    /// #     Some(Ordering::Greater)
+    /// # );
+    ///
+    /// # assert_eq!(
+    /// #     SeqNumberU32::new(0).partial_cmp(&SeqNumberU32::new((1 << 31))),
+    /// #     None
+    /// # );
+    /// ```
     /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let (lhs, rhs) = (self.0.get(), other.0.get());
@@ -478,6 +581,11 @@ impl PartialOrd for SeqNumberU32 {
 /// Construct [`SeqNumberU32`] from [`u32`].
 ///
 /// Equivalent to [`SeqNumberU32::get()`].
+///
+/// ```
+/// # use domain::new::base::SeqNumberU32;
+/// assert_eq!(42u32, SeqNumberU32::new(42).into());
+/// ```
 impl From<SeqNumberU32> for u32 {
     fn from(value: SeqNumberU32) -> u32 {
         value.get()
@@ -487,9 +595,171 @@ impl From<SeqNumberU32> for u32 {
 /// The raw [`u32`] underlying this [`SeqNumberU32`].
 ///
 /// Equivalent to [`SeqNumberU32::new()`].
+///
+/// ```
+/// # use domain::new::base::SeqNumberU32;
+/// assert_eq!(SeqNumberU32::new(42), 42.into());
+/// ```
 impl From<u32> for SeqNumberU32 {
     fn from(value: u32) -> Self {
         SeqNumberU32::new(value)
+    }
+}
+
+#[cfg(test)]
+mod serial_test {
+    use core::time::Duration;
+    use std::time::UNIX_EPOCH;
+
+    use super::{SeqNumberU32, SoaSerial, Timestamp};
+
+    #[test]
+    fn comparisons() {
+        // TODO: Use property-based testing.
+        assert!(
+            SeqNumberU32::from(u32::MAX)
+                > SeqNumberU32::from(u32::MAX / 2 + 1)
+        );
+        assert!(SeqNumberU32::from(0) > SeqNumberU32::from(u32::MAX));
+        assert!(SeqNumberU32::from(1) > SeqNumberU32::from(0));
+
+        assert!(
+            SoaSerial::from(u32::MAX) > SoaSerial::from(u32::MAX / 2 + 1)
+        );
+        assert!(SoaSerial::from(0) > SoaSerial::from(u32::MAX));
+        assert!(SoaSerial::from(1) > SoaSerial::from(0));
+
+        assert!(
+            Timestamp::from(u32::MAX) > Timestamp::from(u32::MAX / 2 + 1)
+        );
+        assert!(Timestamp::from(0) > Timestamp::from(u32::MAX));
+        assert!(Timestamp::from(1) > Timestamp::from(0));
+    }
+
+    #[test]
+    fn operations() {
+        // TODO: Use property-based testing.
+        assert_eq!(u32::from(SeqNumberU32::from(1).increment()), 2);
+        assert_eq!(u32::from(SeqNumberU32::from(u32::MAX).increment()), 0);
+
+        assert_eq!(u32::from(SoaSerial::from(1).increment()), 2);
+        assert_eq!(u32::from(SoaSerial::from(u32::MAX).increment()), 0);
+    }
+
+    #[test]
+    fn test_to_system_time() {
+        struct Params {
+            ts: u32,
+            ref_ts: u64,
+            res: u64,
+        }
+        let tests = alloc::vec![
+            // Simple cases, ts and ref_ts mod 2**32 are within 2*31-1.
+            // First ts less than ref_ts mod 2**32.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x1_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x1_8000_0000,
+            },
+            // Then ts larger than ref_ts mod 2**32.
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_0000_0000,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x1_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_ffff_ffff,
+            },
+            // Next, cases where the difference between ts and ref_ts mod 2**32
+            // are at least 2**31+1.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_8000_0001,
+                res: 0x2_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_fffe,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x2_7fff_fffe,
+            },
+            Params {
+                ts: 0x8000_0001,
+                ref_ts: 0x1_0000_0000,
+                res: 0x0_8000_0001,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_7fff_fffe,
+                res: 0x0_ffff_ffff,
+            },
+            // Test cases where the difference is exactly 2**31.
+            Params {
+                ts: 0x0000_0000,
+                ref_ts: 0x1_8000_0000,
+                res: 0x1_0000_0000,
+            },
+            Params {
+                ts: 0x7fff_ffff,
+                ref_ts: 0x1_ffff_ffff,
+                res: 0x1_7fff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x1_0000_0000,
+                res: 0x0_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x1_7fff_ffff,
+                res: 0x0_ffff_ffff,
+            },
+            // Special case: ERA 0. We don't want values before UNIX_EPOCH.
+            Params {
+                ts: 0x8000_0001,
+                ref_ts: 0x0_0000_0000,
+                res: 0x0_8000_0001,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x0_7fff_fffe,
+                res: 0x0_ffff_ffff,
+            },
+            Params {
+                ts: 0x8000_0000,
+                ref_ts: 0x0_0000_0000,
+                res: 0x0_8000_0000,
+            },
+            Params {
+                ts: 0xffff_ffff,
+                ref_ts: 0x0_7fff_ffff,
+                res: 0x0_ffff_ffff,
+            },
+        ];
+
+        for t in tests {
+            let ts = Timestamp::new(t.ts);
+            let ref_ts = UNIX_EPOCH + Duration::from_secs(t.ref_ts);
+            let res = ts.to_system_time(ref_ts);
+            let res = res.duration_since(UNIX_EPOCH).unwrap().as_secs();
+            assert_eq!(res, t.res);
+        }
     }
 }
 
