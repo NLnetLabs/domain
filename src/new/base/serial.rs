@@ -37,12 +37,16 @@
 
 use core::cmp::Ordering;
 use core::fmt;
+use core::time::Duration;
 #[cfg(feature = "std")]
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use domain_macros::*;
 
 use super::wire::U32;
+
+/// 2^32 is used to simplify expressions.
+const POW_2_32: u64 = 0x1_0000_0000;
 
 //----------- SoaSerial ------------------------------------------------------
 
@@ -89,21 +93,28 @@ pub struct SoaSerial(SeqNumberU32);
 impl SoaSerial {
     /// Construct a new [`SoaSerial`].
     #[must_use]
-    pub const fn new(_value: u32) -> Self {
-        todo!()
+    pub const fn new(value: u32) -> Self {
+        SoaSerial(SeqNumberU32::new(value))
     }
 
     /// The raw [`u32`] underlying this [`SoaSerial`].
     #[must_use]
     pub const fn get(self) -> u32 {
-        todo!()
+        self.0.get()
     }
 
     /// Measure system time since Unix Epoch modulo 2^32.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn now() -> Self {
-        todo!()
+        let now = SystemTime::now();
+        let diff = match now.duration_since(UNIX_EPOCH) {
+            Ok(secs_after_epoch) => secs_after_epoch.as_secs() % POW_2_32,
+            Err(secs_before_epoch) => {
+                POW_2_32 - (secs_before_epoch.duration().as_secs() % POW_2_32)
+            }
+        };
+        SoaSerial::new(diff as u32)
     }
 
     /// Increase [`SoaSerial`] by 1.
@@ -111,7 +122,7 @@ impl SoaSerial {
     /// Further details in [`SeqNumberU32::increment()`].
     #[must_use]
     pub const fn increment(self) -> Self {
-        todo!()
+        SoaSerial(self.0.increment())
     }
 }
 
@@ -119,8 +130,8 @@ impl SoaSerial {
 ///
 /// Further details in the `PartialOrd` implementation of [`SeqNumberU32`].
 impl PartialOrd for SoaSerial {
-    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
-        todo!()
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.partial_cmp(&other.0)
     }
 }
 
@@ -130,8 +141,8 @@ impl PartialOrd for SoaSerial {
 /// computation. The string representation is therefore equivelent to the
 /// decimal number representation.
 impl fmt::Display for SoaSerial {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.get())
     }
 }
 
@@ -141,8 +152,8 @@ impl fmt::Display for SoaSerial {
 ///
 /// Equivalent to [`SoaSerial::get()`].
 impl From<SoaSerial> for u32 {
-    fn from(_value: SoaSerial) -> u32 {
-        todo!()
+    fn from(value: SoaSerial) -> u32 {
+        value.get()
     }
 }
 
@@ -150,8 +161,8 @@ impl From<SoaSerial> for u32 {
 ///
 /// Equivalent to [`SoaSerial::new()`].
 impl From<u32> for SoaSerial {
-    fn from(_value: u32) -> Self {
-        todo!()
+    fn from(value: u32) -> Self {
+        SoaSerial::new(value)
     }
 }
 
@@ -202,8 +213,8 @@ pub struct Timestamp(SeqNumberU32);
 impl Timestamp {
     /// Construct a new [`Timestamp`].
     #[must_use]
-    pub const fn new(_value: u32) -> Self {
-        todo!()
+    pub const fn new(value: u32) -> Self {
+        Timestamp(SeqNumberU32::new(value))
     }
 
     /// Underlying seconds since Unix Epoch modulo 2^32.
@@ -211,14 +222,21 @@ impl Timestamp {
     // renamed in favor of `as_seconds`.
     #[must_use]
     pub const fn as_seconds(self) -> u32 {
-        todo!()
+        self.0.get()
     }
 
     /// Measure system time since Unix Epoch modulo 2^32.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn now() -> Self {
-        todo!()
+        let now = SystemTime::now();
+        let diff = match now.duration_since(UNIX_EPOCH) {
+            Ok(secs_after_epoch) => secs_after_epoch.as_secs() % POW_2_32,
+            Err(secs_before_epoch) => {
+                POW_2_32 - (secs_before_epoch.duration().as_secs() % POW_2_32)
+            }
+        };
+        Timestamp::new(diff as u32)
     }
 
     /// Convert this [`Timestamp`] into [`SystemTime`] close to a reference
@@ -235,8 +253,45 @@ impl Timestamp {
     ///    reference time fits in an [`i32`].
     #[must_use]
     #[cfg(feature = "std")]
-    pub fn to_system_time(self, _reference: SystemTime) -> SystemTime {
-        todo!()
+    pub fn to_system_time(self, reference: SystemTime) -> SystemTime {
+        // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
+        // the timestamp may be too far in the future. We may have to add
+        // n * 2**32 for some unknown value of n.
+        //
+        // Epoch                                 Reference              Future
+        // |--------------------------------------- | -----------------------|
+        //                                   [  i32 range   ]
+        //
+        // [   POW_2_32   ][   POW_2_32   ][ timestamp ]
+        //
+        // The goal is to find a [`SystemTime`] which is inside the i32 range.
+        const POW_2_32: u64 = 0x1_0000_0000;
+        let ref_secs =
+            reference.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let k = ref_secs / POW_2_32;
+        let ref_secs_mod = ref_secs % POW_2_32;
+        let ts_secs = self.into_int() as u64;
+        let ts_secs = if ts_secs < ref_secs_mod {
+            if ref_secs_mod - ts_secs <= POW_2_32 / 2 {
+                // Close enough, use k.
+                ts_secs + k * POW_2_32
+            } else {
+                // ts_secs is really beyond ref_secs, use k+1.
+                ts_secs + (k + 1) * POW_2_32
+            }
+        } else {
+            // ts_secs >= ref_secs_mod
+            if ts_secs - ref_secs_mod < POW_2_32 / 2 {
+                // Close enough, use k.
+                ts_secs + k * POW_2_32
+            } else {
+                // ts_secs is really old than ref_secs. Try to use k-1
+                // but only if k is not zero.
+                let k = if k > 0 { k - 1 } else { k };
+                ts_secs + k * POW_2_32
+            }
+        };
+        UNIX_EPOCH + Duration::from_secs(ts_secs)
     }
 }
 
@@ -244,8 +299,8 @@ impl Timestamp {
 ///
 /// Further details in the `PartialOrd` implementation of [`SeqNumberU32`].
 impl PartialOrd for Timestamp {
-    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
-        todo!()
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.partial_cmp(&other.0)
     }
 }
 
@@ -268,8 +323,8 @@ impl PartialOrd for Timestamp {
 ///
 /// [RFC4034]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.2
 impl fmt::Display for Timestamp {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_seconds())
     }
 }
 
@@ -279,8 +334,8 @@ impl fmt::Display for Timestamp {
 ///
 /// Equivalent to [`Timestamp::as_seconds()`].
 impl From<Timestamp> for u32 {
-    fn from(_value: Timestamp) -> u32 {
-        todo!()
+    fn from(value: Timestamp) -> u32 {
+        value.as_seconds()
     }
 }
 
@@ -288,8 +343,8 @@ impl From<Timestamp> for u32 {
 ///
 /// Equivalent to [`Timestamp::new()`].
 impl From<u32> for Timestamp {
-    fn from(_value: u32) -> Self {
-        todo!()
+    fn from(value: u32) -> Self {
+        Timestamp::new(value)
     }
 }
 
@@ -298,8 +353,8 @@ impl From<u32> for Timestamp {
 /// Precision is lost during the conversion because of the smaller storage
 /// primitive.
 impl From<jiff::Timestamp> for Timestamp {
-    fn from(_value: jiff::Timestamp) -> Self {
-        todo!()
+    fn from(value: jiff::Timestamp) -> Self {
+        Timestamp::new(value.as_second().rem_euclid(POW_2_32 as i64) as u32)
     }
 }
 
@@ -311,13 +366,13 @@ impl Timestamp {
     /// Returns the timestamp as a raw integer.
     #[must_use]
     pub fn into_int(self) -> u32 {
-        todo!()
+        self.as_seconds()
     }
 }
 
 impl From<Timestamp> for crate::rdata::dnssec::Timestamp {
-    fn from(_ts: Timestamp) -> Self {
-        todo!()
+    fn from(ts: Timestamp) -> Self {
+        crate::rdata::dnssec::Timestamp::from(ts.as_seconds())
     }
 }
 
@@ -352,13 +407,13 @@ pub struct SeqNumberU32(U32);
 
 impl SeqNumberU32 {
     /// Construct a new [`SeqNumberU32`].
-    pub const fn new(_value: u32) -> Self {
-        todo!()
+    pub const fn new(value: u32) -> Self {
+        SeqNumberU32(U32::new(value))
     }
 
     /// The raw [`u32`] underlying this [`SeqNumberU32`].
     pub const fn get(self) -> u32 {
-        todo!()
+        self.0.get()
     }
 }
 
@@ -375,7 +430,7 @@ impl SeqNumberU32 {
     /// Increment [`SeqNumberU32`] by 1.
     #[must_use]
     pub const fn increment(self) -> Self {
-        todo!()
+        SeqNumberU32::new(self.0.get().wrapping_add(1))
     }
 }
 
@@ -404,8 +459,17 @@ impl PartialOrd for SeqNumberU32 {
     ///                         // 10 < u32::MAX and u32::MAX - 1 > 2^31
     ///
     /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
-    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
-        todo!()
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let (lhs, rhs) = (self.0.get(), other.0.get());
+        if lhs == rhs {
+            Some(Ordering::Equal)
+        } else if lhs.abs_diff(rhs) == (1 << 31) {
+            None
+        } else if (lhs < rhs) == (lhs.abs_diff(rhs) < (1 << 31)) {
+            Some(Ordering::Less)
+        } else {
+            Some(Ordering::Greater)
+        }
     }
 }
 
@@ -415,8 +479,8 @@ impl PartialOrd for SeqNumberU32 {
 ///
 /// Equivalent to [`SeqNumberU32::get()`].
 impl From<SeqNumberU32> for u32 {
-    fn from(_value: SeqNumberU32) -> u32 {
-        todo!()
+    fn from(value: SeqNumberU32) -> u32 {
+        value.get()
     }
 }
 
@@ -424,8 +488,8 @@ impl From<SeqNumberU32> for u32 {
 ///
 /// Equivalent to [`SeqNumberU32::new()`].
 impl From<u32> for SeqNumberU32 {
-    fn from(_value: u32) -> Self {
-        todo!()
+    fn from(value: u32) -> Self {
+        SeqNumberU32::new(value)
     }
 }
 
