@@ -14,7 +14,7 @@ use core::ops::Range;
 
 use crate::{
     new::base::{
-        Serial,
+        Timestamp,
         wire::{
             AsBytes, BuildBytes, ParseBytes, ParseBytesZC, SplitBytes,
             SplitBytesZC,
@@ -90,7 +90,7 @@ impl ClientCookie {
         bytes = [1, 0, 0, 0].build_bytes(bytes)?;
         hasher.write(&[1, 0, 0, 0]);
 
-        let timestamp = Serial::unix_time();
+        let timestamp = Timestamp::now();
         bytes = timestamp.build_bytes(bytes)?;
         hasher.write(timestamp.as_bytes());
 
@@ -152,7 +152,7 @@ pub struct Cookie {
     reserved: [u8; 3],
 
     /// When this cookie was made.
-    timestamp: Serial,
+    timestamp: Timestamp,
 
     /// The hash of this cookie.
     hash: [u8],
@@ -183,7 +183,7 @@ impl Cookie {
     /// the 4-byte timestamp of the cookie is returned.
     ///
     /// [RFC 9018]: https://datatracker.ietf.org/doc/html/rfc9018
-    pub fn timestamp(&self) -> Serial {
+    pub fn timestamp(&self) -> Timestamp {
         self.timestamp
     }
 }
@@ -206,7 +206,7 @@ impl Cookie {
         &self,
         addr: IpAddr,
         secret: &[u8; 16],
-        validity: Range<Serial>,
+        validity: Range<Timestamp>,
     ) -> Result<(), CookieError> {
         use core::hash::Hasher;
 

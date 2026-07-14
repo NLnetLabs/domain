@@ -7,7 +7,7 @@ use core::{cmp::Ordering, fmt};
 use crate::{
     new::base::{
         CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
-        Serial,
+        SoaSerial,
         build::BuildInMessage,
         name::NameCompressor,
         wire::{
@@ -172,7 +172,7 @@ pub struct ZoneMD<Digest: ?Sized = [u8]> {
     /// field indicates that the ZONEMD record might simply be out-of-date.
     /// This can be used for diagnostics, but must not be used to infer
     /// anything about the integrity or authenticity of the zone.
-    pub serial: Serial,
+    pub serial: SoaSerial,
 
     /// The scheme used to compute the digest.
     ///

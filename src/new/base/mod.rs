@@ -202,7 +202,6 @@ mod charstr;
 pub use charstr::{CharStr, CharStrBuf, CharStrParseError};
 
 mod serial;
-pub use serial::Serial;
 pub use serial::{SeqNumberU32, SoaSerial, Timestamp};
 
 //--- Wire format
@@ -255,9 +254,6 @@ pub mod compat {
 
     #[deprecated = "use 'crate::new::base::TTL' instead."]
     pub use record::Ttl;
-
-    #[deprecated = "use 'crate::new::base::Serial' instead."]
-    pub use serial::Serial;
 
     pub mod header {
         #[deprecated = "use 'crate::new::base::HeaderFlags' instead."]
@@ -355,10 +351,5 @@ pub mod compat {
 
         #[deprecated = "use 'crate::new::base::TTL' instead."]
         pub use crate::new::base::TTL as Ttl;
-    }
-
-    pub mod serial {
-        #[deprecated = "use 'crate::new::base::Serial' instead."]
-        pub use crate::new::base::Serial;
     }
 }
