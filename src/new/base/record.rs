@@ -135,11 +135,12 @@ where
         let (&rtype, rest) = split_without_compression(contents, rest)?;
         let (&rclass, rest) = split_without_compression(contents, rest)?;
         let (&ttl, rest) = split_without_compression(contents, rest)?;
-        let rdata_start = rest;
-        let (_, rest): (&SizePrefixed<U16, [u8]>, _) =
-            split_without_compression(contents, rest)?;
-        let rdata =
-            D::parse_record_data(&contents[..rest], rdata_start + 2, rtype)?;
+
+        // Parse the rdata length and split the input accordingly.
+        let (size, rest) = split_without_compression::<&U16>(contents, rest)?;
+        let (rdata_start, rest) = (rest, rest + size.get() as usize);
+        let contents = contents.get(..rest).ok_or(ParseError)?;
+        let rdata = D::parse_record_data(contents, rdata_start, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
     }
