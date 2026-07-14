@@ -43,6 +43,7 @@
 //! - [`Mx`]
 //! - [`Txt`]
 //! - [`Rp`]
+//! - [`Srv`]
 //!
 //! Indirection types:
 //! - [`CName`]
@@ -114,6 +115,9 @@ pub use edns::{EdnsOptionsIter, Opt};
 
 mod rp;
 pub use rp::Rp;
+
+mod srv;
+pub use srv::Srv;
 
 mod dnssec;
 pub use dnssec::{
@@ -280,6 +284,9 @@ define_record_data! {
         /// Identification of the person/party responsible for this domain.
         Rp(Rp<N>) = RP,
 
+        /// The locations of services associated with this domain.
+        Srv(&'a Srv) = SRV,
+
         /// The IPv6 address of a host responsible for this domain.
         Aaaa(Aaaa) = AAAA,
 
@@ -331,6 +338,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::Txt(r) => RecordData::Txt(r),
             Self::Rp(r) => RecordData::Rp(r.map_names(f)),
             Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::Srv(r) => RecordData::Srv(r),
             Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
@@ -360,6 +368,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::Txt(r) => RecordData::Txt(r),
             Self::Rp(r) => RecordData::Rp(r.map_names_by_ref(f)),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
+            Self::Srv(r) => RecordData::Srv(r),
             Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
@@ -395,6 +404,7 @@ impl<'a, N> RecordData<'a, N> {
             Self::Txt(r) => RecordData::Txt(copy_to_bump(*r, bump)),
             Self::Rp(r) => RecordData::Rp(r.clone()),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
+            Self::Srv(r) => RecordData::Srv(copy_to_bump(*r, bump)),
             Self::DName(r) => RecordData::DName(copy_to_bump(*r, bump)),
             Self::Opt(r) => RecordData::Opt(copy_to_bump(*r, bump)),
             Self::Ds(r) => RecordData::Ds(copy_to_bump(*r, bump)),
@@ -449,6 +459,9 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             }
             RType::AAAA => {
                 Aaaa::parse_bytes(&contents[start..]).map(Self::Aaaa)
+            }
+            RType::SRV => {
+                <&Srv>::parse_bytes(&contents[start..]).map(Self::Srv)
             }
             RType::DNAME => {
                 <&DName>::parse_bytes(&contents[start..]).map(Self::DName)
