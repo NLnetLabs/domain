@@ -10,7 +10,7 @@ use crate::new::base::parse::{
 };
 use crate::new::base::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
-    Serial, wire::*,
+    SoaSerial, wire::*,
 };
 
 //----------- Soa ------------------------------------------------------------
@@ -163,11 +163,11 @@ pub struct Soa<N> {
     /// number increases (by a relatively small value) upon every change, any
     /// strategy is valid.
     ///
-    /// This field is represented using [`Serial`], which provides special
+    /// This field is represented using [`SoaSerial`], which provides special
     /// "sequence space arithmetic". This ensures that ordering comparisons
     /// are well-defined even if the number overflows modulo `2^32`. See its
     /// documentation for more information.
-    pub serial: Serial,
+    pub serial: SoaSerial,
 
     /// The number of seconds to wait until refreshing the zone.
     ///
