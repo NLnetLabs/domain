@@ -452,37 +452,94 @@ pub struct ZoneMDHashAlg {
     pub code: u8,
 }
 
+impl ZoneMDHashAlg {
+    /// Create a new [`ZoneMDHashAlg`].
+    pub const fn new(value: u8) -> Self {
+        Self { code: value }
+    }
+}
+
 //--- Associated Constants
 
-impl ZoneMDHashAlg {
-    /// The SHA384 algorithm.
-    ///
-    /// The resulting digest is 48 bytes in size, and must not be truncated.
-    /// At present, implementations are required to support it.
-    pub const SHA384: Self = Self { code: 1 };
+// [`ZoneMDHashAlg`] implementation using macro. See macro for implementation
+// details.
+known_values_define! (
+    ZoneMDHashAlg::(pub ALGS, pub MNEMONICS) = [
+        /// The SHA384 algorithm.
+        ///
+        /// The resulting digest is 48 bytes in size, and must not be truncated.
+        /// At present, implementations are required to support it.
+        "SHA384" as SHA384 = Self { code: 1 },
 
-    /// The SHA512 algorithm.
-    ///
-    /// The resulting digest is 64 bytes in size, and must not be truncated.
-    /// At present, implementations are recommended to support it.
-    pub const SHA512: Self = Self { code: 2 };
-}
+        /// The SHA512 algorithm.
+        ///
+        /// The resulting digest is 64 bytes in size, and must not be truncated.
+        /// At present, implementations are recommended to support it.
+        "SHA512" as SHA512 = Self { code: 2 },
+    ];
+);
+
+//--- Conversion to and from 'u8'
+
+known_values_from_and_to_primitive!(ZoneMDHashAlg, u8);
 
 //--- Formatting
 
+/// Format a [`ZoneMDHashAlg`] for debugging.
+///
+/// The output displays the mnemonic, if known, and the code associated to the
+/// [`ZoneMDHashAlg`].
+///
+/// ```
+/// # use domain::new::rdata::ZoneMDHashAlg;
+/// // Known ZoneMD Hash Algorithm.
+/// assert_eq!(
+///     "ZoneMDHashAlg::SHA384(1)",
+///     format!("{:?}", ZoneMDHashAlg::SHA384)
+/// );
+/// // Unknown ZoneMD Hash Algorithm.
+/// assert_eq!(
+///     "ZoneMDHashAlg(42)",
+///     format!("{:?}", ZoneMDHashAlg::from(42))
+/// );
+/// ```
 impl fmt::Debug for ZoneMDHashAlg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::SHA384 => "ZoneMDHashAlg::SHA384",
-            Self::SHA512 => "ZoneMDHashAlg::SHA512",
-            _ => return write!(f, "ZoneMDHashAlg({})", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "ZoneMDHashAlg::{}({})", m, self.code),
+            None => write!(f, "ZoneMDHashAlg({})", self.code),
+        }
+    }
+}
+
+/// Format a [`ZoneMDHashAlg`] in a human-readable way.
+///
+/// The [`ZoneMDHashAlg`] is always displayed as its defined number. [Section
+/// 2.3 of RFC8976] defines the presentation format as follows:
+///
+/// > The Hash Algorithm field is represented as an unsigned decimal integer.
+///
+/// The algorithms are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::rdata::ZoneMDHashAlg;
+/// // Known ZoneMD Hash Algorithm, but still represented as number.
+/// assert_eq!("1", format!("{}", ZoneMDHashAlg::SHA384));
+/// // Unknown ZoneMD Hash Algorithm.
+/// assert_eq!("42", format!("{}", ZoneMDHashAlg::from(42)));
+/// ```
+///
+/// [Section 2.3 of RFC8976]: https://datatracker.ietf.org/doc/html/rfc8976#name-zonemd-presentation-format
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#zonemd-hash-algorithms
+impl fmt::Display for ZoneMDHashAlg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.code)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::new::rdata::ZoneMDScheme;
+    use crate::new::rdata::{ZoneMDHashAlg, ZoneMDScheme};
 
     #[test]
     fn test_zonemd_scheme_from() {
@@ -494,10 +551,27 @@ mod test {
     }
 
     #[test]
+    fn test_zonemd_hash_alg_from() {
+        let zonemd_hash_alg: ZoneMDHashAlg = 1.into();
+        assert_eq!(zonemd_hash_alg, ZoneMDHashAlg::SHA384);
+
+        let number: u8 = zonemd_hash_alg.into();
+        assert_eq!(number, 1);
+    }
+
+    #[test]
     fn test_zonemd_scheme_from_mnemonic() {
         assert_eq!(
             ZoneMDScheme::from_mnemonic("SIMPLE").unwrap(),
             ZoneMDScheme::SIMPLE
+        );
+    }
+
+    #[test]
+    fn test_zonemd_hash_alg_from_mnemonic() {
+        assert_eq!(
+            ZoneMDHashAlg::from_mnemonic("SHA384").unwrap(),
+            ZoneMDHashAlg::SHA384
         );
     }
 }
