@@ -1,4 +1,4 @@
-//! Types which operate in the modulo 2^32 number space.
+//! Numeric types using RFC 1982 Sequence Space Arithmetic.
 //!
 //! This module includes types which work in the numberspace of 2^32. The
 //! implementation reference is [RFC1982] which defines the "sequence space
@@ -10,18 +10,18 @@
 //! - [`SoaSerial`]
 //! - [`Timestamp`]
 //!
-//! The [`SeqNumberU32`] implements the arithmetics defined in [RFC1982] and
+//! [`SeqNumberU32`] implements the arithmetics defined in [RFC1982] and
 //! functions as the underlying datastructure for the other types.
 //!
-//! The [`SoaSerial`], as the name suggests, is used as the version number in
-//! the context of the DNS zone. The [`SoaSerial`] is primarily used in the
-//! serial field of the [`Soa`] record type. Additionally the [`SoaSerial`] is
-//! used in the [`ZoneMD`].
+//! [`SoaSerial`], as the name suggests, is used as the version number in the
+//! context of the DNS zone. [`SoaSerial`] is primarily used in the serial
+//! field of the [`Soa`] record type. Additionally [`SoaSerial`] is used in
+//! [`ZoneMD`].
 //!
-//! The [`Timestamp`] is used to represent time since Unix Epoch modulo 2^32.
+//! [`Timestamp`] is used to represent time since Unix Epoch modulo 2^32.
 //! Therefore the type is not an accurate time representation but is rather
 //! used to show relative differences in time. Apart from the usage in the
-//! [`Rrsig`] record, the type is also used in the edns [`Cookie`].
+//! [`Rrsig`] record, the type is also used in the EDNS [`Cookie`].
 //!
 //! [`Cookie`]: crate::new::edns::Cookie
 //! [`Rrsig`]: crate::new::rdata::Rrsig
@@ -33,7 +33,7 @@
 // This module includes all serial types because they have a logical
 // connection and they are used throughout the crate. Therefore it is
 // difficult to put them into one specific location together or each one
-// seperate.
+// separate.
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -46,7 +46,7 @@ use domain_macros::*;
 use super::wire::U32;
 
 /// 2^32 is used to simplify expressions.
-const POW_2_32: u64 = 0x1_0000_0000;
+const POW_2_32: u64 = 1 << 32;
 
 //----------- SoaSerial ------------------------------------------------------
 
@@ -55,25 +55,25 @@ const POW_2_32: u64 = 0x1_0000_0000;
 /// The SOA serial number declares the version number of the associated zone.
 /// It is used to determine the most recent revision of a zone.
 ///
-/// The [`SoaSerial`] commonly follows one of the following strategies to
-/// declare the [`SoaSerial`]:
+/// [`SoaSerial`] commonly follows one of the following strategies to declare
+/// [`SoaSerial`]:
 ///
 /// - Counter, it starts at 1 and on each change the number gets increased by
 ///   one.
 /// - Seconds since Unix Epoch, when the zone is changed the number gets set
 ///   to the current number of seconds since Unix Epoch.
 /// - Date including counter, on change the number gets set to the current
-///   date in the format (`YYYYMMDD00`) if the number is smaller than the
-///   previous version, the old serial gets increased by one.
+///   date in the format (`YYYYMMDDXX`).
 ///
-/// The mathematical operations are done using the [`SeqNumberU32`]. The
-/// number adheres to the mathematical properties of the "Serial Number
-/// Arithmetics" see [RFC1982] with an unsigned 32 bit integer.
+/// The mathematical operations are done using [`SeqNumberU32`]. The number
+/// adheres to the mathematical properties of the "Serial Number Arithmetics"
+/// see [RFC1982] with an unsigned 32 bit integer.
 ///
 /// Basic operations performed with a [`SoaSerial`].
 /// ```
 /// # use domain::new::base::SoaSerial;
-/// let soa_serial: SoaSerial = SoaSerial::new(u32::MAX).increment();
+/// let mut soa_serial = SoaSerial::new(u32::MAX);
+/// soa_serial = soa_serial.increment();
 /// let value: u32 = soa_serial.get();
 /// assert_eq!(value, 0);
 /// ```
@@ -117,6 +117,8 @@ impl SoaSerial {
     pub fn now() -> Self {
         let now = SystemTime::now();
         let diff = match now.duration_since(UNIX_EPOCH) {
+            // Technically the `% POW_2_32` does the same as `diff as u32`
+            // (see return expression) but it is done here explicitly.
             Ok(secs_after_epoch) => secs_after_epoch.as_secs() % POW_2_32,
             Err(secs_before_epoch) => {
                 POW_2_32 - (secs_before_epoch.duration().as_secs() % POW_2_32)
@@ -134,7 +136,7 @@ impl SoaSerial {
     }
 }
 
-/// Comparision is forwarded to the underlying [`SeqNumberU32`].
+/// Comparison is forwarded to the underlying [`SeqNumberU32`].
 ///
 /// Further details in the `PartialOrd` implementation of [`SeqNumberU32`].
 impl PartialOrd for SoaSerial {
@@ -143,10 +145,10 @@ impl PartialOrd for SoaSerial {
     }
 }
 
-/// Format the [`SoaSerial`] in a huaman readable way.
+/// Format [`SoaSerial`] in a human readable way.
 ///
 /// All mentioned versioning strategies do not need special formatting or
-/// computation. The string representation is therefore equivelent to the
+/// computation. The string representation is therefore equivalent to the
 /// decimal number representation.
 ///
 /// ```
@@ -161,7 +163,7 @@ impl fmt::Display for SoaSerial {
 
 // --- From implementations
 
-/// Construct [`SoaSerial`] from [`u32`].
+/// The raw [`u32`] underlying this [`SoaSerial`].
 ///
 /// Equivalent to [`SoaSerial::get()`].
 ///
@@ -175,7 +177,7 @@ impl From<SoaSerial> for u32 {
     }
 }
 
-/// The raw [`u32`] underlying this [`SoaSerial`].
+/// Construct [`SoaSerial`] from [`u32`].
 ///
 /// Equivalent to [`SoaSerial::new()`].
 ///
@@ -193,21 +195,21 @@ impl From<u32> for SoaSerial {
 
 /// Seconds since Unix Epoch modulo 2^32.
 ///
-/// The [`Timestamp`] stores the seconds since Unix Epoch modulo 2^32. It is
-/// used in the [`Rrsig`] to keep track of `inception` and `expiration` time
-/// and in the edns [`Cookie`] `timestamp`.
+/// [`Timestamp`] stores the seconds since Unix Epoch modulo 2^32. It is used
+/// in [`Rrsig`] to keep track of `inception` and `expiration` time and in the
+/// EDNS [`Cookie::timestamp()`].
 ///
-/// The inperfect timekeeping due to the limited numberspace does not matter
-/// too much in those cases. But the limitations have to be keept in mind.
-/// More details about that can be found in Section 3.1.5 of [RFC4034]
-/// "Signature Expiration and Inception Fields" and Section 4.3 of [RFC9018].
+/// The imperfect timekeeping due to the limited number space does not matter
+/// too much in those cases. But the limitations have to be kept in mind.
+/// More details about that can be found in [Section 3.1.5 of RFC4034]
+/// "Signature Expiration and Inception Fields" and [Section 4.3 of RFC9018].
 ///
-/// The [`Timestamp`] can be constructed using a [`jiff::Timestamp`] using a
+/// [`Timestamp`] can be constructed using a [`jiff::Timestamp`] using a
 /// [`Timestamp::from()`].
 ///
-/// The mathematical operations are done using the [`SeqNumberU32`]. The
-/// number adheres to the mathematical properties of the "Serial Number
-/// Arithmetics" see [RFC1982] with an unsigned 32 bit integer.
+/// The mathematical operations are done using [`SeqNumberU32`]. The number
+/// adheres to the mathematical properties of the "Serial Number Arithmetics"
+/// see [RFC1982] with an unsigned 32 bit integer.
 ///
 /// Basic operations performed with a [`Timestamp`].
 /// ```
@@ -217,12 +219,12 @@ impl From<u32> for SoaSerial {
 /// assert_eq!(value, 42);
 /// ```
 ///
-/// [`Cookie`]: crate::new::edns::Cookie
+/// [`Cookie::timestamp()`]: crate::new::edns::Cookie::timestamp()
 /// [`Rrsig`]: domain::new::rdata::Rrsig
 ///
 /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982
-/// [RFC4034]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.5
-/// [RFC9018]: https://datatracker.ietf.org/doc/html/rfc9018#name-the-timestamp-sub-field
+/// [Section 3.1.5 of RFC4034]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.5
+/// [Section 4.3 of RFC9018]: https://datatracker.ietf.org/doc/html/rfc9018#name-the-timestamp-sub-field
 #[derive(
     Copy,
     Clone,
@@ -248,22 +250,25 @@ impl Timestamp {
         Timestamp(SeqNumberU32::new(value))
     }
 
-    /// Underlying seconds since Unix Epoch modulo 2^32.
     // This type has a specific unit, therefore the `get()` function was
     // renamed in favor of `as_seconds`.
+
+    /// Underlying seconds since Unix Epoch modulo 2^32.
     #[must_use]
     pub const fn as_seconds(self) -> u32 {
         self.0.get()
     }
 
     /// Measure system time since Unix Epoch modulo 2^32.
+    ///
     /// ```
     /// # use domain::new::base::Timestamp;
     /// # use std::time::{SystemTime, UNIX_EPOCH};
     /// let now = Timestamp::now();
     /// assert_eq!(
     ///     now.as_seconds(),
-    ///     (UNIX_EPOCH.elapsed().unwrap().as_secs() % 0x1_0000_0000) as u32
+    ///     // `as u32` truncates the value down the same way `% 2^32` would.
+    ///     (UNIX_EPOCH.elapsed().unwrap().as_secs()) as u32
     /// );
     /// ```
     #[cfg(feature = "std")]
@@ -271,6 +276,8 @@ impl Timestamp {
     pub fn now() -> Self {
         let now = SystemTime::now();
         let diff = match now.duration_since(UNIX_EPOCH) {
+            // Technically the `% POW_2_32` does the same as `diff as u32`
+            // (see return expression) but it is done here explicitly.
             Ok(secs_after_epoch) => secs_after_epoch.as_secs() % POW_2_32,
             Err(secs_before_epoch) => {
                 POW_2_32 - (secs_before_epoch.duration().as_secs() % POW_2_32)
@@ -293,7 +300,7 @@ impl Timestamp {
     ///    reference time fits in an [`i32`].
     #[must_use]
     #[cfg(feature = "std")]
-    pub fn to_system_time(self, reference: SystemTime) -> SystemTime {
+    pub fn to_system_time(self, reference: SystemTime) -> Option<SystemTime> {
         // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
         // the timestamp may be too far in the future. We may have to add
         // n * 2**32 for some unknown value of n.
@@ -305,37 +312,42 @@ impl Timestamp {
         // [   POW_2_32   ][   POW_2_32   ][ timestamp ]
         //
         // The goal is to find a [`SystemTime`] which is inside the i32 range.
-        const POW_2_32: u64 = 0x1_0000_0000;
-        let ref_secs =
-            reference.duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let k = ref_secs / POW_2_32;
-        let ref_secs_mod = ref_secs % POW_2_32;
-        let ts_secs = self.into_int() as u64;
-        let ts_secs = if ts_secs < ref_secs_mod {
-            if ref_secs_mod - ts_secs <= POW_2_32 / 2 {
-                // Close enough, use k.
-                ts_secs + k * POW_2_32
-            } else {
-                // ts_secs is really beyond ref_secs, use k+1.
-                ts_secs + (k + 1) * POW_2_32
-            }
-        } else {
-            // ts_secs >= ref_secs_mod
-            if ts_secs - ref_secs_mod < POW_2_32 / 2 {
-                // Close enough, use k.
-                ts_secs + k * POW_2_32
-            } else {
-                // ts_secs is really old than ref_secs. Try to use k-1
-                // but only if k is not zero.
-                let k = if k > 0 { k - 1 } else { k };
-                ts_secs + k * POW_2_32
-            }
+
+        let mut timestamp_secs: i128 = self.as_seconds().into();
+        let reference_secs: i128 = match reference.duration_since(UNIX_EPOCH)
+        {
+            Ok(secs) => secs.as_secs().into(),
+            Err(e) => -(e.duration().as_secs() as i128),
         };
-        UNIX_EPOCH + Duration::from_secs(ts_secs)
+
+        // Apply the offset that the `reference_secs` has to the `UNIX_EPOCH`,
+        // but without the lower 32-bit details. After that the value could
+        // still to far away but it is around in the right region.
+        timestamp_secs +=
+            (reference_secs / POW_2_32 as i128) * POW_2_32 as i128;
+
+        // The values could still be to far apart to fit into an i32 range.
+        // Therefore an addition or substraction might be necessary.
+        if timestamp_secs - reference_secs < i32::MIN as i128 {
+            timestamp_secs += POW_2_32 as i128;
+        } else if timestamp_secs - reference_secs > i32::MAX as i128 {
+            timestamp_secs -= POW_2_32 as i128;
+        }
+
+        // Now that the timestamp has been calculated we have to check if it
+        // is a negative or positive number and apply the correct function to
+        // the `UNIX_EPOCH`.
+        if timestamp_secs < 0 {
+            UNIX_EPOCH.checked_sub(Duration::from_secs(
+                timestamp_secs.unsigned_abs() as u64,
+            ))
+        } else {
+            UNIX_EPOCH.checked_add(Duration::from_secs(timestamp_secs as u64))
+        }
     }
 }
 
-/// Comparision is forwarded to the underlying [`SeqNumberU32`].
+/// Comparison is forwarded to the underlying [`SeqNumberU32`].
 ///
 /// Further details in the `PartialOrd` implementation of [`SeqNumberU32`].
 impl PartialOrd for Timestamp {
@@ -344,29 +356,28 @@ impl PartialOrd for Timestamp {
     }
 }
 
-/// Format the [`Timestamp`] in a huaman readable way.
+/// Format [`Timestamp`] in a human readable way.
 ///
-/// This implementation displays the [`Timestamp`] as the elapsed seconds
-/// stored.
+/// This implementation displays [`Timestamp`] as the elapsed second stored.
 ///
-/// The [`Timestamp`] is commonly displayed in one of two ways. The first,
-/// simple way is to present it as the elapsed seconds since Unix Epoch modulo
-/// 2^32 it stores. The more complex way to display the [`Timestamp`] would be
-/// to compute the precise date `self` refers to and display this date in the
+/// [`Timestamp`] is commonly displayed in one of two ways. The first, simple
+/// way is to present it as the elapsed seconds since Unix Epoch modulo
+/// 2^32 it stores. The more complex way to display [`Timestamp`] would be to
+/// compute the precise date `self` refers to and display this date in the
 /// form `YYYYMMDDHHmmSS`.
 ///
 /// The first option is implemented because it requires less computation and
 /// is more generally usable.
 ///
-/// More details about the display variations can be found in Section 3.2 of
-/// [RFC4034].
+/// More details about the display variations can be found in [Section 3.2 of
+/// RFC4034].
 ///
 /// ```
 /// # use domain::new::base::Timestamp;
 /// assert_eq!(format!("{}", Timestamp::new(42)), "42");
 /// ```
 ///
-/// [RFC4034]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.2
+/// [Section 3.2 of RFC4034]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.2
 impl fmt::Display for Timestamp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_seconds())
@@ -444,7 +455,7 @@ impl From<Timestamp> for crate::rdata::dnssec::Timestamp {
 ///
 /// This type implements the mathematical properties defined in [RFC1982].
 /// Section 3 in [RFC1982] defines that there are only two possible operations
-/// on a Serial; addition and comparision.
+/// on a Serial; addition and comparison.
 ///
 /// The type is used as a backend for [`SoaSerial`] and [`Timestamp`].
 ///
@@ -487,11 +498,11 @@ impl SeqNumberU32 {
 }
 
 impl SeqNumberU32 {
-    // Incrementing the [`SeqNumberU32`] by more than one serveres little
-    // purpose and might be achived easier by constructing it from a primitive
+    // Incrementing [`SeqNumberU32`] by more than one serves little purpose
+    // and might be achieved easier by constructing it from a primitive
     // number.
     //
-    // [RFC1982] states that the maxmimum allowed increment is `(2^31)-1`. A
+    // [RFC1982] states that the maximum allowed increment is `(2^31)-1`. A
     // function would therefore need to verify that the increment is smaller
     // than that and panic/fail if this is not satisfied. To avoid that
     // potential risk, the type only offers incrementation by 1.
@@ -506,62 +517,56 @@ impl SeqNumberU32 {
 //--- Ordering
 
 impl PartialOrd for SeqNumberU32 {
-    /// The comparison of serial number values is defined in Section 3.2 of
-    /// [RFC1982].
+    /// The comparison of serial number values is defined in [Section 3.2 of
+    /// RFC1982].
     ///
     /// The comparison is special because the sequence number might wrap
-    /// around after reaching the maxima. The maximum difference between two
+    /// around after reaching the maximum. The maximum difference between two
     /// numbers is limited to less than 2^31. If two numbers are exactly 2^31
     /// apart the order is undefined.
     ///
-    /// None -> this.abs_diff(other) == 2^31
-    /// Some(Ordering::Equal) -> this == other
-    /// Some(Ordering::Less) -> this < other and (other - this) < 2^31
-    ///                         // 1 < 10 and 10 - 1 < 2^31
-    ///                         or
-    ///                         this > other and (this - other) > 2^31
-    ///                         // u32::MAX > 1 and u32::MAX - 1 > 2^31
-    /// Some(Ordering::Greater) -> this > other and (this - other) < 2^31
-    ///                         // 10 > 1 and 10 - 1 < 2^31
-    ///                         or
-    ///                         this < other and (this - other) > 2^31
-    ///                         // 10 < u32::MAX and u32::MAX - 1 > 2^31
-    ///```
+    /// [Section 3.2 of RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
+    /// ```
     /// # use domain::new::base::SeqNumberU32;
     /// # use std::cmp::Ordering;
+    /// // The numbers are exactly 2^31 apart, this is not defined.
     /// assert_eq!(
-    ///     SeqNumberU32::new(42).partial_cmp(&SeqNumberU32::new(42)),
+    ///     SeqNumberU32::partial_cmp(&0.into(), &(1<<31).into()),
+    ///     None
+    /// );
+    /// // Simple, both numbers are equal.
+    /// assert_eq!(
+    ///     SeqNumberU32::partial_cmp(&42.into(), &42.into()),
     ///     Some(Ordering::Equal)
     /// );
+    ///
+    /// // The left number is smaller and they are less than 2^31 apart.
     /// assert_eq!(
-    ///     SeqNumberU32::new(42).partial_cmp(&SeqNumberU32::new(43)),
+    ///     SeqNumberU32::partial_cmp(&42.into(), &43.into()),
     ///     Some(Ordering::Less)
     /// );
     ///
-    /// // Here the lower absolute number has already wrapped around and thus
-    /// // larger than the `u32::MAX`.
+    /// // This is special; the left number is numerically speaking smaller,
+    /// // but because the numbers are further apart than 2^31 it is assumed
+    /// // that the order is swapped and the left number is actually bigger
+    /// // because it has wrapped around.
     /// assert_eq!(
-    ///     SeqNumberU32::new(u32::MAX).partial_cmp(&SeqNumberU32::new(43)),
-    ///     Some(Ordering::Less)
+    ///     SeqNumberU32::partial_cmp(&42.into(), &u32::MAX.into()),
+    ///     Some(Ordering::Greater)
     /// );
-    ///
-    /// # // Get all the edge cases
-    /// # assert_eq!(
-    /// #     SeqNumberU32::new(0).partial_cmp(&SeqNumberU32::new((1 << 31) - 1)),
-    /// #     Some(Ordering::Less)
-    /// # );
-    ///
-    /// # assert_eq!(
-    /// #     SeqNumberU32::new(0).partial_cmp(&SeqNumberU32::new((1 << 31) + 1)),
-    /// #     Some(Ordering::Greater)
-    /// # );
-    ///
-    /// # assert_eq!(
-    /// #     SeqNumberU32::new(0).partial_cmp(&SeqNumberU32::new((1 << 31))),
-    /// #     None
-    /// # );
     /// ```
-    /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
+    // None -> this.abs_diff(other) == 2^31
+    // Some(Ordering::Equal) -> this == other
+    // Some(Ordering::Less) -> this < other and (other - this) < 2^31
+    //                         // 1 < 10 and 10 - 1 < 2^31
+    //                         or
+    //                         this > other and (this - other) > 2^31
+    //                         // u32::MAX > 1 and u32::MAX - 1 > 2^31
+    // Some(Ordering::Greater) -> this > other and (this - other) < 2^31
+    //                         // 10 > 1 and 10 - 1 < 2^31
+    //                         or
+    //                         this < other and (this - other) > 2^31
+    //                         // 10 < u32::MAX and u32::MAX - 1 > 2^31
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let (lhs, rhs) = (self.0.get(), other.0.get());
         if lhs == rhs {
@@ -608,8 +613,8 @@ impl From<u32> for SeqNumberU32 {
 
 #[cfg(test)]
 mod serial_test {
-    use core::time::Duration;
-    use std::time::UNIX_EPOCH;
+    use core::{cmp::Ordering, time::Duration};
+    use std::{println, time::UNIX_EPOCH};
 
     use super::{SeqNumberU32, SoaSerial, Timestamp};
 
@@ -634,6 +639,22 @@ mod serial_test {
         );
         assert!(Timestamp::from(0) > Timestamp::from(u32::MAX));
         assert!(Timestamp::from(1) > Timestamp::from(0));
+
+        assert_eq!(
+            SeqNumberU32::new(0)
+                .partial_cmp(&SeqNumberU32::new((1 << 31) - 1)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SeqNumberU32::new(0)
+                .partial_cmp(&SeqNumberU32::new((1 << 31) + 1)),
+            Some(Ordering::Greater)
+        );
+
+        assert_eq!(
+            SeqNumberU32::new(0).partial_cmp(&SeqNumberU32::new(1 << 31)),
+            None
+        );
     }
 
     #[test]
@@ -648,10 +669,11 @@ mod serial_test {
 
     #[test]
     fn test_to_system_time() {
+        #[derive(Debug)]
         struct Params {
             ts: u32,
-            ref_ts: u64,
-            res: u64,
+            ref_ts: i128,
+            res: i128,
         }
         let tests = alloc::vec![
             // Simple cases, ts and ref_ts mod 2**32 are within 2*31-1.
@@ -730,34 +752,63 @@ mod serial_test {
                 ref_ts: 0x1_7fff_ffff,
                 res: 0x0_ffff_ffff,
             },
-            // Special case: ERA 0. We don't want values before UNIX_EPOCH.
+            // Special case: ERA 0. We *want* numbers before UNIX_EPOCH
             Params {
                 ts: 0x8000_0001,
                 ref_ts: 0x0_0000_0000,
-                res: 0x0_8000_0001,
+                res: -0x7FFF_FFFF // 0x0_8000_0001,
             },
             Params {
                 ts: 0xffff_ffff,
                 ref_ts: 0x0_7fff_fffe,
-                res: 0x0_ffff_ffff,
+                res: -1 // 0x0_ffff_ffff,
             },
             Params {
                 ts: 0x8000_0000,
                 ref_ts: 0x0_0000_0000,
-                res: 0x0_8000_0000,
+                res: -0x0_8000_0000 // 0x0_8000_0000,
             },
             Params {
                 ts: 0xffff_ffff,
                 ref_ts: 0x0_7fff_ffff,
-                res: 0x0_ffff_ffff,
+                res: -1 // 0x0_ffff_ffff,
+            },
+            Params {
+                ts: 1,
+                ref_ts: -1,
+                res: 1
+            },
+            Params {
+                ts: 1,
+                ref_ts: -0x1_0000_0000, // 2^32 -1,
+                res: -0x1_0000_0000 + 1
+            },
+            Params {
+                ts: 1 + 0x8000_0000,
+                ref_ts: -0x1_0000_0000, // 2^32 -1,
+                res: -0x2_0000_0000 + (1 + 0x8000_0000)
             },
         ];
 
         for t in tests {
+            println!("Test {:?}", t);
             let ts = Timestamp::new(t.ts);
-            let ref_ts = UNIX_EPOCH + Duration::from_secs(t.ref_ts);
-            let res = ts.to_system_time(ref_ts);
-            let res = res.duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let ref_ts = if t.ref_ts < 0 {
+                UNIX_EPOCH
+                    .checked_sub(Duration::from_secs(
+                        t.ref_ts.unsigned_abs() as u64
+                    ))
+                    .unwrap()
+            } else {
+                UNIX_EPOCH
+                    .checked_add(Duration::from_secs(t.ref_ts as u64))
+                    .unwrap()
+            };
+            let res = ts.to_system_time(ref_ts).unwrap();
+            let res = match res.duration_since(UNIX_EPOCH) {
+                Ok(o) => o.as_secs() as i128,
+                Err(e) => -(e.duration().as_secs() as i128),
+            };
             assert_eq!(res, t.res);
         }
     }
