@@ -152,6 +152,10 @@ int_enum! {
 
     /// The requested resource record type should not appear in a query.
     (INVALID_QUERY_TYPE => 30, "Invalid Query Type")
+
+    /// The resolver is configured with a Negative Trust Anchor for the
+    /// queried name, disabling DNSSEC validation.
+    (NEGATIVE_TRUST_ANCHOR => 33, "Negative Trust Anchor")
 }
 
 /// Start of the private range for EDE codes.
