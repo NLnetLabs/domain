@@ -1,8 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.12.2
 
-Breaking changes
+Released 2026-07-16.
 
 New
 
@@ -13,10 +13,6 @@ Improvements
 
 * Moved more imports to `core` and `alloc` to improve `no_std` support.
   ([#671])
-
-Bug fixes
-
-Other changes
 
 Unstable features:
 
