@@ -39,7 +39,8 @@ use core::str::FromStr;
 /// represented by [TsigRcode].
 ///
 /// All three codes share the same name space. Their values are defined in
-/// one registry, [IANA DNS RCODEs]. This type is complete as of 2019-01-28.
+/// one registry, [IANA DNS RCODEs]. This type is complete as of the registry
+/// update of 2026-07-06.
 ///
 /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
