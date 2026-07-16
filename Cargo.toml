@@ -5,7 +5,7 @@ members = [".", "./macros"]
 [workspace.package]
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
 
-version = "0.12.1"
+version = "0.12.2"
 # The MSRV is at least 4 versions behind stable (about half a year).
 rust-version = "1.87.0"
 edition = "2024"
@@ -33,7 +33,7 @@ documentation = "https://docs.rs/domain"
 readme = "README.md"
 
 [dependencies]
-domain-macros  = { path = "./macros", version = "=0.12.1" }
+domain-macros  = { path = "./macros", version = "=0.12.2" }
 
 # TODO: This _should_ be optional, but it is used by some record-type-specific
 # zonefile scanning code that is not gated behind a feature flag.
