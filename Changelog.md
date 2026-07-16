@@ -6,21 +6,45 @@ Breaking changes
 
 New
 
-Improvements
-
 * Implemented `to_mnemonic_str` for `Rcode` and `OptCode` ([#668] and [#648]
   by [@rossmacarthur])
-* Add methods to new base for RRSIG, NSEC, and NSEC3 to make new base 
-  more compatible with current domain. ([#679]).
+
+Improvements
+
+* Moved more imports to `core` and `alloc` to improve `no_std` support.
+  ([#671])
 
 Bug fixes
 
 Other changes
 
+Unstable features:
+
+* `unstable-new`:
+  * Added `Serial::new` and `Serial::get`. ([#676])
+  * Added conversions for `Name`. ([#678])
+  * Added mnemonic `Display` for `RType` and `RClass`. ([#678])
+  * Renamed a number of record data types and record data helper types to
+    the convention used by old base. ([#679]
+  * Added methods to new base for RRSIG, NSEC, and NSEC3 to make new base 
+    more compatible with current domain. ([#679])
+  * Fixed parsing of NSEC `TypeBitmap`. ([#681])
+  * Overhauled name labels. ([#687])
+  * Added the SRV record data type. ([#688], based on [#649] by [@soywod])
+
+
 [#648]: https://github.com/NLnetLabs/domain/pull/648
+[#649]: https://github.com/NLnetLabs/domain/pull/649
 [#668]: https://github.com/NLnetLabs/domain/pull/668
+[#671]: https://github.com/NLnetLabs/domain/pull/671
+[#676]: https://github.com/NLnetLabs/domain/pull/676
+[#678]: https://github.com/NLnetLabs/domain/pull/678
 [#679]: https://github.com/NLnetLabs/domain/pull/679
+[#681]: https://github.com/NLnetLabs/domain/pull/681
+[#687]: https://github.com/NLnetLabs/domain/pull/687
+[#688]: https://github.com/NLnetLabs/domain/pull/688
 [@rossmacarthur]: https://github.com/rossmacarthur
+[@soywod]: https://github.com/soywod
 
 ## 0.12.1
 
