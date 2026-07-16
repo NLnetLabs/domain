@@ -42,7 +42,7 @@ jiff           = { version = "0.2.1", default-features = false }
 # Optional dependencies:
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 bumpalo        = { version = "3.12", optional = true }
-constant_time_eq = { version = "0.4.2", optional = true }
+constant_time_eq = { version = "0.5.0", optional = true }
 octseq         = { version = "0.6.1", default-features = false }
 rand           = { version = "0.10.1", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
