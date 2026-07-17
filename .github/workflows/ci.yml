@@ -344,7 +344,7 @@ jobs:
     - name: Note Rust version for the cache
       if: github.event_name == 'schedule'
       run: |
-        rustup toolchain list | grep nightly- | tee target/rust-version
+        rustup toolchain list --quiet | grep nightly- | tee target/rust-version
 
     # Save to the cache every week.
     - name: Save to the cache
