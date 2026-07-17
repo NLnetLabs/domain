@@ -11,7 +11,7 @@
 //! - [`Timestamp`]
 //!
 //! [`SeqNumberU32`] implements the arithmetics defined in [RFC1982] and
-//! functions as the underlying datastructure for the other types.
+//! functions as the underlying data structure for the other types.
 //!
 //! [`SoaSerial`], as the name suggests, is used as the version number in the
 //! context of the DNS zone. [`SoaSerial`] is primarily used in the serial
@@ -37,6 +37,8 @@
 
 use core::cmp::Ordering;
 use core::fmt;
+#[cfg(feature = "std")]
+// Duration is only used in `std` functions.
 use core::time::Duration;
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -55,8 +57,7 @@ const POW_2_32: u64 = 1 << 32;
 /// The SOA serial number declares the version number of the associated zone.
 /// It is used to determine the most recent revision of a zone.
 ///
-/// [`SoaSerial`] commonly follows one of the following strategies to declare
-/// [`SoaSerial`]:
+/// [`SoaSerial`] commonly follows one of the following strategies:
 ///
 /// - Counter, it starts at 1 and on each change the number gets increased by
 ///   one.
@@ -72,14 +73,13 @@ const POW_2_32: u64 = 1 << 32;
 /// Basic operations performed with a [`SoaSerial`].
 /// ```
 /// # use domain::new::base::SoaSerial;
-/// let mut soa_serial = SoaSerial::new(u32::MAX);
-/// soa_serial = soa_serial.increment();
-/// let value: u32 = soa_serial.get();
+/// let soa_serial = SoaSerial::new(u32::MAX);
+/// let soa_serial_incremented = soa_serial.increment();
+/// let value: u32 = soa_serial_incremented.get();
 /// assert_eq!(value, 0);
 /// ```
 ///
 /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982
-/// [RFC1035]: https://datatracker.ietf.org/doc/html/rfc1035
 #[derive(
     Copy,
     Clone,
@@ -112,19 +112,23 @@ impl SoaSerial {
     }
 
     /// Measure system time since Unix Epoch modulo 2^32.
+    ///
+    /// To avoid the possibility of a panic, the function handles the
+    /// possibility of a [`SystemTime::now()`] before [`UNIX_EPOCH`]. If the
+    /// current time is before the [`UNIX_EPOCH`] modulo operations are
+    /// applied to bring the value into the positive space.
+    ///
+    /// ```
+    /// # use domain::new::base::SoaSerial;
+    /// # use std::time::{SystemTime, UNIX_EPOCH};
+    /// let now = SoaSerial::now();
+    /// let system_now = (UNIX_EPOCH.elapsed().unwrap().as_secs()) as u32;
+    /// assert!(now.get().wrapping_sub(system_now) <= 1);
+    /// ```
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn now() -> Self {
-        let now = SystemTime::now();
-        let diff = match now.duration_since(UNIX_EPOCH) {
-            // Technically the `% POW_2_32` does the same as `diff as u32`
-            // (see return expression) but it is done here explicitly.
-            Ok(secs_after_epoch) => secs_after_epoch.as_secs() % POW_2_32,
-            Err(secs_before_epoch) => {
-                POW_2_32 - (secs_before_epoch.duration().as_secs() % POW_2_32)
-            }
-        };
-        SoaSerial::new(diff as u32)
+    pub fn now() -> SoaSerial {
+        SoaSerial(SeqNumberU32::now())
     }
 
     /// Increase [`SoaSerial`] by 1.
@@ -220,7 +224,7 @@ impl From<u32> for SoaSerial {
 /// ```
 ///
 /// [`Cookie::timestamp()`]: crate::new::edns::Cookie::timestamp()
-/// [`Rrsig`]: domain::new::rdata::Rrsig
+/// [`Rrsig`]: crate::new::rdata::Rrsig
 ///
 /// [RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982
 /// [Section 3.1.5 of RFC4034]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.5
@@ -261,29 +265,22 @@ impl Timestamp {
 
     /// Measure system time since Unix Epoch modulo 2^32.
     ///
+    /// To avoid the possibility of a panic, the function handles the
+    /// possibility of a [`SystemTime::now()`] before [`UNIX_EPOCH`]. If the
+    /// current time is before the [`UNIX_EPOCH`] modulo operations are applied
+    /// to bring the value into the positive space.
+    ///
     /// ```
     /// # use domain::new::base::Timestamp;
     /// # use std::time::{SystemTime, UNIX_EPOCH};
     /// let now = Timestamp::now();
-    /// assert_eq!(
-    ///     now.as_seconds(),
-    ///     // `as u32` truncates the value down the same way `% 2^32` would.
-    ///     (UNIX_EPOCH.elapsed().unwrap().as_secs()) as u32
-    /// );
+    /// let system_now = (UNIX_EPOCH.elapsed().unwrap().as_secs()) as u32;
+    /// assert!(now.as_seconds().wrapping_sub(system_now) <= 1);
     /// ```
     #[cfg(feature = "std")]
     #[must_use]
     pub fn now() -> Self {
-        let now = SystemTime::now();
-        let diff = match now.duration_since(UNIX_EPOCH) {
-            // Technically the `% POW_2_32` does the same as `diff as u32`
-            // (see return expression) but it is done here explicitly.
-            Ok(secs_after_epoch) => secs_after_epoch.as_secs() % POW_2_32,
-            Err(secs_before_epoch) => {
-                POW_2_32 - (secs_before_epoch.duration().as_secs() % POW_2_32)
-            }
-        };
-        Timestamp::new(diff as u32)
+        Timestamp(SeqNumberU32::now())
     }
 
     /// Convert this [`Timestamp`] into [`SystemTime`] close to a reference
@@ -294,16 +291,22 @@ impl Timestamp {
     ///
     /// The returned [`SystemTime`] meets the following requirements:
     ///
-    /// 1) The [`SystemTime`] value has a duration since `UNIX_EPOCH` that
-    ///    modulo `2**32` is equal to our [`Timestamp`] value.
+    /// 1) The returned [`SystemTime`] value has a duration since
+    ///    [`UNIX_EPOCH`] that modulo `2**32` is equal to this
+    ///    [`Timestamp`] value.
     /// 2) The time difference between the [`SystemTime`] value and the
     ///    reference time fits in an [`i32`].
+    ///
+    /// Because this [`Timestamp`] might not be representable by
+    /// [`SystemTime`] the function returns an [`Option`] over [`SystemTime`].
+    /// `None` is returned if the Timestamp is smaller or bigger than
+    /// [`SystemTime::MIN`] or [`SystemTime::MAX`] respectively.
     #[must_use]
     #[cfg(feature = "std")]
     pub fn to_system_time(self, reference: SystemTime) -> Option<SystemTime> {
         // Timestamp is a 32-bit value. We cannot just add UNIX_EPOCH because
-        // the timestamp may be too far in the future. We may have to add
-        // n * 2**32 for some unknown value of n.
+        // the timestamp may be too far in the future. We may have to add n *
+        // 2**32 for some unknown value of n.
         //
         // Epoch                                 Reference              Future
         // |--------------------------------------- | -----------------------|
@@ -320,14 +323,14 @@ impl Timestamp {
             Err(e) => -(e.duration().as_secs() as i128),
         };
 
-        // Apply the offset that the `reference_secs` has to the `UNIX_EPOCH`,
+        // Apply the offset that the `reference_secs` has to the UNIX_EPOCH,
         // but without the lower 32-bit details. After that the value could
         // still to far away but it is around in the right region.
         timestamp_secs +=
             (reference_secs / POW_2_32 as i128) * POW_2_32 as i128;
 
         // The values could still be to far apart to fit into an i32 range.
-        // Therefore an addition or substraction might be necessary.
+        // Therefore an addition or subtraction might be necessary.
         if timestamp_secs - reference_secs < i32::MIN as i128 {
             timestamp_secs += POW_2_32 as i128;
         } else if timestamp_secs - reference_secs > i32::MAX as i128 {
@@ -336,7 +339,7 @@ impl Timestamp {
 
         // Now that the timestamp has been calculated we have to check if it
         // is a negative or positive number and apply the correct function to
-        // the `UNIX_EPOCH`.
+        // the UNIX_EPOCH.
         if timestamp_secs < 0 {
             UNIX_EPOCH.checked_sub(Duration::from_secs(
                 timestamp_secs.unsigned_abs() as u64,
@@ -436,7 +439,7 @@ impl From<jiff::Timestamp> for Timestamp {
 // to new base but will be deprecated in the near future.
 
 impl Timestamp {
-    /// Returns the timestamp as a raw integer.
+    /// Returns the [`Timestamp`] as a raw integer.
     #[must_use]
     pub fn into_int(self) -> u32 {
         self.as_seconds()
@@ -487,30 +490,69 @@ pub struct SeqNumberU32(U32);
 
 impl SeqNumberU32 {
     /// Construct a new [`SeqNumberU32`].
+    #[must_use]
     pub const fn new(value: u32) -> Self {
         SeqNumberU32(U32::new(value))
     }
 
     /// The raw [`u32`] underlying this [`SeqNumberU32`].
+    #[must_use]
     pub const fn get(self) -> u32 {
         self.0.get()
     }
 }
 
 impl SeqNumberU32 {
-    // Incrementing [`SeqNumberU32`] by more than one serves little purpose
-    // and might be achieved easier by constructing it from a primitive
-    // number.
-    //
-    // [RFC1982] states that the maximum allowed increment is `(2^31)-1`. A
-    // function would therefore need to verify that the increment is smaller
-    // than that and panic/fail if this is not satisfied. To avoid that
-    // potential risk, the type only offers incrementation by 1.
-
     /// Increment [`SeqNumberU32`] by 1.
+    ///
+    /// Incrementing [`SeqNumberU32`] by more than one serves little purpose
+    /// and might be achieved easier by constructing it from a primitive
+    /// number.
+    ///
+    /// [Section 3.1 of RFC1982] states that the maximum allowed increment is
+    /// `(2^31)-1`. A function would therefore need to verify that the
+    /// increment is smaller than that and panic/fail if this is not
+    /// satisfied. To avoid the potential risk of failure, the type only
+    /// offers incrementation by 1.
+    ///
+    /// [Section 3.1 of RFC1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.1
     #[must_use]
     pub const fn increment(self) -> Self {
         SeqNumberU32::new(self.0.get().wrapping_add(1))
+    }
+
+    /// Measure system time since Unix Epoch modulo 2^32.
+    ///
+    /// This function is private because the functionality is not suitable for
+    /// the type because [`SeqNumberU32`] has no associated time semantics,
+    /// only its descendants [`SoaSerial`] and [`Timestamp`] do. Therefore the
+    /// function logic is in [`SeqNumberU32`] to avoid code duplication.
+    ///
+    /// This function is passively tested by the doc tests in
+    /// [`SoaSerial::now()`] and [`Timestamp::now()`].
+    ///
+    /// To prevent the function from panicking, it handles the possibility of
+    /// a [`SystemTime::now()`] before [`UNIX_EPOCH`]. In that case the value
+    /// is brought into the positive space through a modulo operation. Similar
+    /// to the example below, where `62` is the amount of seconds before
+    /// [`UNIX_EPOCH`] and `32` is representing the 32-Bit number space.
+    ///
+    /// ```
+    /// debug_assert_eq!(32 - (62 % 32), 2);
+    /// ```
+    #[cfg(feature = "std")]
+    #[must_use]
+    fn now() -> Self {
+        let now = SystemTime::now();
+        let diff = match now.duration_since(UNIX_EPOCH) {
+            // Technically the `% POW_2_32` does the same as `diff as u32`
+            // (see return expression) but it is done here explicitly.
+            Ok(secs_after_epoch) => secs_after_epoch.as_secs() % POW_2_32,
+            Err(secs_before_epoch) => {
+                POW_2_32 - (secs_before_epoch.duration().as_secs() % POW_2_32)
+            }
+        };
+        SeqNumberU32::new(diff as u32)
     }
 }
 
