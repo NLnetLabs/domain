@@ -462,6 +462,9 @@ mod compression_tests {
         );
     }
 
+    /// Compression pointer to `example.com` at question offset 12.
+    const PTR: &[u8] = &[0xC0, 0x0C];
+
     /// Build a DNS message with compression pointers inside rdata, parse
     /// through `AllRecordData`, recompose, and verify the names survived
     /// the round-trip. Non-compliant servers may compress rdata names
@@ -479,7 +482,7 @@ mod compression_tests {
         wire.extend_from_slice(&rtype.to_int().to_be_bytes());
         wire.extend_from_slice(&1_u16.to_be_bytes());
         // Answer: <ptr to 12> <rtype> IN 300 <rdata>
-        wire.extend_from_slice(&[0xC0, 0x0C]);
+        wire.extend_from_slice(PTR);
         wire.extend_from_slice(&rtype.to_int().to_be_bytes());
         wire.extend_from_slice(&1_u16.to_be_bytes());
         wire.extend_from_slice(&300_u32.to_be_bytes());
@@ -497,17 +500,16 @@ mod compression_tests {
         rdata_wire(rtype, typed.into_data())
     }
 
-    /// Compression pointer to `example.com` at question offset 12.
-    const PTR: &[u8] = &[0xC0, 0x0C];
-
     #[rstest]
     // RFC 1035 types: compressed rdata is standard
     #[case::cname(Rtype::CNAME, PTR, Cname::new(name("example.com")))]
-    #[case::mx(Rtype::MX,
-        &[0, 10, 0xC0, 0x0C],  // preference=10, exchange=ptr
-        Mx::new(10, name("example.com")))]
+    #[case::mx(Rtype::MX, &{
+        let mut v = vec![0, 10]; // preference
+        v.extend_from_slice(PTR); // exchange
+        v
+    }, Mx::new(10, name("example.com")))]
     #[case::soa(Rtype::SOA, &{
-        let mut v = vec![0xC0, 0x0C]; // mname=ptr
+        let mut v = PTR.to_vec(); // mname
         v.extend_from_slice(PTR);     // rname=ptr
         v.extend_from_slice(&1_u32.to_be_bytes()); // serial
         v.extend_from_slice(&3600_u32.to_be_bytes());
@@ -521,13 +523,17 @@ mod compression_tests {
         Ttl::from_secs(604800), Ttl::from_secs(86400),
     ))]
     // Non-RFC-1035 types: compressed rdata from non-compliant servers.
-    #[case::rp(Rtype::RP,
-        &[0xC0, 0x0C, 0xC0, 0x0C],  // mbox=ptr, txt=ptr
-        Rp::new(name("example.com"), name("example.com")))]
+    #[case::rp(Rtype::RP, &{
+        let mut v = PTR.to_vec(); // mbox
+        v.extend_from_slice(PTR); // txt
+        v
+    }, Rp::new(name("example.com"), name("example.com")))]
     #[case::dname_rdata(Rtype::DNAME, PTR, Dname::new(name("example.com")))]
-    #[case::srv(Rtype::SRV,
-        &[0, 10, 0, 0, 1, 0xBB, 0xC0, 0x0C], // pri=10, w=0, port=443, target=ptr
-        Srv::new(10, 0, 443, name("example.com")))]
+    #[case::srv(Rtype::SRV, &{
+        let mut v = vec![0, 10, 0, 0, 1, 0xBB]; // pri=10, w=0, port=443
+        v.extend_from_slice(PTR); // target
+        v
+    }, Srv::new(10, 0, 443, name("example.com")))]
     #[case::naptr(Rtype::NAPTR, &{
         let mut v = vec![
             0, 100, 0, 10,            // order=100, pref=10
@@ -560,24 +566,29 @@ mod compression_tests {
         Timestamp::from(0x0102_0304), Timestamp::from(0x0102_0204),
         12345, name("example.com"), vec![0x42; 16],
     ).unwrap())]
-    #[case::nsec(Rtype::NSEC,
-        &[0xC0, 0x0C, 0, 1, 0x40],  // next_name=ptr, bitmap={A}
-        {
-            let mut b = RtypeBitmapBuilder::new_vec();
-            b.add(Rtype::A).unwrap();
-            Nsec::new(name("example.com"), b.finalize())
-        })]
-    #[case::svcb(Rtype::SVCB,
-        &[0, 1, 0xC0, 0x0C],  // priority=1, target=ptr
-        Svcb::new(
-            1, name("example.com"), SvcParams::<Vec<u8>>::default(),
-        ).unwrap())]
-    #[case::https(Rtype::HTTPS,
-        &[0, 1, 0xC0, 0x0C],
-        Https::new(
-            1, name("example.com"), SvcParams::<Vec<u8>>::default(),
-        ).unwrap())
-    ]
+    #[case::nsec(Rtype::NSEC, &{
+        let mut v = PTR.to_vec(); // next_name
+        v.extend_from_slice(&[0, 1, 0x40]); // bitmap={A}
+        v
+    }, {
+        let mut b = RtypeBitmapBuilder::new_vec();
+        b.add(Rtype::A).unwrap();
+        Nsec::new(name("example.com"), b.finalize())
+    })]
+    #[case::svcb(Rtype::SVCB, &{
+        let mut v = vec![0, 1]; // priority
+        v.extend_from_slice(PTR); // target
+        v
+    }, Svcb::new(
+        1, name("example.com"), SvcParams::<Vec<u8>>::default(),
+    ).unwrap())]
+    #[case::https(Rtype::HTTPS, &{
+        let mut v = vec![0, 1]; // priority
+        v.extend_from_slice(PTR); // target
+        v
+    }, Https::new(
+        1, name("example.com"), SvcParams::<Vec<u8>>::default(),
+    ).unwrap())]
     #[case::ipseckey(Rtype::IPSECKEY, &{
         let mut v = vec![10, 3, 2]; // prec=10, gw_type=Name, algo=RSA
         v.extend_from_slice(PTR);   // gateway=ptr
