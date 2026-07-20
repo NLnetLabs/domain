@@ -204,25 +204,16 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
 }
 
 impl<Name: ToName> ComposeRecordData for Rp<Name> {
-    fn rdlen(&self, compress: bool) -> Option<u16> {
-        if compress {
-            None
-        } else {
-            Some(self.mbox.compose_len() + self.txt.compose_len())
-        }
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(self.mbox.compose_len() + self.txt.compose_len())
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        if target.can_compress() {
-            target.append_compressed_name(&self.mbox)?;
-            target.append_compressed_name(&self.txt)
-        } else {
-            self.mbox.compose(target)?;
-            self.txt.compose(target)
-        }
+        self.mbox.compose(target)?;
+        self.txt.compose(target)
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
