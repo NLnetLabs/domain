@@ -7,7 +7,7 @@
 //! are signed using a secret key shared between the two participants. The
 //! party sending the request – the client – generates a signature over the
 //! message it is about to send using that key and adds it in a special record
-//! of record type [TSIG] to the additional section of the message. The
+//! of record type [`TSIG`] to the additional section of the message. The
 //! receiver of the request – the server – verifies the signature using the
 //! same key. When creating an answer, it too generates a signature. It
 //! includes the request’s signture in this process in order to bind request
@@ -43,14 +43,7 @@
 //! [RFC 2104]: https://tools.ietf.org/html/rfc2104
 //! [RFC 4635]: https://tools.ietf.org/html/rfc4653
 //! [RFC 8945]: https://tools.ietf.org/html/rfc8945
-//! [TSIG]: ../rdata/tsig/struct.Tsig.html
-//! [`Algorithm`]: enum.Algorithm.html
-//! [`Key`]: enum.Key.html
-//! [`KeyStore`]: trait.KeyStore.html
-//! [`ClientTransaction`]: struct.ClientTransaction.html
-//! [`ServerTransaction`]: struct.ServerTransaction.html
-//! [`ClientSequence`]: struct.ClientSequence.html
-//! [`ServerSequence`]: struct.ServerSequence.html
+//! [`TSIG`]: crate::rdata::Tsig
 #![cfg(feature = "tsig")]
 #![cfg_attr(docsrs, doc(cfg(feature = "tsig")))]
 
@@ -88,7 +81,7 @@ pub type KeyName = Name<octseq::array::Array<255>>;
 /// For the algorithms included in this implementation, keys are octet strings
 /// of any size that are converted into the algorithm’s native key length
 /// through a well defined method. The type provides means both for creating
-/// new random keys via the [`create´] function and for loading them from
+/// new random keys via the [`generate`] function and for loading them from
 /// the octets via [`new`].
 ///
 /// Keys are identified in TSIG through a name that is encoded as a domain
@@ -103,10 +96,10 @@ pub type KeyName = Name<octseq::array::Array<255>>;
 /// to be accepted. Conversely, [`signing_len`] is the length of a signature
 /// created with this key.
 ///
-/// [`create`]: #method.create
-/// [`new`]: #method.new
-/// [`min_mac_len`]: #method.min_mac_len
-/// [`signing_len`]: #method.signing_len
+/// [`generate`]: Self::generate()
+/// [`new`]: Self::new()
+/// [`min_mac_len`]: Self::min_mac_len()
+/// [`signing_len`]: Self::signing_len()
 #[derive(Clone, Debug)]
 pub struct Key {
     /// The key’s bits and algorithm.
@@ -147,8 +140,6 @@ impl Key {
     /// If `signing_len` is not `None`, the signatures produces with this key
     /// will be truncated to the given length. The limits for `min_mac_len`
     /// apply here as well.
-    ///
-    /// [`Algorithm::native_len`]: struct.Algorithm.html#method.native_len
     pub fn new(
         algorithm: Algorithm,
         key: &[u8],
@@ -172,7 +163,7 @@ impl Key {
     /// given `rng`. It returns both the key and bits for serialization and
     /// exporting.
     ///
-    /// [`new`]: #method.new
+    /// [`new`]: Self::new()
     pub fn generate(
         algorithm: Algorithm,
         rng: &dyn rand::SecureRandom,
@@ -505,8 +496,8 @@ impl KeyStore for Arc<HashMap<(KeyName, Algorithm), Key>> {
 /// transaction. If the message doesn’t, you can drop it and try with the next
 /// answer received. The transaction will remain valid.
 ///
-/// [`request`]: #method.request
-/// [`answer`]: #method.answer
+/// [`request`]: Self::request()
+/// [`answer`]: Self::answer()
 #[derive(Clone, Debug)]
 pub struct ClientTransaction<K> {
     context: SigningContext<K>,
@@ -556,7 +547,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// the message anymore. In this case, the function returns an error and
     /// the untouched message.
     ///
-    /// [`request`]: #method.request
+    /// [`request`]: Self::request()
     pub fn request_with_fudge<Target>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
@@ -697,7 +688,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// allowed to differ from your current time when checking the signature.
     /// The default, suggested by the RFC, is 300.
     ///
-    /// [`answer`]: #method.answer
+    /// [`answer`]: Self::answer()
     pub fn answer_with_fudge<Target>(
         self,
         message: &mut AdditionalBuilder<Target>,
@@ -749,10 +740,9 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 /// TSIG allows intermediary messages to be unsigned but demands the last
 /// message to be signed.
 ///
-/// [`ClientTransaction`]: struct.ClientTransaction.html
-/// [`request`]: #method.request
-/// [`answer`]: #method.answer
-/// [`done`]: #method.done
+/// [`request`]: Self::request()
+/// [`answer`]: Self::answer()
+/// [`done`]: Self::done()
 #[derive(Clone, Debug)]
 pub struct ClientSequence<K> {
     /// A signing context to be used for the next signed answer.
@@ -790,7 +780,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// checking the request. The default value used by [`request`] is 300
     /// seconds.
     ///
-    /// [`request`]: #method.request
+    /// [`request`]: Self::request()
     pub fn request_with_fudge<Target>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
@@ -845,7 +835,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// Specifically, this checks that the last message given to [`answer`]
     /// had been signed.
     ///
-    /// [`answer`]: #method.answer
+    /// [`answer`]: Self::answer()
     pub fn done(self) -> Result<(), ValidationError> {
         // The last message must be signed, so the counter must be 0 here.
         if self.unsigned != 0 {
@@ -1219,7 +1209,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// Extracts the TSIG record from an anwer.
     ///
     /// This is the first part of the code shared by the various answer
-    /// functions of `ClientTransaction` and `ClientSequence`. It does
+    /// functions of [`ClientTransaction`] and [`ClientSequence`]. It does
     /// everything that needs to be done before actually verifying the
     /// signature: Find the TSIG record, handle unsigned errors, check
     /// that the key and algorithm correspond to our key and algorithm.
@@ -1275,7 +1265,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// Checks the timing values of an answer TSIG.
     ///
     /// This is the second part of the code shared between the various
-    /// answer methods of `ClientTransaction` and `ClientSequence`. It
+    /// answer methods of [`ClientTransaction`] and [`ClientSequence`]. It
     /// checks for timing errors reported by the server as well as the
     /// time signed in the signature.
     fn check_answer_time<'a, Octs>(
@@ -1327,6 +1317,8 @@ impl<K: AsRef<Key>> SigningContext<K> {
     ///
     /// This is the same as [`key`] but doesn't lose the original key type
     /// information.
+    ///
+    /// [`key`]: Self::key()
     fn wrapped_key(&self) -> &K {
         &self.key
     }
@@ -1391,7 +1383,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
     /// Signs an answer and drops the context.
     ///
-    /// This is like `answer` above but it doesn’t need to clone the context.
+    /// This is like [`answer`] above but it doesn’t need to clone the context.
+    ///
+    /// [`answer`]: Self::answer()
     fn final_answer(
         mut self,
         first: &[u8],
@@ -1408,7 +1402,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
     /// Signs the first answer in a sequence.
     ///
-    /// This is like `answer` but it resets the context.
+    /// This is like [`answer`] but it resets the context.
+    ///
+    /// [`answer`]: Self::answer()
     fn first_answer(
         &mut self,
         first: &[u8],
