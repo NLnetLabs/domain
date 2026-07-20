@@ -8,8 +8,9 @@ int_enum! {
     /// These numbers are used in various security related record types.
     ///
     /// For the currently registered values see the [IANA registration].
+    /// This type is complete as of the registry update of 2026-01-13.
     ///
-    /// [IANA registration]: http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml#dns-sec-alg-numbers-1].
+    /// [IANA registration]: http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml#dns-sec-alg-numbers-1
     =>
     SecurityAlgorithm, u8;
 
@@ -99,6 +100,20 @@ int_enum! {
     ///
     /// This algorithm is described in RFC 8080.
     (ED448 => 16, "ED448")
+
+    /// SM2 signing algorithm with SM3 hashing algorithm
+    ///
+    /// This algorithm is described in [RFC 9563].
+    ///
+    /// [RFC 9563]: https://datatracker.ietf.org/doc/html/rfc9563
+    (SM2SM3 => 17, "SM2SM3")
+
+    /// GOST R 34.10-2012
+    ///
+    /// This algorithm is described in [RFC 9558].
+    ///
+    /// [RFC 9558]: https://datatracker.ietf.org/doc/html/rfc9558
+    (ECC_GOST12 => 23, "ECC-GOST12")
 
     /// Reserved for Indirect Keys
     ///
