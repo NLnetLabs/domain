@@ -66,6 +66,9 @@ use constant_time_eq::constant_time_eq;
 use octseq::octets::Octets;
 use ring::{hkdf::KeyType, hmac, rand};
 
+#[cfg(feature = "serde")]
+use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
+
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
@@ -399,6 +402,133 @@ impl AsRef<Key> for Key {
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.name.fmt(f)
+    }
+}
+
+//--- Deserialize
+
+/// A TSIG [`Key`] can be deserialized using [`serde`]. The parsed construct
+/// has to contain a `name`, an `algorithm`, and a `secret`. The `name` string
+/// has a limit of 255 characters, the `algorithm` has to contain a valid
+/// string (see the `Deserialization` implementation of [`Algorithm`] for more
+/// information) and the `secret` has to contain a `base64` encoded string.
+/// These values are parsed and passed to the [`Key::new()`] function.
+/// ```
+/// # use domain::tsig::{Algorithm, Key};
+/// #
+/// #[derive(Debug, serde::Deserialize)]
+/// struct TsigKey {
+///     key: Key,
+/// }
+///
+/// let tsig_str = r#"
+/// {
+///   "key": {
+///     "name": "test.key",
+///     "algorithm": "hmac-sha256",
+///     "secret": "B22jiD30pKL541XsOZ28y+NxbcIRoGqnumH2SFC8QDE="
+///     }
+/// }
+/// "#;
+/// let tsig_key: TsigKey = serde_json::from_str(tsig_str).unwrap();
+/// # // The key name is stored as a domain name.
+/// # assert_eq!(tsig_key.key.name().as_slice(), b"\x04test\x03key\x00");
+/// # assert_eq!(tsig_key.key.algorithm(), Algorithm::Sha256);
+/// ```
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for Key {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field {
+            Name,
+            Algorithm,
+            Secret,
+        }
+
+        struct TsigKeyVisitor;
+
+        impl<'de> Visitor<'de> for TsigKeyVisitor {
+            type Value = Key;
+
+            fn expecting(
+                &self,
+                formatter: &mut fmt::Formatter<'_>,
+            ) -> fmt::Result {
+                formatter.write_str(
+                    "a TSIG Key consisting of a `name`, `algorithm` and a \
+                    `secret`. The `secret` is a base64 encoded string. \
+                    See tsig::Key::new() for further information.",
+                )
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Key, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut key_name = None;
+                let mut key_algorithm = None;
+                let mut key_secret = None;
+
+                while let Some(identifier) = map.next_key()? {
+                    match identifier {
+                        Field::Name => {
+                            if key_name.is_some() {
+                                return Err(de::Error::duplicate_field(
+                                    "name",
+                                ));
+                            }
+                            key_name = Some(map.next_value()?);
+                        }
+                        Field::Algorithm => {
+                            if key_algorithm.is_some() {
+                                return Err(de::Error::duplicate_field(
+                                    "algorithm",
+                                ));
+                            }
+                            key_algorithm = Some(map.next_value()?);
+                        }
+                        Field::Secret => {
+                            if key_secret.is_some() {
+                                return Err(de::Error::duplicate_field(
+                                    "secret",
+                                ));
+                            }
+                            key_secret = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let key_name = key_name
+                    .ok_or_else(|| de::Error::missing_field("name"))?;
+                let key_algorithm = key_algorithm
+                    .ok_or_else(|| de::Error::missing_field("algorithm"))?;
+                let key_secret = key_secret
+                    .ok_or_else(|| de::Error::missing_field("secret"))?;
+
+                // The secret is stored as a base64 string and has to be
+                // decoded.
+                let key_secret_slice = crate::utils::base64::decode::<
+                    alloc::vec::Vec<u8>,
+                >(key_secret)
+                .map_err(de::Error::custom)?;
+
+                Key::new(
+                    key_algorithm,
+                    key_secret_slice.as_slice(),
+                    key_name,
+                    None,
+                    None,
+                )
+                .map_err(de::Error::custom)
+            }
+        }
+
+        const FIELDS: &[&str] = &["name", "algorithm", "secret"];
+        deserializer.deserialize_struct("Key", FIELDS, TsigKeyVisitor)
     }
 }
 
@@ -1764,6 +1894,52 @@ where
     message.remove_last_additional();
 }
 
+#[cfg(feature = "serde")]
+/// [`Algorithm`] can be deserialized using [`serde`]. The value is parsed the
+/// same way as the `FromStr` implementation. The values can be obtained
+/// through the `Display` implementation.
+///
+/// ```
+/// # use domain::tsig::Algorithm;
+/// #
+/// #[derive(serde::Deserialize)]
+/// struct Config {
+///     algorithm: Algorithm,
+/// }
+///
+/// let config_json = r#"
+/// {
+///     "algorithm": "hmac-sha384"
+/// }
+/// "#;
+///
+/// let parsed_config = serde_json::from_str::<Config>(config_json);
+/// #
+/// # assert_eq!(parsed_config.unwrap().algorithm, Algorithm::Sha384);
+/// ```
+impl<'de> Deserialize<'de> for Algorithm {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct AlgorithmVisitor;
+
+        impl<'de> Visitor<'de> for AlgorithmVisitor {
+            type Value = Algorithm;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a TSIG algorithm name")
+            }
+            fn visit_str<E: de::Error>(
+                self,
+                v: &str,
+            ) -> Result<Algorithm, E> {
+                v.parse().map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_str(AlgorithmVisitor)
+    }
+}
+
 //============ Error Types ===================================================
 
 //------------ ServerError ---------------------------------------------------
@@ -2056,4 +2232,71 @@ enum TsigError {
 
     /// An error occurred while parsing the message
     ParseError,
+}
+
+//------------ Testing -------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+
+    /// This test validates correct TSIG key parsing. Additionally it checks
+    /// for common mistakes; missing or duplicate fields. The test parses the
+    /// key from a YAML str, but this is interchangeable with JSON or similar.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn deserialize_tsig() {
+        use alloc::string::ToString;
+
+        use crate::tsig::{Algorithm, Key};
+
+        // The example has the TSIG key enclosed in a 'key' map. Therefore a
+        // wrapper around the TSIG key is necessary.
+        #[derive(Debug, serde::Deserialize)]
+        struct TsigKey {
+            key: Key,
+        }
+
+        // Example TSIG from here:
+        // https://github.com/NLnetLabs/domain/issues/695
+        let tsig_str = r#"
+        key:
+            name: test.key
+            algorithm: hmac-sha256
+            secret: "B22jiD30pKL541XsOZ28y+NxbcIRoGqnumH2SFC8QDE="
+        "#;
+        let tsig_key: TsigKey = yaml_serde::from_str(tsig_str).unwrap();
+        // The key name is stored as a domain name.
+        assert_eq!(tsig_key.key.name().as_slice(), b"\x04test\x03key\x00");
+        assert_eq!(tsig_key.key.algorithm(), Algorithm::Sha256);
+
+        //--- Additional check with duplicate keys.
+        let tsig_str = r#"
+        key:
+            name: test.key
+            name: test.key2
+            algorithm: hmac-sha256
+            secret: "B22jiD30pKL541XsOZ28y+NxbcIRoGqnumH2SFC8QDE="
+        "#;
+        let err = yaml_serde::from_str::<TsigKey>(tsig_str)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("duplicate field `name`"),
+            "Error doesn't contain the expected string, Err: {err}"
+        );
+
+        //--- Additional check with missing key.
+        let tsig_str = r#"
+        key:
+            name: test.key
+            algorithm: hmac-sha256
+        "#;
+        let err = yaml_serde::from_str::<TsigKey>(tsig_str)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("missing field `secret`"),
+            "Error doesn't contain the expected string, Err: {err}"
+        );
+    }
 }
