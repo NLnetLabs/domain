@@ -503,12 +503,16 @@ macro_rules! scan_impl {
                 scanner: &mut S,
             ) -> Result<Self, S::Error> {
                 scanner.scan_ascii_str(|s| {
-                    core::str::FromStr::from_str(s).map_err(|_| {
-                        $crate::base::scan::ScannerError::custom(concat!(
-                            "expected ",
-                            stringify!($ianatype)
-                        ))
-                    })
+                    core::str::FromStr::from_str(s)
+                        .or_else(|_| {
+                            $ianatype::from_mnemonic(s.as_bytes()).ok_or(())
+                        })
+                        .map_err(|_| {
+                            $crate::base::scan::ScannerError::custom(concat!(
+                                "expected ",
+                                stringify!($ianatype)
+                            ))
+                        })
                 })
             }
         }
