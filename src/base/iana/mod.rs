@@ -64,6 +64,8 @@ pub mod zonemd;
 mod test {
     use std::format;
 
+    use rstest::rstest;
+
     use crate::base::iana::class::Class;
     use crate::base::iana::digestalg::DigestAlgorithm;
     // use crate::base::iana::exterr::ExtendedErrorCode;
@@ -85,6 +87,8 @@ mod test {
     use crate::base::iana::tlsa::TlsaSelector;
     use crate::base::iana::zonemd::ZonemdAlgorithm;
     use crate::base::iana::zonemd::ZonemdScheme;
+    use crate::zonefile::inplace::Entry;
+    use crate::zonefile::inplace::Zonefile;
 
     use core::fmt::Debug;
     use core::fmt::Display;
@@ -558,5 +562,44 @@ mod test {
             "42",
             r#"42"#,
         );
+    }
+
+    /// `int_enum_str_decimal` types must accept both mnemonics and decimal
+    /// numbers in the zonefile scanner.
+    #[rstest]
+    #[case::rrsig(
+        b"example.com. 0 IN RRSIG A RSASHA256 2 300 20251231235959 20251201000000 12345 example.com. AAAA\n",
+        b"example.com. 0 IN RRSIG A 8 2 300 20251231235959 20251201000000 12345 example.com. AAAA\n",
+    )]
+    #[case::ds(
+        b"example.com. 0 IN DS 12345 8 SHA-256 AAAA\n",
+        b"example.com. 0 IN DS 12345 8 2 AAAA\n"
+    )]
+    #[case::nsec3param(
+        b"example.com. 0 IN NSEC3PARAM SHA-1 0 10 AABB\n",
+        b"example.com. 0 IN NSEC3PARAM 1 0 10 AABB\n"
+    )]
+    #[case::tlsa(
+        b"_443._tcp.example.com. 0 IN TLSA PKIX-TA Cert SHA2-256 AAAA\n",
+        b"_443._tcp.example.com. 0 IN TLSA 0 0 1 AAAA\n"
+    )]
+    #[case::sshfp(
+        b"example.com. 0 IN SSHFP RSA SHA-256 AAAA\n",
+        b"example.com. 0 IN SSHFP 1 2 AAAA\n"
+    )]
+    fn scan_accepts_mnemonics_and_decimal(
+        #[case] mut mnemonic: &[u8],
+        #[case] mut decimal: &[u8],
+    ) {
+        let parse = |input: &mut &[u8]| {
+            let mut zf = Zonefile::load(input).unwrap();
+            let entry = zf.next_entry().unwrap().unwrap();
+            let Entry::Record(r) = entry else {
+                panic!("expected record")
+            };
+            format!("{r}")
+        };
+
+        assert_eq!(parse(&mut mnemonic), parse(&mut decimal));
     }
 }
