@@ -524,7 +524,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
             Err(_) => return None,
         };
 
-        for _ in 0..self.header_counts().ancount() + 1 {
+        for _ in 0..self.header_counts().ancount().saturating_add(1) {
             let mut found = false;
             for record in answer.clone() {
                 let record = match record {
@@ -1442,6 +1442,19 @@ mod test {
         ))
         .unwrap();
         assert!(msg.as_message().canonical_name().is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn canonical_name_max_ancount() {
+        // Must not panic with arithmetic overflow.
+        let mut msg = MessageBuilder::new_vec().question();
+        msg.push((Name::root_vec(), Rtype::A)).unwrap();
+        let mut buf = msg.finish();
+        HeaderCounts::for_message_slice_mut(buf.as_mut())
+            .set_ancount(u16::MAX);
+        let msg = Message::from_octets(buf.as_slice()).unwrap();
+        let _ = msg.canonical_name();
     }
 
     #[test]
