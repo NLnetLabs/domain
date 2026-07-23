@@ -437,7 +437,7 @@ impl<Octs: AsRef<[u8]>, N: ToName> Ord for Ipseckey<Octs, N> {
 
 //------------ IpseckeyGateway -----------------------------------------------
 
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IpseckeyGateway<N> {
     None,
@@ -537,17 +537,6 @@ impl<N> IpseckeyGateway<N> {
             IpseckeyGateway::Name(n) => n.compose(target)?,
         };
         Ok(())
-    }
-}
-
-impl<N: hash::Hash> hash::Hash for IpseckeyGateway<N> {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        match self {
-            IpseckeyGateway::None => todo!(),
-            IpseckeyGateway::Ipv4(a) => a.hash(state),
-            IpseckeyGateway::Ipv6(aaaa) => aaaa.hash(state),
-            IpseckeyGateway::Name(n) => n.hash(state),
-        }
     }
 }
 
