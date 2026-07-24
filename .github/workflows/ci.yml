@@ -344,7 +344,17 @@ jobs:
     - name: Note Rust version for the cache
       if: github.event_name == 'schedule'
       run: |
-        rustup toolchain list --quiet | grep nightly- | tee target/rust-version
+        # NOTE: `rustc --version --verbose` also prints a `commit-date`, which
+        # is easier to parse, but it is unclear whether it perfectly matches
+        # the date used for the nightly version by rustup. The date presented
+        # in the first line seems more likely to be the right field.
+        #
+        # Sample input:
+        # > $ rustc +nightly --version
+        # > rustc 1.98.0-nightly (df6ee909e 2026-06-28)
+        rustc --version \
+          | grep --extended-regexp --only-matching '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
+          | tee target/rust-version
 
     # Save to the cache every week.
     - name: Save to the cache
