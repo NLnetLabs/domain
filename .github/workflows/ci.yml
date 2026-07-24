@@ -84,9 +84,14 @@ on:
 
   # Rebuild 'main' every week. This will account for changes to dependencies
   # and to Rust, either of which can trigger new failures. Rust releases are
-  # every 6 weeks, on a Thursday; this event runs every Friday.
+  # every 6 weeks, on a Thursday; this event runs every Friday. We use this
+  # moment to update CI caches.
   schedule:
     - cron: '0 10 * * FRI'
+
+  # Allow manual execution of CI, primarily for debugging. We consider these
+  # rare and also update CI caches when they occur.
+  workflow_dispatch:
 
 defaults:
   run:
@@ -300,7 +305,7 @@ jobs:
 
     # Restore a cached `target/`.
     - name: Restore from cache
-      if: github.event_name != 'schedule'
+      if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
       id: cache-restore
       uses: actions/cache/restore@v6
       with:
@@ -342,14 +347,24 @@ jobs:
 
     # Note the Rust version in the cache.
     - name: Note Rust version for the cache
-      if: github.event_name == 'schedule'
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
       run: |
-        rustup toolchain list --quiet | grep nightly- | tee target/rust-version
+        # NOTE: `rustc --version --verbose` also prints a `commit-date`, which
+        # is easier to parse, but it is unclear whether it perfectly matches
+        # the date used for the nightly version by rustup. The date presented
+        # in the first line seems more likely to be the right field.
+        #
+        # Sample input:
+        # > $ rustc +nightly --version
+        # > rustc 1.98.0-nightly (df6ee909e 2026-06-28)
+        rustc --version \
+          | grep --extended-regexp --only-matching '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
+          | tee target/rust-version
 
     # Save to the cache every week.
     - name: Save to the cache
       uses: actions/cache/save@v6
-      if: github.event_name == 'schedule'
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
       with:
         path: |
           ~/.cargo
@@ -420,7 +435,7 @@ jobs:
 
     # Save to the cache.
     - name: Save to the cache
-      if: github.event_name == 'schedule'
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
       uses: actions/cache/save@v6
       with:
         path: |
