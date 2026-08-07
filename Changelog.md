@@ -6,6 +6,8 @@ Breaking changes
 
 New
 
+* Updated the constants for the IANA registries. ([#699])
+
 Improvements
 
 Bug fixes
@@ -13,6 +15,8 @@ Bug fixes
 Unstable features
 
 Other changes
+
+[#699]: https://github.com/NLnetLabs/domain/pull/699
 
 
 ## 0.12.2
