@@ -188,7 +188,7 @@ macro_rules! int_enum_str_mnemonics_only {
 /// If the `serde` feature is enabled, also adds implementation for
 /// `Serialize` and `Deserialize`, serializing values as their decimal values.
 macro_rules! int_enum_str_decimal {
-    ($ianatype:ident, $inttype:ident) => {
+    ($ianatype:ident, $inttype:ident $(, $scan_mode:ident)?) => {
         impl $ianatype {
             #[must_use]
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -206,7 +206,7 @@ macro_rules! int_enum_str_decimal {
             }
         }
 
-        scan_impl!($ianatype);
+        scan_impl!($ianatype $(, $scan_mode)?);
 
         impl core::fmt::Display for $ianatype {
             fn fmt(
@@ -503,11 +503,26 @@ macro_rules! scan_impl {
                 scanner: &mut S,
             ) -> Result<Self, S::Error> {
                 scanner.scan_ascii_str(|s| {
-                    core::str::FromStr::from_str(s)
-                        .or_else(|_| {
-                            $ianatype::from_mnemonic(s.as_bytes()).ok_or(())
-                        })
-                        .map_err(|_| {
+                    core::str::FromStr::from_str(s).map_err(|_| {
+                        $crate::base::scan::ScannerError::custom(concat!(
+                            "expected ",
+                            stringify!($ianatype)
+                        ))
+                    })
+                })
+            }
+        }
+    };
+
+    ($ianatype:ident, mnemonics) => {
+        impl $ianatype {
+            pub fn scan<S: $crate::base::scan::Scanner>(
+                scanner: &mut S,
+            ) -> Result<Self, S::Error> {
+                scanner.scan_ascii_str(|s| {
+                    $ianatype::from_mnemonic(s.as_bytes())
+                        .or_else(|| core::str::FromStr::from_str(s).ok())
+                        .ok_or_else(|| {
                             $crate::base::scan::ScannerError::custom(concat!(
                                 "expected ",
                                 stringify!($ianatype)

@@ -64,8 +64,6 @@ pub mod zonemd;
 mod test {
     use std::format;
 
-    use rstest::rstest;
-
     use crate::base::iana::class::Class;
     use crate::base::iana::digestalg::DigestAlgorithm;
     // use crate::base::iana::exterr::ExtendedErrorCode;
@@ -87,9 +85,8 @@ mod test {
     use crate::base::iana::tlsa::TlsaSelector;
     use crate::base::iana::zonemd::ZonemdAlgorithm;
     use crate::base::iana::zonemd::ZonemdScheme;
-    use crate::zonefile::inplace::Entry;
-    use crate::zonefile::inplace::Zonefile;
-
+    use crate::base::scan::IterScanner;
+    use alloc::vec::Vec;
     use core::fmt::Debug;
     use core::fmt::Display;
     use core::str::FromStr;
@@ -564,42 +561,47 @@ mod test {
         );
     }
 
-    /// `int_enum_str_decimal` types must accept both mnemonics and decimal
-    /// numbers in the zonefile scanner.
-    #[rstest]
-    #[case::rrsig(
-        b"example.com. 0 IN RRSIG A RSASHA256 2 300 20251231235959 20251201000000 12345 example.com. AAAA\n",
-        b"example.com. 0 IN RRSIG A 8 2 300 20251231235959 20251201000000 12345 example.com. AAAA\n",
-    )]
-    #[case::ds(
-        b"example.com. 0 IN DS 12345 8 SHA-256 AAAA\n",
-        b"example.com. 0 IN DS 12345 8 2 AAAA\n"
-    )]
-    #[case::nsec3param(
-        b"example.com. 0 IN NSEC3PARAM SHA-1 0 10 AABB\n",
-        b"example.com. 0 IN NSEC3PARAM 1 0 10 AABB\n"
-    )]
-    #[case::tlsa(
-        b"_443._tcp.example.com. 0 IN TLSA PKIX-TA Cert SHA2-256 AAAA\n",
-        b"_443._tcp.example.com. 0 IN TLSA 0 0 1 AAAA\n"
-    )]
-    #[case::sshfp(
-        b"example.com. 0 IN SSHFP RSA SHA-256 AAAA\n",
-        b"example.com. 0 IN SSHFP 1 2 AAAA\n"
-    )]
-    fn scan_accepts_mnemonics_and_decimal(
-        #[case] mut mnemonic: &[u8],
-        #[case] mut decimal: &[u8],
-    ) {
-        let parse = |input: &mut &[u8]| {
-            let mut zf = Zonefile::load(input).unwrap();
-            let entry = zf.next_entry().unwrap().unwrap();
-            let Entry::Record(r) = entry else {
-                panic!("expected record")
-            };
-            format!("{r}")
-        };
+    #[test]
+    fn security_algorithm_scanner_accepts_decimal_and_mnemonic() {
+        let scanned = ["8", "RSASHA256"].map(|token| {
+            let mut scanner = IterScanner::<_, Vec<u8>>::new([token]);
+            SecurityAlgorithm::scan(&mut scanner).unwrap()
+        });
 
-        assert_eq!(parse(&mut mnemonic), parse(&mut decimal));
+        assert_eq!(scanned, [SecurityAlgorithm::RSASHA256; 2]);
+    }
+
+    #[test]
+    fn decimal_scanners_reject_all_mnemonics() {
+        macro_rules! assert_rejects_mnemonics {
+            ($ianatype:path) => {
+                for value in 0..=u8::MAX {
+                    let value = <$ianatype>::from_int(value);
+                    let Some(mnemonic) = value.to_mnemonic_str() else {
+                        continue;
+                    };
+                    let mut scanner = IterScanner::<_, Vec<u8>>::new(
+                        [mnemonic].into_iter(),
+                    );
+                    assert!(
+                        <$ianatype>::scan(&mut scanner).is_err(),
+                        "{} accepted mnemonic {mnemonic}",
+                        stringify!($ianatype)
+                    );
+                }
+            };
+        }
+
+        assert_rejects_mnemonics!(DigestAlgorithm);
+        assert_rejects_mnemonics!(IpseckeyAlgorithm);
+        assert_rejects_mnemonics!(IpseckeyGatewayType);
+        assert_rejects_mnemonics!(Nsec3HashAlgorithm);
+        assert_rejects_mnemonics!(SshfpAlgorithm);
+        assert_rejects_mnemonics!(SshfpType);
+        assert_rejects_mnemonics!(TlsaCertificateUsage);
+        assert_rejects_mnemonics!(TlsaMatchingType);
+        assert_rejects_mnemonics!(TlsaSelector);
+        assert_rejects_mnemonics!(ZonemdAlgorithm);
+        assert_rejects_mnemonics!(ZonemdScheme);
     }
 }
