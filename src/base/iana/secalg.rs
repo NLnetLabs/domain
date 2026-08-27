@@ -108,6 +108,11 @@ int_enum! {
     /// [RFC 9563]: https://datatracker.ietf.org/doc/html/rfc9563
     (SM2SM3 => 17, "SM2SM3")
 
+    /// ML-DSA-44
+    ///
+    /// This algorithm is described in draft-westerbaan-dnssec-mldsa.
+    (MLDSA44 => 18, "MLDSA44")
+
     /// GOST R 34.10-2012
     ///
     /// This algorithm is described in [RFC 9558].
