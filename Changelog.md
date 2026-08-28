@@ -6,7 +6,8 @@ Breaking changes
 
 New
 
-* Updated the constants for the IANA registries. ([#699])
+* Updated the constants for the IANA registries. ([#699], [#716] by
+  [@SebastiaanYN])
 
 Improvements
 
@@ -23,6 +24,7 @@ Other changes
 [#699]: https://github.com/NLnetLabs/domain/pull/699
 [#702]: https://github.com/NLnetLabs/domain/pull/702
 [#706]: https://github.com/NLnetLabs/domain/pull/706
+[#716]: https://github.com/NLnetLabs/domain/pull/716
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 

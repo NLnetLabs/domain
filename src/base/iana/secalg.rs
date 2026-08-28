@@ -8,7 +8,7 @@ int_enum! {
     /// These numbers are used in various security related record types.
     ///
     /// For the currently registered values see the [IANA registration].
-    /// This type is complete as of the registry update of 2026-01-13.
+    /// This type is complete as of the registry update of 2026-08-10.
     ///
     /// [IANA registration]: http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml#dns-sec-alg-numbers-1
     =>
@@ -110,7 +110,9 @@ int_enum! {
 
     /// ML-DSA-44
     ///
-    /// This algorithm is described in draft-westerbaan-dnssec-mldsa.
+    /// This algorithm is described in [draft-westerbaan-dnssec-mldsa].
+    ///
+    /// [draft-westerbaan-dnssec-mldsa]: https://www.iana.org/go/draft-westerbaan-dnssec-mldsa
     (MLDSA44 => 18, "MLDSA44")
 
     /// GOST R 34.10-2012
