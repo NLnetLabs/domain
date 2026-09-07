@@ -1349,14 +1349,11 @@ impl<T> Queries<T> {
         // If more than half the vec is empty, we try and find the index of
         // an empty slot.
         let idx = if self.vec.len() >= 2 * self.count {
-            let mut found = None;
-            for idx in self.curr..self.vec.len() {
-                if self.vec[idx].is_none() {
-                    found = Some(idx);
-                    break;
-                }
-            }
-            found
+            self.vec
+                .iter()
+                .enumerate()
+                .find(|(_, x)| x.is_none())
+                .map(|(i, _)| i)
         } else {
             None
         };
