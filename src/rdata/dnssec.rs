@@ -2778,7 +2778,7 @@ mod test {
         test_scan(
             &[
                 "A",
-                "5",
+                "RSASHA1",
                 "3",
                 "12",
                 "13",
