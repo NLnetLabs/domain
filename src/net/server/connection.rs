@@ -1,5 +1,7 @@
 //! Support for stream based connections.
+use core::fmt::Display;
 use core::future::Future;
+use core::net::SocketAddr;
 use core::ops::{ControlFlow, Deref};
 use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -7,9 +9,8 @@ use core::time::Duration;
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::fmt::Display;
-use core::net::SocketAddr;
 use std::io;
+use std::sync::Mutex;
 
 use arc_swap::ArcSwap;
 use log::{Level, log_enabled};
@@ -1036,7 +1037,7 @@ where
     metrics: Arc<ServerMetrics>,
 
     /// The status of the service invoker.
-    status: InvokerStatus,
+    status: Mutex<InvokerStatus>,
 }
 
 impl<RequestOctets, Svc, RequestMeta>
@@ -1058,7 +1059,7 @@ where
             config,
             result_q_tx,
             metrics,
-            status: InvokerStatus::Normal,
+            status: Mutex::new(InvokerStatus::Normal),
         }
     }
 
@@ -1096,11 +1097,15 @@ where
                     error!(
                         "Unable to queue message for sending: connection is shutting down."
                     );
+                    *self.status.lock().unwrap() = InvokerStatus::Aborting;
                     break;
                 }
 
                 Err(TrySendError::Full(unused_response)) => {
-                    if matches!(self.status, InvokerStatus::InTransaction) {
+                    if matches!(
+                        *self.status.lock().unwrap(),
+                        InvokerStatus::InTransaction
+                    ) {
                         // Wait until there is space in the message queue.
                         tokio::task::yield_now().await;
                         response = unused_response;
@@ -1108,6 +1113,8 @@ where
                         error!(
                             "Unable to queue message for sending: queue is full."
                         );
+                        *self.status.lock().unwrap() =
+                            InvokerStatus::Aborting;
                         break;
                     }
                 }
@@ -1130,7 +1137,7 @@ where
             config: self.config.clone(),
             result_q_tx: self.result_q_tx.clone(),
             metrics: self.metrics.clone(),
-            status: InvokerStatus::Normal,
+            status: Mutex::new(InvokerStatus::Normal),
         }
     }
 }
@@ -1146,11 +1153,11 @@ where
     Svc: Service<RequestOctets, RequestMeta> + Clone,
 {
     fn status(&self) -> InvokerStatus {
-        self.status
+        *self.status.lock().unwrap()
     }
 
     fn set_status(&mut self, status: InvokerStatus) {
-        self.status = status;
+        *self.status.lock().unwrap() = status;
     }
 
     fn reconfigure(&self, idle_timeout: Option<Duration>) {
