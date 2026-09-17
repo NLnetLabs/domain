@@ -1352,6 +1352,7 @@ impl<T> Queries<T> {
             self.vec
                 .iter()
                 .enumerate()
+                .skip(self.curr)
                 .find(|(_, x)| x.is_none())
                 .map(|(i, _)| i)
         } else {
