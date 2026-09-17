@@ -1,5 +1,5 @@
 // Client transport that generates replies from a pre-loaded set of records.
-// This tpye is meant to be used to the validator so it may cut some corners.
+// This type is meant to be used to the validator so it may cut some corners.
 // It could be made fully general and moved to net::client if that is desired.
 
 use crate::base::Message;
