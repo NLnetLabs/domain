@@ -732,7 +732,7 @@ impl<Upstream> ValidationContext<Upstream> {
     }
 
     pub fn get_ta(&self) -> &TrustAnchors {
-	&self.ta
+        &self.ta
     }
 
     /// Get the apprioprate node for validating `name`.
