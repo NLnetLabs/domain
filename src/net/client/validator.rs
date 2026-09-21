@@ -111,12 +111,11 @@ use crate::base::{
 };
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
 use crate::dnssec::validator::context::{ValidationContext, ValidationState};
+use crate::dnssec::validator::reply_from_chain::ReplyFromChain;
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
 use crate::rdata::AllRecordData;
-use crate::validator::context::{ValidationContext, ValidationState};
-use crate::validator::reply_from_chain::ReplyFromChain;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -158,8 +157,8 @@ pub struct Connection<Upstream, VCOcts, VCUpstream> {
     /// The validation context for this connection.
     vc: Arc<ValidationContext<VCUpstream>>,
 
-    chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
-    reply_from_chain: Option<ReplyFromChain>,
+    chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
+    reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
 
     /// The configuration of this connection.
     config: Config,
@@ -176,7 +175,10 @@ impl<Upstream, VCOcts, VCUpstream> Connection<Upstream, VCOcts, VCUpstream> {
     pub fn new(
         upstream: Upstream,
         vc: Arc<ValidationContext<VCUpstream>>,
-    ) -> Self {
+    ) -> Self
+    where
+        VCUpstream: Clone,
+    {
         Self::with_config(upstream, vc, Default::default())
     }
 
@@ -188,10 +190,13 @@ impl<Upstream, VCOcts, VCUpstream> Connection<Upstream, VCOcts, VCUpstream> {
         upstream: Upstream,
         vc: Arc<ValidationContext<VCUpstream>>,
         config: Config,
-    ) -> Self {
+    ) -> Self
+    where
+        VCUpstream: Clone,
+    {
         let (chain_vc, reply_from_chain) = if config.request_chain_query {
             let ta = vc.get_ta().clone();
-            let reply_from_chain = ReplyFromChain::empty();
+            let reply_from_chain = ReplyFromChain::empty(vc.get_upstream());
             let vc = ValidationContext::new(ta, reply_from_chain.clone());
             (Some(Arc::new(vc)), Some(reply_from_chain))
         } else {
@@ -259,8 +264,8 @@ where
     /// The validation context.
     vc: Arc<ValidationContext<VCUpstream>>,
 
-    chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
-    reply_from_chain: Option<ReplyFromChain>,
+    chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
+    reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
 
     /// The configuration of the connection.
     config: Config,
@@ -285,8 +290,8 @@ where
         request_msg: CR,
         upstream: Upstream,
         vc: Arc<ValidationContext<VCUpstream>>,
-        chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
-        reply_from_chain: Option<ReplyFromChain>,
+        chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
+        reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
         config: Config,
     ) -> Request<CR, Upstream, VCOcts, VCUpstream> {
         Self {
@@ -334,6 +339,15 @@ where
                         self.request_msg.header_mut().set_cd(true);
                     }
 
+                    if let Some(chain_vc) = &self.chain_vc
+                        && let Some(chain_opt) = chain_vc
+                            .generate_chain_option(&self.request_msg)
+                            .await
+                    {
+                        // TODO: What on error?
+                        let _ = self.request_msg.add_opt(&chain_opt);
+                    }
+
                     let request =
                         self.upstream.send_request(self.request_msg.clone());
                     self.state = RequestState::GetResponse(request);
@@ -377,6 +391,9 @@ where
                             && has_chain_query_option(&response_msg);
 
                     if validate_with_chain_query {
+                        // TODO: if request_msg.chain != received chain, it
+                        // means we need more of the chain, but how to know
+                        // where to start if it
                         self.state =
                             RequestState::ValidateWithChain(response_msg);
                         continue;
@@ -486,7 +503,7 @@ where
                         .chain_vc
                         .as_ref()
                         .unwrap()
-                        .validate_msg::<_, Bytes>(response_msg)
+                        .validate_msg(response_msg)
                         .await;
                     return match res {
                         Err(err) => Err(Error::Validation(err)),
@@ -869,7 +886,6 @@ fn has_chain_query_option(msg: &Message<Bytes>) -> bool {
     };
 
     if let Some(chain) = opt.opt().chain() {
-        println!("Got chain {chain:?}");
         return true;
     }
     false
