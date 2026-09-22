@@ -61,6 +61,9 @@
 //! can hold any known or unknown record data type. Together, these modules
 //! provide the basic essence of DNS that any operation can be built around.
 
+#[macro_use]
+mod macros;
+
 pub mod base;
 pub mod edns;
 pub mod rdata;
