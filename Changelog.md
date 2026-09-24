@@ -28,6 +28,9 @@ Bug fixes
   encountered. ([#736])
 * Fixed a wrong start in the resolver when re-ordering SRV records by
   priority and weight. ([#738])
+* Switched additional processing for SRV in the resolver to use an
+  intermediary  hash map, avoiding a resource exhaustion issue with
+  crafted malicious responses. ([#744])
 
 Unstable features
 
@@ -92,6 +95,7 @@ Other changes
 [#740]: https://github.com/NLnetLabs/domain/pull/740
 [#741]: https://github.com/NLnetLabs/domain/pull/741
 [#743]: https://github.com/NLnetLabs/domain/pull/743
+[#744]: https://github.com/NLnetLabs/domain/pull/744
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 

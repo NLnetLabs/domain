@@ -9,12 +9,12 @@ use crate::rdata::{A, Aaaa, Srv};
 use crate::resolv::resolver::Resolver;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::fmt;
 use core::net::{IpAddr, SocketAddr};
-use core::{mem, ops};
+use core::{fmt, mem, ops};
 use futures_util::stream::{self, Stream, StreamExt};
 use octseq::octets::Octets;
 use rand::distr::{Distribution, Uniform};
+use std::collections::HashMap;
 use std::io;
 
 // Look up SRV record. Three outcomes:
@@ -203,29 +203,61 @@ impl FoundSrvs {
         answer: &Message<[u8]>,
     ) -> Result<(), SrvError> {
         let additional = answer.additional()?;
-        for item in items {
-            let mut addrs = Vec::new();
-            for record in additional {
-                let record = match record {
-                    Ok(record) => record,
-                    Err(_) => continue,
-                };
-                if record.class() != Class::IN
-                    || record.owner() != item.target()
-                {
-                    continue;
-                }
-                if let Ok(Some(record)) = record.to_record::<A>() {
-                    addrs.push(record.data().addr().into())
-                }
-                if let Ok(Some(record)) = record.to_record::<Aaaa>() {
-                    addrs.push(record.data().addr().into())
-                }
+
+        // Create a map with all the targets we are looking for.
+        let mut targets = items
+            .iter()
+            .map(|item| (item.target(), Vec::new()))
+            .collect::<HashMap<_, _>>();
+
+        // Go over all additional records and add addresses to targets.
+        for record in additional {
+            let record = match record {
+                Ok(record) => record,
+                Err(_) => continue,
+            };
+            if record.class() != Class::IN {
+                continue;
             }
-            if !addrs.is_empty() {
-                item.resolved = Some(addrs)
+
+            let addr = if let Ok(Some(record)) = record.to_record::<A>() {
+                IpAddr::from(record.data().addr())
+            } else if let Ok(Some(record)) = record.to_record::<Aaaa>() {
+                IpAddr::from(record.data().addr())
+            } else {
+                continue;
+            };
+
+            // XXX This conversion here could be avoided if we use a
+            //     hashbrown::HashTable instead of an std::HashMap. However,
+            //     this would mean changing the required features for resolv
+            //     which I don’t want to do in a non-breaking release.
+            //
+            //     So, TODO for the next breaking release: Use a HashTable.
+            let owner = record.owner().to_name::<OctetsVec>();
+
+            if let Some(target) = targets.get_mut(&owner) {
+                target.push(addr)
             }
         }
+
+        // Write back the collected targets.
+        //
+        // We can’t put things directly into `items` because that is still
+        // locked by serving as `targets` keys.
+        let mut addrs = vec![None; items.len()];
+        for (idx, item) in items.iter().enumerate() {
+            if let Some(res) = targets.get(item.target()) {
+                if !res.is_empty() {
+                    addrs[idx] = Some(res.clone())
+                }
+            }
+        }
+        drop(targets);
+        for (item, addr) in items.iter_mut().zip(addrs) {
+            item.resolved = addr;
+        }
+
         Ok(())
     }
 
