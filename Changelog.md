@@ -61,6 +61,10 @@ Unstable features
   * Prevent unbounded allocation when updating a zone. Changes existing
     behaviour by returning errors when deleting non-existing record and
     adding of existing records. ([#737])
+  * Better deal with apex SOA in unknown record format: return an error if
+    bumping the serial is requested but the SOA is unknown and do not
+    return a diff if no bumping is required so you can detect something
+    odd has happened. ([#743])
 
 
 Other changes
@@ -87,7 +91,7 @@ Other changes
 [#739]: https://github.com/NLnetLabs/domain/pull/739
 [#740]: https://github.com/NLnetLabs/domain/pull/740
 [#741]: https://github.com/NLnetLabs/domain/pull/741
-[#742]: https://github.com/NLnetLabs/domain/pull/742
+[#743]: https://github.com/NLnetLabs/domain/pull/743
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
