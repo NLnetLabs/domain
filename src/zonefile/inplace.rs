@@ -869,11 +869,8 @@ impl Scanner for EntryScanner<'_> {
 
         // Done. `write` marks the end.
         self.zonefile.buf.next_item()?;
-        Ok(unsafe {
-            Str::from_utf8_unchecked(
-                self.zonefile.buf.split_to(write).freeze(),
-            )
-        })
+        Str::from_utf8(self.zonefile.buf.split_to(write).freeze())
+            .map_err(|_| EntryError::bad_string())
     }
 
     fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error> {
@@ -1604,6 +1601,14 @@ impl EntryError {
         EntryError {
             msg: "bad name",
             #[cfg(feature = "alloc")]
+            context: None,
+        }
+    }
+
+    fn bad_string() -> Self {
+        EntryError {
+            msg: "bad UTF-8",
+            #[cfg(feature = "std")]
             context: None,
         }
     }
