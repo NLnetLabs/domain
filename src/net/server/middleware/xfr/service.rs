@@ -5,6 +5,7 @@ use core::ops::ControlFlow;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::fmt;
 use core::fmt::Debug;
 use core::pin::Pin;
 
@@ -16,7 +17,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::base::iana::{Opcode, OptRcode};
-use crate::base::{Message, ParsedName, Question, Rtype, Serial, ToName};
+use crate::base::{Message, ParsedName, Rtype, Serial, ToName};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::middleware::xfr::axfr::ZoneFunneler;
@@ -165,7 +166,7 @@ where
         let msg = req.message();
 
         // Do we support this type of request?
-        let Some(q) = Self::get_relevant_question(msg) else {
+        let Some((mode, qname)) = Self::get_relevant_question(msg) else {
             return Ok(ControlFlow::Continue(()));
         };
 
@@ -184,11 +185,11 @@ where
             None
         };
 
-        if q.qtype() == Rtype::IXFR && ixfr_query_serial.is_none() {
+        if matches!(mode, XfrMode::Ixfr) && ixfr_query_serial.is_none() {
             warn!(
-                "{} for {} from {} refused: IXFR request lacks authority section SOA",
-                q.qtype(),
-                q.qname(),
+                "IXFR for {} from {} refused: \
+                 IXFR request lacks authority section SOA",
+                qname,
                 req.client_addr()
             );
             return Err(OptRcode::FORMERR);
@@ -202,8 +203,8 @@ where
                 XfrDataProviderError::ParseError(err) => {
                     debug!(
                         "{} for {} from {} refused: parse error: {err}",
-                        q.qtype(),
-                        q.qname(),
+                        mode,
+                        qname,
                         req.client_addr()
                     );
                     OptRcode::FORMERR
@@ -216,8 +217,8 @@ where
                     //    zone, the server SHOULD set the value to NotAuth(9)"
                     debug!(
                         "{} for {} from {} refused: unknown zone",
-                        q.qtype(),
-                        q.qname(),
+                        mode,
+                        qname,
                         req.client_addr()
                     );
                     OptRcode::NOTAUTH
@@ -231,8 +232,8 @@ where
                     // zone but we just don't have the data right now.
                     warn!(
                         "{} for {} from {} refused: zone not currently available",
-                        q.qtype(),
-                        q.qname(),
+                        mode,
+                        qname,
                         req.client_addr()
                     );
                     OptRcode::SERVFAIL
@@ -241,8 +242,8 @@ where
                 XfrDataProviderError::Refused => {
                     warn!(
                         "{} for {} from {} refused: access denied",
-                        q.qtype(),
-                        q.qname(),
+                        mode,
+                        qname,
                         req.client_addr()
                     );
                     OptRcode::REFUSED
@@ -251,19 +252,19 @@ where
 
         // Read the zone SOA RR
         let read = xfr_data.zone().read();
-        let Ok(zone_soa_answer) = read_soa(&read, q.qname().to_name()).await
+        let Ok(zone_soa_answer) = read_soa(&read, qname.to_name()).await
         else {
             debug!(
                 "{} for {} from {} refused: name is outside the zone",
-                q.qtype(),
-                q.qname(),
+                mode,
+                qname,
                 req.client_addr()
             );
             return Err(OptRcode::SERVFAIL);
         };
 
-        match q.qtype() {
-            Rtype::AXFR if req.transport_ctx().is_udp() => {
+        match mode {
+            XfrMode::Axfr if req.transport_ctx().is_udp() => {
                 // https://datatracker.ietf.org/doc/html/rfc5936#section-4.2
                 // 4.2.  UDP
                 //   "With the addition of EDNS0 and applications that require
@@ -277,8 +278,8 @@ where
                 //    defined."
                 warn!(
                     "{} for {} from {} refused: AXFR not supported over UDP",
-                    q.qtype(),
-                    q.qname(),
+                    mode,
+                    qname,
                     req.client_addr()
                 );
                 let response = mk_error_response(msg, OptRcode::NOTIMP);
@@ -288,33 +289,13 @@ where
                 )))))
             }
 
-            Rtype::AXFR | Rtype::IXFR if xfr_data.diffs().is_empty() => {
-                if q.qtype() == Rtype::IXFR && xfr_data.diffs().is_empty() {
-                    // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-                    // 4. Response Format
-                    //    "If incremental zone transfer is not available, the
-                    //     entire zone is returned.  The first and the last RR of
-                    //     the response is the SOA record of the zone. I.e. the
-                    //     behavior is the same as an AXFR response except the
-                    //     query type is IXFR."
-                    info!(
-                        "IXFR for {} (serial {} from {}: diffs not available, falling back to AXFR",
-                        q.qname(),
-                        ixfr_query_serial.unwrap(), // SAFETY: Always Some() if IXFR
-                        req.client_addr()
-                    );
-                } else {
-                    info!(
-                        "AXFR for {} from {}",
-                        q.qname(),
-                        req.client_addr()
-                    );
-                }
+            XfrMode::Axfr => {
+                info!("AXFR for {} from {}", qname, req.client_addr());
                 let stream = Self::respond_to_axfr_query(
                     zone_walking_semaphore,
                     batcher_semaphore,
                     req,
-                    q.qname().to_name(),
+                    qname.to_name(),
                     &zone_soa_answer,
                     read,
                     xfr_data.compatibility_mode(),
@@ -324,12 +305,40 @@ where
                 Ok(ControlFlow::Break(stream))
             }
 
-            Rtype::IXFR => {
+            XfrMode::Ixfr if xfr_data.diffs().is_empty() => {
+                // https://datatracker.ietf.org/doc/html/rfc1995#section-4
+                // 4. Response Format
+                //    "If incremental zone transfer is not available, the
+                //     entire zone is returned.  The first and the last RR of
+                //     the response is the SOA record of the zone. I.e. the
+                //     behavior is the same as an AXFR response except the
+                //     query type is IXFR."
+                info!(
+                    "IXFR for {} (serial {} from {}: diffs not available, falling back to AXFR",
+                    qname,
+                    ixfr_query_serial.unwrap(), // SAFETY: Always Some() if IXFR
+                    req.client_addr()
+                );
+                let stream = Self::respond_to_axfr_query(
+                    zone_walking_semaphore,
+                    batcher_semaphore,
+                    req,
+                    qname.to_name(),
+                    &zone_soa_answer,
+                    read,
+                    xfr_data.compatibility_mode(),
+                )
+                .await?;
+
+                Ok(ControlFlow::Break(stream))
+            }
+
+            XfrMode::Ixfr => {
                 // SAFETY: Always Some() if IXFR
                 let ixfr_query_serial = ixfr_query_serial.unwrap();
                 info!(
                     "IXFR for {} (serial {ixfr_query_serial}) from {}",
-                    q.qname(),
+                    qname,
                     req.client_addr()
                 );
 
@@ -346,18 +355,13 @@ where
                     batcher_semaphore.clone(),
                     req,
                     ixfr_query_serial,
-                    q.qname().to_name(),
+                    qname.to_name(),
                     &zone_soa_answer,
                     xfr_data.into_diffs(),
                 )
                 .await?;
 
                 Ok(ControlFlow::Break(stream))
-            }
-
-            _ => {
-                // Other QTYPEs should have been filtered out by get_relevant_question().
-                unreachable!();
             }
         }
     }
@@ -671,11 +675,17 @@ where
     /// a first question with a QTYPE of `AXFR` or `IXFR`, `None` otherwise.
     fn get_relevant_question(
         msg: &Message<RequestOctets>,
-    ) -> Option<Question<ParsedName<RequestOctets::Range<'_>>>> {
+    ) -> Option<(XfrMode, ParsedName<RequestOctets::Range<'_>>)> {
         if Opcode::QUERY == msg.header().opcode() && !msg.header().qr() {
             if let Ok(q) = msg.sole_question() {
-                if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
-                    return Some(q);
+                match q.qtype() {
+                    Rtype::AXFR => {
+                        return Some((XfrMode::Axfr, q.into_qname()));
+                    }
+                    Rtype::IXFR => {
+                        return Some((XfrMode::Ixfr, q.into_qname()));
+                    }
+                    _ => return None,
                 }
             }
         }
@@ -775,3 +785,19 @@ pub type XfrMiddlewareStream<Future, Stream, StreamItem> = MiddlewareStream<
     XfrResultStream<StreamItem>,
     StreamItem,
 >;
+
+//------------ XfrMode -------------------------------------------------------
+
+enum XfrMode {
+    Axfr,
+    Ixfr,
+}
+
+impl fmt::Display for XfrMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Axfr => f.write_str("AXFR"),
+            Self::Ixfr => f.write_str("IXFR"),
+        }
+    }
+}
