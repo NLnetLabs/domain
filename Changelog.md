@@ -25,6 +25,8 @@ Bug fixes
 
 Unstable features
 
+* `unstable-validator`:
+  * Fixed a panic when encountering an invalid NSEC3 label. ([#728])
 * `unstable-xfr`:
   * Return an error rather than panicking when a response is not AXFR or
     IXFR. (#724)
@@ -39,6 +41,7 @@ Other changes
 [#725]: https://github.com/NLnetLabs/domain/pull/725
 [#726]: https://github.com/NLnetLabs/domain/pull/726
 [#727]: https://github.com/NLnetLabs/domain/pull/727
+[#728]: https://github.com/NLnetLabs/domain/pull/728
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 

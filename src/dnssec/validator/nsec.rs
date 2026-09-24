@@ -3,7 +3,7 @@
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::str::{FromStr, Utf8Error};
+use core::str::FromStr;
 
 use bytes::Bytes;
 use moka::future::Cache;
@@ -992,10 +992,14 @@ pub async fn cached_nsec3_hash(
 /// Convert a label to an NSEC3 hash value.
 pub fn nsec3_label_to_hash(
     label: &Label,
-) -> Result<OwnerHash<Vec<u8>>, Utf8Error> {
-    let label_str = core::str::from_utf8(label.as_ref())?;
-    Ok(OwnerHash::<Vec<u8>>::from_str(label_str).expect("should not fail"))
+) -> Result<OwnerHash<Vec<u8>>, LabelToHashError> {
+    let label_str =
+        str::from_utf8(label.as_ref()).map_err(|_| LabelToHashError)?;
+    OwnerHash::<Vec<u8>>::from_str(label_str).map_err(|_| LabelToHashError)
 }
+
+/// An error happened converting a label to a hash.
+pub struct LabelToHashError;
 
 /// Is targethash in the range between ownerhash and nexthash?
 pub fn nsec3_in_range<O1, O2, O3>(
