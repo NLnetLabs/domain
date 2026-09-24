@@ -75,9 +75,13 @@ macro_rules! impl_scan_unsigned {
                     res = res.checked_mul(10).ok_or_else(|| {
                         S::Error::custom("decimal number overflow")
                     })?;
-                    res += ch.into_digit(10).map_err(|_| {
-                        S::Error::custom("expected decimal number")
-                    })? as $type;
+                    res = res
+                        .checked_add(ch.into_digit(10).map_err(|_| {
+                            S::Error::custom("expected decimal number")
+                        })? as $type)
+                        .ok_or_else(|| {
+                            S::Error::custom("decimal number overflow")
+                        })?;
                     Ok(())
                 })?;
                 Ok(res)
@@ -94,17 +98,7 @@ impl_scan_unsigned!(u128);
 
 impl<S: Scanner> Scan<S> for Ttl {
     fn scan(scanner: &mut S) -> Result<Self, <S as Scanner>::Error> {
-        let mut res: u32 = 0;
-        scanner.scan_symbols(|ch| {
-            res = res
-                .checked_mul(10)
-                .ok_or_else(|| S::Error::custom("decimal number overflow"))?;
-            res += ch
-                .into_digit(10)
-                .map_err(|_| S::Error::custom("expected decimal number"))?;
-            Ok(())
-        })?;
-        Ok(Ttl::from_secs(res))
+        u32::scan(scanner).map(Ttl::from_secs)
     }
 }
 
@@ -1224,7 +1218,8 @@ impl core::error::Error for StrError {}
 #[cfg(feature = "std")]
 mod test {
     use super::*;
-    use std::format;
+    use alloc::vec::Vec;
+    use alloc::{format, vec};
 
     #[test]
     fn symbol_from_slice_index() {
@@ -1265,5 +1260,36 @@ mod test {
                 ch
             );
         }
+    }
+
+    #[test]
+    fn scan_u8() {
+        let mut scanner = IterScanner::<_, Vec<u8>>::new(vec![
+            "0", "12", "255", "256", "4030002",
+        ]);
+        assert_eq!(u8::scan(&mut scanner).unwrap(), 0);
+        assert_eq!(u8::scan(&mut scanner).unwrap(), 12);
+        assert_eq!(u8::scan(&mut scanner).unwrap(), 255);
+        assert!(u8::scan(&mut scanner).is_err());
+        assert!(u8::scan(&mut scanner).is_err());
+    }
+
+    #[test]
+    fn scan_ttl() {
+        let mut scanner = IterScanner::<_, Vec<u8>>::new(vec![
+            "0",
+            "12",
+            "4294967295",
+            "4294967296",
+            "500000000000",
+        ]);
+        assert_eq!(Ttl::scan(&mut scanner).unwrap(), Ttl::from_secs(0));
+        assert_eq!(Ttl::scan(&mut scanner).unwrap(), Ttl::from_secs(12));
+        assert_eq!(
+            Ttl::scan(&mut scanner).unwrap(),
+            Ttl::from_secs(4294967295)
+        );
+        assert!(Ttl::scan(&mut scanner).is_err());
+        assert!(Ttl::scan(&mut scanner).is_err());
     }
 }
