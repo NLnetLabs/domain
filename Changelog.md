@@ -27,6 +27,9 @@ Bug fixes
 
 Unstable features
 
+* `unstable-server-transport`:
+  * Fixed a panic in the NOTIFY middleware when it can’t copy the request.
+    ([#733])
 * `unstable-validator`:
   * Fixed a panic when encountering an invalid NSEC3 label. ([#728])
 * `unstable-xfr`:
@@ -55,6 +58,7 @@ Other changes
 [#730]: https://github.com/NLnetLabs/domain/pull/730
 [#731]: https://github.com/NLnetLabs/domain/pull/731
 [#732]: https://github.com/NLnetLabs/domain/pull/732
+[#733]: https://github.com/NLnetLabs/domain/pull/733
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
