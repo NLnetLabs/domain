@@ -20,6 +20,8 @@ Bug fixes
 * Added length checks when scanning and parsing variable length record
   data types: `Caa`, `Ipseckey`, `Nsec3Salt`, `Openpgpkey`, `Sshfp`,
   `Tlsa` `Txt` `Zonemd`. ([#726])
+* Fixed possible panics in the resolver’s `FoundHosts::qname` and
+  `FoundHosts::canonical_name`. ([#727])
 
 Unstable features
 
@@ -36,6 +38,7 @@ Other changes
 [#724]: https://github.com/NLnetLabs/domain/pull/724
 [#725]: https://github.com/NLnetLabs/domain/pull/725
 [#726]: https://github.com/NLnetLabs/domain/pull/726
+[#727]: https://github.com/NLnetLabs/domain/pull/727
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
