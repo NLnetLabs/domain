@@ -22,6 +22,7 @@ Bug fixes
   `Tlsa` `Txt` `Zonemd`. ([#726])
 * Fixed possible panics in the resolver’s `FoundHosts::qname` and
   `FoundHosts::canonical_name`. ([#727])
+* TSIG server: Don’t panic when creating a TSIG error response ([#729])
 
 Unstable features
 
@@ -42,6 +43,7 @@ Other changes
 [#726]: https://github.com/NLnetLabs/domain/pull/726
 [#727]: https://github.com/NLnetLabs/domain/pull/727
 [#728]: https://github.com/NLnetLabs/domain/pull/728
+[#729]: https://github.com/NLnetLabs/domain/pull/729
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 

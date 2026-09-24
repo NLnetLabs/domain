@@ -1127,21 +1127,17 @@ impl<K: AsRef<Key>> SigningContext<K> {
         let tsig = match MessageTsig::from_message(message) {
             Ok(tsig) => tsig,
             // RFC 8945, section 5.2:
-            // > If multiple TSIG records are detected or a TSIG record is present
-            // > in any other position, the DNS message is dropped and a response
-            // > with RCODE 1 (FORMERR) MUST be returned.
+            // > If multiple TSIG records are detected or a TSIG record is
+            // > present in any other position, the DNS message is dropped
+            // > and a response with RCODE 1 (FORMERR) MUST be returned.
             Err(TsigError::Position) => {
-                return Err(ServerError::unsigned(TsigRcode::FORMERR));
+                return Err(ServerError::formerr());
             }
             // RFC 8945, section 5.2:
             // > If the TSIG RR cannot be interpreted, the server MUST regard
             // > the message as corrupt and return a FORMERR to the server.
-            Err(TsigError::Invalid) => {
-                return Err(ServerError::unsigned(TsigRcode::FORMERR));
-            }
-            Err(TsigError::ParseError) => {
-                return Err(ServerError::unsigned(TsigRcode::FORMERR));
-            }
+            Err(TsigError::Invalid) => return Err(ServerError::formerr()),
+            Err(TsigError::ParseError) => return Err(ServerError::formerr()),
             Err(TsigError::Missing) => return Ok(None),
         };
 
@@ -1774,6 +1770,9 @@ pub struct ServerError<K>(ServerErrorInner<K>);
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 enum ServerErrorInner<K> {
+    /// Return a regular FORMERR without any mention of TSIG.
+    Formerr,
+
     /// Return an unsigned error message.
     ///
     /// To crate the actual message, we need the original message with the
@@ -1788,16 +1787,21 @@ enum ServerErrorInner<K> {
 }
 
 impl<K> ServerError<K> {
+    fn formerr() -> Self {
+        Self(ServerErrorInner::Formerr)
+    }
+
     fn unsigned(error: TsigRcode) -> Self {
-        ServerError(ServerErrorInner::Unsigned { error })
+        Self(ServerErrorInner::Unsigned { error })
     }
 
     fn signed(context: SigningContext<K>, variables: Variables) -> Self {
-        ServerError(ServerErrorInner::Signed { context, variables })
+        Self(ServerErrorInner::Signed { context, variables })
     }
 
     pub fn error(&self) -> TsigRcode {
         match self.0 {
+            ServerErrorInner::Formerr => TsigRcode::FORMERR,
             ServerErrorInner::Unsigned { error } => error,
             ServerErrorInner::Signed { ref variables, .. } => variables.error,
         }
@@ -1814,32 +1818,46 @@ impl<K: AsRef<Key>> ServerError<K> {
         Octs: Octets + ?Sized,
         Target: Composer,
     {
-        let builder = builder.start_answer(msg, Rcode::NOTAUTH)?;
-        let mut builder = builder.additional();
         match self.0 {
+            ServerErrorInner::Formerr => {
+                let builder = builder.start_answer(msg, Rcode::FORMERR)?;
+                Ok(builder.additional())
+            }
             ServerErrorInner::Unsigned { error } => {
-                let tsig = {
-                    MessageTsig::from_message(msg)
-                        .expect("missing or malformed TSIG record")
-                };
-                builder.push((
-                    tsig.record.owner(),
-                    tsig.record.class(),
-                    tsig.record.ttl(),
-                    // The TSIG record data can never ever be too long.
-                    Tsig::new(
-                        tsig.record.data().algorithm(),
-                        tsig.record.data().time_signed(),
-                        tsig.record.data().fudge(),
-                        b"",
-                        msg.header().id(),
-                        error,
-                        b"",
-                    )
-                    .expect("long record data"),
-                ))?;
+                if let Ok(tsig) = MessageTsig::from_message(msg) {
+                    let builder =
+                        builder.start_answer(msg, Rcode::NOTAUTH)?;
+                    let mut builder = builder.additional();
+                    builder.push((
+                        tsig.record.owner(),
+                        tsig.record.class(),
+                        tsig.record.ttl(),
+                        // The TSIG record data can never ever be too long.
+                        Tsig::new(
+                            tsig.record.data().algorithm(),
+                            tsig.record.data().time_signed(),
+                            tsig.record.data().fudge(),
+                            b"",
+                            msg.header().id(),
+                            error,
+                            b"",
+                        )
+                        .expect("long record data"),
+                    ))?;
+                    Ok(builder)
+                } else {
+                    // This should never happen, but sadly we have settled on
+                    // `PushError` as the error type of this method, so now
+                    // we can’t signal a bug. Let’s produce a SERVFAIL return
+                    // instead.
+                    let builder =
+                        builder.start_answer(msg, Rcode::SERVFAIL)?;
+                    Ok(builder.additional())
+                }
             }
             ServerErrorInner::Signed { context, variables } => {
+                let builder = builder.start_answer(msg, Rcode::NOTAUTH)?;
+                let mut builder = builder.additional();
                 let (mac, key) = context.final_answer(
                     builder.as_slice(),
                     None,
@@ -1851,9 +1869,9 @@ impl<K: AsRef<Key>> ServerError<K> {
                     &variables,
                     mac,
                 )?;
+                Ok(builder)
             }
         }
-        Ok(builder)
     }
 }
 
@@ -1868,6 +1886,7 @@ impl<K> fmt::Debug for ServerError<K> {
 impl<K> fmt::Debug for ServerErrorInner<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            ServerErrorInner::Formerr => f.debug_struct("Formerr").finish(),
             ServerErrorInner::Unsigned { error } => {
                 f.debug_struct("Unsigned").field("error", &error).finish()
             }
