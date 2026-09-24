@@ -278,7 +278,12 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParsedName<&'a Octs> {
         // clones them.)
         let mut parser = *parser;
         let mut compressed = true;
-        loop {
+
+        // Limit the number of compression pointers per name to 255. A name
+        // cannot be longer than 255 bytes, so more pointers is clearly
+        // silly. Worse, by crafting a message with just consecutive pointers,
+        // you can make a really long chain.
+        for _ in 0..255 {
             // Check that the compression pointer points backwards. Because
             // it is 16 bit long and the current position is behind the label
             // header, it needs to less than the current position minus 2 --
@@ -324,6 +329,8 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParsedName<&'a Octs> {
                 }
             }
         }
+
+        Err(ParsedDnameError::ExcessiveCompression.into())
     }
 }
 

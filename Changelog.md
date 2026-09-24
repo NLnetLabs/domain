@@ -13,24 +13,26 @@ Improvements
 
 Bug fixes
 
+* Limited the number of compression pointers that are followed when parsing
+  a compressed name to 255 to avoid following really long chains. ([#745])
 * Don’t compress the names in RP records. ([#702] by [@SebastiaanYN])
 * Fixed a `todo!` macro in the `Hash` impl for `IpseckeyGateway`.
   ([#706] by [@SebastiaanYN])
-* Fixed integer overflow in `Scan` impl for unsigned integers. ([#725])
 * Added length checks when scanning and parsing variable length record
   data types: `Caa`, `Ipseckey`, `Nsec3Salt`, `Openpgpkey`, `Sshfp`,
   `Tlsa` `Txt` `Zonemd`. ([#726])
 * Fixed possible panics in the resolver’s `FoundHosts::qname` and
   `FoundHosts::canonical_name`. ([#727])
-* TSIG server: Don’t panic when creating a TSIG error response ([#729])
-* Zonefile parser: check for invalid UTF-8. ([#730])
-* Fixed a panic in the zonefile parser when an empty TXT record is
-  encountered. ([#736])
 * Fixed a wrong start in the resolver when re-ordering SRV records by
   priority and weight. ([#738])
 * Switched additional processing for SRV in the resolver to use an
   intermediary  hash map, avoiding a resource exhaustion issue with
   crafted malicious responses. ([#744])
+* TSIG server: Don’t panic when creating a TSIG error response ([#729])
+* Zonefile parser: check for invalid UTF-8. ([#730])
+* Fixed integer overflow in `Scan` impl for unsigned integers. ([#725])
+* Fixed a panic in the zonefile parser when an empty TXT record is
+  encountered. ([#736])
 
 Unstable features
 
@@ -96,6 +98,7 @@ Other changes
 [#741]: https://github.com/NLnetLabs/domain/pull/741
 [#743]: https://github.com/NLnetLabs/domain/pull/743
 [#744]: https://github.com/NLnetLabs/domain/pull/744
+[#745]: https://github.com/NLnetLabs/domain/pull/745
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
