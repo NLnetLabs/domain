@@ -10,8 +10,8 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, ZonemdAlgorithm, ZonemdScheme};
-use crate::base::rdata::{ComposeRecordData, RecordData};
-use crate::base::scan::{Scan, Scanner};
+use crate::base::rdata::{ComposeRecordData, LongRecordData, RecordData};
+use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
@@ -51,7 +51,14 @@ impl Zonemd<()> {
 }
 
 impl<Octs> Zonemd<Octs> {
-    /// Create a Zonemd record data from provided parameters.
+    /// Create ZONEMD record data from provided parameters.
+    ///
+    /// # Note
+    ///
+    /// This function can be used to created record data that is too large
+    /// to be composed into wire format and will cause a panic if composing
+    /// is attempted. Unless you are absolutely sure the data fits, you might
+    /// want to use [`try_new`][Self::try_new] instead.
     pub fn new(
         serial: Serial,
         scheme: ZonemdScheme,
@@ -64,6 +71,36 @@ impl<Octs> Zonemd<Octs> {
             algo,
             digest,
         }
+    }
+
+    /// Create ZONEMD record data from provided parameters.
+    ///
+    /// Returns an error if the resulting record data is too large to be
+    /// composed into wire format.
+    pub fn try_new(
+        serial: Serial,
+        scheme: ZonemdScheme,
+        algo: ZonemdAlgorithm,
+        digest: Octs,
+    ) -> Result<Self, LongRecordData>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        LongRecordData::check_append_len(
+            usize::from(
+                Serial::COMPOSE_LEN
+                    + ZonemdScheme::COMPOSE_LEN
+                    + ZonemdAlgorithm::COMPOSE_LEN,
+            ),
+            digest.as_ref().len(),
+        )?;
+
+        Ok(Self {
+            serial,
+            scheme,
+            algo,
+            digest,
+        })
     }
 
     /// Get the serial field.
@@ -89,7 +126,10 @@ impl<Octs> Zonemd<Octs> {
     /// Parse the record data from wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
-    ) -> Result<Self, ParseError> {
+    ) -> Result<Self, ParseError>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let serial = Serial::parse(parser)?;
         let scheme = parser.parse_u8()?.into();
         let algo = parser.parse_u8()?.into();
@@ -98,29 +138,23 @@ impl<Octs> Zonemd<Octs> {
             return Err(ParseError::ShortInput);
         }
         let digest = parser.parse_octets(len)?;
-        Ok(Self {
-            serial,
-            scheme,
-            algo,
-            digest,
-        })
+        Ok(Self::try_new(serial, scheme, algo, digest)?)
     }
 
     /// Parse the record data from zonefile format.
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let serial = Serial::scan(scanner)?;
         let scheme = u8::scan(scanner)?.into();
         let algo = u8::scan(scanner)?.into();
         let digest = scanner.convert_entry(base16::SymbolConverter::new())?;
 
-        Ok(Self {
-            serial,
-            scheme,
-            algo,
-            digest,
-        })
+        Self::try_new(serial, scheme, algo, digest)
+            .map_err(|err| S::Error::custom(err.as_str()))
     }
 
     pub(super) fn flatten<Target: OctetsFrom<Octs>>(
@@ -306,9 +340,8 @@ impl<Octs: AsRef<[u8]>> Ord for Zonemd<Octs> {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
     };
-    use crate::utils::base16::decode;
     use alloc::string::ToString;
     use alloc::vec::Vec;
 
@@ -319,11 +352,11 @@ mod test {
         let scheme = 1.into();
         let algo = 241.into();
         let digest_str = "CDBE0DED9484490493580583BF868A3E95F89FC3515BF26ADBD230A6C23987F36BC6E504EFC83606F9445476D4E57FFB";
-        let digest: Vec<u8> = decode(digest_str).unwrap();
+        let digest: Vec<u8> = base16::decode(digest_str).unwrap();
         let rdata = Zonemd::new(serial.into(), scheme, algo, digest);
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Zonemd::parse(parser));
-        test_scan(
+        test_scan_check(
             &[
                 &serial.to_string(),
                 &u8::from(scheme).to_string(),
@@ -332,6 +365,34 @@ mod test {
             ],
             Zonemd::scan,
             &rdata,
+        );
+    }
+
+    #[test]
+    fn zonemd_scan_limits() {
+        assert!(
+            test_scan(
+                &[
+                    "12",
+                    "1",
+                    "2",
+                    &base16::encode_string(&"1".repeat(0xFFFF - 6))
+                ],
+                Zonemd::scan
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &[
+                    "12",
+                    "1",
+                    "2",
+                    &base16::encode_string(&"1".repeat(0xFFFF - 5))
+                ],
+                Zonemd::scan
+            )
+            .is_err()
         );
     }
 

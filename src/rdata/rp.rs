@@ -255,7 +255,7 @@ mod test {
     use crate::base::iana::Class;
     use crate::base::name::Name;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
     use crate::zonefile::inplace::{self, Zonefile};
     use alloc::vec::Vec;
@@ -272,7 +272,7 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Rp::parse(parser));
-        test_scan(
+        test_scan_check(
             &["mbox.example.com", "some-person.example.com"],
             Rp::scan,
             &rdata,
