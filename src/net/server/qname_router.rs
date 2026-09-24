@@ -90,14 +90,17 @@ where
     where
         RequestOcts: AsRef<[u8]> + Octets,
     {
-        let question = request
-            .message()
-            .question()
-            .into_iter()
-            .next()
-            .expect("the caller need to make sure that there is question")
-            .expect("the caller need to make sure that the question can be parsed")
-            ;
+        let Some(Ok(question)) =
+            request.message().question().into_iter().next()
+        else {
+            let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+                mk_error_response(request.message(), OptRcode::FORMERR);
+            return Box::pin(ready(Ok(CR::from_message(
+                &builder.as_message(),
+            )
+            .expect("CR should handle an error response"))));
+        };
+
         let name = question.qname();
         let el = match self
             .list
