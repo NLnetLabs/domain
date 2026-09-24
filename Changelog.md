@@ -19,12 +19,17 @@ Bug fixes
 
 Unstable features
 
+* `unstable-xfr`:
+  * Return an error rather than panicking when a response is not AXFR or
+    IXFR. (#724)
+
 Other changes
 
 [#699]: https://github.com/NLnetLabs/domain/pull/699
 [#702]: https://github.com/NLnetLabs/domain/pull/702
 [#706]: https://github.com/NLnetLabs/domain/pull/706
 [#716]: https://github.com/NLnetLabs/domain/pull/716
+[#724]: https://github.com/NLnetLabs/domain/pull/724
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
