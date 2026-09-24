@@ -720,10 +720,13 @@ where
         let name = N::from(name.try_to_name().ok().unwrap());
         return Ok(name);
     }
-    Ok(append_origin(base32hex_label, apex_owner))
+    append_origin(base32hex_label, apex_owner)
 }
 
-fn append_origin<N, Octs>(base32hex_label: String, apex_owner: &N) -> N
+fn append_origin<N, Octs>(
+    base32hex_label: String,
+    apex_owner: &N,
+) -> Result<N, Nsec3HashError>
 where
     N: ToName + From<Name<Octs>>,
     Octs: FromBuilder,
@@ -731,9 +734,11 @@ where
 {
     let mut builder = NameBuilder::<Octs::Builder>::new();
     builder.append_label(base32hex_label.as_bytes()).unwrap();
-    let owner_name = builder.append_origin(apex_owner).unwrap();
+    let owner_name = builder
+        .append_origin(apex_owner)
+        .map_err(|_| Nsec3HashError::Nsec3NameTooLong)?;
     let owner_name: N = owner_name.into();
-    owner_name
+    Ok(owner_name)
 }
 
 fn mk_base32hex_label_for_name<N, SaltOcts>(
