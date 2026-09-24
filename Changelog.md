@@ -35,6 +35,10 @@ Unstable features
 * `unstable-zonetree`:
   * Fixed a panic in `zonetree::Answer::to_message` when the request does
     not have exactly one question. ([#731])
+  * Avoid a panic when requesting origin or class from an empty
+    `parsed::Zonefile`. This change removes the `Default` impl, which
+    means an origin and class must be given when creating a value.
+    ([#732])
 
 Other changes
 
@@ -50,6 +54,7 @@ Other changes
 [#729]: https://github.com/NLnetLabs/domain/pull/729
 [#730]: https://github.com/NLnetLabs/domain/pull/730
 [#731]: https://github.com/NLnetLabs/domain/pull/731
+[#732]: https://github.com/NLnetLabs/domain/pull/732
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 

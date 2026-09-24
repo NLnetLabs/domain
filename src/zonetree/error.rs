@@ -103,7 +103,10 @@ pub enum RecordError {
     InvalidRecord(ContextError),
 
     /// The SOA record was not found.
-    MissingSoa(StoredRecord),
+    ///
+    /// This optionally includes a record that was parsed instead of the
+    /// expected SOA record so we can add that to the error message.
+    MissingSoa(Option<StoredRecord>),
 }
 
 impl RecordError {
@@ -115,9 +118,10 @@ impl RecordError {
             | RecordError::IllegalRecord(rec, _)
             | RecordError::IllegalCname(rec, _)
             | RecordError::MultipleCnames(rec)
-            | RecordError::MissingSoa(rec) => Some(rec.owner()),
+            | RecordError::MissingSoa(Some(rec)) => Some(rec.owner()),
             RecordError::MalformedRecord(_)
-            | RecordError::InvalidRecord(_) => None,
+            | RecordError::InvalidRecord(_)
+            | RecordError::MissingSoa(None) => None,
         }
     }
 }
@@ -163,8 +167,11 @@ impl Display for RecordError {
             RecordError::InvalidRecord(err) => {
                 write!(f, "The record is parseable but not valid: {err}")
             }
-            RecordError::MissingSoa(rec) => {
-                write!(f, "The SOA record was not found: {rec}")
+            RecordError::MissingSoa(Some(rec)) => {
+                write!(f, "The SOA record was not found, found this record instead: {rec}")
+            }
+            RecordError::MissingSoa(None) => {
+                write!(f, "The SOA record was not found.")
             }
         }
     }
