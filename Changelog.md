@@ -36,8 +36,10 @@ Unstable features
     ([#733])
   * Fixed a panic in `QnameRouter` if a request that doesn’t have at least
     one valid name is dispatched to it. ([#734])
-  * fixes a reachable `unreachable!` in the XFR server middleware.
+  * Fixed a reachable `unreachable!` in the XFR server middleware.
     ([#739])
+  * Fixed a panic in the TSIG middleware when starting to create a signed
+    truncated response fails. ([#741])
 * `unstable-sign`:
   * Fixed a panic when an NSEC owner name is too long. ([#735])
 * `unstable-validator`:
@@ -81,6 +83,7 @@ Other changes
 [#738]: https://github.com/NLnetLabs/domain/pull/738
 [#739]: https://github.com/NLnetLabs/domain/pull/739
 [#740]: https://github.com/NLnetLabs/domain/pull/740
+[#741]: https://github.com/NLnetLabs/domain/pull/741
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 

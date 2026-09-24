@@ -267,9 +267,7 @@ where
         };
 
         // Handle signing failure due to push error, i.e. there wasn't enough
-        // space in the response to add the TSIG RR. This shouldn't happen
-        // because we reserve space in preprocess() for the TSIG RR that we
-        // add when signing.
+        // space in the response to add the TSIG RR.
         if res.is_err() {
             // 5.3. Generation of TSIG on Answers
             //   "If addition of the TSIG record will cause the message to be
@@ -293,9 +291,15 @@ where
     ) -> Result<AdditionalBuilder<StreamTarget<NextSvc::Target>>, ServiceError>
     {
         let builder = mk_builder_for_target();
-        let mut new_response = builder
-            .start_answer(request.message(), Rcode::NOERROR)
-            .unwrap();
+        let Ok(mut new_response) =
+            builder.start_answer(request.message(), Rcode::NOERROR)
+        else {
+            error!(
+                "Unable to create signed TSIG response: \
+                 failed to copy question section from request."
+            );
+            return Err(ServiceError::InternalError);
+        };
         new_response.header_mut().set_tc(true);
         let mut additional = new_response.additional();
 
