@@ -517,14 +517,16 @@ impl Symbol {
             }
 
             // If c1’s third-to-left bit is 0, we have the two octet case.
+            // The resulting char must be at least 0x80 since the shortest
+            // possible form must be used.
             if c1 & 0b0010_0000 == 0 {
+                let res = u32::from(c2 & 0b0011_1111)
+                    | (u32::from(c1 & 0b0001_1111) << 6);
+                if res < 0x80 {
+                    return Err(bad_utf8());
+                }
                 return Ok(Some((
-                    Symbol::Char(
-                        (u32::from(c2 & 0b0011_1111)
-                            | (u32::from(c1 & 0b0001_1111) << 6))
-                            .try_into()
-                            .map_err(|_| bad_utf8())?,
-                    ),
+                    Symbol::Char(res.try_into().map_err(|_| bad_utf8())?),
                     pos,
                 )));
             }
@@ -540,17 +542,25 @@ impl Symbol {
             }
 
             // If c1’s fourth-to-left bit is 0, we have the three octet case.
+            // The resulting char must be at least 0x0800. We also must not
+            // accept surrogates U+D800..U+DFFF, but char::try_from does that
+            // for us.
             if c1 & 0b0001_0000 == 0 {
+                let res = u32::from(c3 & 0b0011_1111)
+                    | (u32::from(c2 & 0b0011_1111) << 6)
+                    | (u32::from(c1 & 0b0001_1111) << 12);
+                if res < 0x0800 {
+                    return Err(bad_utf8());
+                }
                 return Ok(Some((
-                    Symbol::Char(
-                        (u32::from(c3 & 0b0011_1111)
-                            | (u32::from(c2 & 0b0011_1111) << 6)
-                            | (u32::from(c1 & 0b0001_1111) << 12))
-                            .try_into()
-                            .map_err(|_| bad_utf8())?,
-                    ),
+                    Symbol::Char(res.try_into().map_err(|_| bad_utf8())?),
                     pos,
                 )));
+            }
+
+            // Now the fifth-to-left bit must be 0.
+            if c1 & 0b0000_1000 != 0 {
+                return Err(bad_utf8());
             }
 
             // Get the next octet, check that it is valid.
@@ -563,15 +573,17 @@ impl Symbol {
                 return Err(bad_utf8());
             }
 
+            // The resulting char must now be at least 0x01_0000
+            let res = u32::from(c4 & 0b0011_1111)
+                | (u32::from(c3 & 0b0011_1111) << 6)
+                | (u32::from(c2 & 0b0011_1111) << 12)
+                | (u32::from(c1 & 0b0000_1111) << 18);
+            if res < 0x01_0000 {
+                return Err(bad_utf8());
+            }
+
             Ok(Some((
-                Symbol::Char(
-                    (u32::from(c4 & 0b0011_1111)
-                        | (u32::from(c3 & 0b0011_1111) << 6)
-                        | (u32::from(c2 & 0b0011_1111) << 12)
-                        | (u32::from(c1 & 0b0000_1111) << 18))
-                        .try_into()
-                        .map_err(|_| bad_utf8())?,
-                ),
+                Symbol::Char(res.try_into().map_err(|_| bad_utf8())?),
                 pos,
             )))
         }
@@ -1259,6 +1271,25 @@ mod test {
                 "sequence \"\\{:03}\"",
                 ch
             );
+        }
+    }
+
+    #[test]
+    fn reject_non_shortest_form() {
+        const BAD: &[&[u8]] = &[
+            b"\xc0\x80",         // two-byte U+0000
+            b"\xc0\xae",         // two-byte '.' (path traversal)
+            b"\xc1\xbf",         // two-byte U+007F
+            b"\xe0\x80\x80",     // three-byte U+0000
+            b"\xe0\x9f\xbf",     // three-byte U+07FF
+            b"\xf0\x80\x80\x80", // four-byte U+0000
+            b"\xf0\x8f\xbf\xbf", // four-byte U+FFFF
+            b"\xed\xa0\x80",     // UTF-16 surrogate U+D800
+            b"\xf8\x80\x80\x80", // hypothetical five-byte encoding.
+        ];
+
+        for bad in BAD {
+            assert!(Symbol::from_slice_index(bad, 0).is_err(), "{bad:x?}");
         }
     }
 
