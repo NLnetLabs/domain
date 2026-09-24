@@ -16,6 +16,7 @@ Bug fixes
 * Don’t compress the names in RP records. ([#702] by [@SebastiaanYN])
 * Fixed a `todo!` macro in the `Hash` impl for `IpseckeyGateway`.
   ([#706] by [@SebastiaanYN])
+* Fixed integer overflow in `Scan` impl for unsigned integers. ([#725])
 
 Unstable features
 
@@ -30,6 +31,7 @@ Other changes
 [#706]: https://github.com/NLnetLabs/domain/pull/706
 [#716]: https://github.com/NLnetLabs/domain/pull/716
 [#724]: https://github.com/NLnetLabs/domain/pull/724
+[#725]: https://github.com/NLnetLabs/domain/pull/725
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
