@@ -10,9 +10,9 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
+use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, FormError, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 #[cfg(feature = "bytes")]
@@ -197,8 +197,18 @@ impl<Octs> Txt<Octs> {
     /// Scans TXT record data.
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        scanner.scan_charstr_entry().map(Txt)
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        let res = scanner.scan_charstr_entry()?;
+        if res.as_ref().is_empty() {
+            return Err(S::Error::custom("empty TXT record"));
+        }
+        if LongRecordData::check_len(res.as_ref().len()).is_err() {
+            return Err(S::Error::custom("TXT record is too long"));
+        }
+        Ok(Txt(res))
     }
 }
 
@@ -927,7 +937,7 @@ impl fmt::Display for TxtAppendError {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
     };
     use alloc::{format, vec::Vec};
 
@@ -937,7 +947,19 @@ mod test {
         let rdata = Txt::from_octets(b"\x03foo\x03bar".as_ref()).unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Txt::parse(parser));
-        test_scan(&["foo", "bar"], Txt::scan, &rdata);
+        test_scan_check(&["foo", "bar"], Txt::scan, &rdata);
+    }
+
+    #[test]
+    fn txt_scan_empty() {
+        assert!(test_scan(&[], Txt::scan).is_err());
+    }
+
+    #[test]
+    fn txt_scan_long() {
+        let word = [b'a'; 255];
+        let word = str::from_utf8(&word).unwrap();
+        assert!(test_scan(&[word; 257], Txt::scan).is_err());
     }
 
     #[test]

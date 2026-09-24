@@ -15,8 +15,8 @@
 use crate::base::Rtype;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{SshfpAlgorithm, SshfpType};
-use crate::base::rdata::{ComposeRecordData, RecordData};
-use crate::base::scan::Scanner;
+use crate::base::rdata::{ComposeRecordData, LongRecordData, RecordData};
+use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
@@ -52,6 +52,14 @@ impl Sshfp<()> {
 }
 
 impl<Octs> Sshfp<Octs> {
+    /// Create SSHFP record data from provided parameters.
+    ///
+    /// # Note
+    ///
+    /// This function allows you to create an `Sshfp` value that is too
+    /// large to be composed into record data. Unless you are certain that
+    /// `fingerprint` is less than 65,534 bytes in size, you should use
+    /// [`try_new`][Self::try_new] instead.
     pub fn new(
         algorithm: SshfpAlgorithm,
         fingerprint_type: SshfpType,
@@ -62,6 +70,28 @@ impl<Octs> Sshfp<Octs> {
             fingerprint_type,
             fingerprint,
         }
+    }
+
+    /// Create SSHFP record data from provided parameters.
+    ///
+    /// Returns an error if `fingerprint` is larger than 65,533 bytes.
+    pub fn try_new(
+        algorithm: SshfpAlgorithm,
+        fingerprint_type: SshfpType,
+        fingerprint: Octs,
+    ) -> Result<Self, LongRecordData>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        LongRecordData::check_append_len(
+            usize::from(SshfpAlgorithm::COMPOSE_LEN + SshfpType::COMPOSE_LEN),
+            fingerprint.as_ref().len(),
+        )?;
+        Ok(Self {
+            algorithm,
+            fingerprint_type,
+            fingerprint,
+        })
     }
 
     /// Get the algorithm field.
@@ -82,32 +112,31 @@ impl<Octs> Sshfp<Octs> {
     /// Parse the record data from wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
-    ) -> Result<Self, ParseError> {
+    ) -> Result<Self, ParseError>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let algorithm = SshfpAlgorithm::parse(parser)?;
         let fingerprint_type = SshfpType::parse(parser)?;
         let len = parser.remaining();
         let fingerprint = parser.parse_octets(len)?;
-        Ok(Self {
-            algorithm,
-            fingerprint_type,
-            fingerprint,
-        })
+        Ok(Self::try_new(algorithm, fingerprint_type, fingerprint)?)
     }
 
     /// Parse the record data from zonefile format.
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let algorithm = SshfpAlgorithm::scan(scanner)?;
         let fingerprint_type = SshfpType::scan(scanner)?;
         let fingerprint =
             scanner.convert_entry(base16::SymbolConverter::new())?;
 
-        Ok(Self {
-            algorithm,
-            fingerprint_type,
-            fingerprint,
-        })
+        Self::try_new(algorithm, fingerprint_type, fingerprint)
+            .map_err(|err| S::Error::custom(err.as_str()))
     }
 
     pub(super) fn flatten<Target: OctetsFrom<Octs>>(
@@ -275,9 +304,9 @@ impl<Octs: AsRef<[u8]>> Ord for Sshfp<Octs> {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
     };
-    use crate::utils::base16::decode;
+    use crate::utils::base16;
     use alloc::string::ToString;
     use alloc::vec::Vec;
 
@@ -289,11 +318,11 @@ mod test {
         let algorithm = 1.into();
         let fingerprint_type = 1.into();
         let fingerprint_str = "73d3fa022a121062580431316bfe5d56653b91c2";
-        let fingerprint: Vec<u8> = decode(fingerprint_str).unwrap();
+        let fingerprint: Vec<u8> = base16::decode(fingerprint_str).unwrap();
         let rdata = Sshfp::new(algorithm, fingerprint_type, fingerprint);
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Sshfp::parse(parser));
-        test_scan(
+        test_scan_check(
             &[
                 &u8::from(algorithm).to_string(),
                 &u8::from(fingerprint_type).to_string(),
@@ -301,6 +330,32 @@ mod test {
             ],
             Sshfp::scan,
             &rdata,
+        );
+    }
+
+    #[test]
+    fn sshfp_scan_limits() {
+        assert!(
+            test_scan(
+                &[
+                    "12",
+                    "12",
+                    &base16::encode_string(&"a".repeat(0xFFFF - 2))
+                ],
+                Sshfp::scan
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &[
+                    "12",
+                    "12",
+                    &base16::encode_string(&"a".repeat(0xFFFF - 1))
+                ],
+                Sshfp::scan
+            )
+            .is_err()
         );
     }
 

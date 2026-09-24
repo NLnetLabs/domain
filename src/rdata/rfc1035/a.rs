@@ -200,7 +200,7 @@ impl AsMut<Ipv4Addr> for A {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
 
     #[test]
@@ -208,6 +208,6 @@ mod test {
         let rdata = A::from_octets(1, 2, 3, 4);
         test_rdlen(&rdata);
         test_compose_parse(&rdata, A::parse);
-        test_scan(&["1.2.3.4"], A::scan, &rdata);
+        test_scan_check(&["1.2.3.4"], A::scan, &rdata);
     }
 }

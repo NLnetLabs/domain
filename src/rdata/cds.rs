@@ -709,7 +709,7 @@ pub mod parsed {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
 
     //--- Cdnskey
@@ -721,7 +721,7 @@ mod test {
             Cdnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cdnskey::parse(parser));
-        test_scan(&["10", "11", "5", "a2V5"], Cdnskey::scan, &rdata);
+        test_scan_check(&["10", "11", "5", "a2V5"], Cdnskey::scan, &rdata);
     }
 
     //--- Cds
@@ -738,6 +738,6 @@ mod test {
         .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));
-        test_scan(&["10", "5", "2", "6b6579"], Cds::scan, &rdata);
+        test_scan_check(&["10", "5", "2", "6b6579"], Cds::scan, &rdata);
     }
 }

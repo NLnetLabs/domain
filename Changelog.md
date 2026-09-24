@@ -17,6 +17,9 @@ Bug fixes
 * Fixed a `todo!` macro in the `Hash` impl for `IpseckeyGateway`.
   ([#706] by [@SebastiaanYN])
 * Fixed integer overflow in `Scan` impl for unsigned integers. ([#725])
+* Added length checks when scanning and parsing variable length record
+  data types: `Caa`, `Ipseckey`, `Nsec3Salt`, `Openpgpkey`, `Sshfp`,
+  `Tlsa` `Txt` `Zonemd`. ([#726])
 
 Unstable features
 
@@ -32,6 +35,7 @@ Other changes
 [#716]: https://github.com/NLnetLabs/domain/pull/716
 [#724]: https://github.com/NLnetLabs/domain/pull/724
 [#725]: https://github.com/NLnetLabs/domain/pull/725
+[#726]: https://github.com/NLnetLabs/domain/pull/726
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
