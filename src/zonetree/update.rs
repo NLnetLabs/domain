@@ -44,6 +44,12 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 ///
 /// Pass updates to be applied to the zone one at a time to [`apply()`].
 ///
+/// If [`apply()`] fails the caller should not attempt to continue using
+/// the updater. If the cause of the error was [`Error::IncompatibleUpdate`]
+/// further attempts to invoke [`apply()`] will result in [`Error::Finished`]
+/// as it is only safe to apply a diff to a zone when the two parties involved
+/// share a common view of the current state of the zone.
+///
 /// To completely replace the content of a zone pass
 /// [`ZoneUpdate::DeleteAllRecords`] to [`apply()`] before any other updates.
 ///
@@ -285,6 +291,30 @@ where
             return Err(Error::Finished);
         }
 
+        self.do_apply(update).await.inspect_err(|err| {
+            if matches!(err, Error::IncompatibleUpdate) {
+                // If the view of the authoritative source of the zone is out
+                // of sync with our view of the zone then it is not safe to
+                // apply any changes to the zone. We therefore prevent further
+                // updates by moving to state Finished. Changes made so far
+                // will be discarded as it will no longer be possible to move
+                // correctly into the Finished state, nor is it possible to
+                // move out of the Finished state, and so changes thus far
+                // will never be committed.
+                self.state = ZoneUpdaterState::Finished;
+            }
+        })
+    }
+
+    /// Apply the given [`ZoneUpdate`] to the [`Zone`] being updated.
+    ///
+    /// Handles the actual logic of updating so that [`apply()`] can catch
+    /// and apply special handling to the [`Error::IncompatibleUpdate`] error
+    /// case.
+    async fn do_apply(
+        &mut self,
+        update: ZoneUpdate<Record<N, ZoneRecordData<Bytes, N>>>,
+    ) -> Result<Option<InMemoryZoneDiff>, Error> {
         match update {
             ZoneUpdate::DeleteAllRecords => {
                 // To completely replace the content of the zone, i.e. with
@@ -434,12 +464,20 @@ where
         let rtype = rec.rtype();
         let data = rec.data();
 
+        let mut found = false;
         if let Some(existing_rrset) = tree_node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
                 if existing_data != data {
                     rrset.push_data(existing_data.clone());
+                } else {
+                    found = true;
                 }
             }
+        }
+
+        if !found {
+            // Attempted to delete a record that does not exist.
+            return Err(Error::IncompatibleUpdate);
         }
 
         // Replace the RRset in the tree with the new smaller one.
@@ -475,13 +513,17 @@ where
             )));
         };
 
-        rrset.push_data(data);
-
         if let Some(existing_rrset) = tree_node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
+                if existing_data == &data {
+                    // Record already exists.
+                    return Err(Error::IncompatibleUpdate);
+                }
                 rrset.push_data(existing_data.clone());
             }
         }
+
+        rrset.push_data(data);
 
         // Replace the Rrset in the tree with the new bigger one.
         tree_node.update_rrset(SharedRrset::new(rrset)).await?;
@@ -503,7 +545,9 @@ enum ZoneUpdaterState {
 
     /// Finished.
     ///
-    /// [`ZoneUpdate::Finished`] was encountered.
+    /// [`ZoneUpdate::Finished`] was encountered, or
+    /// [`Error::IncompatibleUpdate`] occurred while applying updates to the
+    /// zone.
     ///
     /// The [`ZoneUpdater`] has closed the [`WritableZone`] and can no longer
     /// be used.
@@ -868,8 +912,8 @@ mod tests {
             .into();
 
         let mut answers = answer.answer().unwrap().limit_to::<A>();
-        assert_eq!(answers.next().unwrap().unwrap().into_data(), a_2);
         assert_eq!(answers.next().unwrap().unwrap().into_data(), a_1);
+        assert_eq!(answers.next().unwrap().unwrap().into_data(), a_2);
         assert_eq!(answers.next(), None);
     }
 
@@ -1115,8 +1159,8 @@ mod tests {
 
         let mut answers =
             answer.answer().unwrap().limit_to::<ZoneRecordData<_, _>>();
-        assert_eq!(answers.next().unwrap().unwrap(), a_4);
         assert_eq!(answers.next().unwrap().unwrap(), a_3);
+        assert_eq!(answers.next().unwrap().unwrap(), a_4);
         assert_eq!(answers.next(), None);
 
         //    "or with the following incremental message:"
@@ -1256,6 +1300,72 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 0);
     }
 
+    #[tokio::test]
+    async fn ixfr_delete_non_existing_record() {
+        let zone = mk_empty_zone("example.com");
+
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+
+        let qname = Name::from_str("example.com").unwrap();
+
+        let s = Serial::now();
+        let soa = mk_soa(s);
+        let soa_data = ZoneRecordData::Soa(soa.clone());
+        let soa_rec = Record::new(
+            ParsedName::from(qname.clone()),
+            Class::IN,
+            Ttl::from_secs(0),
+            soa_data,
+        );
+
+        // Attempting to delete a non-existent record should result in an
+        // incompatible update error.
+        let res = updater
+            .apply(ZoneUpdate::DeleteRecord(soa_rec.clone()))
+            .await;
+        assert!(matches!(res, Err(Error::IncompatibleUpdate)));
+
+        // Subsequent attempts to update the zone should result in an already
+        // finished error.
+        let res = updater.apply(ZoneUpdate::DeleteRecord(soa_rec)).await;
+        assert!(matches!(res, Err(Error::Finished)));
+    }
+
+    #[tokio::test]
+    async fn ixfr_add_existing_record() {
+        let zone = mk_empty_zone("example.com");
+
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+
+        let qname = Name::from_str("example.com").unwrap();
+
+        let s = Serial::now();
+        let soa = mk_soa(s);
+        let soa_data = ZoneRecordData::Soa(soa.clone());
+        let soa_rec = Record::new(
+            ParsedName::from(qname.clone()),
+            Class::IN,
+            Ttl::from_secs(0),
+            soa_data,
+        );
+
+        // Inserting the record should succeed the first time.
+        updater
+            .apply(ZoneUpdate::AddRecord(soa_rec.clone()))
+            .await
+            .unwrap();
+
+        // Attempting to insert an already existing record should result in an
+        // incompatible update error.
+        let res = updater.apply(ZoneUpdate::AddRecord(soa_rec.clone())).await;
+        assert!(matches!(res, Err(Error::IncompatibleUpdate)));
+
+        // Subsequent attempts to update the zone should result in an already
+        // finished error.
+        let res = updater.apply(ZoneUpdate::AddRecord(soa_rec)).await;
+        assert!(matches!(res, Err(Error::Finished)));
+    }
+
     //------------ Helper functions -------------------------------------------
 
     fn mk_empty_zone(apex_name: &str) -> Zone {
@@ -1311,6 +1421,17 @@ pub enum Error {
     /// The record must be a SOA record.
     NotSoaRecord,
 
+    /// An attempt was made to remove a record that doesn't exist or to add a
+    /// record that already exists.
+    ///
+    /// No further updates to the zone will be permitted as it is only safe to
+    /// apply a diff to a zone if the updater and the updatee share the same
+    /// view of the zone.
+    ///
+    /// Updates already applied will be discarded when the [`ZoneUpdater`]
+    /// instance is dropped.
+    IncompatibleUpdate,
+
     /// An I/O error occurred while updating the zone.
     IoError(std::io::Error),
 
@@ -1325,6 +1446,7 @@ impl core::fmt::Display for Error {
         match self {
             Error::OutOfZone => f.write_str("OutOfZone"),
             Error::NotSoaRecord => f.write_str("NotSoaRecord"),
+            Error::IncompatibleUpdate => f.write_str("IncompatibleUpdate"),
             Error::IoError(err) => write!(f, "I/O error: {err}"),
 
             Error::Finished => f.write_str("Finished"),
