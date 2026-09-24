@@ -1687,7 +1687,7 @@ impl Node {
 
     /// Return the remaining time to live.
     pub fn ttl(&self) -> Duration {
-        self.valid_for - self.created_at.elapsed()
+        self.valid_for.saturating_sub(self.created_at.elapsed())
     }
 }
 
