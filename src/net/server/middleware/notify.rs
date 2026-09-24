@@ -272,9 +272,12 @@ where
                 //    response must be the same as was received in the
                 //    request."
                 let Ok(mut additional) = Self::copy_message(msg) else {
-                    return ControlFlow::Break(once(ready(Ok(CallResult::new(
-                        mk_error_response(msg, OptRcode::SERVFAIL)
-                    )))))
+                    return ControlFlow::Break(once(ready(Ok(
+                        CallResult::new(mk_error_response(
+                            msg,
+                            OptRcode::SERVFAIL,
+                        )),
+                    ))));
                 };
 
                 let response_hdr = additional.header_mut();
