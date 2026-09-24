@@ -168,7 +168,10 @@ impl Display for RecordError {
                 write!(f, "The record is parseable but not valid: {err}")
             }
             RecordError::MissingSoa(Some(rec)) => {
-                write!(f, "The SOA record was not found, found this record instead: {rec}")
+                write!(
+                    f,
+                    "The SOA record was not found, found this record instead: {rec}"
+                )
             }
             RecordError::MissingSoa(None) => {
                 write!(f, "The SOA record was not found.")
