@@ -261,15 +261,18 @@ impl<Target: Composer> MessageBuilder<Target> {
         Ok(builder.answer())
     }
 
-    /// Starts creating an error for the given message.
+    /// Tries creating the start of an answer for the given message.
     ///
-    /// Like [`start_answer()`][Self::start_answer] but infallible. Questions
-    /// will be pushed if possible.
-    pub fn start_error<Octs: Octets + ?Sized>(
+    /// This is mostly the same as [`start_answer`][Self::start_answer] but
+    /// returns an answer builder with an appropriate error message in case
+    /// the answer cannot be created. This happens if the question section
+    /// cannot be copied over to the answer. The error message will have an
+    /// rcode of SERVFAIL.
+    pub fn try_start_answer<Octs: Octets + ?Sized>(
         mut self,
         msg: &Message<Octs>,
         rcode: Rcode,
-    ) -> AnswerBuilder<Target> {
+    ) -> Result<AnswerBuilder<Target>, AnswerBuilder<Target>> {
         {
             let header = self.header_mut();
             header.set_id(msg.header().id());
@@ -283,11 +286,26 @@ impl<Target: Composer> MessageBuilder<Target> {
         for item in msg.question().flatten() {
             if builder.push(item).is_err() {
                 builder.header_mut().set_rcode(Rcode::SERVFAIL);
-                break;
+                return Err(builder.answer());
             }
         }
 
-        builder.answer()
+        Ok(builder.answer())
+    }
+
+    /// Starts creating an error for the given message.
+    ///
+    /// Like [`try_start_answer()`][Self::try_start_answer] but both result
+    /// cases rolled into one.
+    pub fn start_error<Octs: Octets + ?Sized>(
+        self,
+        msg: &Message<Octs>,
+        rcode: Rcode,
+    ) -> AnswerBuilder<Target> {
+        match self.try_start_answer(msg, rcode) {
+            Ok(res) => res,
+            Err(res) => res,
+        }
     }
 
     /// Creates an AXFR request for the given domain.
@@ -904,6 +922,21 @@ impl<Target: Composer> AnswerBuilder<Target> {
         self.counts_mut().set_ancount(0);
     }
 
+    /// Rewinds to an empty answer and returns the answer builder.
+    ///
+    /// This can be handy when having to return early in an error case.
+    pub fn rewind_into(mut self) -> Self {
+        self.rewind();
+        self
+    }
+
+    /// Sets the TC bit, rewinds, and returns the answer builder.
+    pub fn tc_rewind_into(mut self) -> Self {
+        self.rewind();
+        self.header_mut().set_tc(true);
+        self
+    }
+
     /// Converts the answer builder into a message builder.
     ///
     /// All questions and answers will be dropped and all sections will be
@@ -1155,6 +1188,21 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     pub fn rewind(&mut self) {
         self.answer.as_target_mut().truncate(self.start);
         self.counts_mut().set_nscount(0);
+    }
+
+    /// Rewinds to an empty answer and returns the answer builder.
+    ///
+    /// This can be handy when having to return early in an error case.
+    pub fn rewind_into(mut self) -> Self {
+        self.rewind();
+        self
+    }
+
+    /// Sets the TC bit, rewinds, and returns the answer builder.
+    pub fn tc_rewind_into(mut self) -> Self {
+        self.rewind();
+        self.header_mut().set_tc(true);
+        self
     }
 
     /// Converts the authority builder into a message builder.
@@ -1436,6 +1484,21 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     pub fn rewind(&mut self) {
         self.authority.as_target_mut().truncate(self.start);
         self.counts_mut().set_arcount(0);
+    }
+
+    /// Rewinds to an empty answer and returns the answer builder.
+    ///
+    /// This can be handy when having to return early in an error case.
+    pub fn rewind_into(mut self) -> Self {
+        self.rewind();
+        self
+    }
+
+    /// Sets the TC bit, rewinds, and returns the answer builder.
+    pub fn tc_rewind_into(mut self) -> Self {
+        self.rewind();
+        self.header_mut().set_tc(true);
+        self
     }
 
     /// Converts the additional builder into a message builder.

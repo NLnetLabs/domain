@@ -32,6 +32,9 @@ Unstable features
 * `unstable-xfr`:
   * Return an error rather than panicking when a response is not AXFR or
     IXFR. (#724)
+* `unstable-zonetree`:
+  * Fixed a panic in `zonetree::Answer::to_message` when the request does
+    not have exactly one question. ([#731])
 
 Other changes
 
@@ -46,6 +49,7 @@ Other changes
 [#728]: https://github.com/NLnetLabs/domain/pull/728
 [#729]: https://github.com/NLnetLabs/domain/pull/729
 [#730]: https://github.com/NLnetLabs/domain/pull/730
+[#731]: https://github.com/NLnetLabs/domain/pull/731
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
