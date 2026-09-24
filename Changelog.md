@@ -42,6 +42,7 @@ Unstable features
   * Fixed a panic when an NSEC owner name is too long. ([#735])
 * `unstable-validator`:
   * Fixed a panic when encountering an invalid NSEC3 label. ([#728])
+  * Fixed a potential integer underflow when subtracting TTLs. ([#740])
 * `unstable-xfr`:
   * Return an error rather than panicking when a response is not AXFR or
     IXFR. (#724)
@@ -79,6 +80,7 @@ Other changes
 [#737]: https://github.com/NLnetLabs/domain/pull/737
 [#738]: https://github.com/NLnetLabs/domain/pull/738
 [#739]: https://github.com/NLnetLabs/domain/pull/739
+[#740]: https://github.com/NLnetLabs/domain/pull/740
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
