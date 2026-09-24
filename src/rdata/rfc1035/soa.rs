@@ -442,10 +442,10 @@ mod test {
     use super::*;
     use crate::base::name::Name;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
@@ -461,7 +461,7 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Soa::parse(parser));
-        test_scan(
+        test_scan_check(
             &[
                 "m.example.com",
                 "r.example.com",

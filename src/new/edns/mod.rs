@@ -9,7 +9,10 @@ use core::fmt;
 use core::hash::{Hash, Hasher};
 
 use crate::new::base::build::{BuildInMessage, NameCompressor};
-use crate::new::base::parse::{ParseMessageBytes, SplitMessageBytes};
+use crate::new::base::parse::{
+    ParseMessageBytes, SplitMessageBytes, parse_without_compression,
+    split_without_compression,
+};
 use crate::new::base::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SizePrefixed,
     SplitBytes, SplitBytesZC, TruncationError, U16,
@@ -96,8 +99,7 @@ impl<'a, D: ParseBytes<'a>> SplitMessageBytes<'a> for EdnsRecord<D> {
         contents: &'a [u8],
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
-        Self::split_bytes(contents.get(start..).ok_or(ParseError)?)
-            .map(|(this, rest)| (this, contents.len() - start - rest.len()))
+        split_without_compression(contents, start)
     }
 }
 
@@ -106,7 +108,7 @@ impl<'a, D: ParseBytes<'a>> ParseMessageBytes<'a> for EdnsRecord<D> {
         contents: &'a [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        Self::parse_bytes(contents.get(start..).ok_or(ParseError)?)
+        parse_without_compression(contents, start)
     }
 }
 

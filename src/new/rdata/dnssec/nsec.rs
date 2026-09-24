@@ -9,11 +9,11 @@ use crate::new::base::wire::*;
 use crate::new::base::{CanonicalRecordData, RType};
 use crate::utils::dst::UnsizedCopy;
 
-//----------- NSec -----------------------------------------------------------
+//----------- Nsec -----------------------------------------------------------
 
 /// An indication of the non-existence of a set of DNS records (version 1).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, BuildBytes)]
-pub struct NSec<'a> {
+pub struct Nsec<'a> {
     /// The name of the next existing DNS record.
     pub next: &'a Name,
 
@@ -23,13 +23,13 @@ pub struct NSec<'a> {
 
 //--- Interaction
 
-impl NSec<'_> {
+impl Nsec<'_> {
     /// Copy referenced data into the given [`Bump`](bumpalo::Bump) allocator.
     #[cfg(feature = "bumpalo")]
-    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> NSec<'r> {
+    pub fn clone_to_bump<'r>(&self, bump: &'r bumpalo::Bump) -> Nsec<'r> {
         use crate::utils::dst::copy_to_bump;
 
-        NSec {
+        Nsec {
             next: copy_to_bump(self.next, bump),
             types: copy_to_bump(self.types, bump),
         }
@@ -38,7 +38,7 @@ impl NSec<'_> {
 
 //--- Canonical operations
 
-impl CanonicalRecordData for NSec<'_> {
+impl CanonicalRecordData for Nsec<'_> {
     fn cmp_canonical(&self, other: &Self) -> Ordering {
         self.next
             .cmp_composed(other.next)
@@ -48,7 +48,7 @@ impl CanonicalRecordData for NSec<'_> {
 
 //--- Building in DNS messages
 
-impl BuildInMessage for NSec<'_> {
+impl BuildInMessage for Nsec<'_> {
     fn build_in_message(
         &self,
         contents: &mut [u8],
@@ -63,7 +63,7 @@ impl BuildInMessage for NSec<'_> {
 
 //--- Parsing from byte sequences
 
-impl<'a> ParseBytes<'a> for NSec<'a> {
+impl<'a> ParseBytes<'a> for Nsec<'a> {
     fn parse_bytes(bytes: &'a [u8]) -> Result<Self, ParseError> {
         let (next, bytes) = <&Name>::split_bytes(bytes)?;
         if bytes.is_empty() {
@@ -104,9 +104,14 @@ impl TypeBitmaps {
         })
         .flat_map(move |(num, bits, _)| {
             bits.iter().enumerate().flat_map(move |(i, &b)| {
-                (0..8).filter(move |&j| ((b >> j) & 1) != 0).map(move |j| {
-                    RType::from(u16::from_be_bytes([num, (i * 8 + j) as u8]))
-                })
+                (0..8).filter(move |&j| ((b >> (7 - j)) & 1) != 0).map(
+                    move |j| {
+                        RType::from(u16::from_be_bytes([
+                            num,
+                            (i * 8 + j) as u8,
+                        ]))
+                    },
+                )
             })
         })
     }
@@ -193,5 +198,81 @@ impl Clone for alloc::boxed::Box<TypeBitmaps> {
 impl Hash for TypeBitmaps {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&self.octets)
+    }
+}
+
+//
+// --- Functions to make it easier to transition from old base.
+// These functions should be marked as deprecated when most of the initial
+// migration to new base has completed.
+impl<'a> Nsec<'a> {
+    /// Constructor for Nsec.
+    pub fn new(next: &'a Name, types: &'a TypeBitmaps) -> Self {
+        Self { next, types }
+    }
+
+    /// Return the RRtypes that are present.
+    pub fn types(&self) -> &TypeBitmaps {
+        self.types
+    }
+
+    /// Return the name of the next NSEC record in the chain.
+    pub fn next_name(&self) -> &Name {
+        self.next
+    }
+}
+
+impl TypeBitmaps {
+    /// Return an iterator for TypeBitmaps
+    pub fn iter(&self) -> impl Iterator<Item = RType> {
+        self.types()
+    }
+
+    /// Return whether the type bitmap contains a specific RRtype.
+    // This is very inefficient. It should iterate over the bitmaps and
+    // then directly check the relevant bit.
+    pub fn contains(&self, rtype: RType) -> bool {
+        // This is very inefficient.
+        self.types().any(|t| t == rtype)
+    }
+
+    /// Return whether the type bitmap is empty.
+    pub fn is_empty(&self) -> bool {
+        self.types().next().is_none()
+    }
+}
+
+// TODO: implement IntoIterator for TypeBitmaps.
+
+//============ Tests =========================================================
+#[cfg(test)]
+mod tests {
+    use crate::new::base::{RType, wire::ParseBytesZC};
+
+    use super::TypeBitmaps;
+
+    /// Test that [`TypeBitmaps`] parses correctly.
+    #[test]
+    fn type_bitmaps_parse() {
+        let bytes = b"\x00\x06\x40\x01\x00\x00\x00\x03\
+                     \x04\x1b\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x20";
+
+        let bitmaps = TypeBitmaps::parse_bytes_by_ref(bytes).unwrap();
+
+        let expected = [
+            RType::A,     // 0x0001
+            RType::MX,    // 0x000F
+            RType::RRSIG, // 0x002E
+            RType::NSEC,  // 0x002F
+            RType::from(0x04D2),
+        ];
+
+        assert!(
+            bitmaps.types().eq(expected),
+            "{bitmaps:?} did not match expectation {expected:?}"
+        );
     }
 }

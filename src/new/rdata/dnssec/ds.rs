@@ -5,11 +5,11 @@ use core::{cmp::Ordering, fmt};
 
 use domain_macros::*;
 
+use crate::new::base::CanonicalRecordData;
 use crate::new::base::build::{
     BuildInMessage, NameCompressor, TruncationError,
 };
 use crate::new::base::wire::{AsBytes, U16};
-use crate::new::base::CanonicalRecordData;
 
 use super::SecAlg;
 

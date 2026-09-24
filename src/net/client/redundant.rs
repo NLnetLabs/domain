@@ -2,25 +2,25 @@
 
 use bytes::Bytes;
 
-use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 
 use octseq::Octets;
 
 use rand::{random, random_range};
 
-use std::boxed::Box;
-use std::cmp::Ordering;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::pin::Pin;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::cmp::Ordering;
+use core::fmt::{Debug, Formatter};
+use core::future::Future;
+use core::pin::Pin;
 
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep_until, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep_until};
 
-use crate::base::iana::OptRcode;
 use crate::base::Message;
+use crate::base::iana::OptRcode;
 use crate::net::client::request::{Error, GetResponse, SendRequest};
 
 /*
@@ -216,7 +216,7 @@ impl GetResponse for Request {
 }
 
 impl Debug for Request {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -307,7 +307,7 @@ impl<Req> Debug for ChanReq<Req>
 where
     Req: Send + Sync,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("ChanReq").finish()
     }
 }
@@ -352,7 +352,7 @@ impl<Req: Debug> Debug for RequestReq<Req>
 where
     Req: Send + Sync,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("RequestReq")
             .field("id", &self.id)
             .field("request_msg", &self.request_msg)
@@ -592,7 +592,9 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
                                     .expect("just checked for Some");
                                 return Err(err);
                             }
-                            panic!("either deferred_reply or deferred_error should be present");
+                            panic!(
+                                "either deferred_reply or deferred_error should be present"
+                            );
                         }
                         let res = self.fut_list.next().await;
                         let res = res.expect("res should not be empty");

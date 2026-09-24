@@ -5,7 +5,7 @@
 use bytes::Bytes;
 
 use crate::{
-    base::{wire::ParseError, ParsedName, Record, Rtype},
+    base::{ParsedName, Record, Rtype, wire::ParseError},
     rdata::ZoneRecordData,
 };
 
@@ -91,7 +91,7 @@ pub enum Error {
     Finished,
 }
 
-impl std::fmt::Display for Error {
+impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::ParseError(err) => {

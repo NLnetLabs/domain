@@ -1,14 +1,17 @@
-use core::future::{ready, Future, Ready};
+use core::fmt::Debug;
+use core::future::{Future, Ready, ready};
 use core::ops::ControlFlow;
 use core::pin::Pin;
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use std::borrow::ToOwned;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::sync::Arc;
-use std::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use alloc::{format, vec};
+
+use std::eprintln;
 
 use bytes::Bytes;
 use futures_util::stream::Once;
@@ -34,7 +37,7 @@ use crate::net::server::service::{
     CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
 };
 use crate::rdata::{
-    Aaaa, AllRecordData, Cname, Ds, Mx, Ns, Soa, Txt, ZoneRecordData, A,
+    A, Aaaa, AllRecordData, Cname, Ds, Mx, Ns, Soa, Txt, ZoneRecordData,
 };
 use crate::tsig::{Algorithm, Key, KeyName};
 use crate::zonefile::inplace::Zonefile;

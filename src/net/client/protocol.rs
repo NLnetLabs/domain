@@ -1,11 +1,11 @@
 //! Underlying transport protocols.
 
+use alloc::boxed::Box;
 use core::future::Future;
+use core::net::SocketAddr;
 use core::pin::Pin;
-use std::boxed::Box;
+use core::task::{Context, Poll};
 use std::io;
-use std::net::SocketAddr;
-use std::task::{Context, Poll};
 use tokio::io::ReadBuf;
 use tokio::net::{TcpStream, UdpSocket};
 
@@ -70,7 +70,7 @@ impl AsyncConnect for TcpConnect {
 #[derive(Clone, Debug)]
 pub struct TlsConnect {
     /// Configuration for setting up a TLS connection.
-    client_config: std::sync::Arc<tokio_rustls::rustls::ClientConfig>,
+    client_config: alloc::sync::Arc<tokio_rustls::rustls::ClientConfig>,
 
     /// Server name for certificate verification.
     server_name: tokio_rustls::rustls::pki_types::ServerName<'static>,
@@ -88,7 +88,7 @@ impl TlsConnect {
         addr: SocketAddr,
     ) -> Self
     where
-        Conf: Into<std::sync::Arc<tokio_rustls::rustls::ClientConfig>>,
+        Conf: Into<alloc::sync::Arc<tokio_rustls::rustls::ClientConfig>>,
     {
         Self {
             client_config: client_config.into(),

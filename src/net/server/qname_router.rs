@@ -7,17 +7,17 @@ use super::message::Request;
 use super::service::ServiceError;
 use super::single_service::{ComposeReply, SingleService};
 use super::util::mk_error_response;
+use crate::base::StreamTarget;
 use crate::base::iana::{ExtendedErrorCode, OptRcode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::ExtendedError;
-use crate::base::StreamTarget;
 use crate::base::{Name, ToName};
 use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets, OctetsBuilder};
-use std::boxed::Box;
-use std::convert::Infallible;
-use std::future::{ready, Future};
-use std::pin::Pin;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::convert::Infallible;
+use core::future::{Future, ready};
+use core::pin::Pin;
 use tracing::trace;
 
 /// A service that routes requests to other services based on the Qname in the
@@ -90,14 +90,17 @@ where
     where
         RequestOcts: AsRef<[u8]> + Octets,
     {
-        let question = request
-            .message()
-            .question()
-            .into_iter()
-            .next()
-            .expect("the caller need to make sure that there is question")
-            .expect("the caller need to make sure that the question can be parsed")
-            ;
+        let Some(Ok(question)) =
+            request.message().question().into_iter().next()
+        else {
+            let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+                mk_error_response(request.message(), OptRcode::FORMERR);
+            return Box::pin(ready(Ok(CR::from_message(
+                &builder.as_message(),
+            )
+            .expect("CR should handle an error response"))));
+        };
+
         let name = question.qname();
         let el = match self
             .list

@@ -59,8 +59,11 @@ pub mod tlsa;
 pub mod zonemd;
 
 #[cfg(feature = "serde")]
+#[cfg(feature = "std")]
 #[cfg(test)]
 mod test {
+    use std::format;
+
     use crate::base::iana::class::Class;
     use crate::base::iana::digestalg::DigestAlgorithm;
     // use crate::base::iana::exterr::ExtendedErrorCode;

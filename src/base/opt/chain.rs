@@ -217,12 +217,12 @@ impl<Target: Composer> OptBuilder<'_, Target> {
 //============ Testing ======================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 mod test {
     use super::super::test::test_option_compose_parse;
     use super::*;
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...

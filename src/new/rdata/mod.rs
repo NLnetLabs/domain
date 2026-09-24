@@ -43,6 +43,7 @@
 //! - [`Mx`]
 //! - [`Txt`]
 //! - [`Rp`]
+//! - [`Srv`]
 //!
 //! Indirection types:
 //! - [`CName`]
@@ -51,10 +52,10 @@
 //!
 //! Security related types:
 //! - [`DNSKey`]
-//! - [`RRSig`]
-//! - [`NSec`]
-//! - [`NSec3`]
-//! - [`NSec3Param`]
+//! - [`Rrsig`]
+//! - [`Nsec`]
+//! - [`Nsec3`]
+//! - [`Nsec3Param`]
 //! - [`Ds`]
 //! - [`ZoneMD`]
 //!
@@ -78,8 +79,12 @@ use core::{
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
 
+#[cfg(feature = "alloc")]
+use alloc::vec;
+
 use crate::{
     new::base::{
+        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
         build::{BuildInMessage, NameCompressor},
         name::CanonicalName,
         parse::{ParseMessageBytes, SplitMessageBytes},
@@ -87,7 +92,6 @@ use crate::{
             AsBytes, BuildBytes, ParseBytes, ParseError, SplitBytes,
             TruncationError,
         },
-        CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
     },
     utils::dst::UnsizedCopy,
 };
@@ -98,7 +102,7 @@ use crate::new::base::name::{Name, NameBuf};
 //----------- Concrete record data types -------------------------------------
 
 mod basic;
-pub use basic::{CName, HInfo, Mx, Ns, Ptr, Soa, Txt, A};
+pub use basic::{A, CName, HInfo, Mx, Ns, Ptr, Soa, Txt};
 
 mod dname;
 pub use dname::DName;
@@ -112,10 +116,13 @@ pub use edns::{EdnsOptionsIter, Opt};
 mod rp;
 pub use rp::Rp;
 
+mod srv;
+pub use srv::Srv;
+
 mod dnssec;
 pub use dnssec::{
-    DNSKey, DNSKeyFlags, DigestType, Ds, NSec, NSec3, NSec3Flags,
-    NSec3HashAlg, NSec3Param, RRSig, SecAlg, TypeBitmaps,
+    DNSKey, DNSKeyFlags, DigestType, Ds, Nsec, Nsec3, Nsec3Flags,
+    Nsec3HashAlgorithm, Nsec3Param, Rrsig, SecAlg, TypeBitmaps,
 };
 
 mod zonemd;
@@ -277,6 +284,9 @@ define_record_data! {
         /// Identification of the person/party responsible for this domain.
         Rp(Rp<N>) = RP,
 
+        /// The locations of services associated with this domain.
+        Srv(&'a Srv) = SRV,
+
         /// The IPv6 address of a host responsible for this domain.
         Aaaa(Aaaa) = AAAA,
 
@@ -290,19 +300,19 @@ define_record_data! {
         Ds(&'a Ds) = DS,
 
         /// A cryptographic signature on a DNS record set.
-        RRSig(RRSig<'a>) = RRSIG,
+        Rrsig(Rrsig<'a>) = RRSIG,
 
         /// An indication of the non-existence of a set of DNS records (version 1).
-        NSec(NSec<'a>) = NSEC,
+        Nsec(Nsec<'a>) = NSEC,
 
         /// A cryptographic key for DNS security.
         DNSKey(&'a DNSKey) = DNSKEY,
 
         /// An indication of the non-existence of a set of DNS records (version 3).
-        NSec3(NSec3<'a>) = NSEC3,
+        Nsec3(Nsec3<'a>) = NSEC3,
 
-        /// Parameters for computing [`NSec3`] records.
-        NSec3Param(&'a NSec3Param) = NSEC3PARAM,
+        /// Parameters for computing [`Nsec3`] records.
+        Nsec3Param(&'a Nsec3Param) = NSEC3PARAM,
 
         /// A message digest of the enclosing zone.
         ZoneMD(&'a ZoneMD) = ZONEMD;
@@ -328,14 +338,15 @@ impl<'a, N> RecordData<'a, N> {
             Self::Txt(r) => RecordData::Txt(r),
             Self::Rp(r) => RecordData::Rp(r.map_names(f)),
             Self::Aaaa(r) => RecordData::Aaaa(r),
+            Self::Srv(r) => RecordData::Srv(r),
             Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
-            Self::RRSig(r) => RecordData::RRSig(r),
-            Self::NSec(r) => RecordData::NSec(r),
+            Self::Rrsig(r) => RecordData::Rrsig(r),
+            Self::Nsec(r) => RecordData::Nsec(r),
             Self::DNSKey(r) => RecordData::DNSKey(r),
-            Self::NSec3(r) => RecordData::NSec3(r),
-            Self::NSec3Param(r) => RecordData::NSec3Param(r),
+            Self::Nsec3(r) => RecordData::Nsec3(r),
+            Self::Nsec3Param(r) => RecordData::Nsec3Param(r),
             Self::ZoneMD(r) => RecordData::ZoneMD(r),
             Self::Unknown(rt, rd) => RecordData::Unknown(rt, rd),
         }
@@ -357,14 +368,15 @@ impl<'a, N> RecordData<'a, N> {
             Self::Txt(r) => RecordData::Txt(r),
             Self::Rp(r) => RecordData::Rp(r.map_names_by_ref(f)),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
+            Self::Srv(r) => RecordData::Srv(r),
             Self::DName(r) => RecordData::DName(r),
             Self::Opt(r) => RecordData::Opt(r),
             Self::Ds(r) => RecordData::Ds(r),
-            Self::RRSig(r) => RecordData::RRSig(r.clone()),
-            Self::NSec(r) => RecordData::NSec(r.clone()),
+            Self::Rrsig(r) => RecordData::Rrsig(r.clone()),
+            Self::Nsec(r) => RecordData::Nsec(r.clone()),
             Self::DNSKey(r) => RecordData::DNSKey(r),
-            Self::NSec3(r) => RecordData::NSec3(r.clone()),
-            Self::NSec3Param(r) => RecordData::NSec3Param(r),
+            Self::Nsec3(r) => RecordData::Nsec3(r.clone()),
+            Self::Nsec3Param(r) => RecordData::Nsec3Param(r),
             Self::ZoneMD(r) => RecordData::ZoneMD(r),
             Self::Unknown(rt, rd) => RecordData::Unknown(*rt, rd),
         }
@@ -392,15 +404,16 @@ impl<'a, N> RecordData<'a, N> {
             Self::Txt(r) => RecordData::Txt(copy_to_bump(*r, bump)),
             Self::Rp(r) => RecordData::Rp(r.clone()),
             Self::Aaaa(r) => RecordData::Aaaa(*r),
+            Self::Srv(r) => RecordData::Srv(copy_to_bump(*r, bump)),
             Self::DName(r) => RecordData::DName(copy_to_bump(*r, bump)),
             Self::Opt(r) => RecordData::Opt(copy_to_bump(*r, bump)),
             Self::Ds(r) => RecordData::Ds(copy_to_bump(*r, bump)),
-            Self::RRSig(r) => RecordData::RRSig(r.clone_to_bump(bump)),
-            Self::NSec(r) => RecordData::NSec(r.clone_to_bump(bump)),
+            Self::Rrsig(r) => RecordData::Rrsig(r.clone_to_bump(bump)),
+            Self::Nsec(r) => RecordData::Nsec(r.clone_to_bump(bump)),
             Self::DNSKey(r) => RecordData::DNSKey(copy_to_bump(*r, bump)),
-            Self::NSec3(r) => RecordData::NSec3(r.clone_to_bump(bump)),
-            Self::NSec3Param(r) => {
-                RecordData::NSec3Param(copy_to_bump(*r, bump))
+            Self::Nsec3(r) => RecordData::Nsec3(r.clone_to_bump(bump)),
+            Self::Nsec3Param(r) => {
+                RecordData::Nsec3Param(copy_to_bump(*r, bump))
             }
             Self::ZoneMD(r) => RecordData::ZoneMD(copy_to_bump(*r, bump)),
             Self::Unknown(rt, rd) => {
@@ -447,6 +460,9 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             RType::AAAA => {
                 Aaaa::parse_bytes(&contents[start..]).map(Self::Aaaa)
             }
+            RType::SRV => {
+                <&Srv>::parse_bytes(&contents[start..]).map(Self::Srv)
+            }
             RType::DNAME => {
                 <&DName>::parse_bytes(&contents[start..]).map(Self::DName)
             }
@@ -455,20 +471,20 @@ impl<'a, N: SplitMessageBytes<'a>> ParseRecordData<'a> for RecordData<'a, N> {
             }
             RType::DS => <&Ds>::parse_bytes(&contents[start..]).map(Self::Ds),
             RType::RRSIG => {
-                RRSig::parse_bytes(&contents[start..]).map(Self::RRSig)
+                Rrsig::parse_bytes(&contents[start..]).map(Self::Rrsig)
             }
             RType::NSEC => {
-                NSec::parse_bytes(&contents[start..]).map(Self::NSec)
+                Nsec::parse_bytes(&contents[start..]).map(Self::Nsec)
             }
             RType::DNSKEY => {
                 <&DNSKey>::parse_bytes(&contents[start..]).map(Self::DNSKey)
             }
             RType::NSEC3 => {
-                NSec3::parse_bytes(&contents[start..]).map(Self::NSec3)
+                Nsec3::parse_bytes(&contents[start..]).map(Self::Nsec3)
             }
             RType::NSEC3PARAM => {
-                <&NSec3Param>::parse_bytes(&contents[start..])
-                    .map(Self::NSec3Param)
+                <&Nsec3Param>::parse_bytes(&contents[start..])
+                    .map(Self::Nsec3Param)
             }
             RType::ZONEMD => {
                 <&ZoneMD>::parse_bytes(&contents[start..]).map(Self::ZoneMD)
@@ -632,23 +648,31 @@ impl<N: BuildBytes> From<RecordData<'_, N>> for BoxedRecordData {
     /// Panics if the [`RecordData`] does not fit in a 64KiB buffer, or if the
     /// serialized bytes cannot be parsed back into `RecordData<'_, &Name>`.
     fn from(value: RecordData<'_, N>) -> Self {
-        // TODO: Determine the size of the record data upfront, and only
-        // allocate that much. Maybe as a new method on 'BuildBytes'...
-        let mut buffer = vec![0u8; 65535];
-        let rest_len = value
+        let mut buffer = vec![0u8; value.built_bytes_size()];
+        let rest = value
             .build_bytes(&mut buffer)
-            .expect("A 'RecordData' could not be built into a 64KiB buffer")
-            .len();
-        let len = buffer.len() - rest_len;
-        buffer.truncate(len);
+            .expect("Exactly the right size was allocated");
+        debug_assert!(
+            rest.is_empty(),
+            "Exactly the right size was allocated"
+        );
         let buffer: Box<[u8]> = buffer.into_boxed_slice();
 
         // Verify that the built bytes can be parsed correctly.
-        let _rdata: RecordData<'_, &Name> =
-            RecordData::parse_record_data_bytes(&buffer, value.rtype())
-                .expect("A serialized 'RecordData' could not be parsed back");
+        #[cfg(debug_assertions)]
+        {
+            let _rdata: RecordData<'_, &Name> =
+                RecordData::parse_record_data_bytes(&buffer, value.rtype())
+                    .expect(
+                        "A serialized 'RecordData' could not be parsed back",
+                    );
+        }
 
         // Construct the internal representation.
+        debug_assert!(
+            buffer.len() <= u16::MAX as usize,
+            "Record data must fit under 64KiB"
+        );
         let size = buffer.len() as u16;
         let data = Box::into_raw(buffer).cast::<u8>();
         let rtype = value.rtype();

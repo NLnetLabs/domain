@@ -4,18 +4,19 @@ use core::fmt::{Debug, Display};
 use core::marker::{PhantomData, Send};
 use core::ops::Deref;
 
-use std::hash::Hash;
-use std::string::String;
-use std::vec::Vec;
+use alloc::string::String;
+use alloc::vec::Vec;
+use alloc::{format, vec};
+use core::hash::Hash;
 
-use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::OctetsFrom;
+use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use tracing::{debug, trace};
 
 use crate::base::iana::{Class, Nsec3HashAlgorithm, Rtype};
 use crate::base::name::{ToLabelIter, ToName};
 use crate::base::{CanonicalOrd, Name, NameBuilder, Record, Ttl};
-use crate::dnssec::common::{nsec3_hash, Nsec3HashError};
+use crate::dnssec::common::{Nsec3HashError, nsec3_hash};
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::records::{DefaultSorter, RecordsIter, Sorter};
 use crate::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};
@@ -257,7 +258,10 @@ where
             && cut.is_some()
             && !has_ds
         {
-            debug!("Excluding owner {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",owner_rrs.owner());
+            debug!(
+                "Excluding owner {} as it is an insecure delegation (lacks a DS RR) and opt-out is enabled",
+                owner_rrs.owner()
+            );
             continue;
         }
 
@@ -342,7 +346,9 @@ where
         //       DS RRsets, and any RRSIG RRs associated with these RRsets are
         //       authoritative for this zone.
         if cut.is_none() || has_ds {
-            trace!("Adding RRSIG to the bitmap as the RRSET is authoritative (not at zone cut or has a DS RR)");
+            trace!(
+                "Adding RRSIG to the bitmap as the RRSET is authoritative (not at zone cut or has a DS RR)"
+            );
             bitmap.add(Rtype::RRSIG).unwrap();
         }
 
@@ -434,7 +440,7 @@ where
                 let soa_rr = rrset.first();
 
                 // Check that the RDATA for the SOA record can be parsed.
-                let ZoneRecordData::Soa(ref soa_data) = soa_rr.data() else {
+                let ZoneRecordData::Soa(soa_data) = soa_rr.data() else {
                     return Err(SigningError::SoaRecordCouldNotBeDetermined);
                 };
 
@@ -457,10 +463,14 @@ where
         }
 
         if distance_to_apex == 0 {
-            trace!("Adding NSEC3PARAM to the bitmap as we are at the apex and RRSIG RRs are expected to be added");
+            trace!(
+                "Adding NSEC3PARAM to the bitmap as we are at the apex and RRSIG RRs are expected to be added"
+            );
             bitmap.add(Rtype::NSEC3PARAM).unwrap();
             if config.assume_dnskeys_will_be_added {
-                trace!("Adding DNSKEY to the bitmap as we are at the apex and DNSKEY RRs are expected to be added");
+                trace!(
+                    "Adding DNSKEY to the bitmap as we are at the apex and DNSKEY RRs are expected to be added"
+                );
                 bitmap.add(Rtype::DNSKEY).unwrap();
             }
         }
@@ -583,7 +593,9 @@ where
             } else {
                 // This shouldn't happen. Could it maybe happen if the input
                 // data were unsorted?
-                unreachable!("All RTYPEs for a single owner name should have been combined into a single NSEC3 RR. Was the input NSEC3 canonically ordered?");
+                unreachable!(
+                    "All RTYPEs for a single owner name should have been combined into a single NSEC3 RR. Was the input NSEC3 canonically ordered?"
+                );
             }
         }
 
@@ -708,10 +720,13 @@ where
         let name = N::from(name.try_to_name().ok().unwrap());
         return Ok(name);
     }
-    Ok(append_origin(base32hex_label, apex_owner))
+    append_origin(base32hex_label, apex_owner)
 }
 
-fn append_origin<N, Octs>(base32hex_label: String, apex_owner: &N) -> N
+fn append_origin<N, Octs>(
+    base32hex_label: String,
+    apex_owner: &N,
+) -> Result<N, Nsec3HashError>
 where
     N: ToName + From<Name<Octs>>,
     Octs: FromBuilder,
@@ -719,9 +734,11 @@ where
 {
     let mut builder = NameBuilder::<Octs::Builder>::new();
     builder.append_label(base32hex_label.as_bytes()).unwrap();
-    let owner_name = builder.append_origin(apex_owner).unwrap();
+    let owner_name = builder
+        .append_origin(apex_owner)
+        .map_err(|_| Nsec3HashError::Nsec3NameTooLong)?;
     let owner_name: N = owner_name.into();
-    owner_name
+    Ok(owner_name)
 }
 
 fn mk_base32hex_label_for_name<N, SaltOcts>(
@@ -860,7 +877,8 @@ mod tests {
     //      order for us.
     use core::str::FromStr;
 
-    use std::cell::RefCell;
+    use core::cell::RefCell;
+    use std::thread_local;
 
     use pretty_assertions::assert_eq;
 
@@ -877,7 +895,7 @@ mod tests {
     }
 
     thread_local! {
-    pub(super) static NSEC3_TEST_MODE: RefCell<Nsec3TestMode> = const { RefCell::new(Nsec3TestMode::Normal) };
+        pub(super) static NSEC3_TEST_MODE: RefCell<Nsec3TestMode> = const { RefCell::new(Nsec3TestMode::Normal) };
     }
 
     #[test]

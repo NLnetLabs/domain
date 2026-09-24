@@ -7,7 +7,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 
-use std::boxed::Box;
+use alloc::boxed::Box;
 
 use bytes::Bytes;
 use tracing::trace;
@@ -50,7 +50,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// # Replacing the content of a zone
 ///
 /// ```
-/// # use std::str::FromStr;
+/// # use core::str::FromStr;
 /// # use bytes::Bytes;
 /// # use domain::base::iana::Class;
 /// # use domain::base::MessageBuilder;
@@ -105,7 +105,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// # Altering the content of a zone
 ///
 /// ```rust
-/// # use std::str::FromStr;
+/// # use core::str::FromStr;
 /// # use bytes::Bytes;
 /// # use domain::base::iana::Class;
 /// # use domain::base::MessageBuilder;
@@ -170,7 +170,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// # Applying XFR changes to a zone
 ///
 /// ```no_run
-/// # use std::str::FromStr;
+/// # use core::str::FromStr;
 /// #
 /// # use domain::base::iana::Class;
 /// # use domain::base::MessageBuilder;
@@ -626,8 +626,9 @@ mod tests {
     use core::str::FromStr;
     use core::sync::atomic::{AtomicUsize, Ordering};
 
-    use std::sync::Arc;
-    use std::vec::Vec;
+    use alloc::sync::Arc;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
     use bytes::BytesMut;
     use octseq::Octets;
@@ -641,7 +642,7 @@ mod tests {
     };
     use crate::logging::init_logging;
     use crate::net::xfr::protocol::XfrResponseInterpreter;
-    use crate::rdata::{Ns, Soa, A};
+    use crate::rdata::{A, Ns, Soa};
     use crate::zonetree::ZoneBuilder;
 
     use super::*;
@@ -1319,7 +1320,7 @@ pub enum Error {
 
 //--- Display
 
-impl std::fmt::Display for Error {
+impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::OutOfZone => f.write_str("OutOfZone"),

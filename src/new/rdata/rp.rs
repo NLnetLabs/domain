@@ -8,8 +8,8 @@ use crate::new::base::build::{BuildInMessage, NameCompressor};
 use crate::new::base::name::CanonicalName;
 use crate::new::base::parse::{ParseMessageBytes, SplitMessageBytes};
 use crate::new::base::{
-    wire::*, CanonicalRecordData, ParseRecordData, ParseRecordDataBytes,
-    RType,
+    CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
+    wire::*,
 };
 
 //----------- Rp -------------------------------------------------------------
@@ -57,8 +57,8 @@ use crate::new::base::{
 /// #
 /// // Build an 'Rp' manually:
 /// let manual: Rp<RevNameBuf> = Rp {
-///     mailbox: "postmaster.example.org".parse().unwrap(),
-///     texts: "findme.example.org".parse().unwrap(),
+///     mailbox: "postmaster.example.org.".parse().unwrap(),
+///     texts: "findme.example.org.".parse().unwrap(),
 /// };
 ///
 /// // Its wire format serialization looks like:

@@ -1,8 +1,8 @@
 //! The known set of zones.
 
-use std::collections::hash_map;
+use alloc::vec::Vec;
 use std::collections::HashMap;
-use std::vec::Vec;
+use std::collections::hash_map;
 
 use crate::base::iana::Class;
 use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};

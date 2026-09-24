@@ -1,8 +1,8 @@
 //! Zone related errors.
 
-use std::fmt::Display;
+use alloc::vec::Vec;
+use core::fmt::Display;
 use std::io;
-use std::vec::Vec;
 
 use bytes::Bytes;
 
@@ -103,7 +103,10 @@ pub enum RecordError {
     InvalidRecord(ContextError),
 
     /// The SOA record was not found.
-    MissingSoa(StoredRecord),
+    ///
+    /// This optionally includes a record that was parsed instead of the
+    /// expected SOA record so we can add that to the error message.
+    MissingSoa(Option<StoredRecord>),
 }
 
 impl RecordError {
@@ -115,9 +118,10 @@ impl RecordError {
             | RecordError::IllegalRecord(rec, _)
             | RecordError::IllegalCname(rec, _)
             | RecordError::MultipleCnames(rec)
-            | RecordError::MissingSoa(rec) => Some(rec.owner()),
+            | RecordError::MissingSoa(Some(rec)) => Some(rec.owner()),
             RecordError::MalformedRecord(_)
-            | RecordError::InvalidRecord(_) => None,
+            | RecordError::InvalidRecord(_)
+            | RecordError::MissingSoa(None) => None,
         }
     }
 }
@@ -128,19 +132,34 @@ impl Display for RecordError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             RecordError::ClassMismatch(rec, zone_class) => {
-                write!(f, "The class of the record does not match the class {zone_class} of the zone: {rec}")
+                write!(
+                    f,
+                    "The class of the record does not match the class {zone_class} of the zone: {rec}"
+                )
             }
             RecordError::IllegalZoneCut(rec, existing_rtype) => {
-                write!(f, "Attempted to add zone cut records where non-zone cut records ({existing_rtype}) already exist: {rec}")
+                write!(
+                    f,
+                    "Attempted to add zone cut records where non-zone cut records ({existing_rtype}) already exist: {rec}"
+                )
             }
             RecordError::IllegalRecord(rec, existing_rtype) => {
-                write!(f, "Attempted to add a normal record where a {existing_rtype} record already exists: {rec}")
+                write!(
+                    f,
+                    "Attempted to add a normal record where a {existing_rtype} record already exists: {rec}"
+                )
             }
             RecordError::IllegalCname(rec, existing_rtype) => {
-                write!(f, "Attempted to add a CNAME record where a {existing_rtype} record already exists: {rec}")
+                write!(
+                    f,
+                    "Attempted to add a CNAME record where a {existing_rtype} record already exists: {rec}"
+                )
             }
             RecordError::MultipleCnames(rec) => {
-                write!(f, "Attempted to add a CNAME record a CNAME record already exists: {rec}")
+                write!(
+                    f,
+                    "Attempted to add a CNAME record a CNAME record already exists: {rec}"
+                )
             }
             RecordError::MalformedRecord(err) => {
                 write!(f, "The record could not be parsed: {err}")
@@ -148,8 +167,14 @@ impl Display for RecordError {
             RecordError::InvalidRecord(err) => {
                 write!(f, "The record is parseable but not valid: {err}")
             }
-            RecordError::MissingSoa(rec) => {
-                write!(f, "The SOA record was not found: {rec}")
+            RecordError::MissingSoa(Some(rec)) => {
+                write!(
+                    f,
+                    "The SOA record was not found, found this record instead: {rec}"
+                )
+            }
+            RecordError::MissingSoa(None) => {
+                write!(f, "The SOA record was not found.")
             }
         }
     }
@@ -197,7 +222,7 @@ impl<T> ZoneErrors<T> {
 impl<T> IntoIterator for ZoneErrors<T> {
     type Item = (StoredName, T);
 
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = alloc::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.errors.into_iter()

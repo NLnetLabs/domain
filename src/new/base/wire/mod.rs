@@ -42,7 +42,7 @@
 //!
 //! // Parse into a new 'Question'.
 //! let question = Question::<RevNameBuf>::parse_bytes(&bytes).unwrap();
-//! assert_eq!(question.qname, "org".parse::<RevNameBuf>().unwrap());
+//! assert_eq!(question.qname, "org.".parse::<RevNameBuf>().unwrap());
 //! assert_eq!(question.qtype, QType::A);
 //! assert_eq!(question.qclass, QClass::IN);
 //!

@@ -34,6 +34,7 @@
 //! <code>Box&lt;[Name]&gt;</code> respectively. There are more efficient
 //! alternatives in some cases; see [`name`].
 //!
+//! [`name`]: domain::new::base::name
 //! [Name]: name::Name
 //! [RevName]: name::RevName
 //! [`NameBuf`]: name::NameBuf
@@ -133,7 +134,7 @@
 //!
 //! // Add a question for an A record.
 //! builder.push_question(&Question {
-//!     qname: "www.example.org".parse::<RevNameBuf>().unwrap(),
+//!     qname: "www.example.org.".parse::<RevNameBuf>().unwrap(),
 //!     qtype: QType::A,
 //!     qclass: QClass::IN,
 //! }).unwrap();
@@ -190,7 +191,7 @@ pub use question::{QClass, QType, Question};
 mod record;
 pub use record::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RClass,
-    RType, Record, UnparsedRecordData, TTL,
+    RType, Record, TTL, UnparsedRecordData,
 };
 
 //--- Elements of DNS messages
@@ -275,8 +276,8 @@ pub mod compat {
         #[deprecated = "use 'crate::new::rdata::DigestType' instead."]
         pub use digestalg::DigestAlg;
 
-        #[deprecated = "use 'crate::new::rdata::NSec3HashAlg' instead."]
-        pub use nsec3::Nsec3HashAlg;
+        #[deprecated = "use 'crate::new::rdata::Nsec3HashAlgorithm' instead."]
+        pub use nsec3::Nsec3HashAlgorithm;
 
         #[deprecated = "use 'crate::new::edns::OptionCode' instead."]
         pub use opt::OptionCode;
@@ -301,8 +302,8 @@ pub mod compat {
         }
 
         pub mod nsec3 {
-            #[deprecated = "use 'crate::new::rdata::NSec3HashAlg' instead."]
-            pub use crate::new::rdata::NSec3HashAlg as Nsec3HashAlg;
+            #[deprecated = "use 'crate::new::rdata::Nsec3HashAlgorithm' instead."]
+            pub use crate::new::rdata::Nsec3HashAlgorithm;
         }
 
         pub mod opt {

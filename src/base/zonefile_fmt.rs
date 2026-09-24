@@ -314,16 +314,16 @@ pub trait Formatter: FormatWriter {
 
 impl<T: FormatWriter> Formatter for T {}
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(all(test, feature = "alloc"))]
 mod test {
-    use std::string::ToString as _;
-    use std::vec::Vec;
+    use alloc::string::ToString as _;
+    use alloc::vec::Vec;
 
     use crate::base::iana::{Class, DigestAlgorithm, SecurityAlgorithm};
     use crate::base::zonefile_fmt::{DisplayKind, ZonefileFmt};
     use crate::base::{Name, Record, Ttl};
     use crate::rdata::caa::{CaaFlags, CaaTag};
-    use crate::rdata::{Cds, Cname, Ds, Mx, Txt, A};
+    use crate::rdata::{A, Cds, Cname, Ds, Mx, Txt};
 
     fn create_record<Data>(data: Data) -> Record<&'static Name<[u8]>, Data> {
         let name = Name::from_slice(b"\x07example\x03com\x00").unwrap();

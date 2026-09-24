@@ -260,9 +260,9 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for Hinfo<Octs> {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
-    use std::vec::Vec;
+    use alloc::{format, vec::Vec};
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
@@ -273,7 +273,7 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Hinfo::parse(parser));
-        test_scan(&["cpu", "os"], Hinfo::scan, &rdata);
+        test_scan_check(&["cpu", "os"], Hinfo::scan, &rdata);
     }
 
     #[test]

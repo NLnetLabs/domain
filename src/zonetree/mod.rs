@@ -128,11 +128,11 @@ pub use self::zone::Zone;
 
 /// Zone related utilities.
 pub mod util {
-    use crate::base::name::{Label, ToLabelIter};
     use crate::base::ToName;
+    use crate::base::name::{Label, ToLabelIter};
 
-    use super::error::OutOfZone;
     use super::StoredName;
+    use super::error::OutOfZone;
 
     /// Gets a reverse iterator to the relative part of a name.
     ///

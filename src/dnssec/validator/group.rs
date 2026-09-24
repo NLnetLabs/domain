@@ -11,8 +11,8 @@ use super::context::{
 };
 use super::utilities::{make_ede, map_dname, ttl_for_sig};
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::class::Class;
 use crate::base::iana::ExtendedErrorCode;
+use crate::base::iana::class::Class;
 use crate::base::name::ToName;
 use crate::base::opt::exterr::ExtendedError;
 use crate::base::rdata::ComposeRecordData;
@@ -24,13 +24,14 @@ use crate::dnssec::validator::base::RrsigExt;
 use crate::net::client::request::{RequestMessage, SendRequest};
 use crate::rdata::dnssec::Timestamp;
 use crate::rdata::{AllRecordData, Dnskey, Rrsig};
+use alloc::vec;
+use alloc::vec::Vec;
 use bytes::Bytes;
+use core::cmp::{max, min};
+use core::fmt::Debug;
+use core::slice::Iter;
+use core::time::Duration;
 use moka::future::Cache;
-use std::cmp::{max, min};
-use std::fmt::Debug;
-use std::slice::Iter;
-use std::time::Duration;
-use std::vec::Vec;
 
 //----------- Group ----------------------------------------------------------
 
@@ -390,7 +391,7 @@ impl Group {
                     None,
                     node.extended_error(),
                     None,
-                ))
+                ));
             }
         }
         let (state, wildcard, ede, _ttl, adjust_ttl) = self
@@ -432,7 +433,13 @@ impl Group {
             ValidationState::Insecure
             | ValidationState::Bogus
             | ValidationState::Indeterminate => {
-                return (state, None, node.extended_error(), node.ttl(), None)
+                return (
+                    state,
+                    None,
+                    node.extended_error(),
+                    node.ttl(),
+                    None,
+                );
             }
             ValidationState::Secure => (),
         }

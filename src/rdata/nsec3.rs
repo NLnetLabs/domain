@@ -138,7 +138,10 @@ impl<Octs> Nsec3<Octs> {
 
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         Ok(Self::new(
             Nsec3HashAlgorithm::scan(scanner)?,
             u8::scan(scanner)?,
@@ -561,7 +564,10 @@ impl<Octs> Nsec3param<Octs> {
 
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         Ok(Self::new(
             Nsec3HashAlgorithm::scan(scanner)?,
             u8::scan(scanner)?,
@@ -928,14 +934,17 @@ impl Nsec3Salt<[u8]> {
     /// The passed slice must be no longer than [`Nsec3Salt::MAX_LEN`].
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Nsec3Salt has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 }
 
 impl<Octs> Nsec3Salt<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         #[derive(Default)]
         struct Converter(Option<Option<base16::SymbolConverter>>);
 
@@ -969,9 +978,7 @@ impl<Octs> Nsec3Salt<Octs> {
                 match self.0.as_mut() {
                     None => unreachable!(),
                     Some(None) => Err(Error::custom("illegal NSEC3 salt")),
-                    Some(Some(ref mut base16)) => {
-                        base16.process_symbol(symbol)
-                    }
+                    Some(Some(base16)) => base16.process_symbol(symbol),
                 }
             }
 
@@ -986,9 +993,10 @@ impl<Octs> Nsec3Salt<Octs> {
             }
         }
 
-        scanner
-            .convert_token(Converter::default())
-            .map(|res| unsafe { Self::from_octets_unchecked(res) })
+        scanner.convert_token(Converter::default()).and_then(|res| {
+            Self::from_octets(res)
+                .map_err(|_| S::Error::custom("illegal NSEC3 salt"))
+        })
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
@@ -1208,10 +1216,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     Nsec3Salt::from_octets(octets).map_err(E::custom)
@@ -1321,10 +1329,16 @@ impl<Octs> OwnerHash<Octs> {
 
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         scanner
             .convert_token(base32::SymbolConverter::new())
-            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+            .and_then(|octets| {
+                Self::from_octets(octets)
+                    .map_err(|_| S::Error::custom("illegal owner name hash"))
+            })
     }
 
     /// Converts the hash into the underlying octets.
@@ -1397,7 +1411,7 @@ impl OwnerHash<[u8]> {
     /// The passed slice must be no longer than [`OwnerHash::MAX_LEN`].
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: OwnerHash has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 }
 
@@ -1434,11 +1448,21 @@ where
     Octs: FromBuilder,
     <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
+    // XXX TODO: Replace the error with a dedicated error type.
+    //
+    //           We currently abuse DecodeError::ShortBuf as a signal that
+    //           the owner hash is too long to avoid a breaking change in a
+    //           security point release.
+    //
+    //           For the next breaking release, this should be replaced by
+    //           a dedicated error type.
     type Err = base32::DecodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        base32::decode_hex(s)
-            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+        base32::decode_hex(s).and_then(|octets| {
+            Self::from_octets(octets)
+                .map_err(|_| base32::DecodeError::ShortBuf)
+        })
     }
 }
 
@@ -1583,10 +1607,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     OwnerHash::from_octets(octets).map_err(E::custom)
@@ -1667,15 +1691,16 @@ impl core::error::Error for OwnerHashError {}
 //============ Testing ======================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 mod test {
     use super::super::dnssec::RtypeBitmapBuilder;
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
     };
     use crate::base::zonefile_fmt::DisplayKind;
-    use std::vec::Vec;
+    use alloc::format;
+    use alloc::vec::Vec;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
@@ -1693,7 +1718,7 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Nsec3::parse(parser));
-        test_scan(
+        test_scan_check(
             &["1", "10", "11", "626172", "CPNMU", "A", "SRV"],
             Nsec3::scan,
             &rdata,
@@ -1720,7 +1745,7 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Nsec3::parse(parser));
-        test_scan(
+        test_scan_check(
             &["1", "10", "11", "-", "CPNMU", "A", "SRV"],
             Nsec3::scan,
             &rdata,
@@ -1742,6 +1767,48 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Nsec3param::parse(parser));
-        test_scan(&["1", "10", "11", "626172"], Nsec3param::scan, &rdata);
+        test_scan_check(
+            &["1", "10", "11", "626172"],
+            Nsec3param::scan,
+            &rdata,
+        );
+    }
+
+    #[test]
+    fn nsec3salt_long_scan() {
+        assert!(
+            test_scan(
+                &[&['1'; 510].into_iter().collect::<alloc::string::String>()],
+                Nsec3Salt::scan,
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &[&['1'; 512].into_iter().collect::<alloc::string::String>()],
+                Nsec3Salt::scan,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn ownerhash_long_scan() {
+        // 8 base32hex chars = 5 octets; 408 chars for 255 octets (max).
+        assert!(
+            test_scan(
+                &[&['1'; 408].into_iter().collect::<alloc::string::String>()],
+                OwnerHash::scan,
+            )
+            .is_ok()
+        );
+        // 416 chars for 260 octets (> 255).
+        assert!(
+            test_scan(
+                &[&['1'; 416].into_iter().collect::<alloc::string::String>()],
+                OwnerHash::scan,
+            )
+            .is_err()
+        );
     }
 }

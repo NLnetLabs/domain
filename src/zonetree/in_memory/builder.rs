@@ -1,7 +1,7 @@
 //! Builders for in-memory zones.
 
-use std::sync::Arc;
-use std::vec::Vec;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToName};

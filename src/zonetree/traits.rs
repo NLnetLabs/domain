@@ -12,11 +12,11 @@ use core::future::ready;
 use core::ops::Deref;
 use core::pin::Pin;
 
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use core::fmt::Debug;
+use core::future::Future;
 use std::io;
-use std::sync::Arc;
 
 use bytes::Bytes;
 use futures_util::Stream;
@@ -309,7 +309,7 @@ pub trait ZoneDiff {
 
     /// The serial number of the zone that resulted from the modifications.
     fn end_serial(&self)
-        -> Pin<Box<dyn Future<Output = Serial> + Send + '_>>;
+    -> Pin<Box<dyn Future<Output = Serial> + Send + '_>>;
 
     /// An stream of RRsets that were added to the zone.
     // TODO: Does this need to be Box<Pin<dyn Future<Output = Stream>>>?

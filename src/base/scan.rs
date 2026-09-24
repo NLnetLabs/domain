@@ -75,9 +75,13 @@ macro_rules! impl_scan_unsigned {
                     res = res.checked_mul(10).ok_or_else(|| {
                         S::Error::custom("decimal number overflow")
                     })?;
-                    res += ch.into_digit(10).map_err(|_| {
-                        S::Error::custom("expected decimal number")
-                    })? as $type;
+                    res = res
+                        .checked_add(ch.into_digit(10).map_err(|_| {
+                            S::Error::custom("expected decimal number")
+                        })? as $type)
+                        .ok_or_else(|| {
+                            S::Error::custom("decimal number overflow")
+                        })?;
                     Ok(())
                 })?;
                 Ok(res)
@@ -94,17 +98,7 @@ impl_scan_unsigned!(u128);
 
 impl<S: Scanner> Scan<S> for Ttl {
     fn scan(scanner: &mut S) -> Result<Self, <S as Scanner>::Error> {
-        let mut res: u32 = 0;
-        scanner.scan_symbols(|ch| {
-            res = res
-                .checked_mul(10)
-                .ok_or_else(|| S::Error::custom("decimal number overflow"))?;
-            res += ch
-                .into_digit(10)
-                .map_err(|_| S::Error::custom("expected decimal number"))?;
-            Ok(())
-        })?;
-        Ok(Ttl::from_secs(res))
+        u32::scan(scanner).map(Ttl::from_secs)
     }
 }
 
@@ -293,6 +287,10 @@ impl ScannerError for std::io::Error {
         std::io::Error::other(msg)
     }
 
+    #[allow(
+        clippy::std_instead_of_core,
+        reason = "false positive due to MSRV/unstable, see <https://github.com/rust-lang/rust-clippy/pull/16964>"
+    )]
     fn end_of_entry() -> Self {
         std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
@@ -326,7 +324,7 @@ pub trait ConvertSymbols<Sym, Error> {
     /// If the method returns some data, it will be appended to the output
     /// octets sequence.
     fn process_symbol(&mut self, symbol: Sym)
-        -> Result<Option<&[u8]>, Error>;
+    -> Result<Option<&[u8]>, Error>;
 
     /// Process the end of token.
     ///
@@ -519,14 +517,16 @@ impl Symbol {
             }
 
             // If c1’s third-to-left bit is 0, we have the two octet case.
+            // The resulting char must be at least 0x80 since the shortest
+            // possible form must be used.
             if c1 & 0b0010_0000 == 0 {
+                let res = u32::from(c2 & 0b0011_1111)
+                    | (u32::from(c1 & 0b0001_1111) << 6);
+                if res < 0x80 {
+                    return Err(bad_utf8());
+                }
                 return Ok(Some((
-                    Symbol::Char(
-                        (u32::from(c2 & 0b0011_1111)
-                            | (u32::from(c1 & 0b0001_1111) << 6))
-                            .try_into()
-                            .map_err(|_| bad_utf8())?,
-                    ),
+                    Symbol::Char(res.try_into().map_err(|_| bad_utf8())?),
                     pos,
                 )));
             }
@@ -542,17 +542,25 @@ impl Symbol {
             }
 
             // If c1’s fourth-to-left bit is 0, we have the three octet case.
+            // The resulting char must be at least 0x0800. We also must not
+            // accept surrogates U+D800..U+DFFF, but char::try_from does that
+            // for us.
             if c1 & 0b0001_0000 == 0 {
+                let res = u32::from(c3 & 0b0011_1111)
+                    | (u32::from(c2 & 0b0011_1111) << 6)
+                    | (u32::from(c1 & 0b0001_1111) << 12);
+                if res < 0x0800 {
+                    return Err(bad_utf8());
+                }
                 return Ok(Some((
-                    Symbol::Char(
-                        (u32::from(c3 & 0b0011_1111)
-                            | (u32::from(c2 & 0b0011_1111) << 6)
-                            | (u32::from(c1 & 0b0001_1111) << 12))
-                            .try_into()
-                            .map_err(|_| bad_utf8())?,
-                    ),
+                    Symbol::Char(res.try_into().map_err(|_| bad_utf8())?),
                     pos,
                 )));
+            }
+
+            // Now the fifth-to-left bit must be 0.
+            if c1 & 0b0000_1000 != 0 {
+                return Err(bad_utf8());
             }
 
             // Get the next octet, check that it is valid.
@@ -565,15 +573,17 @@ impl Symbol {
                 return Err(bad_utf8());
             }
 
+            // The resulting char must now be at least 0x01_0000
+            let res = u32::from(c4 & 0b0011_1111)
+                | (u32::from(c3 & 0b0011_1111) << 6)
+                | (u32::from(c2 & 0b0011_1111) << 12)
+                | (u32::from(c1 & 0b0000_1111) << 18);
+            if res < 0x01_0000 {
+                return Err(bad_utf8());
+            }
+
             Ok(Some((
-                Symbol::Char(
-                    (u32::from(c4 & 0b0011_1111)
-                        | (u32::from(c3 & 0b0011_1111) << 6)
-                        | (u32::from(c2 & 0b0011_1111) << 12)
-                        | (u32::from(c1 & 0b0000_1111) << 18))
-                        .try_into()
-                        .map_err(|_| bad_utf8())?,
-                ),
+                Symbol::Char(res.try_into().map_err(|_| bad_utf8())?),
                 pos,
             )))
         }
@@ -1220,6 +1230,8 @@ impl core::error::Error for StrError {}
 #[cfg(feature = "std")]
 mod test {
     use super::*;
+    use alloc::vec::Vec;
+    use alloc::{format, vec};
 
     #[test]
     fn symbol_from_slice_index() {
@@ -1260,5 +1272,55 @@ mod test {
                 ch
             );
         }
+    }
+
+    #[test]
+    fn reject_non_shortest_form() {
+        const BAD: &[&[u8]] = &[
+            b"\xc0\x80",         // two-byte U+0000
+            b"\xc0\xae",         // two-byte '.' (path traversal)
+            b"\xc1\xbf",         // two-byte U+007F
+            b"\xe0\x80\x80",     // three-byte U+0000
+            b"\xe0\x9f\xbf",     // three-byte U+07FF
+            b"\xf0\x80\x80\x80", // four-byte U+0000
+            b"\xf0\x8f\xbf\xbf", // four-byte U+FFFF
+            b"\xed\xa0\x80",     // UTF-16 surrogate U+D800
+            b"\xf8\x80\x80\x80", // hypothetical five-byte encoding.
+        ];
+
+        for bad in BAD {
+            assert!(Symbol::from_slice_index(bad, 0).is_err(), "{bad:x?}");
+        }
+    }
+
+    #[test]
+    fn scan_u8() {
+        let mut scanner = IterScanner::<_, Vec<u8>>::new(vec![
+            "0", "12", "255", "256", "4030002",
+        ]);
+        assert_eq!(u8::scan(&mut scanner).unwrap(), 0);
+        assert_eq!(u8::scan(&mut scanner).unwrap(), 12);
+        assert_eq!(u8::scan(&mut scanner).unwrap(), 255);
+        assert!(u8::scan(&mut scanner).is_err());
+        assert!(u8::scan(&mut scanner).is_err());
+    }
+
+    #[test]
+    fn scan_ttl() {
+        let mut scanner = IterScanner::<_, Vec<u8>>::new(vec![
+            "0",
+            "12",
+            "4294967295",
+            "4294967296",
+            "500000000000",
+        ]);
+        assert_eq!(Ttl::scan(&mut scanner).unwrap(), Ttl::from_secs(0));
+        assert_eq!(Ttl::scan(&mut scanner).unwrap(), Ttl::from_secs(12));
+        assert_eq!(
+            Ttl::scan(&mut scanner).unwrap(),
+            Ttl::from_secs(4294967295)
+        );
+        assert!(Ttl::scan(&mut scanner).is_err());
+        assert!(Ttl::scan(&mut scanner).is_err());
     }
 }

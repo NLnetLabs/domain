@@ -10,7 +10,7 @@ use core::str::FromStr;
 use crate::new::base::build::{
     BuildInMessage, NameCompressor, TruncationError,
 };
-use crate::new::base::parse::ParseMessageBytes;
+use crate::new::base::parse::{ParseMessageBytes, parse_without_compression};
 use crate::new::base::wire::{
     AsBytes, BuildBytes, ParseBytes, ParseBytesZC, ParseError, SplitBytes,
     SplitBytesZC,
@@ -173,10 +173,7 @@ impl ParseMessageBytes<'_> for Aaaa {
         contents: &'_ [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        contents
-            .get(start..)
-            .ok_or(ParseError)
-            .and_then(Self::parse_bytes)
+        parse_without_compression(contents, start)
     }
 }
 

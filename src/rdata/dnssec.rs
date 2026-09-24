@@ -4,6 +4,7 @@
 //!
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
+use crate::base::Ttl;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlgorithm, Rtype, SecurityAlgorithm};
 use crate::base::name::{FlattenInto, ParsedName, ToName};
@@ -14,10 +15,13 @@ use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
-use crate::base::Ttl;
 use crate::utils::{base16, base64};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 use core::cmp::Ordering;
 use core::convert::TryInto;
+#[cfg(feature = "std")]
+use core::time::Duration;
 use core::{cmp, fmt, hash, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
@@ -27,9 +31,7 @@ use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-#[cfg(feature = "std")]
-use std::vec::Vec;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -2386,10 +2388,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     RtypeBitmap::from_octets(octets).map_err(E::custom)
@@ -2470,7 +2472,7 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl RtypeBitmapBuilder<Vec<u8>> {
     #[must_use]
     pub fn new_vec() -> Self {
@@ -2500,7 +2502,7 @@ where
         while pos < self.buf.as_ref().len() {
             match self.buf.as_ref()[pos].cmp(&block) {
                 Ordering::Equal => {
-                    return Ok(&mut self.buf.as_mut()[pos..pos + 34])
+                    return Ok(&mut self.buf.as_mut()[pos..pos + 34]);
                 }
                 Ordering::Greater => {
                     // We need the length from before we add the new block
@@ -2730,16 +2732,17 @@ impl core::error::Error for IllegalSignatureTime {}
 //============ Test ==========================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 mod test {
     use super::*;
     use crate::base::iana::Rtype;
     use crate::base::name::Name;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
 
     //--- Dnskey
 
@@ -2750,7 +2753,7 @@ mod test {
             Dnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
-        test_scan(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
+        test_scan_check(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
     }
 
     //--- Rrsig
@@ -2772,7 +2775,7 @@ mod test {
         .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Rrsig::parse(parser));
-        test_scan(
+        test_scan_check(
             &[
                 "A",
                 "5",
@@ -2803,14 +2806,14 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Nsec::parse(parser));
-        test_scan(&["example.com.", "A", "SRV"], Nsec::scan, &rdata);
+        test_scan_check(&["example.com.", "A", "SRV"], Nsec::scan, &rdata);
 
         // scan empty rtype bitmap
         let rdata = Nsec::new(
             Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             RtypeBitmapBuilder::new_vec().finalize(),
         );
-        test_scan(&["example.com."], Nsec::scan, &rdata);
+        test_scan_check(&["example.com."], Nsec::scan, &rdata);
     }
 
     //--- Ds
@@ -2827,7 +2830,7 @@ mod test {
         .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
-        test_scan(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
+        test_scan_check(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
     }
 
     //--- RtypeBitmape
@@ -2883,8 +2886,6 @@ mod test {
 
     #[test]
     fn rtype_bitmap_iter() {
-        use std::vec::Vec;
-
         let mut builder = RtypeBitmapBuilder::new_vec();
         let types = vec![
             Rtype::NS,
@@ -2923,7 +2924,8 @@ mod test {
                      KLZ02cRWXqM="
                 )
                 .unwrap()
-            ).unwrap()
+            )
+            .unwrap()
             .key_tag(),
             59944
         );

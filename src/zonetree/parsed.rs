@@ -1,11 +1,13 @@
 //! Importing from and (in future) exporting to a zone files.
 
-use std::collections::{BTreeMap, HashMap};
-use std::vec::Vec;
+use alloc::collections::BTreeMap;
+use alloc::vec;
+use alloc::vec::Vec;
+use std::collections::HashMap;
 
+use crate::base::Name;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
-use crate::base::Name;
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
@@ -39,13 +41,13 @@ use super::types::{StoredName, StoredRecord};
 /// [RFC 1034, section 4.2.1]:
 ///     https://datatracker.ietf.org/doc/html/rfc1034#section-4.2.1
 /// [zonetree]: crate::zonetree
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Zonefile {
     /// The name of the apex of the zone.
-    origin: Option<StoredName>,
+    origin: StoredName,
 
     /// The class of the zone.
-    class: Option<Class>,
+    class: Class,
 
     /// The records for names that have regular RRsets attached to them.
     normal: Owners<Normal>,
@@ -65,9 +67,12 @@ impl Zonefile {
     /// and class.
     pub fn new(apex: StoredName, class: Class) -> Self {
         Zonefile {
-            origin: Some(apex),
-            class: Some(class),
-            ..Default::default()
+            origin: apex,
+            class,
+            normal: Owners::default(),
+            zone_cuts: Owners::default(),
+            cnames: Owners::default(),
+            out_of_zone: Owners::default(),
         }
     }
 }
@@ -78,7 +83,7 @@ impl Zonefile {
     /// If parsing a zone file one might call this method on encoutering an
     /// `$ORIGIN` directive.
     pub fn set_origin(&mut self, origin: StoredName) {
-        self.origin = Some(origin)
+        self.origin = origin;
     }
 
     /// Inserts the given record into the zone file.
@@ -87,22 +92,7 @@ impl Zonefile {
         &mut self,
         record: StoredRecord,
     ) -> Result<(), RecordError> {
-        // If a zone apex and class were not provided via [`Self::new`], i.e.
-        // we were created by [`Self::default`], require the first record to
-        // be a SOA record and use its owner name and class as the zone apex
-        // name and class.
-        if self.origin.is_none() {
-            if record.rtype() != Rtype::SOA {
-                return Err(RecordError::MissingSoa(record));
-            } else {
-                let apex = record.owner().to_name();
-                self.class = Some(record.class());
-                self.origin = Some(apex);
-            }
-        }
-
-        let (zone_apex, zone_class) =
-            (self.origin().unwrap(), self.class().unwrap());
+        let (zone_apex, zone_class) = (self.origin(), self.class());
 
         if record.class() != zone_class {
             return Err(RecordError::ClassMismatch(record, zone_class));
@@ -191,14 +181,14 @@ impl Zonefile {
     /// The [origin] of the zone.
     ///
     /// [origin]: https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.8
-    pub fn origin(&self) -> Option<&StoredName> {
-        self.origin.as_ref()
+    pub fn origin(&self) -> &StoredName {
+        &self.origin
     }
 
     /// The [class] of the zone.
     ///
     /// [class]: https://datatracker.ietf.org/doc/html/rfc9499#section-4-2.2
-    pub fn class(&self) -> Option<Class> {
+    pub fn class(&self) -> Class {
         self.class
     }
 
@@ -236,10 +226,7 @@ impl TryFrom<Zonefile> for ZoneBuilder {
     type Error = ZoneErrors<ContextError>;
 
     fn try_from(mut zonefile: Zonefile) -> Result<Self, Self::Error> {
-        let mut builder = ZoneBuilder::new(
-            zonefile.origin.unwrap(),
-            zonefile.class.unwrap(),
-        );
+        let mut builder = ZoneBuilder::new(zonefile.origin, zonefile.class);
         let mut errors = ZoneErrors::<ContextError>::default();
 
         // Insert all the zone cuts first. Fish out potential glue records
@@ -305,8 +292,51 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
     type Error = ZoneErrors<RecordError>;
 
     fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
-        let mut zonefile = Zonefile::default();
         let mut errors = ZoneErrors::<RecordError>::default();
+
+        let mut source = source.into_iter();
+
+        // The first record must be the SOA record. We first construct that so
+        // that we can construct a Zonefile and parse the rest of the records.
+        let Some(first) = source.next() else {
+            errors
+                .add_error(Name::root_bytes(), RecordError::MissingSoa(None));
+            return Err(errors);
+        };
+
+        let mut zonefile;
+        match first {
+            Ok(Entry::Record(r)) if r.rtype() == Rtype::SOA => {
+                let apex = r.owner().to_name();
+                let class = r.class();
+                let stored_rec = r.flatten_into();
+                let name = stored_rec.owner().clone();
+                zonefile = Zonefile::new(apex, class);
+                if let Err(err) = zonefile.insert(stored_rec) {
+                    errors.add_error(name, err);
+                }
+            }
+            Ok(Entry::Record(r)) => {
+                let record = r.flatten_into();
+                let name = record.owner().clone();
+                errors.add_error(name, RecordError::MissingSoa(Some(record)));
+                return Err(errors);
+            }
+            Ok(Entry::Include { .. }) => {
+                errors.add_error(
+                    Name::root_bytes(),
+                    RecordError::MissingSoa(None),
+                );
+                return Err(errors);
+            }
+            Err(err) => {
+                errors.add_error(
+                    Name::root_bytes(),
+                    RecordError::MalformedRecord(err),
+                );
+                return Err(errors);
+            }
+        }
 
         for res in source {
             match res.map_err(RecordError::MalformedRecord) {
@@ -361,7 +391,7 @@ impl<Content> Owners<Content> {
     }
 
     fn insert(&mut self, name: StoredName, content: Content) -> bool {
-        use std::collections::btree_map::Entry;
+        use alloc::collections::btree_map::Entry;
 
         match self.owners.entry(name) {
             Entry::Occupied(_) => false,
@@ -399,7 +429,7 @@ impl Owners<Normal> {
             // Now see if A/AAAA records exists for the name in
             // this zone.
             for (_rtype, rrset) in
-                normal.records.iter().filter(|(&rtype, _)| rtype.is_glue())
+                normal.records.iter().filter(|(rtype, _)| rtype.is_glue())
             {
                 for rdata in rrset.data() {
                     let glue_record = StoredRecord::new(
@@ -494,5 +524,32 @@ impl ZoneCut {
 
     fn sample_rtype(&self) -> Option<Rtype> {
         self.ds.as_ref().or(self.ns.as_ref()).map(|r| r.rtype())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Zonefile;
+    use crate::{
+        base::{iana::Class, name::Name},
+        zonefile::inplace,
+    };
+
+    #[test]
+    fn simple_zonefile() {
+        let zone_file = b"\n\
+            example.com. IN SOA dns1.example.com. hostmaster.example.com. 1 1 1 1 1\n\
+            example.com. IN A 10.10.10.10\n\
+        ";
+        let mut zone_bytes = std::io::BufReader::new(&zone_file[..]);
+        let reader = inplace::Zonefile::load(&mut zone_bytes).unwrap();
+        let parsed = Zonefile::try_from(reader).unwrap();
+
+        assert_eq!(
+            parsed.origin(),
+            &Name::bytes_from_str("example.com.").unwrap()
+        );
+
+        assert_eq!(parsed.class(), Class::IN);
     }
 }

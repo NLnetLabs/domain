@@ -1,14 +1,15 @@
 //! Zone tree related types.
 
-use core::future::{ready, Future};
+use core::future::{Future, ready};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use std::boxed::Box;
-use std::collections::{hash_map, HashMap};
-use std::ops;
-use std::sync::Arc;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::ops;
+use std::collections::{HashMap, hash_map};
 
 use bytes::Bytes;
 use futures_util::stream;
@@ -19,8 +20,8 @@ use super::traits::{ZoneDiff, ZoneDiffItem};
 use crate::base::name::Name;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
-use crate::base::{iana::Rtype, Ttl};
 use crate::base::{Serial, ToName};
+use crate::base::{Ttl, iana::Rtype};
 use crate::rdata::ZoneRecordData;
 
 //------------ Type Aliases --------------------------------------------------
@@ -378,7 +379,9 @@ impl InMemoryZoneDiff {
             .ok_or(ZoneDiffError::MissingEndSoa)?;
 
         if start_serial == end_serial || end_serial < start_serial {
-            trace!("Diff construction error: serial {start_serial} -> serial {end_serial}:\nremoved: {removed:#?}\nadded: {added:#?}\n");
+            trace!(
+                "Diff construction error: serial {start_serial} -> serial {end_serial}:\nremoved: {removed:#?}\nadded: {added:#?}\n"
+            );
             return Err(ZoneDiffError::InvalidSerialRange);
         }
 
@@ -561,7 +564,7 @@ pub enum ZoneDiffError {
 
 //--- Display
 
-impl std::fmt::Display for ZoneDiffError {
+impl core::fmt::Display for ZoneDiffError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ZoneDiffError::MissingStartSoa => f.write_str("MissingStartSoa"),
@@ -672,7 +675,7 @@ pub enum ZoneUpdate<R> {
 
 //--- Display
 
-impl<R> std::fmt::Display for ZoneUpdate<R> {
+impl<R> core::fmt::Display for ZoneUpdate<R> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ZoneUpdate::DeleteAllRecords => f.write_str("DeleteAllRecords"),

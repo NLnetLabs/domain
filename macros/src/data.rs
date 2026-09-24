@@ -3,8 +3,8 @@
 use std::ops::Deref;
 
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{spanned::Spanned, Field, Fields, Ident, Index, Member, Token};
+use quote::{ToTokens, quote};
+use syn::{Field, Fields, Ident, Index, Member, Token, spanned::Spanned};
 
 //----------- Struct ---------------------------------------------------------
 

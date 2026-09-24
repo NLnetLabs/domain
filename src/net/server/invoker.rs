@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 /// Common service invoking logic for network servers.
 ///
 /// Used by [`stream::Connection`][net::server::stream::Connection] and
@@ -7,7 +8,6 @@ use core::default::Default;
 use core::future::Future;
 use core::pin::Pin;
 use core::time::Duration;
-use std::boxed::Box;
 
 use futures_util::StreamExt;
 use octseq::Octets;
@@ -104,11 +104,15 @@ where
                 }
 
                 if matches!(self.status(), InvokerStatus::Aborting) {
-                    trace!("Aborting response stream processing for request id {request_id}");
+                    trace!(
+                        "Aborting response stream processing for request id {request_id}"
+                    );
                     break;
                 }
             }
-            trace!("Finished processing service call results for request id {request_id}");
+            trace!(
+                "Finished processing service call results for request id {request_id}"
+            );
         })
     }
 

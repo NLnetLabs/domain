@@ -2,11 +2,11 @@
 
 use core::any::Any;
 
-use std::boxed::Box;
-use std::collections::{hash_map, HashMap};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use core::future::Future;
+use core::pin::Pin;
+use std::collections::{HashMap, hash_map};
 
 use parking_lot::{
     RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,

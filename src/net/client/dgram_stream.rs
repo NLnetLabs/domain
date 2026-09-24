@@ -12,12 +12,12 @@ use crate::net::client::protocol::{
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use bytes::Bytes;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use core::fmt::Debug;
+use core::future::Future;
+use core::pin::Pin;
 
 //------------ Config ---------------------------------------------------------
 
@@ -212,7 +212,7 @@ where
                     self.state = QueryState::GetUdpResponse(request);
                     continue;
                 }
-                QueryState::GetUdpResponse(ref mut request) => {
+                QueryState::GetUdpResponse(request) => {
                     let response = request.get_response().await?;
                     if response.header().tc() {
                         self.state = QueryState::StartTcpRequest;
@@ -226,7 +226,7 @@ where
                     self.state = QueryState::GetTcpResponse(request);
                     continue;
                 }
-                QueryState::GetTcpResponse(ref mut query) => {
+                QueryState::GetTcpResponse(query) => {
                     let response = query.get_response().await?;
                     return Ok(response);
                 }

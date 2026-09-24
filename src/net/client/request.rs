@@ -9,15 +9,15 @@ use crate::base::wire::{Composer, ParseError};
 use crate::base::{
     Header, Message, Rtype, StaticCompressor, UnknownRecordData,
 };
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::Bytes;
+use core::fmt::Debug;
+use core::future::Future;
+use core::pin::Pin;
+use core::{error, fmt};
 use octseq::Octets;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::vec::Vec;
-use std::{error, fmt};
 use tracing::trace;
 
 #[cfg(feature = "tsig")]

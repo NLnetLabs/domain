@@ -12,9 +12,9 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{IpseckeyAlgorithm, IpseckeyGatewayType, Rtype};
 use crate::base::name::FlattenInto;
-use crate::base::rdata::{ComposeRecordData, RecordData};
+use crate::base::rdata::{ComposeRecordData, LongRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner, ScannerError};
-use crate::base::wire::{Composer, FormError, ParseError};
+use crate::base::wire::{Compose, Composer, FormError, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::{ParsedName, ToName};
 use crate::utils::base64;
@@ -23,7 +23,7 @@ use core::{fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
-use super::{Aaaa, A};
+use super::{A, Aaaa};
 
 /// The IPSECKEY Resource Record is used to publish a public key that is to be
 /// associated with a domain name for use with the IPsec protocol suite.
@@ -77,7 +77,14 @@ impl Ipseckey<(), ()> {
 }
 
 impl<Octs, N> Ipseckey<Octs, N> {
-    /// Create a Ipseckey record data from provided parameters.
+    /// Create IPSECKEY record data from provided parameters.
+    ///
+    /// # Note
+    ///
+    /// This function can be used to created record data that is too large
+    /// to be composed into wire format and will cause a panic if composing
+    /// is attempted. Unless you are absolutely sure the data fits, you might
+    /// want to use [`try_new`][Self::try_new] instead.
     pub fn new(
         precedence: u8,
         algorithm: IpseckeyAlgorithm,
@@ -97,6 +104,44 @@ impl<Octs, N> Ipseckey<Octs, N> {
             gateway,
             key,
         }
+    }
+
+    /// Create IPSECKEY record data from provided parameters.
+    ///
+    /// Returns an error if the resulting record data is too large to be
+    /// composed into wire format.
+    pub fn try_new(
+        precedence: u8,
+        algorithm: IpseckeyAlgorithm,
+        gateway: IpseckeyGateway<N>,
+        key: Octs,
+    ) -> Result<Self, LongRecordData>
+    where
+        Octs: AsRef<[u8]>,
+        N: ToName,
+    {
+        Self::check_len(&gateway, &key)?;
+        Ok(Self::new(precedence, algorithm, gateway, key))
+    }
+
+    /// Checks the length of the dynamic components.
+    fn check_len(
+        gateway: &IpseckeyGateway<N>,
+        key: &Octs,
+    ) -> Result<(), LongRecordData>
+    where
+        Octs: AsRef<[u8]>,
+        N: ToName,
+    {
+        LongRecordData::check_multi_len([
+            usize::from(
+                u8::COMPOSE_LEN
+                    + IpseckeyGatewayType::COMPOSE_LEN
+                    + IpseckeyAlgorithm::COMPOSE_LEN,
+            ),
+            usize::from(gateway.rdlen()),
+            key.as_ref().len(),
+        ])
     }
 
     /// Get the precedence field.
@@ -130,6 +175,7 @@ impl<Octs, N> Ipseckey<Octs, N> {
     ) -> Result<Self, S::Error>
     where
         Octs: AsRef<[u8]>,
+        N: ToName,
     {
         let precedence = u8::scan(scanner)?;
         // Using u8::scan instead of Ipseckey{GatewayType,Algorithm}::scan to
@@ -139,9 +185,13 @@ impl<Octs, N> Ipseckey<Octs, N> {
         let gateway = IpseckeyGateway::scan(scanner, gateway_type)?;
         let key = scanner.convert_entry(base64::SymbolConverter::new())?;
         if key.as_ref().is_empty() && algorithm != IpseckeyAlgorithm::NONE {
-            return Err(ScannerError::custom("Missing IPSECKEY public key field. The public key field may only be omitted when the algorithm is specified as 0"));
+            return Err(ScannerError::custom(
+                "Missing IPSECKEY public key field. The public key field may only be omitted when the algorithm is specified as 0",
+            ));
         }
 
+        Self::check_len(&gateway, &key)
+            .map_err(|err| S::Error::custom(err.as_str()))?;
         Ok(Self {
             precedence,
             gateway_type,
@@ -204,7 +254,10 @@ impl<Octs> Ipseckey<Octs, ParsedName<Octs>> {
     /// Parse the record data from wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
-    ) -> Result<Self, ParseError> {
+    ) -> Result<Self, ParseError>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let precedence = parser.parse_u8()?;
         let gateway_type = IpseckeyGatewayType::parse(parser)?;
         let algorithm = IpseckeyAlgorithm::parse(parser)?;
@@ -214,6 +267,7 @@ impl<Octs> Ipseckey<Octs, ParsedName<Octs>> {
             return Err(ParseError::ShortInput);
         }
         let key = parser.parse_octets(len_key)?;
+        Self::check_len(&gateway, &key)?;
         Ok(Self {
             precedence,
             gateway_type,
@@ -400,7 +454,9 @@ where
         match self.gateway.partial_cmp(&other.gateway) {
             Some(Ordering::Equal) => {}
             Some(other) => return other,
-            None => unreachable!("The gateway will be the same variant and therefore have an ordering, because the gateway_type above was Equal"),
+            None => unreachable!(
+                "The gateway will be the same variant and therefore have an ordering, because the gateway_type above was Equal"
+            ),
         }
         self.key.as_ref().cmp(other.key.as_ref())
     }
@@ -423,7 +479,9 @@ impl<Octs: AsRef<[u8]>, N: ToName> Ord for Ipseckey<Octs, N> {
         match self.gateway.partial_cmp(&other.gateway) {
             Some(Ordering::Equal) => {}
             Some(other) => return other,
-            None => unreachable!("The gateway will be the same variant and therefore have an ordering, because the gateway_type above was Equal"),
+            None => unreachable!(
+                "The gateway will be the same variant and therefore have an ordering, because the gateway_type above was Equal"
+            ),
         }
         self.key.as_ref().cmp(other.key.as_ref())
     }
@@ -431,7 +489,7 @@ impl<Octs: AsRef<[u8]>, N: ToName> Ord for Ipseckey<Octs, N> {
 
 //------------ IpseckeyGateway -----------------------------------------------
 
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IpseckeyGateway<N> {
     None,
@@ -534,17 +592,6 @@ impl<N> IpseckeyGateway<N> {
     }
 }
 
-impl<N: hash::Hash> hash::Hash for IpseckeyGateway<N> {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        match self {
-            IpseckeyGateway::None => todo!(),
-            IpseckeyGateway::Ipv4(a) => a.hash(state),
-            IpseckeyGateway::Ipv6(aaaa) => aaaa.hash(state),
-            IpseckeyGateway::Name(n) => n.hash(state),
-        }
-    }
-}
-
 impl<N, OtherName> PartialEq<IpseckeyGateway<OtherName>>
     for IpseckeyGateway<N>
 where
@@ -607,7 +654,7 @@ impl<Octs> IpseckeyGateway<ParsedName<Octs>> {
             _ => {
                 return Err(ParseError::Form(FormError::new(
                     "Unknown IPSECKEY gateway type",
-                )))
+                )));
             }
         };
         let remaining = parser.remaining();
@@ -683,15 +730,15 @@ impl<N: fmt::Debug> fmt::Debug for IpseckeyGateway<N> {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
-    use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
-    };
     use crate::base::Name;
-    use crate::utils::base64::decode;
+    use crate::base::rdata::test::{
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
+    };
+    use crate::utils::base64;
+    use alloc::string::ToString;
+    use alloc::vec::Vec;
+    use core::net::{Ipv4Addr, Ipv6Addr};
     use core::str::FromStr;
-    use std::net::{Ipv4Addr, Ipv6Addr};
-    use std::string::ToString;
-    use std::vec::Vec;
 
     #[test]
     // allow redundant_closure because of lifetime shenanigans
@@ -706,7 +753,7 @@ mod test {
         // IPSECKEY ( 10 2 2 2001:0DB8:0:8002::2000:1 AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ== )
 
         let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
-        let key: Vec<u8> = decode(key_str).unwrap();
+        let key: Vec<u8> = base64::decode(key_str).unwrap();
         for (precedence, gateway_type, algorithm, gateway_str, gateway) in [
             (
                 10,
@@ -758,7 +805,7 @@ mod test {
             let rdata = Ipseckey::new(precedence, algorithm, gateway, &key);
             test_rdlen(&rdata);
             test_compose_parse(&rdata, |parser| Ipseckey::parse(parser));
-            test_scan(
+            test_scan_check(
                 &[
                     &precedence.to_string(),
                     &u8::from(gateway_type).to_string(),
@@ -780,10 +827,66 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ipseckey::parse(parser));
-        test_scan(
+        test_scan_check(
             &[&10.to_string(), &0.to_string(), &0.to_string(), "."],
             Ipseckey::scan,
             &rdata,
+        );
+    }
+
+    #[test]
+    fn ipseckey_scan_limits() {
+        assert!(
+            test_scan(
+                &[
+                    "12",
+                    "0",
+                    "12",
+                    ".",
+                    &base64::encode_string(&b"a".repeat(0xFFFF - 3)),
+                ],
+                Ipseckey::scan,
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &[
+                    "12",
+                    "0",
+                    "12",
+                    ".",
+                    &base64::encode_string(&b"a".repeat(0xFFFF - 2)),
+                ],
+                Ipseckey::scan,
+            )
+            .is_err()
+        );
+        assert!(
+            test_scan(
+                &[
+                    "12",
+                    "3",
+                    "12",
+                    "abc.def.ghi.",
+                    &base64::encode_string(&b"a".repeat(0xFFFF - 3 - 13)),
+                ],
+                Ipseckey::scan,
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &[
+                    "12",
+                    "3",
+                    "12",
+                    "abc.def.ghi.",
+                    &base64::encode_string(&b"a".repeat(0xFFFF - 3 - 12)),
+                ],
+                Ipseckey::scan,
+            )
+            .is_err()
         );
     }
 
@@ -802,11 +905,11 @@ mod test {
         //     IpseckeyGateway::Name(Name::from_str(wrong_gateway_str).unwrap());
         let correct_gateway = IpseckeyGateway::<Name<Vec<u8>>>::None;
         let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
-        let key: Vec<u8> = decode(key_str).unwrap();
+        let key: Vec<u8> = base64::decode(key_str).unwrap();
         let correct_rdata =
             Ipseckey::new(precedence, algorithm, correct_gateway, key);
-        // This should panic in the unwrap within test_scan
-        test_scan(
+        // This should panic in the unwrap within test_scan_check
+        test_scan_check(
             &[
                 &precedence.to_string(),
                 &u8::from(gateway_type).to_string(),
@@ -856,7 +959,7 @@ $ORIGIN 1.0.0.0.0.0.2.8.B.D.0.1.0.0.2.ip6.arpa.
         let mut zone = Zonefile::load(&mut content.as_bytes()).unwrap();
         zone.set_origin(Name::root());
         let key_str = "AQNRU3mG7TVTO2BkR47usntb102uFJtugbo6BSGvgqt4AQ==";
-        let key: Vec<u8> = decode(key_str).unwrap();
+        let key: Vec<u8> = base64::decode(key_str).unwrap();
         let expected_ipseckeys = [
             Ipseckey::new(
                 10,

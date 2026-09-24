@@ -395,7 +395,7 @@ pub unsafe trait SplitBytesZC: ParseBytesZC {
     /// - `bytes.len() == core::mem::size_of_val(this) + rest.len()`.
     /// - `bytes.as_ptr().offset(size_of_val(this)) == rest.as_ptr()`.
     fn split_bytes_by_ref(bytes: &[u8])
-        -> Result<(&Self, &[u8]), ParseError>;
+    -> Result<(&Self, &[u8]), ParseError>;
 }
 
 unsafe impl SplitBytesZC for u8 {

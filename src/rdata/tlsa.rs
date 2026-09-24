@@ -13,8 +13,8 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{
     Rtype, TlsaCertificateUsage, TlsaMatchingType, TlsaSelector,
 };
-use crate::base::rdata::{ComposeRecordData, RecordData};
-use crate::base::scan::Scanner;
+use crate::base::rdata::{ComposeRecordData, LongRecordData, RecordData};
+use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
@@ -52,7 +52,14 @@ impl Tlsa<()> {
 }
 
 impl<Octs> Tlsa<Octs> {
-    /// Create a Tlsa record data from provided parameters.
+    /// Create a TLSA record data from provided parameters.
+    ///
+    /// # Note
+    ///
+    /// This function can be used to created record data that is too large
+    /// to be composed into wire format and will cause a panic if composing
+    /// is attempted. Unless you are absolutely sure the data fits, you might
+    /// want to use [`try_new`][Self::try_new] instead.
     pub fn new(
         usage: TlsaCertificateUsage,
         selector: TlsaSelector,
@@ -65,6 +72,35 @@ impl<Octs> Tlsa<Octs> {
             matching_type,
             data,
         }
+    }
+
+    /// Create TLSA record data from provided parameters.
+    ///
+    /// Returns an error if the resulting record data is too large to be
+    /// composed into wire format.
+    pub fn try_new(
+        usage: TlsaCertificateUsage,
+        selector: TlsaSelector,
+        matching_type: TlsaMatchingType,
+        data: Octs,
+    ) -> Result<Self, LongRecordData>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        LongRecordData::check_append_len(
+            usize::from(
+                TlsaCertificateUsage::COMPOSE_LEN
+                    + TlsaSelector::COMPOSE_LEN
+                    + TlsaMatchingType::COMPOSE_LEN,
+            ),
+            data.as_ref().len(),
+        )?;
+        Ok(Self {
+            usage,
+            selector,
+            matching_type,
+            data,
+        })
     }
 
     /// Get the usage field.
@@ -90,35 +126,32 @@ impl<Octs> Tlsa<Octs> {
     /// Parse the record data from wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
-    ) -> Result<Self, ParseError> {
+    ) -> Result<Self, ParseError>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let usage = TlsaCertificateUsage::parse(parser)?;
         let selector = TlsaSelector::parse(parser)?;
         let matching_type = TlsaMatchingType::parse(parser)?;
         let len = parser.remaining();
         let data = parser.parse_octets(len)?;
-        Ok(Self {
-            usage,
-            selector,
-            matching_type,
-            data,
-        })
+        Ok(Self::try_new(usage, selector, matching_type, data)?)
     }
 
     /// Parse the record data from zonefile format.
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let usage = TlsaCertificateUsage::scan(scanner)?;
         let selector = TlsaSelector::scan(scanner)?;
         let matching_type = TlsaMatchingType::scan(scanner)?;
         let data = scanner.convert_entry(base16::SymbolConverter::new())?;
 
-        Ok(Self {
-            usage,
-            selector,
-            matching_type,
-            data,
-        })
+        Self::try_new(usage, selector, matching_type, data)
+            .map_err(|err| S::Error::custom(err.as_str()))
     }
 
     pub(super) fn flatten<Target: OctetsFrom<Octs>>(
@@ -303,11 +336,10 @@ impl<Octs: AsRef<[u8]>> Ord for Tlsa<Octs> {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
     };
-    use crate::utils::base16::decode;
-    use std::string::ToString;
-    use std::vec::Vec;
+    use alloc::string::ToString;
+    use alloc::vec::Vec;
 
     #[test]
     // allow redundant_closure because because of lifetime shenanigans
@@ -318,11 +350,11 @@ mod test {
         let selector = 0.into();
         let matching_type = 1.into();
         let data_str = "d2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971";
-        let data: Vec<u8> = decode(data_str).unwrap();
+        let data: Vec<u8> = base16::decode(data_str).unwrap();
         let rdata = Tlsa::new(usage, selector, matching_type, data);
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Tlsa::parse(parser));
-        test_scan(
+        test_scan_check(
             &[
                 &u8::from(usage).to_string(),
                 &u8::from(selector).to_string(),
@@ -334,13 +366,41 @@ mod test {
         );
     }
 
+    #[test]
+    fn tlsa_scan_limits() {
+        assert!(
+            test_scan(
+                &[
+                    "1",
+                    "1",
+                    "1",
+                    &base16::encode_string(&b"a".repeat(0xFFFF - 3))
+                ],
+                Tlsa::scan
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &[
+                    "1",
+                    "1",
+                    "1",
+                    &base16::encode_string(&b"a".repeat(0xFFFF - 2))
+                ],
+                Tlsa::scan
+            )
+            .is_err()
+        );
+    }
+
     #[cfg(feature = "zonefile")]
     #[test]
     fn tlsa_parse_zonefile() {
+        use crate::base::Name;
         use crate::base::iana::{
             TlsaCertificateUsage, TlsaMatchingType, TlsaSelector,
         };
-        use crate::base::Name;
         use crate::rdata::ZoneRecordData;
         use crate::zonefile::inplace::{Entry, Zonefile};
 

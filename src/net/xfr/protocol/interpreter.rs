@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 use bytes::Bytes;
 
@@ -7,9 +7,9 @@ use crate::base::{Message, ParsedName, Rtype};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::zonetree::types::ZoneUpdate;
 
+use super::IterationError;
 use super::iterator::XfrZoneUpdateIterator;
 use super::types::{Error, IxfrUpdateMode, ParsedRecord, XfrType};
-use super::IterationError;
 
 //------------ XfrResponseInterpreter -----------------------------------------
 
@@ -191,7 +191,7 @@ impl Inner {
         let xfr_type = match resp.qtype() {
             Some(Rtype::AXFR) => XfrType::Axfr,
             Some(Rtype::IXFR) => XfrType::Ixfr,
-            _ => unreachable!(),
+            _ => return Err(Error::Malformed),
         };
 
         let Some(Ok(record)) = records.next() else {

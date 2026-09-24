@@ -16,10 +16,10 @@ use crate::base::opt::{AllOptData, ComposeOptData, LongOptData, OptRecord};
 use crate::base::{Message, MessageBuilder, ParsedName, Rtype, StreamTarget};
 use crate::dep::octseq::Octets;
 use crate::rdata::AllRecordData;
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::future::Future;
+use core::pin::Pin;
 
 /// Trait for a service that results in a single response.
 pub trait SingleService<RequestOcts: Send + Sync, RequestMeta, CR> {

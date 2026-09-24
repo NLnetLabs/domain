@@ -1,19 +1,19 @@
 //! Small utilities for building and working with servers.
-use core::future::{ready, Ready};
+use core::future::{Ready, ready};
 
+use alloc::string::{String, ToString};
 use core::marker::PhantomData;
-use std::string::{String, ToString};
 
 use futures_util::stream::Once;
 use octseq::{Octets, OctetsBuilder};
 use tracing::warn;
 
+use crate::base::Message;
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::{
     AdditionalBuilder, OptBuilder, PushError,
 };
 use crate::base::wire::Composer;
-use crate::base::Message;
 use crate::base::{MessageBuilder, ParsedName, Rtype, StreamTarget};
 use crate::rdata::AllRecordData;
 use crate::utils::base16;
@@ -94,9 +94,9 @@ where
 ///   service.
 /// - Call [`service_fn`] to wrap it in an actual [`Service`] impl.
 ///
-/// [`Vec<u8>`]: std::vec::Vec<u8>
+/// [`Vec<u8>`]: alloc::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
-/// [`Result::Ok`]: std::result::Result::Ok
+/// [`Result::Ok`]: core::result::Result::Ok
 pub fn service_fn<RequestOctets, Target, T, RequestMeta, Metadata>(
     request_handler: T,
     metadata: Metadata,
@@ -256,7 +256,9 @@ where
         let copied_response = response.as_slice().to_vec();
         let Ok(copied_response) = Message::from_octets(&copied_response)
         else {
-            warn!("Internal error: Unable to create message from octets while adding EDNS option");
+            warn!(
+                "Internal error: Unable to create message from octets while adding EDNS option"
+            );
             return Ok(());
         };
 
@@ -312,7 +314,9 @@ where
         let copied_response = response.as_slice().to_vec();
         let Ok(copied_response) = Message::from_octets(&copied_response)
         else {
-            warn!("Internal error: Unable to create message from octets while adding EDNS option");
+            warn!(
+                "Internal error: Unable to create message from octets while adding EDNS option"
+            );
             return Ok(());
         };
 
@@ -355,7 +359,7 @@ mod tests {
     use crate::net::server::util::{
         add_edns_options, mk_builder_for_target, remove_edns_opt_record,
     };
-    use std::vec::Vec;
+    use alloc::vec::Vec;
 
     #[test]
     fn test_add_edns_option() {

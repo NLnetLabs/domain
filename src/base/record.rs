@@ -26,10 +26,10 @@ use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
 use core::time::Duration;
 use core::{fmt, hash};
+use octseq::OctetsBuilder;
 use octseq::builder::ShortBuf;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use octseq::OctetsBuilder;
 
 //------------ Record --------------------------------------------------------
 
@@ -79,6 +79,12 @@ use octseq::OctetsBuilder;
 #[cfg_attr(feature = "zonefile", doc = "[zonefile][crate::zonefile]")]
 #[cfg_attr(not(feature = "zonefile"), doc = "zonefile")]
 /// module for that.
+///
+/// # Equality, Ordering, and Hashing
+///
+/// The implementations for the standard equality, ordering, and hashing
+/// traits ignore the TTL. That is, two records with the same owner, class,
+/// type, and record data are considered identical even if their TTLs differ.
 ///
 /// [`new`]: #method.new
 /// [`Message`]: ../message/struct.Message.html
@@ -300,6 +306,9 @@ where
 }
 
 //--- PartialEq and Eq
+//
+// These impls ignore the TTL. This may have been a poor choice, but we
+// keep it for now and reconsider with the re-write of base.
 
 impl<N, NN, D, DD> PartialEq<Record<NN, DD>> for Record<N, D>
 where

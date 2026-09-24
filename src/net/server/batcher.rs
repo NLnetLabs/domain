@@ -40,8 +40,8 @@
 //! [CallbackBatcher]: CallbackBatcher  
 use core::marker::PhantomData;
 
-use std::fmt::Debug;
-use std::sync::Arc;
+use alloc::sync::Arc;
+use core::fmt::Debug;
 
 use octseq::Octets;
 use tracing::trace;
@@ -328,7 +328,9 @@ where
     /// Notes via trace logging if an in-progress answer is dropped.
     fn drop(&mut self) {
         if self.answer.is_some() {
-            trace!("Dropping unfinished batcher, was that intentional or did you forget to call finish()?");
+            trace!(
+                "Dropping unfinished batcher, was that intentional or did you forget to call finish()?"
+            );
         }
     }
 }
@@ -338,8 +340,10 @@ mod tests {
     use super::*;
     use crate::base::{MessageBuilder, Name};
     use crate::rdata::Txt;
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::sync::atomic::{AtomicU64, Ordering};
-    use std::vec::Vec;
+    use std::eprintln;
 
     #[test]
     fn batch_of_zero() {
@@ -389,8 +393,8 @@ mod tests {
         batcher.callback_state().assert_eq(0, 2, 2);
     }
 
-    fn mk_counting_batcher(
-    ) -> CallbackBatcher<Vec<u8>, Vec<u8>, BatchCounter, Arc<TestCounters>>
+    fn mk_counting_batcher()
+    -> CallbackBatcher<Vec<u8>, Vec<u8>, BatchCounter, Arc<TestCounters>>
     {
         let req = Arc::new(MessageBuilder::new_vec().into_message());
         let cnt = Arc::new(TestCounters::new());

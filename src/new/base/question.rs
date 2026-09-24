@@ -4,6 +4,8 @@ use core::fmt;
 
 use domain_macros::*;
 
+use crate::new::base::parse::split_without_compression;
+
 use super::{
     build::{BuildInMessage, NameCompressor, TruncationError},
     parse::{ParseMessageBytes, SplitMessageBytes},
@@ -79,8 +81,8 @@ where
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let (qname, rest) = N::split_message_bytes(contents, start)?;
-        let (&qtype, rest) = <&QType>::split_message_bytes(contents, rest)?;
-        let (&qclass, rest) = <&QClass>::split_message_bytes(contents, rest)?;
+        let (&qtype, rest) = split_without_compression(contents, rest)?;
+        let (&qclass, rest) = split_without_compression(contents, rest)?;
         Ok((Self::new(qname, qtype, qclass), rest))
     }
 }
@@ -188,6 +190,9 @@ impl QType {
     /// The type of queries for [`Aaaa`](crate::new::rdata::Aaaa) records.
     pub const AAAA: Self = Self::new(28);
 
+    /// The type of queries for [`Srv`](crate::new::rdata::Srv) records.
+    pub const SRV: Self = Self::new(33);
+
     /// The type of queries for [`DName`](crate::new::rdata::DName) records.
     pub const DNAME: Self = Self::new(39);
 
@@ -197,19 +202,19 @@ impl QType {
     /// The type of queries for [`Ds`](crate::new::rdata::Ds) records.
     pub const DS: Self = Self::new(43);
 
-    /// The type of queries for [`RRSig`](crate::new::rdata::RRSig) records.
+    /// The type of queries for [`Rrsig`](crate::new::rdata::Rrsig) records.
     pub const RRSIG: Self = Self::new(46);
 
-    /// The type of queries for [`NSec`](crate::new::rdata::NSec) records.
+    /// The type of queries for [`Nsec`](crate::new::rdata::Nsec) records.
     pub const NSEC: Self = Self::new(47);
 
     /// The type of queries for [`DNSKey`](crate::new::rdata::DNSKey) records.
     pub const DNSKEY: Self = Self::new(48);
 
-    /// The type of queries for [`NSec3`](crate::new::rdata::NSec3) records.
+    /// The type of queries for [`Nsec3`](crate::new::rdata::Nsec3) records.
     pub const NSEC3: Self = Self::new(50);
 
-    /// The type of queries for [`NSec3Param`](crate::new::rdata::NSec3Param) records.
+    /// The type of queries for [`Nsec3Param`](crate::new::rdata::Nsec3Param) records.
     pub const NSEC3PARAM: Self = Self::new(51);
 
     /// The type of querios for `Cds` records.
@@ -265,6 +270,7 @@ impl fmt::Debug for QType {
             Self::TXT => "QType::TXT",
             Self::RP => "QType::RP",
             Self::AAAA => "QType::AAAA",
+            Self::SRV => "QType::SRV",
             Self::DNAME => "QType::DNAME",
             Self::OPT => "QType::OPT",
             Self::DS => "QType::DS",

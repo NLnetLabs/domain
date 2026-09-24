@@ -13,12 +13,12 @@
 //! [RFC 4648]: https://tools.ietf.org/html/rfc4648
 
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
+#[cfg(feature = "alloc")]
+use alloc::string::String;
 use core::fmt;
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
 };
-#[cfg(feature = "std")]
-use std::string::String;
 
 //------------ Convenience Functions -----------------------------------------
 
@@ -91,7 +91,7 @@ where
 }
 
 /// Encodes binary data in *base64* and returns the encoded data as a string.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub fn encode_string<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
     let mut res = String::with_capacity((bytes.as_ref().len() / 3 + 1) * 4);
     display(bytes, &mut res).unwrap();
@@ -174,10 +174,10 @@ pub mod serde {
                 self.0.visit_borrowed_bytes(value)
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value)
             }
@@ -534,7 +534,7 @@ mod test {
 
     #[test]
     fn decode_str() {
-        fn decode(s: &str) -> Result<std::vec::Vec<u8>, DecodeError> {
+        fn decode(s: &str) -> Result<alloc::vec::Vec<u8>, DecodeError> {
             super::decode(s)
         }
 
@@ -561,7 +561,7 @@ mod test {
     #[test]
     fn symbol_converter() {
         use crate::base::scan::Symbols;
-        use std::vec::Vec;
+        use alloc::vec::Vec;
 
         fn decode(s: &str) -> Result<Vec<u8>, std::io::Error> {
             let mut convert = SymbolConverter::new();

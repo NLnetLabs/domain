@@ -64,7 +64,7 @@ use crate::new::base::{
 /// #
 /// // Build a 'CName' manually:
 /// let manual: CName<RevNameBuf> = CName {
-///     name: "example.org".parse().unwrap(),
+///     name: "example.org.".parse().unwrap(),
 /// };
 ///
 /// // Its wire format serialization looks like:

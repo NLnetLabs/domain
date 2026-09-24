@@ -3,21 +3,22 @@ use core::convert::{AsRef, From};
 use core::fmt::Display;
 use core::marker::Send;
 
-use std::boxed::Box;
-use std::cmp::Ordering;
-use std::fmt::Debug;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::cmp::Ordering;
+use core::fmt::Debug;
 
 use octseq::builder::FromBuilder;
 use octseq::{OctetsFrom, OctetsInto};
-use tracing::debug;
+use tracing::{debug, trace};
 
+use crate::base::Name;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
-use crate::base::Name;
 use crate::crypto::sign::SignRaw;
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::signingkey::SigningKey;
@@ -198,7 +199,7 @@ where
                     &mut reusable_scratch,
                 )?;
                 rrsigs.push(rrsig_rr);
-                debug!(
+                trace!(
                     "Signed {} RRSET at {} with keytag {}",
                     rrset.rtype(),
                     rrset.owner(),
@@ -363,15 +364,16 @@ mod tests {
     use core::str::FromStr;
     use pretty_assertions::assert_eq;
     use rand::RngExt;
+    use std::eprintln;
 
-    use crate::base::iana::SecurityAlgorithm;
     use crate::base::Serial;
+    use crate::base::iana::SecurityAlgorithm;
     use crate::crypto::sign::{KeyPair, SignError, Signature};
     use crate::dnssec::sign::records::SortedRecords;
     use crate::dnssec::sign::test_util;
     use crate::dnssec::sign::test_util::*;
-    use crate::rdata::dnssec::Timestamp;
     use crate::rdata::Dnskey;
+    use crate::rdata::dnssec::Timestamp;
     use crate::zonetree::StoredName;
 
     use super::*;

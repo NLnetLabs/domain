@@ -10,9 +10,9 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
+use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, FormError, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 #[cfg(feature = "bytes")]
@@ -21,8 +21,8 @@ use core::cmp::Ordering;
 use core::convert::{Infallible, TryFrom};
 use core::{fmt, hash, mem, str};
 use octseq::builder::{
-    infallible, EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
-    ShortBuf,
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+    infallible,
 };
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
@@ -156,7 +156,7 @@ impl Txt<[u8]> {
     /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Txt has repr(transparent)
-        mem::transmute(slice)
+        unsafe { mem::transmute(slice) }
     }
 
     /// Checks that a slice contains correctly encoded TXT data.
@@ -197,8 +197,18 @@ impl<Octs> Txt<Octs> {
     /// Scans TXT record data.
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        scanner.scan_charstr_entry().map(Txt)
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        let res = scanner.scan_charstr_entry()?;
+        if res.as_ref().is_empty() {
+            return Err(S::Error::custom("empty TXT record"));
+        }
+        if LongRecordData::check_len(res.as_ref().len()).is_err() {
+            return Err(S::Error::custom("TXT record is too long"));
+        }
+        Ok(Txt(res))
     }
 }
 
@@ -623,10 +633,10 @@ where
                 })
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
                     Txt::from_octets(octets).map_err(E::custom)
@@ -923,13 +933,13 @@ impl fmt::Display for TxtAppendError {
 //============ Testing =======================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
     };
-    use std::vec::Vec;
+    use alloc::{format, vec::Vec};
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
@@ -937,7 +947,19 @@ mod test {
         let rdata = Txt::from_octets(b"\x03foo\x03bar".as_ref()).unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Txt::parse(parser));
-        test_scan(&["foo", "bar"], Txt::scan, &rdata);
+        test_scan_check(&["foo", "bar"], Txt::scan, &rdata);
+    }
+
+    #[test]
+    fn txt_scan_empty() {
+        assert!(test_scan(&[], Txt::scan).is_err());
+    }
+
+    #[test]
+    fn txt_scan_long() {
+        let word = [b'a'; 255];
+        let word = str::from_utf8(&word).unwrap();
+        assert!(test_scan(&[word; 257], Txt::scan).is_err());
     }
 
     #[test]
@@ -987,15 +1009,19 @@ mod test {
 
         // Too long
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
-        assert!(builder
-            .append_slice(&b"\x00".repeat(u16::MAX as usize))
-            .is_err());
+        assert!(
+            builder
+                .append_slice(&b"\x00".repeat(u16::MAX as usize))
+                .is_err()
+        );
 
         // Incremental, reserve space for offsets
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
-        assert!(builder
-            .append_slice(&b"\x00".repeat(u16::MAX as usize - 512))
-            .is_ok());
+        assert!(
+            builder
+                .append_slice(&b"\x00".repeat(u16::MAX as usize - 512))
+                .is_ok()
+        );
         assert!(builder.append_slice(&b"\x00".repeat(512)).is_err());
     }
 
@@ -1058,10 +1084,10 @@ mod test {
         assert_eq!(records[0], records[2]);
     }
 
-    #[cfg(all(feature = "serde", feature = "std"))]
+    #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn txt_ser_de() {
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         let txt = Txt::from_octets(Vec::from(b"\x03foo".as_ref())).unwrap();
         assert_tokens(
@@ -1105,10 +1131,10 @@ mod test {
         );
     }
 
-    #[cfg(all(feature = "serde", feature = "std"))]
+    #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn txt_de_str() {
-        use serde_test::{assert_de_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_de_tokens};
 
         assert_de_tokens(
             &Txt::from_octets(Vec::from(b"\x03foo".as_ref()))

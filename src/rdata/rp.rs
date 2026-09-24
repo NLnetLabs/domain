@@ -204,25 +204,16 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
 }
 
 impl<Name: ToName> ComposeRecordData for Rp<Name> {
-    fn rdlen(&self, compress: bool) -> Option<u16> {
-        if compress {
-            None
-        } else {
-            Some(self.mbox.compose_len() + self.txt.compose_len())
-        }
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(self.mbox.compose_len() + self.txt.compose_len())
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        if target.can_compress() {
-            target.append_compressed_name(&self.mbox)?;
-            target.append_compressed_name(&self.txt)
-        } else {
-            self.mbox.compose(target)?;
-            self.txt.compose(target)
-        }
+        self.mbox.compose(target)?;
+        self.txt.compose(target)
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
@@ -264,11 +255,11 @@ mod test {
     use crate::base::iana::Class;
     use crate::base::name::Name;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
     use crate::zonefile::inplace::{self, Zonefile};
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
 
     type Octets512 = Array<512>;
 
@@ -281,7 +272,7 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Rp::parse(parser));
-        test_scan(
+        test_scan_check(
             &["mbox.example.com", "some-person.example.com"],
             Rp::scan,
             &rdata,

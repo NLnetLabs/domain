@@ -2,7 +2,12 @@
 
 use core::{borrow::Borrow, cmp::Ordering, fmt, ops::Deref};
 
+use crate::new::base::parse::split_without_compression;
 use crate::utils::dst::UnsizedCopy;
+
+#[cfg(feature = "alloc")]
+use super::super::rdata::BoxedRecordData;
+use super::super::rdata::RecordData;
 
 use super::build::{BuildInMessage, NameCompressor};
 use super::parse::{ParseMessageBytes, SplitMessageBytes};
@@ -25,12 +30,12 @@ use super::wire::{
 ///     base::name::RevNameBuf,
 ///     rdata::CName<base::name::NameBuf>,
 /// > = base::Record {
-///     rname: "www.nlnetlabs.nl".parse().unwrap(),
+///     rname: "www.nlnetlabs.nl.".parse().unwrap(),
 ///     rtype: base::RType::CNAME,
 ///     rclass: base::RClass::IN,
 ///     ttl: base::TTL::from(3600),
 ///     rdata: rdata::CName {
-///         name: "nlnetlabs.nl".parse().unwrap(),
+///         name: "nlnetlabs.nl.".parse().unwrap(),
 ///     },
 /// };
 ///
@@ -131,14 +136,15 @@ where
         start: usize,
     ) -> Result<(Self, usize), ParseError> {
         let (rname, rest) = N::split_message_bytes(contents, start)?;
-        let (&rtype, rest) = <&RType>::split_message_bytes(contents, rest)?;
-        let (&rclass, rest) = <&RClass>::split_message_bytes(contents, rest)?;
-        let (&ttl, rest) = <&TTL>::split_message_bytes(contents, rest)?;
-        let rdata_start = rest;
-        let (_, rest) =
-            <&SizePrefixed<U16, [u8]>>::split_message_bytes(contents, rest)?;
-        let rdata =
-            D::parse_record_data(&contents[..rest], rdata_start + 2, rtype)?;
+        let (&rtype, rest) = split_without_compression(contents, rest)?;
+        let (&rclass, rest) = split_without_compression(contents, rest)?;
+        let (&ttl, rest) = split_without_compression(contents, rest)?;
+
+        // Parse the rdata length and split the input accordingly.
+        let (size, rest) = split_without_compression::<&U16>(contents, rest)?;
+        let (rdata_start, rest) = (rest, rest + size.get() as usize);
+        let contents = contents.get(..rest).ok_or(ParseError)?;
+        let rdata = D::parse_record_data(contents, rdata_start, rtype)?;
 
         Ok((Self::new(rname, rtype, rclass, ttl, rdata), rest))
     }
@@ -311,6 +317,9 @@ impl RType {
     /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
     pub const AAAA: Self = Self::new(28);
 
+    /// The type of an [`Srv`](crate::new::rdata::Srv) record.
+    pub const SRV: Self = Self::new(33);
+
     /// The type of a [`DName`](crate::new::rdata::DName) record.
     pub const DNAME: Self = Self::new(39);
 
@@ -320,19 +329,19 @@ impl RType {
     /// The type of a [`Ds`](crate::new::rdata::Ds) record.
     pub const DS: Self = Self::new(43);
 
-    /// The type of an [`RRSig`](crate::new::rdata::RRSig) record.
+    /// The type of an [`Rrsig`](crate::new::rdata::Rrsig) record.
     pub const RRSIG: Self = Self::new(46);
 
-    /// The type of an [`NSec`](crate::new::rdata::NSec) record.
+    /// The type of an [`Nsec`](crate::new::rdata::Nsec) record.
     pub const NSEC: Self = Self::new(47);
 
     /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.
     pub const DNSKEY: Self = Self::new(48);
 
-    /// The type of an [`NSec3`](crate::new::rdata::NSec3) record.
+    /// The type of an [`Nsec3`](crate::new::rdata::Nsec3) record.
     pub const NSEC3: Self = Self::new(50);
 
-    /// The type of an [`NSec3Param`](crate::new::rdata::NSec3Param) record.
+    /// The type of an [`Nsec3Param`](crate::new::rdata::Nsec3Param) record.
     pub const NSEC3PARAM: Self = Self::new(51);
 
     /// The type of a `Cds` record.
@@ -376,7 +385,7 @@ impl RType {
     /// - `NXT` (obsolete)
     /// - `NAPTR`
     /// - `KX`
-    /// - `SRV`
+    /// - [`SRV`](RType::SRV)
     /// - [`DNAME`](RType::DNAME)
     /// - `A6` (obsolete)
     /// - [`RRSIG`](RType::RRSIG)
@@ -393,6 +402,7 @@ impl RType {
                 | Self::PTR
                 | Self::MX
                 | Self::RP
+                | Self::SRV
                 | Self::DNAME
                 | Self::RRSIG
         )
@@ -430,6 +440,7 @@ impl fmt::Debug for RType {
             Self::TXT => "RType::TXT",
             Self::RP => "RType::RP",
             Self::AAAA => "RType::AAAA",
+            Self::SRV => "RType::SRV",
             Self::DNAME => "RType::DNAME",
             Self::OPT => "RType::OPT",
             Self::DS => "RType::DS",
@@ -443,6 +454,55 @@ impl fmt::Debug for RType {
             Self::ZONEMD => "RType::ZONEMD",
             Self::TSIG => "RType::TSIG",
             _ => return write!(f, "RType({})", self.code),
+        })
+    }
+}
+
+/// Format an [`RType`] in a human-readable way
+///
+/// Return the mnemonic of [`RType`]. If [`RType`] is unknown, then the
+/// returned string contains the type in the unknown format as defined in
+/// Section 5 in [RFC3597].
+///
+/// The mnemonics are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::base::RType;
+/// // Known RType with mnemonic
+/// assert_eq!("A", format!("{}", RType::A));
+/// // Unknown RType
+/// assert_eq!("TYPE265", format!("{}", RType::from(265)));
+/// ```
+///
+/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+impl fmt::Display for RType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::A => "A",
+            Self::NS => "NS",
+            Self::CNAME => "CNAME",
+            Self::SOA => "SOA",
+            Self::PTR => "PTR",
+            Self::HINFO => "HINFO",
+            Self::MX => "MX",
+            Self::TXT => "TXT",
+            Self::RP => "RP",
+            Self::AAAA => "AAAA",
+            Self::SRV => "SRV",
+            Self::DNAME => "DNAME",
+            Self::OPT => "OPT",
+            Self::DS => "DS",
+            Self::RRSIG => "RRSIG",
+            Self::NSEC => "NSEC",
+            Self::DNSKEY => "DNSKEY",
+            Self::NSEC3 => "NSEC3",
+            Self::NSEC3PARAM => "NSEC3PARAM",
+            Self::CDS => "CDS",
+            Self::CDNSKEY => "CDNSKEY",
+            Self::ZONEMD => "ZONEMD",
+            Self::TSIG => "TSIG",
+            _ => return write!(f, "TYPE{}", self.code),
         })
     }
 }
@@ -489,6 +549,22 @@ impl RClass {
     pub const CH: Self = Self::new(3);
 }
 
+//--- Conversion to and from 'u16'
+
+impl From<u16> for RClass {
+    fn from(value: u16) -> Self {
+        Self {
+            code: U16::new(value),
+        }
+    }
+}
+
+impl From<RClass> for u16 {
+    fn from(value: RClass) -> Self {
+        value.code.get()
+    }
+}
+
 //--- Formatting
 
 impl fmt::Debug for RClass {
@@ -497,6 +573,34 @@ impl fmt::Debug for RClass {
             Self::IN => "RClass::IN",
             Self::CH => "RClass::CH",
             _ => return write!(f, "RClass({})", self.code),
+        })
+    }
+}
+
+/// Format an [`RClass`] in a human-readable way
+///
+/// Return the mnemonic of [`RClass`]. If [`RClass`] is unknown, then the
+/// returned string contains the class in the unknown format as defined in
+/// Section 5 in [RFC3597].
+///
+/// The mnemonics are consolidated by [IANA].
+///
+/// ```
+/// # use domain::new::base::RClass;
+/// // Known RClass with mnemonic
+/// assert_eq!("IN", format!("{}", RClass::IN));
+/// // Unknown RClass
+/// assert_eq!("CLASS42", format!("{}", RClass::from(42)));
+/// ```
+///
+/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+impl fmt::Display for RClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Self::IN => "IN",
+            Self::CH => "CH",
+            _ => return write!(f, "CLASS{}", self.code),
         })
     }
 }
@@ -547,6 +651,14 @@ impl From<TTL> for u32 {
 impl fmt::Debug for TTL {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TTL({})", self.value)
+    }
+}
+
+//--- Compatibility with old base
+impl TTL {
+    /// Return the TTL value in seconds.
+    pub fn as_secs(&self) -> u32 {
+        self.value.into()
     }
 }
 
@@ -654,7 +766,7 @@ impl UnparsedRecordData {
     pub const unsafe fn new_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'UnparsedRecordData' is 'repr(transparent)' to '[u8]', so
         // casting a '[u8]' into an 'UnparsedRecordData' is sound.
-        core::mem::transmute(bytes)
+        unsafe { core::mem::transmute(bytes) }
     }
 }
 
@@ -726,11 +838,45 @@ impl Clone for alloc::boxed::Box<UnparsedRecordData> {
     }
 }
 
+//
+// --- Functions to make it easier to transition from old base.
+// These functions should be marked as deprecated when most of the initial
+// migration to new base has completed.
+impl<'a, N> Record<N, RecordData<'a, N>> {
+    /// Constructor that is more compatible with old base that takes
+    /// RecordData.
+    pub fn old_new(
+        rname: N,
+        rclass: RClass,
+        ttl: TTL,
+        rdata: RecordData<'a, N>,
+    ) -> Self {
+        Self::new(rname, rdata.rtype(), rclass, ttl, rdata)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<N> Record<N, BoxedRecordData> {
+    /// Constructor that is more compatible with old base that takes
+    /// BoxedRecordData.
+    pub fn old_new_box(
+        rname: N,
+        rclass: RClass,
+        ttl: TTL,
+        rdata: BoxedRecordData,
+    ) -> Self {
+        Self::new(rname, rdata.rtype(), rclass, ttl, rdata)
+    }
+}
+
 //============ Tests =========================================================
 
 #[cfg(test)]
 mod test {
-    use super::{RClass, RType, Record, UnparsedRecordData, TTL};
+    #[cfg(feature = "alloc")]
+    use alloc::format;
+
+    use super::{RClass, RType, Record, TTL, UnparsedRecordData};
 
     use crate::new::base::{
         name::Name,
@@ -757,5 +903,39 @@ mod test {
         let mut buffer = [0u8; 15];
         assert_eq!(record.build_bytes(&mut buffer), Ok(&mut [] as &mut [u8]));
         assert_eq!(buffer, &bytes[..15]);
+    }
+
+    #[test]
+    fn test_rclass_from() {
+        let rclass: RClass = 1.into();
+        assert_eq!(rclass, RClass::IN);
+
+        let number: u16 = rclass.into();
+        assert_eq!(number, 1);
+    }
+
+    #[test]
+    fn test_rtype_from() {
+        let rtype: RType = 6.into();
+        assert_eq!(rtype, RType::SOA);
+
+        let number: u16 = rtype.into();
+        assert_eq!(number, 6);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_rclass_display() {
+        assert_eq!("IN", format!("{}", RClass::IN));
+        assert_eq!("CH", format!("{}", RClass::CH));
+        assert_eq!("CLASS42", format!("{}", RClass::from(42)));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_rtype_display() {
+        assert_eq!("A", format!("{}", RType::A));
+        assert_eq!("MX", format!("{}", RType::MX));
+        assert_eq!("TYPE265", format!("{}", RType::from(265)));
     }
 }

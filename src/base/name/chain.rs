@@ -4,11 +4,11 @@
 //! crate.
 
 use super::super::scan::Scanner;
+use super::Name;
 use super::label::Label;
 use super::relative::NameIter;
 use super::traits::{FlattenInto, ToLabelIter, ToName, ToRelativeName};
 use super::uncertain::UncertainName;
-use super::Name;
 use core::{fmt, iter};
 use octseq::builder::{
     BuilderAppendError, EmptyBuilder, FreezeBuilder, FromBuilder,
@@ -378,7 +378,7 @@ impl core::error::Error for LongChainError {}
 //============ Testing =======================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod test {
     use super::*;
     use crate::base::name::RelativeName;
@@ -387,7 +387,6 @@ mod test {
     /// Tests that `ToName` and `ToRelativeName` are implemented for the
     /// right types.
     #[test]
-    #[cfg(feature = "std")]
     fn impls() {
         fn assert_to_name<T: ToName>(_: &T) {}
         fn assert_to_relative_name<T: ToRelativeName>(_: &T) {}
@@ -454,25 +453,28 @@ mod test {
         );
         assert!(left.clone().chain(six_abs.clone()).is_err());
         assert!(left.clone().chain(six_rel).is_err());
-        assert!(left
-            .clone()
-            .chain(five_rel.clone())
-            .unwrap()
-            .chain(five_abs.clone())
-            .is_err());
-        assert!(left
-            .clone()
-            .chain(five_rel.clone())
-            .unwrap()
-            .chain(five_rel)
-            .is_err());
+        assert!(
+            left.clone()
+                .chain(five_rel.clone())
+                .unwrap()
+                .chain(five_abs.clone())
+                .is_err()
+        );
+        assert!(
+            left.clone()
+                .chain(five_rel.clone())
+                .unwrap()
+                .chain(five_rel)
+                .is_err()
+        );
 
         let left = UncertainName::from(left);
         assert_eq!(left.clone().chain(five_abs).unwrap().compose_len(), 255);
         assert!(left.clone().chain(six_abs.clone()).is_err());
 
         let left = UncertainName::from(left.into_absolute().unwrap());
-        println!("{:?}", left);
+        #[cfg(feature = "std")]
+        std::println!("{left:?}");
         assert_eq!(left.chain(six_abs).unwrap().compose_len(), 251);
     }
 
@@ -531,7 +533,7 @@ mod test {
     /// Tests that composing works as expected.
     #[test]
     fn compose() {
-        use std::vec::Vec;
+        use alloc::vec::Vec;
 
         let w = RelativeName::from_octets(b"\x03www".as_ref()).unwrap();
         let ec = RelativeName::from_octets(b"\x07example\x03com".as_ref())
@@ -593,7 +595,7 @@ mod test {
         ) where
             Chain<L, R>: ToLabelIter,
         {
-            use std::string::ToString;
+            use alloc::string::ToString;
 
             let chain = chain.unwrap();
             assert_eq!(chain.to_string(), out);

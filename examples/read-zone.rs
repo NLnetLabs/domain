@@ -14,7 +14,9 @@ fn main() {
     let zone_files: Vec<_> = args.collect();
 
     if zone_files.is_empty() {
-        eprintln!("Usage: {prog_name} <path/to/zonefile/to/read> [<more>, <zone>, <files>, <to>, <read>, ...]");
+        eprintln!(
+            "Usage: {prog_name} <path/to/zonefile/to/read> [<more>, <zone>, <files>, <to>, <read>, ...]"
+        );
         exit(2);
     }
 
@@ -47,9 +49,13 @@ fn main() {
                                 "\nThe last record read was:\n{record}."
                             );
                         } else {
-                            eprintln!("\nThe last record read was:\n{last_entry:#?}.");
+                            eprintln!(
+                                "\nThe last record read was:\n{last_entry:#?}."
+                            );
                         }
-                        eprintln!("\nTry commenting out the line after that record with a leading ; (semi-colon) character.")
+                        eprintln!(
+                            "\nTry commenting out the line after that record with a leading ; (semi-colon) character."
+                        )
                     }
                     exit(1);
                 }

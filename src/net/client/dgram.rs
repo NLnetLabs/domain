@@ -18,17 +18,18 @@ use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
 use crate::utils::config::DefMinMax;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::Bytes;
+use core::error;
 use core::fmt;
+use core::future::Future;
+use core::pin::Pin;
 use octseq::OctetsInto;
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::vec::Vec;
-use std::{error, io};
+use std::io;
 use tokio::sync::Semaphore;
-use tokio::time::{timeout_at, Duration, Instant};
+use tokio::time::{Duration, Instant, timeout_at};
 use tracing::trace;
 
 //------------ Configuration Constants ----------------------------------------
@@ -303,7 +304,9 @@ where
 
                 if !request.is_answer(answer.for_slice()) {
                     // Wrong answer, go back to receiving
-                    trace!("Received message is not the answer we were waiting for, reading more");
+                    trace!(
+                        "Received message is not the answer we were waiting for, reading more"
+                    );
                     buf = answer.into_octets();
                     continue;
                 }

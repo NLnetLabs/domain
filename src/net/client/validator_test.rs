@@ -2,19 +2,21 @@
 
 #![cfg(all(test, feature = "unstable-validator"))]
 
+use alloc::string::ToString;
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::time::Duration;
+use std::eprintln;
 use std::fs::File;
 use std::path::PathBuf;
-use std::string::ToString;
-use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Duration;
-use std::vec::Vec;
 
-use crate::stelline::client::do_client_simple;
 use crate::stelline::client::CurrStepValue;
+use crate::stelline::client::do_client_simple;
 use crate::stelline::connect::Connect;
-use crate::stelline::parse_stelline::parse_file;
 use crate::stelline::parse_stelline::Config;
+use crate::stelline::parse_stelline::parse_file;
 
 use mock_instant::thread_local::MockClock;
 use rstest::rstest;
@@ -89,7 +91,7 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                     ("val-override-date", v) => {
                         let time = vec![v.trim_matches('"').to_string()];
                         type TestScanner = IterScanner<
-                            std::vec::IntoIter<std::string::String>,
+                            alloc::vec::IntoIter<alloc::string::String>,
                             Vec<u8>,
                         >;
                         let mut scanner = TestScanner::new(time);
@@ -108,7 +110,9 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                         ta.add_u8(a.trim_matches('"').as_bytes()).unwrap();
                     }
                     _ => {
-                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value:?}");
+                        eprintln!(
+                            "Ignoring unknown server setting '{setting}' with value: {value:?}"
+                        );
                     }
                 }
             }

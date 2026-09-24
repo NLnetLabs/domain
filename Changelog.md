@@ -6,12 +6,109 @@ Breaking changes
 
 New
 
+* Updated the constants for the IANA registries. ([#699], [#716] by
+  [@SebastiaanYN])
+
 Improvements
 
 Bug fixes
 
+* Don’t compress the names in RP records. ([#702] by [@SebastiaanYN])
+* Fixed a `todo!` macro in the `Hash` impl for `IpseckeyGateway`.
+  ([#706] by [@SebastiaanYN])
+* Fixed integer overflow in `Scan` impl for unsigned integers. ([#725])
+* Added length checks when scanning and parsing variable length record
+  data types: `Caa`, `Ipseckey`, `Nsec3Salt`, `Openpgpkey`, `Sshfp`,
+  `Tlsa` `Txt` `Zonemd`. ([#726])
+* Fixed possible panics in the resolver’s `FoundHosts::qname` and
+  `FoundHosts::canonical_name`. ([#727])
+* TSIG server: Don’t panic when creating a TSIG error response ([#729])
+* Zonefile parser: check for invalid UTF-8. ([#730])
+
+Unstable features
+
+* `unstable-server-transport`:
+  * Fixed a panic in the NOTIFY middleware when it can’t copy the request.
+    ([#733])
+  * Fixed a panic in `QnameRouter` if a request that doesn’t have at least
+    one valid name is dispatched to it. ([#734])
+* `unstable-sign`:
+  * Fixed a panic when an NSEC owner name is too long. ([#735])
+* `unstable-validator`:
+  * Fixed a panic when encountering an invalid NSEC3 label. ([#728])
+* `unstable-xfr`:
+  * Return an error rather than panicking when a response is not AXFR or
+    IXFR. (#724)
+* `unstable-zonetree`:
+  * Fixed a panic in `zonetree::Answer::to_message` when the request does
+    not have exactly one question. ([#731])
+  * Avoid a panic when requesting origin or class from an empty
+    `parsed::Zonefile`. This change removes the `Default` impl, which
+    means an origin and class must be given when creating a value.
+    ([#732])
+
 Other changes
 
+[#699]: https://github.com/NLnetLabs/domain/pull/699
+[#702]: https://github.com/NLnetLabs/domain/pull/702
+[#706]: https://github.com/NLnetLabs/domain/pull/706
+[#716]: https://github.com/NLnetLabs/domain/pull/716
+[#724]: https://github.com/NLnetLabs/domain/pull/724
+[#725]: https://github.com/NLnetLabs/domain/pull/725
+[#726]: https://github.com/NLnetLabs/domain/pull/726
+[#727]: https://github.com/NLnetLabs/domain/pull/727
+[#728]: https://github.com/NLnetLabs/domain/pull/728
+[#729]: https://github.com/NLnetLabs/domain/pull/729
+[#730]: https://github.com/NLnetLabs/domain/pull/730
+[#731]: https://github.com/NLnetLabs/domain/pull/731
+[#732]: https://github.com/NLnetLabs/domain/pull/732
+[#733]: https://github.com/NLnetLabs/domain/pull/733
+[#734]: https://github.com/NLnetLabs/domain/pull/734
+[#735]: https://github.com/NLnetLabs/domain/pull/735
+[@SebastiaanYN]: https://github.com/SebastiaanYN
+
+
+## 0.12.2
+
+Released 2026-07-16.
+
+New
+
+* Implemented `to_mnemonic_str` for `Rcode` and `OptCode` ([#668] and [#648]
+  by [@rossmacarthur])
+
+Improvements
+
+* Moved more imports to `core` and `alloc` to improve `no_std` support.
+  ([#671])
+
+Unstable features:
+
+* `unstable-new`:
+  * Added `Serial::new` and `Serial::get`. ([#676])
+  * Added conversions for `Name`. ([#678])
+  * Added mnemonic `Display` for `RType` and `RClass`. ([#678])
+  * Renamed a number of record data types and record data helper types to
+    the convention used by old base. ([#679]
+  * Added methods to new base for RRSIG, NSEC, and NSEC3 to make new base 
+    more compatible with current domain. ([#679])
+  * Fixed parsing of NSEC `TypeBitmap`. ([#681])
+  * Overhauled name labels. ([#687])
+  * Added the SRV record data type. ([#688], based on [#649] by [@soywod])
+
+
+[#648]: https://github.com/NLnetLabs/domain/pull/648
+[#649]: https://github.com/NLnetLabs/domain/pull/649
+[#668]: https://github.com/NLnetLabs/domain/pull/668
+[#671]: https://github.com/NLnetLabs/domain/pull/671
+[#676]: https://github.com/NLnetLabs/domain/pull/676
+[#678]: https://github.com/NLnetLabs/domain/pull/678
+[#679]: https://github.com/NLnetLabs/domain/pull/679
+[#681]: https://github.com/NLnetLabs/domain/pull/681
+[#687]: https://github.com/NLnetLabs/domain/pull/687
+[#688]: https://github.com/NLnetLabs/domain/pull/688
+[@rossmacarthur]: https://github.com/rossmacarthur
+[@soywod]: https://github.com/soywod
 
 ## 0.12.1
 

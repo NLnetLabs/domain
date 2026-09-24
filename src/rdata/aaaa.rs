@@ -186,7 +186,7 @@ impl AsMut<Ipv6Addr> for Aaaa {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
 
     #[test]
@@ -195,6 +195,6 @@ mod test {
         let rdata = Aaaa::from_str(addr).unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, Aaaa::parse);
-        test_scan(&[addr], Aaaa::scan, &rdata);
+        test_scan_check(&[addr], Aaaa::scan, &rdata);
     }
 }

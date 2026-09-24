@@ -144,9 +144,9 @@ use core::hash::Hash;
 use core::marker::PhantomData;
 use core::ops::Deref;
 
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::fmt::Debug;
 
 use crate::base::{CanonicalOrd, ToName};
 use crate::base::{Name, Record};
@@ -154,14 +154,14 @@ use crate::rdata::ZoneRecordData;
 
 use denial::config::DenialConfig;
 use denial::nsec::generate_nsecs;
-use denial::nsec3::{generate_nsec3s, Nsec3Records};
+use denial::nsec3::{Nsec3Records, generate_nsec3s};
 use error::SigningError;
 use keys::SigningKey;
 use octseq::{
     EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, Truncate,
 };
 use records::{RecordsIter, Sorter};
-use signatures::rrsigs::{sign_sorted_zone_records, GenerateRrsigConfig};
+use signatures::rrsigs::{GenerateRrsigConfig, sign_sorted_zone_records};
 use traits::{SignableZone, SortedExtend};
 
 //------------ SignableZoneInOut ---------------------------------------------
@@ -178,7 +178,7 @@ use traits::{SignableZone, SortedExtend};
 /// Prefer signing via the [`SignableZone`] or [`SignableZoneInPlace`] traits
 /// as they handle the construction of this type and calling [`sign_zone()`].
 ///
-/// [`Cow`]: std::borrow::Cow
+/// [`Cow`]: alloc::borrow::Cow
 /// [`SignableZoneInPlace`]: crate::dnssec::sign::traits::SignableZoneInPlace
 pub enum SignableZoneInOut<'a, 'b, N, Octs, S, T, Sort>
 where
@@ -427,13 +427,13 @@ where
             // Nothing to do.
         }
 
-        DenialConfig::Nsec(ref cfg) => {
+        DenialConfig::Nsec(cfg) => {
             let nsecs = generate_nsecs(apex_owner, owner_rrs, cfg)?;
 
             in_out.sorted_extend(nsecs.into_iter().map(Record::from_record));
         }
 
-        DenialConfig::Nsec3(ref cfg) => {
+        DenialConfig::Nsec3(cfg) => {
             // RFC 5155 7.1 step 5: "Sort the set of NSEC3 RRs into hash
             // order." We store the NSEC3s as we create them and sort them
             // afterwards.
@@ -442,7 +442,7 @@ where
 
             // Add the generated NSEC3 records.
             in_out.sorted_extend(
-                std::iter::once(Record::from_record(nsec3param))
+                core::iter::once(Record::from_record(nsec3param))
                     .chain(nsec3s.into_iter().map(Record::from_record)),
             );
         }

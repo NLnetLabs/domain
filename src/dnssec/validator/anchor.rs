@@ -6,12 +6,13 @@ use crate::base::name::{Chain, Name, ToName};
 use crate::base::{Record, RelativeName};
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::{Entry, Zonefile};
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
 use bytes::Bytes;
-use std::fmt::Debug;
+use core::fmt::Debug;
+use core::slice::Iter;
 use std::io::Read;
-use std::slice::Iter;
-use std::sync::Arc;
-use std::vec::Vec;
 
 //----------- TrustAnchor ----------------------------------------------------
 

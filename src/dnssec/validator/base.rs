@@ -12,7 +12,7 @@ use crate::rdata::{Dnskey, Rrsig};
 
 use bytes::Bytes;
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -328,15 +328,16 @@ pub fn supported_algorithm(a: &SecurityAlgorithm) -> bool {
 #[cfg(feature = "std")]
 mod test {
     use super::*;
+    use crate::base::Ttl;
     use crate::base::iana::{Class, Rtype, SecurityAlgorithm};
     use crate::base::scan::{IterScanner, Scanner};
-    use crate::base::Ttl;
     use crate::dnssec::common::parse_from_bind;
     use crate::rdata::dnssec::Timestamp;
     use crate::rdata::{Mx, ZoneRecordData};
     use crate::utils::base64;
 
-    use std::str::FromStr;
+    use alloc::{format, vec};
+    use core::str::FromStr;
 
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Ds = crate::rdata::Ds<Vec<u8>>;

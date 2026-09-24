@@ -109,7 +109,11 @@ fn main() {
     let zone_answer = if let Some(zone) = zones.find_zone(&qname, qclass) {
         // Query the built zone for the requested records.
         if verbosity != Verbosity::Quiet {
-            println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
+            println!(
+                "Querying zone {} class {} for qname {qname} with qtype {qtype}...",
+                zone.apex_name(),
+                zone.class()
+            );
         }
         zone.read().query(qname.clone(), qtype).unwrap()
     } else {

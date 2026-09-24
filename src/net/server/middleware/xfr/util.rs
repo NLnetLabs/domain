@@ -1,4 +1,4 @@
-use std::boxed::Box;
+use alloc::boxed::Box;
 
 use bytes::Bytes;
 use tokio::sync::mpsc::UnboundedSender;

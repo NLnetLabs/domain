@@ -4,16 +4,18 @@
 use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use core::time::Duration;
 
-use std::boxed::Box;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::cmp;
+use core::future::Future;
+use core::future::ready;
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+use core::pin::Pin;
+use core::task::{Context, Poll};
 use std::collections::HashMap;
-use std::future::ready;
-use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
-use std::vec::Vec;
-use std::{cmp, io};
+use std::io;
+use std::sync::Mutex;
 
 use futures_util::FutureExt;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -355,7 +357,10 @@ impl AsyncDgramRecv for ClientServerChannel {
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(None) => {
-                trace!("Broken pipe while reading in dgram client channel (is_closed={})", rx.is_closed());
+                trace!(
+                    "Broken pipe while reading in dgram client channel (is_closed={})",
+                    rx.is_closed()
+                );
                 Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
             }
             Poll::Pending => {
@@ -394,7 +399,8 @@ impl AsyncDgramSend for ClientServerChannel {
                     }
                     Poll::Ready(Err(_)) => {
                         trace!(
-                            "Broken pipe while sending in dgram client channel");
+                            "Broken pipe while sending in dgram client channel"
+                        );
                         Poll::Ready(Err(io::Error::from(
                             io::ErrorKind::BrokenPipe,
                         )))
@@ -407,7 +413,9 @@ impl AsyncDgramSend for ClientServerChannel {
             }
 
             None => {
-                trace!("Unable to send bytes in dgram client channel: not connected");
+                trace!(
+                    "Unable to send bytes in dgram client channel: not connected"
+                );
                 Poll::Ready(Err(io::Error::from(io::ErrorKind::NotConnected)))
             }
         }
@@ -474,7 +482,11 @@ impl AsyncDgramSock for ClientServerChannel {
         match rx.try_recv() {
             Ok(Data::DgramRequest(addr, data)) => {
                 // TODO: use unread buf here to prevent overflow of given buf.
-                trace!("Reading {} bytes from {addr} into buffer of len {} in dgram server channel", data.len(), buf.remaining());
+                trace!(
+                    "Reading {} bytes from {addr} into buffer of len {} in dgram server channel",
+                    data.len(),
+                    buf.remaining()
+                );
                 buf.put_slice(&data);
                 Ok((data.len(), addr))
             }
@@ -525,7 +537,7 @@ impl Future for ClientServerChannelReadableFut {
 impl AsyncAccept for ClientServerChannel {
     type Error = io::Error;
     type StreamType = ClientServerChannel;
-    type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Future = core::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
@@ -580,12 +592,17 @@ impl AsyncRead for ClientServerChannel {
                 let rx = &mut client.rx.lock().unwrap();
                 match rx.poll_recv(cx) {
                     Poll::Ready(Some(data)) => {
-                        trace!("Reading {} bytes into internal buffer in client stream channel", data.len());
+                        trace!(
+                            "Reading {} bytes into internal buffer in client stream channel",
+                            data.len()
+                        );
                         client.unread_buf.extend(data).fill(buf);
                         Poll::Ready(Ok(()))
                     }
                     Poll::Ready(None) => {
-                        trace!("Broken pipe while reading in client stream channel");
+                        trace!(
+                            "Broken pipe while reading in client stream channel"
+                        );
                         Poll::Ready(Err(io::Error::from(
                             io::ErrorKind::BrokenPipe,
                         )))
@@ -605,7 +622,10 @@ impl AsyncRead for ClientServerChannel {
                 let rx = &mut server_socket.rx;
                 match rx.poll_recv(cx) {
                     Poll::Ready(Some(Data::StreamRequest(data))) => {
-                        trace!("Reading {} bytes into internal buffer in server stream channel", data.len());
+                        trace!(
+                            "Reading {} bytes into internal buffer in server stream channel",
+                            data.len()
+                        );
                         server_socket.unread_buf.extend(data).fill(buf);
                         Poll::Ready(Ok(()))
                     }
@@ -616,7 +636,9 @@ impl AsyncRead for ClientServerChannel {
                         unreachable!()
                     }
                     Poll::Ready(None) => {
-                        trace!("Broken pipe while reading in server stream channel");
+                        trace!(
+                            "Broken pipe while reading in server stream channel"
+                        );
 
                         Poll::Ready(Err(io::Error::from(
                             io::ErrorKind::BrokenPipe,
@@ -670,7 +692,9 @@ impl AsyncWrite for ClientServerChannel {
                         Poll::Ready(Ok(data.len()))
                     }
                     Poll::Ready(Err(_)) => {
-                        trace!("Broken pipe while writing in client stream channel");
+                        trace!(
+                            "Broken pipe while writing in client stream channel"
+                        );
                         Poll::Ready(Err(io::Error::from(
                             io::ErrorKind::BrokenPipe,
                         )))
@@ -695,7 +719,9 @@ impl AsyncWrite for ClientServerChannel {
                             Poll::Ready(Ok(data.len()))
                         }
                         Poll::Ready(Err(_)) => {
-                            trace!("Broken pipe while writing in server stream channel");
+                            trace!(
+                                "Broken pipe while writing in server stream channel"
+                            );
                             Poll::Ready(Err(io::Error::from(
                                 io::ErrorKind::BrokenPipe,
                             )))
@@ -706,7 +732,9 @@ impl AsyncWrite for ClientServerChannel {
                         }
                     }
                 } else {
-                    trace!("Failed write in server stream channel: not connected");
+                    trace!(
+                        "Failed write in server stream channel: not connected"
+                    );
                     Poll::Ready(Err(io::Error::from(
                         io::ErrorKind::NotConnected,
                     )))

@@ -10,7 +10,7 @@ int_enum! {
     /// The opcode and its initial set of values are defined in [RFC 1035].
     /// Additional values have been defined over time. All currently assigned
     /// values can be found in the [IANA registry]. This type is complete as
-    /// of 2019-12-23.
+    /// of 2026-07-06.
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
     /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5

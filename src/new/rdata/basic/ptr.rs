@@ -58,7 +58,7 @@ use crate::new::base::{
 /// #
 /// // Build a 'Ptr' manually:
 /// let manual: Ptr<RevNameBuf> = Ptr {
-///     name: "example.org".parse().unwrap(),
+///     name: "example.org.".parse().unwrap(),
 /// };
 ///
 /// // Its wire format serialization looks like:

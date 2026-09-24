@@ -1,6 +1,7 @@
 use core::str::FromStr;
 
-use std::collections::VecDeque;
+use alloc::collections::VecDeque;
+use alloc::vec;
 
 use bytes::{Bytes, BytesMut};
 use octseq::{Octets, Parser};
@@ -16,7 +17,7 @@ use crate::base::{
 };
 use crate::base::{Name, ToName};
 use crate::logging::init_logging;
-use crate::rdata::{Aaaa, Soa, ZoneRecordData, A};
+use crate::rdata::{A, Aaaa, Soa, ZoneRecordData};
 use crate::zonetree::types::{ZoneUpdate, ZoneUpdate as ZU};
 
 use super::interpreter::XfrResponseInterpreter;

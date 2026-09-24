@@ -7,7 +7,7 @@
 //! are signed using a secret key shared between the two participants. The
 //! party sending the request – the client – generates a signature over the
 //! message it is about to send using that key and adds it in a special record
-//! of record type [TSIG] to the additional section of the message. The
+//! of record type [`TSIG`] to the additional section of the message. The
 //! receiver of the request – the server – verifies the signature using the
 //! same key. When creating an answer, it too generates a signature. It
 //! includes the request’s signture in this process in order to bind request
@@ -43,23 +43,16 @@
 //! [RFC 2104]: https://tools.ietf.org/html/rfc2104
 //! [RFC 4635]: https://tools.ietf.org/html/rfc4653
 //! [RFC 8945]: https://tools.ietf.org/html/rfc8945
-//! [TSIG]: ../rdata/tsig/struct.Tsig.html
-//! [`Algorithm`]: enum.Algorithm.html
-//! [`Key`]: enum.Key.html
-//! [`KeyStore`]: trait.KeyStore.html
-//! [`ClientTransaction`]: struct.ClientTransaction.html
-//! [`ServerTransaction`]: struct.ServerTransaction.html
-//! [`ClientSequence`]: struct.ClientSequence.html
-//! [`ServerSequence`]: struct.ServerSequence.html
+//! [`TSIG`]: crate::rdata::Tsig
 #![cfg(feature = "tsig")]
 #![cfg_attr(docsrs, doc(cfg(feature = "tsig")))]
 
 use core::{cmp, fmt, mem, str};
 
 #[cfg(feature = "std")]
-use std::collections::HashMap;
+use alloc::sync::Arc;
 #[cfg(feature = "std")]
-use std::sync::Arc;
+use std::collections::HashMap;
 
 use bytes::{Bytes, BytesMut};
 use constant_time_eq::constant_time_eq;
@@ -88,7 +81,7 @@ pub type KeyName = Name<octseq::array::Array<255>>;
 /// For the algorithms included in this implementation, keys are octet strings
 /// of any size that are converted into the algorithm’s native key length
 /// through a well defined method. The type provides means both for creating
-/// new random keys via the [`create´] function and for loading them from
+/// new random keys via the [`generate`] function and for loading them from
 /// the octets via [`new`].
 ///
 /// Keys are identified in TSIG through a name that is encoded as a domain
@@ -103,10 +96,10 @@ pub type KeyName = Name<octseq::array::Array<255>>;
 /// to be accepted. Conversely, [`signing_len`] is the length of a signature
 /// created with this key.
 ///
-/// [`create`]: #method.create
-/// [`new`]: #method.new
-/// [`min_mac_len`]: #method.min_mac_len
-/// [`signing_len`]: #method.signing_len
+/// [`generate`]: Self::generate()
+/// [`new`]: Self::new()
+/// [`min_mac_len`]: Self::min_mac_len()
+/// [`signing_len`]: Self::signing_len()
 #[derive(Clone, Debug)]
 pub struct Key {
     /// The key’s bits and algorithm.
@@ -147,8 +140,6 @@ impl Key {
     /// If `signing_len` is not `None`, the signatures produces with this key
     /// will be truncated to the given length. The limits for `min_mac_len`
     /// apply here as well.
-    ///
-    /// [`Algorithm::native_len`]: struct.Algorithm.html#method.native_len
     pub fn new(
         algorithm: Algorithm,
         key: &[u8],
@@ -172,7 +163,7 @@ impl Key {
     /// given `rng`. It returns both the key and bits for serialization and
     /// exporting.
     ///
-    /// [`new`]: #method.new
+    /// [`new`]: Self::new()
     pub fn generate(
         algorithm: Algorithm,
         rng: &dyn rand::SecureRandom,
@@ -317,16 +308,15 @@ impl Key {
             + 2 // Original ID
             + 2 // Error
             + 2; // Other Len
-                 //+ 0; // Other Data (assume a successful response)
 
-        let rr_len = self.name().compose_len()
+        //+ 0; // Other Data (assume a successful response)
+
+        self.name().compose_len()
             + 2 // TYPE
             + 2 // CLASS
             + 4 // TTL
             + 2 // RDLENGTH
-            + rdata_len;
-
-        rr_len
+            + rdata_len
     }
 
     /// Checks whether the key in the record is this key.
@@ -397,7 +387,6 @@ impl AsRef<Key> for Key {
 
 //--- Display
 
-#[cfg(feature = "std")]
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.name.fmt(f)
@@ -507,8 +496,8 @@ impl KeyStore for Arc<HashMap<(KeyName, Algorithm), Key>> {
 /// transaction. If the message doesn’t, you can drop it and try with the next
 /// answer received. The transaction will remain valid.
 ///
-/// [`request`]: #method.request
-/// [`answer`]: #method.answer
+/// [`request`]: Self::request()
+/// [`answer`]: Self::answer()
 #[derive(Clone, Debug)]
 pub struct ClientTransaction<K> {
     context: SigningContext<K>,
@@ -558,7 +547,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// the message anymore. In this case, the function returns an error and
     /// the untouched message.
     ///
-    /// [`request`]: #method.request
+    /// [`request`]: Self::request()
     pub fn request_with_fudge<Target>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
@@ -699,7 +688,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// allowed to differ from your current time when checking the signature.
     /// The default, suggested by the RFC, is 300.
     ///
-    /// [`answer`]: #method.answer
+    /// [`answer`]: Self::answer()
     pub fn answer_with_fudge<Target>(
         self,
         message: &mut AdditionalBuilder<Target>,
@@ -751,10 +740,9 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 /// TSIG allows intermediary messages to be unsigned but demands the last
 /// message to be signed.
 ///
-/// [`ClientTransaction`]: struct.ClientTransaction.html
-/// [`request`]: #method.request
-/// [`answer`]: #method.answer
-/// [`done`]: #method.done
+/// [`request`]: Self::request()
+/// [`answer`]: Self::answer()
+/// [`done`]: Self::done()
 #[derive(Clone, Debug)]
 pub struct ClientSequence<K> {
     /// A signing context to be used for the next signed answer.
@@ -792,7 +780,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// checking the request. The default value used by [`request`] is 300
     /// seconds.
     ///
-    /// [`request`]: #method.request
+    /// [`request`]: Self::request()
     pub fn request_with_fudge<Target>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
@@ -847,7 +835,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// Specifically, this checks that the last message given to [`answer`]
     /// had been signed.
     ///
-    /// [`answer`]: #method.answer
+    /// [`answer`]: Self::answer()
     pub fn done(self) -> Result<(), ValidationError> {
         // The last message must be signed, so the counter must be 0 here.
         if self.unsigned != 0 {
@@ -1139,21 +1127,17 @@ impl<K: AsRef<Key>> SigningContext<K> {
         let tsig = match MessageTsig::from_message(message) {
             Ok(tsig) => tsig,
             // RFC 8945, section 5.2:
-            // > If multiple TSIG records are detected or a TSIG record is present
-            // > in any other position, the DNS message is dropped and a response
-            // > with RCODE 1 (FORMERR) MUST be returned.
+            // > If multiple TSIG records are detected or a TSIG record is
+            // > present in any other position, the DNS message is dropped
+            // > and a response with RCODE 1 (FORMERR) MUST be returned.
             Err(TsigError::Position) => {
-                return Err(ServerError::unsigned(TsigRcode::FORMERR));
+                return Err(ServerError::formerr());
             }
             // RFC 8945, section 5.2:
             // > If the TSIG RR cannot be interpreted, the server MUST regard
             // > the message as corrupt and return a FORMERR to the server.
-            Err(TsigError::Invalid) => {
-                return Err(ServerError::unsigned(TsigRcode::FORMERR))
-            }
-            Err(TsigError::ParseError) => {
-                return Err(ServerError::unsigned(TsigRcode::FORMERR))
-            }
+            Err(TsigError::Invalid) => return Err(ServerError::formerr()),
+            Err(TsigError::ParseError) => return Err(ServerError::formerr()),
             Err(TsigError::Missing) => return Ok(None),
         };
 
@@ -1221,7 +1205,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// Extracts the TSIG record from an anwer.
     ///
     /// This is the first part of the code shared by the various answer
-    /// functions of `ClientTransaction` and `ClientSequence`. It does
+    /// functions of [`ClientTransaction`] and [`ClientSequence`]. It does
     /// everything that needs to be done before actually verifying the
     /// signature: Find the TSIG record, handle unsigned errors, check
     /// that the key and algorithm correspond to our key and algorithm.
@@ -1253,7 +1237,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
             // > the message as corrupt and return a FORMERR to the server.
             Err(TsigError::Invalid) => return Err(ValidationError::FormErr),
             Err(TsigError::ParseError) => {
-                return Err(ValidationError::FormErr)
+                return Err(ValidationError::FormErr);
             }
             Err(TsigError::Missing) => return Ok(None),
         };
@@ -1277,7 +1261,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// Checks the timing values of an answer TSIG.
     ///
     /// This is the second part of the code shared between the various
-    /// answer methods of `ClientTransaction` and `ClientSequence`. It
+    /// answer methods of [`ClientTransaction`] and [`ClientSequence`]. It
     /// checks for timing errors reported by the server as well as the
     /// time signed in the signature.
     fn check_answer_time<'a, Octs>(
@@ -1329,6 +1313,8 @@ impl<K: AsRef<Key>> SigningContext<K> {
     ///
     /// This is the same as [`key`] but doesn't lose the original key type
     /// information.
+    ///
+    /// [`key`]: Self::key()
     fn wrapped_key(&self) -> &K {
         &self.key
     }
@@ -1393,7 +1379,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
     /// Signs an answer and drops the context.
     ///
-    /// This is like `answer` above but it doesn’t need to clone the context.
+    /// This is like [`answer`] above but it doesn’t need to clone the context.
+    ///
+    /// [`answer`]: Self::answer()
     fn final_answer(
         mut self,
         first: &[u8],
@@ -1410,7 +1398,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
     /// Signs the first answer in a sequence.
     ///
-    /// This is like `answer` but it resets the context.
+    /// This is like [`answer`] but it resets the context.
+    ///
+    /// [`answer`]: Self::answer()
     fn first_answer(
         &mut self,
         first: &[u8],
@@ -1780,6 +1770,9 @@ pub struct ServerError<K>(ServerErrorInner<K>);
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 enum ServerErrorInner<K> {
+    /// Return a regular FORMERR without any mention of TSIG.
+    Formerr,
+
     /// Return an unsigned error message.
     ///
     /// To crate the actual message, we need the original message with the
@@ -1794,16 +1787,21 @@ enum ServerErrorInner<K> {
 }
 
 impl<K> ServerError<K> {
+    fn formerr() -> Self {
+        Self(ServerErrorInner::Formerr)
+    }
+
     fn unsigned(error: TsigRcode) -> Self {
-        ServerError(ServerErrorInner::Unsigned { error })
+        Self(ServerErrorInner::Unsigned { error })
     }
 
     fn signed(context: SigningContext<K>, variables: Variables) -> Self {
-        ServerError(ServerErrorInner::Signed { context, variables })
+        Self(ServerErrorInner::Signed { context, variables })
     }
 
     pub fn error(&self) -> TsigRcode {
         match self.0 {
+            ServerErrorInner::Formerr => TsigRcode::FORMERR,
             ServerErrorInner::Unsigned { error } => error,
             ServerErrorInner::Signed { ref variables, .. } => variables.error,
         }
@@ -1820,32 +1818,46 @@ impl<K: AsRef<Key>> ServerError<K> {
         Octs: Octets + ?Sized,
         Target: Composer,
     {
-        let builder = builder.start_answer(msg, Rcode::NOTAUTH)?;
-        let mut builder = builder.additional();
         match self.0 {
+            ServerErrorInner::Formerr => {
+                let builder = builder.start_answer(msg, Rcode::FORMERR)?;
+                Ok(builder.additional())
+            }
             ServerErrorInner::Unsigned { error } => {
-                let tsig = {
-                    MessageTsig::from_message(msg)
-                        .expect("missing or malformed TSIG record")
-                };
-                builder.push((
-                    tsig.record.owner(),
-                    tsig.record.class(),
-                    tsig.record.ttl(),
-                    // The TSIG record data can never ever be too long.
-                    Tsig::new(
-                        tsig.record.data().algorithm(),
-                        tsig.record.data().time_signed(),
-                        tsig.record.data().fudge(),
-                        b"",
-                        msg.header().id(),
-                        error,
-                        b"",
-                    )
-                    .expect("long record data"),
-                ))?;
+                if let Ok(tsig) = MessageTsig::from_message(msg) {
+                    let builder =
+                        builder.start_answer(msg, Rcode::NOTAUTH)?;
+                    let mut builder = builder.additional();
+                    builder.push((
+                        tsig.record.owner(),
+                        tsig.record.class(),
+                        tsig.record.ttl(),
+                        // The TSIG record data can never ever be too long.
+                        Tsig::new(
+                            tsig.record.data().algorithm(),
+                            tsig.record.data().time_signed(),
+                            tsig.record.data().fudge(),
+                            b"",
+                            msg.header().id(),
+                            error,
+                            b"",
+                        )
+                        .expect("long record data"),
+                    ))?;
+                    Ok(builder)
+                } else {
+                    // This should never happen, but sadly we have settled on
+                    // `PushError` as the error type of this method, so now
+                    // we can’t signal a bug. Let’s produce a SERVFAIL return
+                    // instead.
+                    let builder =
+                        builder.start_answer(msg, Rcode::SERVFAIL)?;
+                    Ok(builder.additional())
+                }
             }
             ServerErrorInner::Signed { context, variables } => {
+                let builder = builder.start_answer(msg, Rcode::NOTAUTH)?;
+                let mut builder = builder.additional();
                 let (mac, key) = context.final_answer(
                     builder.as_slice(),
                     None,
@@ -1857,9 +1869,9 @@ impl<K: AsRef<Key>> ServerError<K> {
                     &variables,
                     mac,
                 )?;
+                Ok(builder)
             }
         }
-        Ok(builder)
     }
 }
 
@@ -1874,6 +1886,7 @@ impl<K> fmt::Debug for ServerError<K> {
 impl<K> fmt::Debug for ServerErrorInner<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            ServerErrorInner::Formerr => f.debug_struct("Formerr").finish(),
             ServerErrorInner::Unsigned { error } => {
                 f.debug_struct("Unsigned").field("error", &error).finish()
             }

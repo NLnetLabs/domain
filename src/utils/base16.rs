@@ -11,12 +11,12 @@
 //! [RFC 4648]: https://tools.ietf.org/html/rfc4648
 
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
+#[cfg(feature = "alloc")]
+use alloc::string::String;
 use core::fmt;
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
-#[cfg(feature = "std")]
-use std::string::String;
 
 //------------ Re-exports ----------------------------------------------------
 
@@ -41,8 +41,8 @@ where
 }
 
 /// Decodes a string with Base 16 data and returns it as a vec.
-#[cfg(feature = "std")]
-pub fn decode_vec(s: &str) -> Result<std::vec::Vec<u8>, DecodeError> {
+#[cfg(feature = "alloc")]
+pub fn decode_vec(s: &str) -> Result<alloc::vec::Vec<u8>, DecodeError> {
     decode(s)
 }
 
@@ -75,7 +75,7 @@ where
 }
 
 /// Encodes binary data in Base 16 and returns the encoded data as a string.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub fn encode_string<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
     let mut res = String::with_capacity(bytes.as_ref().len() * 2);
     display(bytes, &mut res).unwrap();
@@ -157,10 +157,10 @@ pub mod serde {
                 self.0.visit_borrowed_bytes(value)
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn visit_byte_buf<E: serde::de::Error>(
                 self,
-                value: std::vec::Vec<u8>,
+                value: alloc::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value)
             }
@@ -355,7 +355,7 @@ const ENCODE_ALPHABET: [&str; 256] = [
 //============ Test ==========================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod test {
     use super::*;
 
@@ -364,7 +364,7 @@ mod test {
     fn decode_str() {
         use super::DecodeError;
 
-        fn decode(s: &str) -> Result<std::vec::Vec<u8>, DecodeError> {
+        fn decode(s: &str) -> Result<alloc::vec::Vec<u8>, DecodeError> {
             super::decode(s)
         }
 

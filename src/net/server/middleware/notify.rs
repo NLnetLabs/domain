@@ -42,17 +42,17 @@
 //!
 //! [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
 
-use core::future::{ready, Future, Ready};
+use core::future::{Future, Ready, ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 use core::pin::Pin;
 
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::sync::Arc;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use core::fmt::Debug;
 
 use bytes::Bytes;
-use futures_util::stream::{once, Once, Stream};
+use futures_util::stream::{Once, Stream, once};
 use octseq::Octets;
 use tracing::{error, info, warn};
 
@@ -225,7 +225,8 @@ where
             .await
         {
             Err(NotifyError::NotAuthForZone) => {
-                warn!("Ignoring NOTIFY from {} for zone '{}': Not authoritative for zone",
+                warn!(
+                    "Ignoring NOTIFY from {} for zone '{}': Not authoritative for zone",
                     req.client_addr(),
                     q.qname()
                 );
@@ -270,7 +271,14 @@ where
                 //    except that the QR bit is also set.  The query ID of the
                 //    response must be the same as was received in the
                 //    request."
-                let mut additional = Self::copy_message(msg).unwrap();
+                let Ok(mut additional) = Self::copy_message(msg) else {
+                    return ControlFlow::Break(once(ready(Ok(
+                        CallResult::new(mk_error_response(
+                            msg,
+                            OptRcode::SERVFAIL,
+                        )),
+                    ))));
+                };
 
                 let response_hdr = additional.header_mut();
                 response_hdr.set_opcode(Opcode::NOTIFY);

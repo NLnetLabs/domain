@@ -17,9 +17,9 @@ use crate::dep::octseq::{
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Dnskey, Nsec3param};
 
+use alloc::fmt;
 use core::error;
-use std::fmt;
-use std::str::FromStr;
+use core::str::FromStr;
 
 //------------ Nsec3HashError -------------------------------------------------
 
@@ -44,11 +44,15 @@ pub enum Nsec3HashError {
 
     /// The hash provider did not provide a hash for the given owner name.
     MissingHash,
+
+    /// The NSEC3 label cannot be prepended to the origin because that would
+    /// make the full name too long.
+    Nsec3NameTooLong,
 }
 
 //--- Display
 
-impl std::fmt::Display for Nsec3HashError {
+impl core::fmt::Display for Nsec3HashError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Nsec3HashError::UnsupportedAlgorithm => {
@@ -65,6 +69,9 @@ impl std::fmt::Display for Nsec3HashError {
             }
             Nsec3HashError::MissingHash => {
                 f.write_str("Missing hash for owner name")
+            }
+            Nsec3HashError::Nsec3NameTooLong => {
+                f.write_str("Resulting NSEC3 owner name too long")
             }
         }
     }
@@ -330,8 +337,9 @@ impl error::Error for ParseDnskeyTextError {}
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod test {
-    use std::string::ToString;
-    use std::vec::Vec;
+    use alloc::format;
+    use alloc::string::ToString;
+    use alloc::vec::Vec;
 
     use crate::base::iana::SecurityAlgorithm;
     use crate::dnssec::common::{display_as_bind, parse_from_bind};

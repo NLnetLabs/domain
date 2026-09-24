@@ -1,5 +1,5 @@
-use domain::base::name::Name;
 use domain::base::Rtype;
+use domain::base::name::Name;
 use domain::rdata::AllRecordData;
 use domain::resolv::StubResolver;
 use std::env;

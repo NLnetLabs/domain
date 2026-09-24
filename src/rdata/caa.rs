@@ -5,33 +5,33 @@
 //! [RFC 8659]: https://www.rfc-editor.org/info/rfc8659
 
 use crate::base::{
+    CanonicalOrd, CharStr, ParseRecordData, RecordData, Rtype,
     charstr::DisplayQuoted,
     name::FlattenInto,
-    rdata::ComposeRecordData,
+    rdata::{ComposeRecordData, LongRecordData},
     scan::{Scan, Scanner, ScannerError},
-    wire::{Compose, Parse, ParseError},
+    wire::{Compose, FormError, Parse, ParseError},
     zonefile_fmt::{self, Formatter, ZonefileFmt},
-    CanonicalOrd, CharStr, ParseRecordData, RecordData, Rtype,
 };
 use core::{cmp::Ordering, fmt, hash};
+use octseq::{Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parser};
 #[cfg(feature = "serde")]
 use octseq::{
     builder::{EmptyBuilder, FromBuilder},
     serde::DeserializeOctets,
     serde::SerializeOctets,
 };
-use octseq::{Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parser};
 
 //------------ Caa ---------------------------------------------------------
 
 /// Caa record data.
 ///
-/// The Certification Authority Authorization (CAA) DNS Resource Record allows
-/// a DNS domain name holder to specify one or more Certification Authorities
-/// (CAs) authorized to issue certificates for that domain name.
+/// The Certification Authority Authorization (CAA) DNS Resource Record
+/// allows a DNS domain name holder to specify one or more Certification
+/// Authorities (CAs) authorized to issue certificates for that domain name.
 ///
-/// CAA Resource Records allow a public CA to implement additional controls to reduce the
-/// risk of unintended certificate mis-issue.
+/// CAA Resource Records allow a public CA to implement additional controls
+/// to reduce the risk of unintended certificate mis-issue.
 ///
 /// The Caa record type is defined in [RFC 8659, section 4.1][1].
 ///
@@ -76,11 +76,39 @@ impl Caa<()> {
 
 impl<Octs> Caa<Octs> {
     /// Creates a new CAA record data from the flags, tag, and value.
+    ///
+    /// # Note
+    ///
+    /// This function allows you to create a value that is too large to be
+    /// composed into wire format. Please use [`try_new`][Self::try_new]
+    /// instead. This method is only present for backwards compatibility.
     pub fn new(flags: CaaFlags, tag: CaaTag<Octs>, value: Octs) -> Self {
         Caa { flags, tag, value }
     }
 
-    /// Returns the flags. If the value is set to "1", the Property is critical.
+    /// Creates a new CAA record data from the flags, tag, and value.
+    ///
+    /// Returns an error if the combination of `tag` and `value` is too large
+    /// to fit into record data.
+    pub fn try_new(
+        flags: CaaFlags,
+        tag: CaaTag<Octs>,
+        value: Octs,
+    ) -> Result<Self, LongRecordData>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        LongRecordData::check_multi_len([
+            1,
+            usize::from(tag.compose_len()),
+            value.as_ref().len(),
+        ])?;
+        Ok(Caa { flags, tag, value })
+    }
+
+    /// Returns the flags.
+    ///
+    /// If the value is set to "1", the Property is critical.
     /// A CA MUST NOT issue certificates for any FQDN if the
     /// Relevant RRset for that FQDN contains a CAA critical
     /// Property for an unknown or unsupported Property Tag.
@@ -120,11 +148,12 @@ impl<Octs> Caa<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        Ok(Self::new(
+        Self::try_new(
             CaaFlags::scan(scanner)?,
             CaaTag::scan(scanner)?,
             scanner.scan_octets()?,
-        ))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
@@ -133,11 +162,12 @@ impl<Octs> Caa<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        Ok(Self::new(
+        Self::try_new(
             CaaFlags::parse(parser)?,
             CaaTag::parse(parser)?,
             parser.parse_octets(parser.remaining())?,
-        ))
+        )
+        .map_err(|err| FormError::new(err.as_str()).into())
     }
 }
 
@@ -348,6 +378,8 @@ impl<O: AsRef<[u8]>> ZonefileFmt for Caa<O> {
     }
 }
 
+//------------ CaaTag ------------------------------------------------------
+
 /// A CAA property tag as defined in [RFC 8659 section 4.1].
 ///
 /// A CAA tag identifies the property name that an issuer must honor when
@@ -389,7 +421,7 @@ impl<Octs> CaaTag<Octs> {
     /// The caller must ensure `octets` consists only of ASCII alphanumeric
     /// characters and is no longer than 255 octets, as required by RFC 8659.
     pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
-        CaaTag(CharStr::from_octets_unchecked(octets))
+        CaaTag(unsafe { CharStr::from_octets_unchecked(octets) })
     }
 }
 
@@ -409,8 +441,10 @@ impl CaaTag<[u8]> {
     /// alphanumeric characters and is not longer than 255 bytes.
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: CaaTag has repr(transparent)
-        &*(CharStr::from_slice_unchecked(slice) as *const CharStr<[u8]>
-            as *const Self)
+        unsafe {
+            &*(CharStr::from_slice_unchecked(slice) as *const CharStr<[u8]>
+                as *const Self)
+        }
     }
 
     fn check_slice(octets: &[u8]) -> Result<(), ParseError> {
@@ -562,6 +596,8 @@ where
     }
 }
 
+//------------ CaaFlags ----------------------------------------------------
+
 /// CAA flags as defined in [RFC 8659 section 4.1].
 ///
 /// The only defined flag is the critical flag (bit 7).
@@ -620,12 +656,59 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for CaaFlags {
     }
 }
 
+//============ Testing =======================================================
+
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
+    use crate::base::rdata::test::{
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
+    };
+    use alloc::format;
+    use alloc::string::ToString;
     use octseq::array::Array;
-    use std::string::ToString;
+
+    #[test]
+    #[allow(clippy::redundant_closure)] // false positive
+    fn caa_compose_parse_scan() {
+        let rdata = Caa::try_new(
+            CaaFlags::new(12),
+            CaaTag::from_octets(b"foo").unwrap(),
+            b"bar",
+        )
+        .unwrap();
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Caa::parse(parser));
+        test_scan_check(&["12", "foo", "bar"], Caa::scan, &rdata);
+    }
+
+    #[test]
+    fn caa_scan_limits() {
+        // There are two extra bytes: the tag and the length of the flag ...
+        assert!(
+            test_scan(&["12", "a", &"a".repeat(0xFFFF - 3)], Caa::scan)
+                .is_ok()
+        );
+        assert!(
+            test_scan(&["12", "a", &"a".repeat(0xFFFF - 2)], Caa::scan)
+                .is_err()
+        );
+        assert!(
+            test_scan(
+                &["12", &"a".repeat(255), &"a".repeat(0xFFFF - 255 - 2)],
+                Caa::scan,
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &["12", &"a".repeat(255), &"a".repeat(0xFFFF - 255 - 1)],
+                Caa::scan,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn caa_eq() {

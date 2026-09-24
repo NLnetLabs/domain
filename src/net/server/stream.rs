@@ -18,18 +18,20 @@ use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 
-use std::fmt::Debug;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use core::fmt::Debug;
+use core::net::SocketAddr;
 use std::io;
-use std::net::SocketAddr;
-use std::string::{String, ToString};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use arc_swap::ArcSwap;
 use octseq::Octets;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-use tokio::time::{interval, timeout, MissedTickBehavior};
+use tokio::time::{MissedTickBehavior, interval, timeout};
 use tracing::{error, trace, trace_span, warn};
 
 use crate::net::server::buf::BufSource;
@@ -39,9 +41,9 @@ use crate::net::server::service::Service;
 use crate::net::server::sock::AsyncAccept;
 use crate::utils::config::DefMinMax;
 
+use super::ServerCommand;
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
-use super::ServerCommand;
 
 // TODO: Should this crate also provide a TLS listener implementation?
 
@@ -217,8 +219,8 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 ///
 /// ```no_run
 /// use std::boxed::Box;
-/// use std::future::{Future, Ready};
-/// use std::pin::Pin;
+/// use core::future::{Future, Ready};
+/// use core::pin::Pin;
 /// use std::sync::Arc;
 ///
 /// use tokio::net::TcpListener;

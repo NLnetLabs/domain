@@ -1,29 +1,32 @@
-use core::future::{ready, Future};
+use core::future::{Future, ready};
 use core::ops::Deref;
 use core::pin::Pin;
 use core::str::FromStr;
 
-use std::boxed::Box;
-use std::collections::{HashMap, VecDeque};
+use alloc::boxed::Box;
+use alloc::collections::VecDeque;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::net::SocketAddr;
+use core::result::Result;
+use core::time::Duration;
+use std::collections::HashMap;
+use std::eprintln;
 use std::fs::File;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::result::Result;
-use std::string::{String, ToString};
-use std::sync::Arc;
-use std::time::Duration;
-use std::vec::Vec;
 
 use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
 
-use crate::base::iana::{Class, Rcode};
-use crate::base::name::ToName;
-use crate::base::net::IpAddr;
 use crate::base::Name;
 use crate::base::Rtype;
 use crate::base::Serial;
+use crate::base::iana::{Class, Rcode};
+use crate::base::name::ToName;
+use crate::base::net::IpAddr;
 use crate::logging::init_logging;
 use crate::net::client::request::{RequestMessage, RequestMessageMulti};
 use crate::net::client::{dgram, stream, tsig};
@@ -44,10 +47,10 @@ use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
 use crate::stelline::channel::ClientServerChannel;
 use crate::stelline::client::{
-    do_client, Client, ClientFactory, CurrStepValue,
-    PerClientAddressClientFactory, QueryTailoredClientFactory,
+    Client, ClientFactory, CurrStepValue, PerClientAddressClientFactory,
+    QueryTailoredClientFactory, do_client,
 };
-use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
+use crate::stelline::parse_stelline::{self, Config, Matches, parse_file};
 use crate::stelline::simple_dgram_client;
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
@@ -493,12 +496,16 @@ fn parse_server_config(config: &Config) -> ServerConfig<'_> {
                                             .ip_deny_list
                                             .push(ip);
                                     } else {
-                                        eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");
+                                        eprintln!(
+                                            "Ignoring malformed IP address '{ip}' in 'access-control' setting"
+                                        );
                                     }
                                 }
 
                                 _ => {
-                                    eprintln!("Ignoring unknown action '{action}' for 'access-control' setting");
+                                    eprintln!(
+                                        "Ignoring unknown action '{action}' for 'access-control' setting"
+                                    );
                                 }
                             }
                         }
@@ -533,7 +540,9 @@ fn parse_server_config(config: &Config) -> ServerConfig<'_> {
                         zone_name = Some(v.to_string());
                     }
                     _ => {
-                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value:?}");
+                        eprintln!(
+                            "Ignoring unknown server setting '{setting}' with value: {value:?}"
+                        );
                     }
                 }
             }
@@ -569,7 +578,9 @@ impl Notifiable for TestNotifyTarget {
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
     > {
-        trace!("Notify received from {source} of change to zone {apex_name} in class {class} with serial {serial:?}");
+        trace!(
+            "Notify received from {source} of change to zone {apex_name} in class {class} with serial {serial:?}"
+        );
 
         let res = match apex_name.to_string().to_lowercase().as_str() {
             "example.com" => Ok(()),

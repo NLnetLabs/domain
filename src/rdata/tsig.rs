@@ -762,8 +762,8 @@ mod test {
     use super::*;
     use crate::base::name::Name;
     use crate::base::rdata::test::{test_compose_parse, test_rdlen};
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...

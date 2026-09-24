@@ -1,15 +1,17 @@
 [package]
 name = "domain-macros"
-version.workspace = true
-edition.workspace = true
+description = "Procedural macros for the `domain` crate."
 authors.workspace = true
+
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+
 homepage.workspace = true
 repository.workspace = true
-rust-version.workspace = true
 keywords.workspace = true
 license.workspace = true
 
-description = "Procedural macros for the `domain` crate."
 documentation = "https://docs.rs/domain-macros"
 
 [lib]

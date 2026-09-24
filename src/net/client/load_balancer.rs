@@ -42,32 +42,32 @@
 //! also gets the request. If the probes upstream provides a suitable response
 //! before the next upstream then its estimated will be updated.
 
-use crate::base::iana::OptRcode;
-use crate::base::iana::Rcode;
-use crate::base::opt::AllOptData;
 use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::StaticCompressor;
+use crate::base::iana::OptRcode;
+use crate::base::iana::Rcode;
+use crate::base::opt::AllOptData;
 use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::{Error, GetResponse, SendRequest};
 use crate::utils::config::DefMinMax;
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::Bytes;
-use futures_util::stream::FuturesUnordered;
+use core::cmp::Ordering;
+use core::fmt::{Debug, Formatter};
+use core::future::Future;
+use core::pin::Pin;
 use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use octseq::Octets;
 use rand::{random, random_range};
-use std::boxed::Box;
-use std::cmp::Ordering;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::pin::Pin;
-use std::string::String;
-use std::string::ToString;
-use std::sync::Arc;
-use std::vec::Vec;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep_until, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep_until};
 
 /*
 Basic algorithm:
@@ -390,7 +390,7 @@ impl GetResponse for Request {
 }
 
 impl Debug for Request {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
             .finish()
@@ -481,7 +481,7 @@ impl<Req> Debug for ChanReq<Req>
 where
     Req: Send + Sync,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("ChanReq").finish()
     }
 }
@@ -535,7 +535,7 @@ impl<Req: Debug> Debug for RequestReq<Req>
 where
     Req: Send + Sync,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("RequestReq")
             .field("id", &self.id)
             .field("request_msg", &self.request_msg)
@@ -822,7 +822,9 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
                                     .expect("just checked for Some");
                                 return Err(err);
                             }
-                            panic!("either deferred_reply or deferred_error should be present");
+                            panic!(
+                                "either deferred_reply or deferred_error should be present"
+                            );
                         }
                         let res = self.fut_list.next().await;
                         let res = res.expect("res should not be empty");

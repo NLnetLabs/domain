@@ -26,9 +26,9 @@
 //! [`Service`]: crate::net::server::service::Service
 use core::future::Future;
 use core::ops::DerefMut;
-use core::task::{ready, Context, Poll};
+use core::task::{Context, Poll, ready};
 
-use std::pin::Pin;
+use core::pin::Pin;
 
 use futures_util::future::FutureExt;
 use futures_util::stream::{Stream, StreamExt};

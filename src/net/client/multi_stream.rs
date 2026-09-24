@@ -10,22 +10,22 @@ use crate::net::client::request::{
 };
 use crate::net::client::stream;
 use crate::utils::config::DefMinMax;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bytes::Bytes;
-use futures_util::stream::FuturesUnordered;
+use core::fmt::Debug;
+use core::future::Future;
+use core::pin::Pin;
+use core::time::Duration;
 use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use rand::random;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
-use std::vec::Vec;
 use tokio::io;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
-use tokio::time::{sleep_until, Instant};
+use tokio::time::{Instant, sleep_until};
 
 //------------ Constants -----------------------------------------------------
 
@@ -375,7 +375,7 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                         //     fatal errors where retrying doesn’t make any
                         //     sense?
                         Err(Error::WrongReplyForQuery) => {
-                            return Err(Error::WrongReplyForQuery)
+                            return Err(Error::WrongReplyForQuery);
                         }
                         Err(Error::ConnectionClosed) => {
                             // The stream may immedately return that the

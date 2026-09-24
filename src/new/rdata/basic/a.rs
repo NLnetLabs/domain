@@ -6,7 +6,7 @@ use core::net::Ipv4Addr;
 use core::str::FromStr;
 
 use crate::new::base::build::{BuildInMessage, NameCompressor};
-use crate::new::base::parse::ParseMessageBytes;
+use crate::new::base::parse::{ParseMessageBytes, parse_without_compression};
 use crate::new::base::wire::*;
 use crate::new::base::{
     CanonicalRecordData, ParseRecordData, ParseRecordDataBytes, RType,
@@ -159,10 +159,7 @@ impl ParseMessageBytes<'_> for A {
         contents: &'_ [u8],
         start: usize,
     ) -> Result<Self, ParseError> {
-        contents
-            .get(start..)
-            .ok_or(ParseError)
-            .and_then(Self::parse_bytes)
+        parse_without_compression(contents, start)
     }
 }
 

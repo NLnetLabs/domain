@@ -5,13 +5,13 @@
 //! [RFC 3403]: https://www.rfc-editor.org/info/rfc3403
 
 use crate::base::{
+    CanonicalOrd, CharStr, ParseRecordData, ParsedName, RecordData, Rtype,
+    ToName,
     name::FlattenInto,
     rdata::ComposeRecordData,
     scan::{Scan, Scanner},
     wire::{Compose, Parse, ParseError},
     zonefile_fmt::{self, Formatter, ZonefileFmt},
-    CanonicalOrd, CharStr, ParseRecordData, ParsedName, RecordData, Rtype,
-    ToName,
 };
 use core::{cmp::Ordering, fmt, hash};
 #[cfg(feature = "serde")]
@@ -515,11 +515,12 @@ mod test {
 
     use super::*;
     use crate::base::{
-        rdata::test::{test_compose_parse, test_rdlen, test_scan},
         Name,
+        rdata::test::{test_compose_parse, test_rdlen, test_scan_check},
     };
+    use alloc::vec::Vec;
     use core::str::FromStr;
-    use std::vec::Vec;
+    use std::format;
 
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
@@ -534,7 +535,7 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Naptr::parse(parser));
-        test_scan(
+        test_scan_check(
             &[
                 "100",
                 "50",

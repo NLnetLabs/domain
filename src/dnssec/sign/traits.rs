@@ -8,28 +8,28 @@ use core::iter::Extend;
 use core::marker::Send;
 use core::ops::Deref;
 
-use std::boxed::Box;
-use std::hash::Hash;
-use std::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::hash::Hash;
 
-use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::OctetsFrom;
+use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 
+use crate::base::Name;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::name::ToName;
 use crate::base::record::Record;
-use crate::base::Name;
 use crate::crypto::sign::SignRaw;
+use crate::dnssec::sign::SignableZoneInOut;
+use crate::dnssec::sign::SigningConfig;
 use crate::dnssec::sign::error::SigningError;
 use crate::dnssec::sign::keys::SigningKey;
 use crate::dnssec::sign::records::{
     DefaultSorter, RecordsIter, Rrset, SortedRecords, Sorter,
 };
 use crate::dnssec::sign::sign_zone;
-use crate::dnssec::sign::signatures::rrsigs::sign_sorted_zone_records;
 use crate::dnssec::sign::signatures::rrsigs::GenerateRrsigConfig;
-use crate::dnssec::sign::SignableZoneInOut;
-use crate::dnssec::sign::SigningConfig;
+use crate::dnssec::sign::signatures::rrsigs::sign_sorted_zone_records;
 use crate::rdata::dnssec::Timestamp;
 use crate::rdata::{Rrsig, ZoneRecordData};
 
@@ -409,7 +409,7 @@ where
 /// # use domain::dnssec::sign::records::{Rrset, SortedRecords};
 /// # use domain::rdata::{A, ZoneRecordData};
 /// # use domain::zonetree::StoredName;
-/// # use std::str::FromStr;
+/// # use core::str::FromStr;
 /// # let (sec_bytes, pub_bytes) = generate(
 /// #      &GenerateParams::Ed25519,
 /// #      256).unwrap();
@@ -442,7 +442,7 @@ where
         + FromBuilder
         + Clone
         + Debug
-        + OctetsFrom<std::vec::Vec<u8>>
+        + OctetsFrom<alloc::vec::Vec<u8>>
         + Send,
     <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Sort: Sorter,

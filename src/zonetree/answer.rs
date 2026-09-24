@@ -1,12 +1,14 @@
 //! Answers to zone tree queries.
-use std::vec::Vec;
+
+use alloc::vec;
+use alloc::vec::Vec;
 
 use octseq::Octets;
 
+use crate::base::MessageBuilder;
 use crate::base::iana::Rcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::MessageBuilder;
 use crate::base::{Message, Ttl};
 
 use super::types::{StoredName, StoredRecord, StoredRecordData};
@@ -122,80 +124,120 @@ impl Answer {
     /// properties of this [`Answer`] as determined by the constructor and
     /// add/set functions called prior to calling this function.
     ///
-    /// <div class="warning">
+    /// The method will return an error message if it couldn’t create a
+    /// response that at least contained the question. It will
     ///
-    /// This function does **NOT** currently set the
-    /// [AA](https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1)
-    /// flag on the produced message.
-    ///
-    /// </div>
-    ///
-    /// See also: [`MessageBuilder::start_answer`]
+    /// See also: [`MessageBuilder::try_start_answer`]
     pub fn to_message<RequestOctets: Octets, Target: Composer>(
         &self,
         message: &Message<RequestOctets>,
         builder: MessageBuilder<Target>,
     ) -> AdditionalBuilder<Target> {
-        let question = message.sole_question().unwrap();
+        let Ok(question) = message.sole_question() else {
+            return builder
+                .start_error(
+                    message,
+                    if message.header_counts().qdcount() != 1 {
+                        Rcode::NOTIMP
+                    } else {
+                        Rcode::FORMERR
+                    },
+                )
+                .additional();
+        };
         let qname = question.qname();
         let qclass = question.qclass();
-        let mut builder = builder.start_answer(message, self.rcode).unwrap();
+        let mut builder = match builder.try_start_answer(message, self.rcode)
+        {
+            Ok(builder) => builder,
+            Err(builder) => return builder.additional(),
+        };
 
         if self.authoritative {
             builder.header_mut().set_aa(true);
         }
 
+        // If records don’t fit in the answer, we need to set the TC bit for
+        // records in the answer and authority section. While we are allowed
+        // to keep partial RRsets in this case, we don’t and instead roll
+        // back to the beginning of the section, just to be safe.
+        //
+        // The same holds for required records in the additional section.
+        //
+        // For optional additional content, we are not allowed to set
+        // the TC bit and instead have to include full RRsets. Since the
+        // message builder doesn’t currently allow us to set check points to
+        // roll back to, we simple clear the entire additional section in
+        // this case. If there was required additional content, we then still
+        // need to set the TC bit. Technically, we should rewind to the end
+        // of the mandatory additional content and not set the TC bit, we
+        // currently can’t do that with our message builder.
+
         match self.content {
             AnswerContent::Data(ref answer) => {
                 for item in answer.data() {
-                    // TODO: This will panic if too many answers were given,
-                    // rather than give the caller a way to push the rest into
-                    // another message.
-                    builder
+                    if builder
                         .push((qname, qclass, answer.ttl(), item))
-                        .unwrap();
+                        .is_err()
+                    {
+                        return builder.tc_rewind_into().additional();
+                    }
                 }
             }
-            AnswerContent::Cname(ref cname) => builder
-                .push((qname, qclass, cname.ttl(), cname.data()))
-                .unwrap(),
+            AnswerContent::Cname(ref cname) => {
+                if builder
+                    .push((qname, qclass, cname.ttl(), cname.data()))
+                    .is_err()
+                {
+                    return builder.tc_rewind_into().additional();
+                }
+            }
             AnswerContent::NoData => {}
         }
 
         let mut builder = builder.authority();
         if let Some(authority) = self.authority.as_ref() {
             if let Some(soa) = authority.soa.as_ref() {
-                builder
+                if builder
                     .push((
                         authority.owner.clone(),
                         qclass,
                         soa.ttl(),
                         soa.data(),
                     ))
-                    .unwrap();
+                    .is_err()
+                {
+                    return builder.tc_rewind_into().additional();
+                }
             }
             if let Some(ns) = authority.ns.as_ref() {
                 for item in ns.data() {
-                    builder
+                    if builder
                         .push((
                             authority.owner.clone(),
                             qclass,
                             ns.ttl(),
                             item,
                         ))
-                        .unwrap()
+                        .is_err()
+                    {
+                        return builder.tc_rewind_into().additional();
+                    }
                 }
             }
             if let Some(ref ds) = authority.ds {
                 for item in ds.data() {
-                    builder
+                    if builder
                         .push((
                             authority.owner.clone(),
                             qclass,
                             ds.ttl(),
                             item,
                         ))
-                        .unwrap()
+                        .is_err()
+                    {
+                        return builder.tc_rewind_into().additional();
+                    }
                 }
             }
         }
@@ -204,12 +246,18 @@ impl Answer {
 
         if let Some(additional) = self.additional.as_ref() {
             for item in &additional.required {
-                builder.push(item).unwrap();
+                if builder.push(item).is_err() {
+                    return builder.tc_rewind_into();
+                }
             }
 
             for item in &additional.discardable {
                 if builder.push(item).is_err() {
-                    break;
+                    if !additional.required.is_empty() {
+                        return builder.tc_rewind_into();
+                    } else {
+                        return builder.rewind_into();
+                    }
                 }
             }
         }

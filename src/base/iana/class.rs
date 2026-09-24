@@ -18,7 +18,7 @@ int_enum! {
     /// See [RFC 1034] for the introduction of classes, section 3.2 of
     /// [RFC 6895] for a discussion of the current state of afairs, and
     /// the [DNS CLASSes IANA registry] for an overview of assigned values.
-    /// This type is complete as of the registry update of 2019-01-28.
+    /// This type is complete as of the registry update of 2026-07-06.
     ///
     /// [RFC 1034]: https://tools.ietf.org/html/rfc1034
     /// [RFC 6895]: https://tools.ietf.org/html/rfc6895
@@ -63,12 +63,14 @@ int_enum_zonefile_fmt_with_prefix!(Class, "CLASS");
 
 #[cfg(test)]
 mod test {
+    #[cfg(feature = "std")]
+    use std::format;
 
     #[cfg(feature = "serde")]
     #[test]
     fn ser_de() {
         use super::Class;
-        use serde_test::{assert_tokens, Configure, Token};
+        use serde_test::{Configure, Token, assert_tokens};
 
         assert_tokens(&Class::IN.readable(), &[Token::Str("IN")]);
         assert_tokens(&Class(5).readable(), &[Token::Str("CLASS5")]);

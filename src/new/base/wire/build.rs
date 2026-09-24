@@ -24,6 +24,7 @@ pub trait BuildBytes {
     /// This reports the exact number of bytes that will be written to the
     /// buffer passed to [`Self::build_bytes()`]. Note that this is not the
     /// cheapest operation; it may have to traverse all the fields in `self`.
+    #[must_use]
     fn built_bytes_size(&self) -> usize;
 }
 

@@ -527,6 +527,16 @@ impl LongRecordData {
         // This version is safe on 16 bit systems.
         Self::check_len(len.checked_add(extra_len).ok_or(Self(()))?)
     }
+
+    pub fn check_multi_len<const N: usize>(
+        len: [usize; N],
+    ) -> Result<(), Self> {
+        let mut res: usize = 0;
+        for item in len {
+            res = res.checked_add(item).ok_or(Self(()))?;
+        }
+        Self::check_len(res)
+    }
 }
 
 impl From<LongRecordData> for ParseError {
@@ -546,14 +556,14 @@ impl core::error::Error for LongRecordData {}
 //============ Testing ======================================================
 
 #[cfg(test)]
-#[cfg(all(feature = "std", feature = "bytes"))]
+#[cfg(all(feature = "alloc", feature = "bytes"))]
 pub(crate) mod test {
     use super::super::scan::IterScanner;
     use super::*;
+    use alloc::vec::Vec;
     use bytes::{Bytes, BytesMut};
     use core::fmt::Debug;
     use octseq::builder::infallible;
-    use std::vec::Vec;
 
     /// Check that `rdlen` produces the correct length.
     ///
@@ -589,10 +599,30 @@ pub(crate) mod test {
     }
 
     type TestScanner =
-        IterScanner<std::vec::IntoIter<std::string::String>, Vec<u8>>;
+        IterScanner<alloc::vec::IntoIter<alloc::string::String>, Vec<u8>>;
+
+    /// Scan and return the result.
+    pub fn test_scan<F, T>(
+        input: &[&str],
+        scan: F,
+    ) -> Result<T, <TestScanner as Scanner>::Error>
+    where
+        F: FnOnce(
+            &mut TestScanner,
+        ) -> Result<T, <TestScanner as Scanner>::Error>,
+        T: Debug,
+    {
+        let mut scanner = IterScanner::new(
+            input
+                .iter()
+                .map(|s| alloc::string::String::from(*s))
+                .collect::<Vec<_>>(),
+        );
+        scan(&mut scanner)
+    }
 
     /// Checks scanning.
-    pub fn test_scan<F, T, X>(input: &[&str], scan: F, expected: &X)
+    pub fn test_scan_check<F, T, X>(input: &[&str], scan: F, expected: &X)
     where
         F: FnOnce(
             &mut TestScanner,
@@ -603,7 +633,7 @@ pub(crate) mod test {
         let mut scanner = IterScanner::new(
             input
                 .iter()
-                .map(|s| std::string::String::from(*s))
+                .map(|s| alloc::string::String::from(*s))
                 .collect::<Vec<_>>(),
         );
         assert_eq!(*expected, scan(&mut scanner).unwrap(),);
