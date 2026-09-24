@@ -113,10 +113,17 @@ impl WriteZone {
         self.published_versions.read().current().0
     }
 
-    fn bump_soa_serial(&mut self, old_soa_rr: &Option<SharedRr>) {
-        let old_soa_rr = old_soa_rr.as_ref().unwrap();
+    fn bump_soa_serial(
+        &mut self,
+        old_soa_rr: &Option<SharedRr>,
+    ) -> Result<(), io::Error> {
+        let Some(old_soa_rr) = old_soa_rr.as_ref() else {
+            return Ok(());
+        };
         let ZoneRecordData::Soa(old_soa) = old_soa_rr.data() else {
-            unreachable!()
+            return Err(io::Error::other(
+                "cannot bump SOA in unknown record form",
+            ));
         };
         trace!("Commit: old_soa={old_soa:#?}");
 
@@ -142,6 +149,7 @@ impl WriteZone {
         self.apex
             .rrsets()
             .update(new_soa_shared_rrset.clone(), self.new_version);
+        Ok(())
     }
 
     fn add_soa_remove_diff_entry(
@@ -151,7 +159,7 @@ impl WriteZone {
     ) -> Option<Serial> {
         if let Some(old_soa_rr) = old_soa_rr {
             let ZoneRecordData::Soa(old_soa) = old_soa_rr.data() else {
-                unreachable!()
+                return None;
             };
 
             let mut removed_soa_rrset =
@@ -181,7 +189,7 @@ impl WriteZone {
     ) -> Option<Serial> {
         if let Some(new_soa_rr) = new_soa_rr {
             let ZoneRecordData::Soa(new_soa) = new_soa_rr.data() else {
-                unreachable!()
+                return None;
             };
             let mut new_soa_shared_rrset =
                 Rrset::new(Rtype::SOA, new_soa_rr.ttl());
@@ -309,7 +317,9 @@ impl WritableZone for WriteZone {
             && old_soa_rr.is_some()
             && (new_soa_rr.is_none() || new_soa_rr == old_soa_rr)
         {
-            self.bump_soa_serial(&old_soa_rr);
+            if let Err(err) = self.bump_soa_serial(&old_soa_rr) {
+                return Box::pin(ready(Err(err)));
+            }
             new_soa_rr = self.apex.get_soa(self.new_version);
         }
 
