@@ -31,6 +31,9 @@ Bug fixes
 
 Unstable features
 
+* `unstable-client-transport`:
+  * Fix a panic when the TSIG client can’t create a request message due to
+    lack of space. ([#742])
 * `unstable-server-transport`:
   * Fixed a panic in the NOTIFY middleware when it can’t copy the request.
     ([#733])
@@ -84,6 +87,7 @@ Other changes
 [#739]: https://github.com/NLnetLabs/domain/pull/739
 [#740]: https://github.com/NLnetLabs/domain/pull/740
 [#741]: https://github.com/NLnetLabs/domain/pull/741
+[#742]: https://github.com/NLnetLabs/domain/pull/742
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
