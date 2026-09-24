@@ -48,6 +48,10 @@ Unstable features
     `parsed::Zonefile`. This change removes the `Default` impl, which
     means an origin and class must be given when creating a value.
     ([#732])
+  * Prevent unbounded allocation when updating a zone. Changes existing
+    behaviour by returning errors when deleting non-existing record and
+    adding of existing records. ([#737])
+
 
 Other changes
 
@@ -68,6 +72,7 @@ Other changes
 [#734]: https://github.com/NLnetLabs/domain/pull/734
 [#735]: https://github.com/NLnetLabs/domain/pull/735
 [#736]: https://github.com/NLnetLabs/domain/pull/736
+[#737]: https://github.com/NLnetLabs/domain/pull/737
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
