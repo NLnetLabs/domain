@@ -24,6 +24,8 @@ Bug fixes
   `FoundHosts::canonical_name`. ([#727])
 * TSIG server: Don’t panic when creating a TSIG error response ([#729])
 * Zonefile parser: check for invalid UTF-8. ([#730])
+* Fixed a panic in the zonefile parser when an empty TXT record is
+  encountered. ([#736])
 
 Unstable features
 
@@ -65,6 +67,7 @@ Other changes
 [#733]: https://github.com/NLnetLabs/domain/pull/733
 [#734]: https://github.com/NLnetLabs/domain/pull/734
 [#735]: https://github.com/NLnetLabs/domain/pull/735
+[#736]: https://github.com/NLnetLabs/domain/pull/736
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 

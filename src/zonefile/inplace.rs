@@ -893,6 +893,8 @@ impl Scanner for EntryScanner<'_> {
         self.zonefile.buf.trim_to(self.zonefile.buf.start - 1);
         let mut write = 0;
 
+        self.zonefile.buf.require_token()?;
+
         // Now convert token by token.
         loop {
             self.convert_charstr(&mut write)?;
@@ -1798,6 +1800,25 @@ mod test {
         test(" \"quoted\"\n", b"quoted");
         test(" \"quoted\" ", b"quoted");
         test("\"quoted\" ", b"quoted");
+    }
+
+    #[test]
+    fn test_empty_txt() {
+        let mut input =
+            "example.com IN TXT hello\nexample.com IN TXT\n".as_bytes();
+        let mut zone = Zonefile::load(&mut input).unwrap();
+        zone.set_origin(Name::from_str("example.com").unwrap());
+        zone.set_default_class(Class::IN);
+        assert!(zone.next_entry().is_ok());
+        assert!(zone.next_entry().is_err());
+
+        let mut input =
+            "example.com IN TXT hello\nexample.com IN TXT".as_bytes();
+        let mut zone = Zonefile::load(&mut input).unwrap();
+        zone.set_origin(Name::from_str("example.com").unwrap());
+        zone.set_default_class(Class::IN);
+        assert!(zone.next_entry().is_ok());
+        assert!(zone.next_entry().is_err());
     }
 
     #[derive(serde::Deserialize)]
