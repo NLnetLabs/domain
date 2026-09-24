@@ -582,7 +582,7 @@ where
                     &mut target,
                     Time48::now(),
                 )
-                .unwrap(),
+                .map_err(CopyRecordsError::Push)?,
             )
         };
 
@@ -664,7 +664,7 @@ where
                 &mut target,
                 Time48::now(),
             )
-            .unwrap(),
+            .map_err(CopyRecordsError::Push)?,
         );
 
         *self.signer.lock().unwrap() = Some(client);
