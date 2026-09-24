@@ -30,6 +30,8 @@ Unstable features
 * `unstable-server-transport`:
   * Fixed a panic in the NOTIFY middleware when it can’t copy the request.
     ([#733])
+  * Fixed a panic in `QnameRouter` if a request that doesn’t have at least
+    one valid name is dispatched to it. ([#734])
 * `unstable-validator`:
   * Fixed a panic when encountering an invalid NSEC3 label. ([#728])
 * `unstable-xfr`:
@@ -59,6 +61,7 @@ Other changes
 [#731]: https://github.com/NLnetLabs/domain/pull/731
 [#732]: https://github.com/NLnetLabs/domain/pull/732
 [#733]: https://github.com/NLnetLabs/domain/pull/733
+[#734]: https://github.com/NLnetLabs/domain/pull/734
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
