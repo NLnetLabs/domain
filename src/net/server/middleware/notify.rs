@@ -271,7 +271,11 @@ where
                 //    except that the QR bit is also set.  The query ID of the
                 //    response must be the same as was received in the
                 //    request."
-                let mut additional = Self::copy_message(msg).unwrap();
+                let Ok(mut additional) = Self::copy_message(msg) else {
+                    return ControlFlow::Break(once(ready(Ok(CallResult::new(
+                        mk_error_response(msg, OptRcode::SERVFAIL)
+                    )))))
+                };
 
                 let response_hdr = additional.header_mut();
                 response_hdr.set_opcode(Opcode::NOTIFY);
