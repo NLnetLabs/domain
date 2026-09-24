@@ -254,7 +254,11 @@ impl FoundSrvs {
         Self::reorder_by_weight(&mut items[first_index..], weight_sum);
     }
 
-    /// Reorders items in a priority level based on their weight
+    /// Reorders items in a priority level based on their weight.
+    ///
+    /// `items` contains a slice of items with the same priority ordered by
+    /// their weight. `weight_sum` is the sum of all the weights of the items
+    /// in `items`.
     fn reorder_by_weight(items: &mut [SrvItem], weight_sum: u32) {
         let mut rng = rand::rng();
         let mut weight_sum = weight_sum;
@@ -263,7 +267,7 @@ impl FoundSrvs {
             let range = Uniform::new(0, weight_sum + 1).unwrap();
             let mut sum: u32 = 0;
             let pick = range.sample(&mut rng);
-            for j in 0..items.len() {
+            for j in i..items.len() {
                 sum += u32::from(items[j].weight());
                 if sum >= pick {
                     weight_sum -= u32::from(items[j].weight());
@@ -419,5 +423,138 @@ impl From<io::Error> for SrvError {
 impl From<ParseError> for SrvError {
     fn from(_: ParseError) -> SrvError {
         SrvError::MalformedAnswer
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::base::name::Name;
+    use crate::base::{
+        MessageBuilder, Rtype, StaticCompressor, StreamTarget,
+    };
+    use crate::rdata::{A, Srv};
+    use alloc::vec::Vec;
+    use core::str::FromStr;
+
+    #[test]
+    fn process_srv_response() {
+        let example_com = Name::<Vec<u8>>::from_str("example.com").unwrap();
+        // Make an SRV response.
+        let mut msg = MessageBuilder::from_target(StaticCompressor::new(
+            StreamTarget::new_vec(),
+        ))
+        .unwrap();
+        msg.header_mut().set_qr(true);
+        let mut msg = msg.question();
+        msg.push((&example_com, Rtype::SRV)).unwrap();
+        let mut msg = msg.answer();
+        let srv20 = Srv::new(
+            20,
+            100,
+            1000,
+            Name::<Vec<u8>>::from_str("20.example.com").unwrap(),
+        );
+        msg.push((&example_com, 100, &srv20)).unwrap();
+        let srv101 = Srv::new(
+            10,
+            100,
+            1000,
+            Name::<Vec<u8>>::from_str("100.10.example.com").unwrap(),
+        );
+        msg.push((&example_com, 100, &srv101)).unwrap();
+        let srv15 = Srv::new(
+            15,
+            100,
+            1000,
+            Name::<Vec<u8>>::from_str("15.example.com").unwrap(),
+        );
+        msg.push((&example_com, 100, &srv15)).unwrap();
+        let srv102 = Srv::new(
+            10,
+            200,
+            1000,
+            Name::<Vec<u8>>::from_str("200.10.example.com").unwrap(),
+        );
+        msg.push((&example_com, 100, &srv102)).unwrap();
+        let mut msg = msg.additional();
+        msg.push((
+            Name::<Vec<u8>>::from_str("20.example.com").unwrap(),
+            100,
+            A::from_octets(192, 0, 2, 20),
+        ))
+        .unwrap();
+        msg.push((
+            Name::<Vec<u8>>::from_str("200.10.example.com").unwrap(),
+            100,
+            A::from_octets(192, 0, 2, 210),
+        ))
+        .unwrap();
+        msg.push((
+            Name::<Vec<u8>>::from_str("15.example.com").unwrap(),
+            100,
+            A::from_octets(192, 0, 2, 15),
+        ))
+        .unwrap();
+        msg.push((
+            Name::<Vec<u8>>::from_str("100.10.example.com").unwrap(),
+            100,
+            A::from_octets(192, 0, 2, 110),
+        ))
+        .unwrap();
+        let target = msg.finish().into_target();
+        let message = Message::from_slice(target.as_dgram_slice()).unwrap();
+
+        let srvs = FoundSrvs::new(
+            message,
+            Name::<Vec<u8>>::from_str("target4.example.com").unwrap(),
+            6000,
+        )
+        .unwrap()
+        .unwrap()
+        .items
+        .unwrap();
+
+        assert_eq!(srvs.len(), 4);
+
+        if srvs[0].srv == srv101 {
+            assert_eq!(
+                srvs[0].resolved,
+                Some(vec![IpAddr::from_str("192.0.2.110").unwrap()])
+            );
+
+            assert_eq!(srvs[1].srv, srv102);
+            assert_eq!(
+                srvs[1].resolved,
+                Some(vec![IpAddr::from_str("192.0.2.210").unwrap()])
+            );
+        } else if srvs[0].srv == srv102 {
+            assert_eq!(
+                srvs[0].resolved,
+                Some(vec![IpAddr::from_str("192.0.2.210").unwrap()])
+            );
+
+            assert_eq!(srvs[1].srv, srv101);
+            assert_eq!(
+                srvs[1].resolved,
+                Some(vec![IpAddr::from_str("192.0.2.110").unwrap()])
+            );
+        } else {
+            panic!("srv[0] is not srv101 or srv102");
+        }
+
+        assert_eq!(srvs[2].srv, srv15);
+        assert_eq!(
+            srvs[2].resolved,
+            Some(vec![IpAddr::from_str("192.0.2.15").unwrap()])
+        );
+
+        assert_eq!(srvs[3].srv, srv20);
+        assert_eq!(
+            srvs[3].resolved,
+            Some(vec![IpAddr::from_str("192.0.2.20").unwrap()])
+        );
     }
 }

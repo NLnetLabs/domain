@@ -26,6 +26,8 @@ Bug fixes
 * Zonefile parser: check for invalid UTF-8. ([#730])
 * Fixed a panic in the zonefile parser when an empty TXT record is
   encountered. ([#736])
+* Fixed a wrong start in the resolver when re-ordering SRV records by
+  priority and weight. ([#738])
 
 Unstable features
 
@@ -73,6 +75,7 @@ Other changes
 [#735]: https://github.com/NLnetLabs/domain/pull/735
 [#736]: https://github.com/NLnetLabs/domain/pull/736
 [#737]: https://github.com/NLnetLabs/domain/pull/737
+[#738]: https://github.com/NLnetLabs/domain/pull/738
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
