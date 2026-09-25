@@ -15,6 +15,8 @@ Bug fixes
 
 * Limited the number of compression pointers that are followed when parsing
   a compressed name to 255 to avoid following really long chains. ([#745])
+* Limited the length of CNAME chains followed by `Message::canonical_name`
+  to 20. ([#752])
 * Don’t compress the names in RP records. ([#702] by [@SebastiaanYN])
 * Fixed a `todo!` macro in the `Hash` impl for `IpseckeyGateway`.
   ([#706] by [@SebastiaanYN])
