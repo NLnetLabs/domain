@@ -57,6 +57,8 @@ Unstable features
   * Fixed a potential integer underflow when subtracting TTLs. ([#740])
   * Fixed a panic when encountering malformed OPT data. ([#747])
   * Fixed a linear scan during name insertion. ([#748])
+  * Limited the number of DS and DNSKEY records when trying to find a
+    matching pair. ([#749])
 * `unstable-xfr`:
   * Return an error rather than panicking when a response is not AXFR or
     IXFR. (#724)
@@ -106,6 +108,7 @@ Other changes
 [#746]: https://github.com/NLnetLabs/domain/pull/746
 [#747]: https://github.com/NLnetLabs/domain/pull/747
 [#748]: https://github.com/NLnetLabs/domain/pull/748
+[#749]: https://github.com/NLnetLabs/domain/pull/749
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
