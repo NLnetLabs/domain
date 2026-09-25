@@ -1415,7 +1415,7 @@ mod tests {
 
         // Case 1: Mismatched RTYPE removal.
 
-        // Removing a non-existing RTYPE at an NS node should have no effect.
+        // Removing a non-existing RTYPE at an NS node should cause an error.
         let a_rdata1 = A::new(Ipv4Addr::from_str("127.0.0.1").unwrap());
         let a_rec = Record::new(
             ns1_name.clone(),
@@ -1423,10 +1423,9 @@ mod tests {
             Ttl::from_secs(3600),
             ZoneRecordData::A(a_rdata1.clone()),
         );
-        updater.delete_record_from_rrset(a_rec).await.unwrap();
+        assert!(updater.delete_record_from_rrset(a_rec).await.is_err());
 
-        // Removing a non-existing RTYPE at a CNAME node should have no
-        // effect.
+        // Removing a non-existing RTYPE at a CNAME node should cause an error.
         let a_rdata1 = A::new(Ipv4Addr::from_str("127.0.0.1").unwrap());
         let a_rec = Record::new(
             cname1_name.clone(),
@@ -1434,7 +1433,7 @@ mod tests {
             Ttl::from_secs(3600),
             ZoneRecordData::A(a_rdata1.clone()),
         );
-        updater.delete_record_from_rrset(a_rec).await.unwrap();
+        assert!(updater.delete_record_from_rrset(a_rec).await.is_err());
 
         // Case 2: Entire RRSET removal should cause everything at the zone
         // tree node to be removed. The DS records can only exist at a node if
