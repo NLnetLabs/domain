@@ -783,7 +783,7 @@ impl GroupSet {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
-        if cname_groups.len() > config.max_cname_dname.into() {
+        if cname_groups.len() > config.max_cname_dname().into() {
             // Assume that all CNAMEs are followed.
             return Err(make_ede(
                 ExtendedErrorCode::DNSSEC_BOGUS,
