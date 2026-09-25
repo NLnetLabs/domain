@@ -206,7 +206,23 @@ impl ZoneNode {
 
     /// Updates the special.
     pub fn update_special(&self, version: Version, special: Option<Special>) {
+        if special.is_some() {
+            // The RRs of a node are either defined in the special data or in
+            // the non-special RRset data, but not both.
+            self.rrsets.remove_all(version);
+        }
         self.special.write().update(version, special)
+    }
+
+    /// Get the zone cut present at this node, if any.
+    pub fn zone_cut(&self, version: Version) -> Option<ZoneCut> {
+        self.with_special(version, |special| {
+            if let Some(Special::Cut(cut)) = special {
+                Some(cut.clone())
+            } else {
+                None
+            }
+        })
     }
 
     /// Returns the children.

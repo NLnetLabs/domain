@@ -1,8 +1,10 @@
 //! Builders for in-memory zones.
 
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::base::Rtype;
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToName};
 use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
@@ -89,7 +91,60 @@ impl ZoneBuilder {
         name: &impl ToName,
         rrset: SharedRrset,
     ) -> Result<(), OutOfZone> {
-        match self.get_node(self.apex.prepare_name(name)?) {
+        if rrset.is_empty() {
+            // Nothing to do. Checking for this here means we don't have to
+            // take this edge case into account below.
+            return Ok(());
+        }
+
+        let node = self.get_node(self.apex.prepare_name(name)?);
+
+        // "special" RRs should be added via the helper functions below,
+        // e.g. insert_zone_cut(). However, nothing stops a caller using
+        // this function instead so we should intercept records that should
+        // be handled specially. Also, in the case of adding a DS to an
+        // existing NS there is no helper method that can handle that, the
+        // user would have to remove the NS then re-add the NS and DS via
+        // insert_zone_cut().
+        //
+        // Note: Mapping the error here in principle loses information but
+        // at the time of writing none of the helper functions invoked that
+        // return other errors actually return anything but OutOfZone anyway
+        // so no information is actually lost.
+        //
+        // Note: Neither a zone cut nor a CNAME can be present at the apex so
+        // only update specials at a child node, not at the apex. Otherwise
+        // fall through to handle cases such as NS record at the apex which
+        // is valid.
+        if let Ok(node) = &node {
+            match rrset.rtype() {
+                Rtype::NS => {
+                    return self
+                        .insert_zone_cut(name, rrset, None, vec![])
+                        .map_err(|_| OutOfZone);
+                }
+                Rtype::DS => {
+                    if let Some(cut) = node.zone_cut(Version::default()) {
+                        return self
+                            .insert_zone_cut(
+                                name,
+                                cut.ns,
+                                Some(rrset),
+                                cut.glue,
+                            )
+                            .map_err(|_| OutOfZone);
+                    }
+                }
+                Rtype::CNAME if rrset.data().len() == 1 => {
+                    return self
+                        .insert_cname(name, rrset.first().unwrap())
+                        .map_err(|_| OutOfZone);
+                }
+                _ => { /* Nothing to do */ }
+            }
+        }
+
+        match node {
             Ok(node) => node.rrsets().update(rrset, Version::default()),
             Err(apex) => apex.rrsets().update(rrset, Version::default()),
         }
