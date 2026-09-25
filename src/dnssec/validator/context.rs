@@ -1415,21 +1415,20 @@ impl<VCUpstream> ValidationContext<ReplyFromChain<VCUpstream>> {
             return None;
         }
 
-        let ta = self.ta.find(qname)?;
-        let Ok((node, mut names)) = self
-            .find_closest_node(&qname.to_bytes(), ta, ta.owner())
-            .await
-        else {
-            return Some(crate::base::opt::Chain::new(ta.owner()));
-        };
-
-        if matches!(
-            node.validation_state(),
-            ValidationState::Secure | ValidationState::Insecure
-        ) {
-            return names.pop_front().map(crate::base::opt::Chain::new);
+        let mut current = qname;
+        while current.parent() {
+            if let Some(cached_node) =
+                self.cache_lookup(&current.to_name::<Bytes>()).await
+                && matches!(
+                    cached_node.validation_state(),
+                    ValidationState::Secure | ValidationState::Insecure
+                )
+            {
+                return Some(crate::base::opt::Chain::new(current.to_name()));
+            }
         }
 
+        let ta = self.ta.find(qname)?;
         Some(crate::base::opt::Chain::new(ta.owner()))
     }
 }
