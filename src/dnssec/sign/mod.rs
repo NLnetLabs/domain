@@ -346,6 +346,11 @@ where
 ///
 /// </div>
 ///
+/// # Panic
+///
+/// The function will panic if the individual records within an RRset have
+/// differing TTLs.
+///
 /// # Limitations
 ///
 /// This function does not yet support:
