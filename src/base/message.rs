@@ -800,8 +800,14 @@ impl<'a, Octs: Octets + ?Sized> QuestionSection<'a, Octs> {
     ///
     /// [`RecordSection`]: struct.RecordSection.html
     pub fn answer(mut self) -> Result<RecordSection<'a, Octs>, ParseError> {
-        while self.next().is_some() {}
-        let _ = self.count?;
+        while let Some(new_count) = self.count?.checked_sub(1) {
+            if let Err(err) = Question::skip(&mut self.parser) {
+                self.count = Err(err);
+                return Err(err);
+            } else {
+                self.count = Ok(new_count);
+            }
+        }
         Ok(RecordSection::new(self.parser, Section::first()))
     }
 

@@ -103,6 +103,17 @@ impl<Octs> Question<ParsedName<Octs>> {
     }
 }
 
+impl Question<()> {
+    pub fn skip<Src: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'_, Src>,
+    ) -> Result<(), ParseError> {
+        ParsedName::skip(parser)?;
+        let _ = Rtype::parse(parser)?;
+        let _ = Class::parse(parser)?;
+        Ok(())
+    }
+}
+
 impl<N: ToName> Question<N> {
     pub fn compose<Target: Composer + ?Sized>(
         &self,
