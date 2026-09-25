@@ -250,6 +250,21 @@ where
                 }
             })?;
 
+        // Verify that the client qname is the apex. The caller supplied
+        // `XfrDataProvider` should have already caused us to return in such a
+        // case, but if it didn't, enforce this requirement here.
+        let apex = xfr_data.zone().apex_name();
+        if *apex != qname {
+            debug!(
+                "{} for {} from {} refused: qname is not the apex ('{}')",
+                mode,
+                qname,
+                req.client_addr(),
+                apex
+            );
+            return Err(OptRcode::SERVFAIL);
+        }
+
         // Read the zone SOA RR
         let read = xfr_data.zone().read();
         let Ok(zone_soa_answer) = read_soa(&read, qname.to_name()).await

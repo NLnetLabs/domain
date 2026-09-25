@@ -48,6 +48,8 @@ Unstable features
     ([#739])
   * Fixed a panic in the TSIG middleware when starting to create a signed
     truncated response fails. ([#741])
+  * Fixed a panic when the QNAME of an IXFR is not the zone apex in the
+    XFR middleware. ([#746])
 * `unstable-sign`:
   * Fixed a panic when an NSEC owner name is too long. ([#735])
 * `unstable-validator`:
@@ -99,6 +101,7 @@ Other changes
 [#743]: https://github.com/NLnetLabs/domain/pull/743
 [#744]: https://github.com/NLnetLabs/domain/pull/744
 [#745]: https://github.com/NLnetLabs/domain/pull/745
+[#746]: https://github.com/NLnetLabs/domain/pull/746
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
