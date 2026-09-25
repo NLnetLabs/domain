@@ -2,14 +2,10 @@
 
 ## Unreleased next version
 
-Breaking changes
-
 New
 
 * Updated the constants for the IANA registries. ([#699], [#716] by
   [@SebastiaanYN])
-
-Improvements
 
 Bug fixes
 
@@ -21,6 +17,8 @@ Bug fixes
 * Changed `QuestionSection::answer` to skip over all remaining questions
   without parsing the QNAMEs to avoid being slowed down by malicious
   names. ([#753])
+* Fixed maximum pointer created by the name compressors. ([#707] by
+  [@SebastiaanYN])
 * Don’t compress the names in RP records. ([#702] by [@SebastiaanYN])
 * Fixed a `todo!` macro in the `Hash` impl for `IpseckeyGateway`.
   ([#706] by [@SebastiaanYN])
@@ -89,12 +87,16 @@ Unstable features
   * Fixed various issues when updating “special” record types such as
     CNAME or for zone cuts. ([#754])
 
+Acknowledgements
 
-Other changes
+* We would like to thank Qifan Zhang, Palo Alto Networks,
+  Antoni (Tony) Jagodka ([@DrVelvetFog]), and [@SebastiaanYN] for
+  reporting issues fixed in this release.
 
 [#699]: https://github.com/NLnetLabs/domain/pull/699
 [#702]: https://github.com/NLnetLabs/domain/pull/702
 [#706]: https://github.com/NLnetLabs/domain/pull/706
+[#707]: https://github.com/NLnetLabs/domain/pull/707
 [#716]: https://github.com/NLnetLabs/domain/pull/716
 [#724]: https://github.com/NLnetLabs/domain/pull/724
 [#725]: https://github.com/NLnetLabs/domain/pull/725
@@ -126,6 +128,7 @@ Other changes
 [#752]: https://github.com/NLnetLabs/domain/pull/752
 [#753]: https://github.com/NLnetLabs/domain/pull/753
 [#754]: https://github.com/NLnetLabs/domain/pull/754
+[@DrVelvetFog]: https://github.com/DrVelvetFog
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
