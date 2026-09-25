@@ -677,6 +677,7 @@ pub async fn nsec3_for_not_exists(
 
     let mut maybe_ce = signer_name.clone();
     let mut maybe_ce_exists = false;
+    let mut nsec3_hashes = 0;
     'next_name: for n in names {
         if n == signer_name {
             maybe_ce = n;
@@ -707,8 +708,18 @@ pub async fn nsec3_for_not_exists(
                 ),
             };
 
-            // Create the hash with the parameters in this record. We should
-            // cache the hash.
+            if nsec3_hashes >= config.max_nsec3_hashes_closest_encloser() {
+                // totest: try with a zone that exceeds the limits.
+                return (
+                    Nsec3NXState::Nothing,
+                    make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "Too many NSEC3 hash calculations needed to find closest-encloser",
+                    ),
+                );
+            }
+
+            // Create the hash with the parameters in this record.
             let hash = cached_nsec3_hash(
                 &n,
                 nsec3.hash_algorithm(),
@@ -717,6 +728,8 @@ pub async fn nsec3_for_not_exists(
                 nsec3_cache,
             )
             .await;
+
+            nsec3_hashes += 1;
 
             if ownerhash == hash.as_ref() {
                 // We found an exact match.

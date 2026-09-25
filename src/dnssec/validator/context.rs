@@ -130,6 +130,14 @@ const MAX_DS_RECORDS: DefMinMax<u8> = DefMinMax::new(20, 1, 100);
 /// the default as used in unbound is 4.
 const MAX_DNSKEYS_PER_DS: DefMinMax<u8> = DefMinMax::new(4, 1, 100);
 
+/// Maximum number of NSEC3 hashes that are computed to find a closest
+/// encloser.
+///
+/// The minimum is 1, the maximum is 100,
+/// the default is 60. This seems a resonable value for deep zones.
+const MAX_NSEC3_HASHES_CLOSEST_ENCLOSER: DefMinMax<u8> =
+    DefMinMax::new(60, 1, 100);
+
 //------------ Config ---------------------------------------------------------
 
 /// Configuration of a validator.
@@ -175,6 +183,9 @@ pub struct Config {
     /// Maximum number of DNSKEY records in an RRset that are tried to match
     /// with a DS record.
     max_dnskeys_per_ds: u8,
+
+    /// Maximum number of NSEC3 hash calculations to find a closest encloser.
+    max_nsec3_hashes_closest_encloser: u8,
 }
 
 impl Config {
@@ -308,6 +319,11 @@ impl Config {
     pub fn set_max_cname_dname(&mut self, value: u8) {
         self.max_cname_dname = MAX_CNAME_DNAME.limit(value)
     }
+
+    /// Returns the value of the maximum number of NSEC3 hash calculations.
+    pub(crate) fn max_nsec3_hashes_closest_encloser(&self) -> u8 {
+        self.max_nsec3_hashes_closest_encloser
+    }
 }
 
 impl Default for Config {
@@ -325,6 +341,8 @@ impl Default for Config {
             max_cname_dname: MAX_CNAME_DNAME.default(),
             max_ds_records: MAX_DS_RECORDS.default(),
             max_dnskeys_per_ds: MAX_DNSKEYS_PER_DS.default(),
+            max_nsec3_hashes_closest_encloser:
+                MAX_NSEC3_HASHES_CLOSEST_ENCLOSER.default(),
         }
     }
 }
