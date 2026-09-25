@@ -57,8 +57,11 @@ Unstable features
   * Fixed a potential integer underflow when subtracting TTLs. ([#740])
   * Fixed a panic when encountering malformed OPT data. ([#747])
   * Fixed a linear scan during name insertion. ([#748])
-  * Limited the number of DS and DNSKEY records when trying to find a
-    matching pair. ([#749])
+  * Fixed a resource exhaustion issue when trying to find a matching
+    DS/DNSKEY pair by limiting the number of records searched. ([#749])
+  * Fixed a resource exhaustion issue when finding the closest encloser in
+    NSEC3 by limiting the number of NSEC3 hash calculations. ([#750])
+
 * `unstable-xfr`:
   * Return an error rather than panicking when a response is not AXFR or
     IXFR. (#724)
