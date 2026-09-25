@@ -398,7 +398,10 @@ pub struct WriteNode {
     node: Either<Arc<ZoneApex>, Arc<ZoneNode>>,
 
     /// The diff we are building, if enabled.
-    diff: Option<(StoredName, Arc<Mutex<InMemoryZoneDiffBuilder>>)>,
+    diff: Option<Arc<Mutex<InMemoryZoneDiffBuilder>>>,
+
+    /// The owner name of the current node.
+    owner: StoredName,
 }
 
 impl WriteNode {
@@ -409,18 +412,17 @@ impl WriteNode {
         let apex = zone.apex.clone();
 
         let diff = if create_diff {
-            Some((
-                zone.apex.name().clone(),
-                Arc::new(Mutex::new(InMemoryZoneDiffBuilder::new())),
-            ))
+            Some(Arc::new(Mutex::new(InMemoryZoneDiffBuilder::new())))
         } else {
             None
         };
 
+        let owner = zone.apex.name().clone();
         Ok(WriteNode {
             zone,
             node: Either::Left(apex),
             diff,
+            owner,
         })
     }
 
@@ -433,17 +435,15 @@ impl WriteNode {
         let (node, created) = children
             .with_or_default(label, |node, created| (node.clone(), created));
 
-        let diff = self.diff.as_ref().map(|(owner, diff)| {
-            let mut builder = NameBuilder::new_bytes();
-            builder.append_label(label.as_slice()).unwrap();
-            let new_owner = builder.append_origin(&owner).unwrap();
-            (new_owner, diff.clone())
-        });
+        let mut builder = NameBuilder::new_bytes();
+        builder.append_label(label.as_slice()).unwrap();
+        let owner = builder.append_origin(&self.owner).unwrap();
 
         let node = WriteNode {
             zone: self.zone.clone(),
             node: Either::Right(node),
-            diff,
+            diff: self.diff.clone(),
+            owner,
         };
 
         if created {
@@ -454,109 +454,175 @@ impl WriteNode {
     }
 
     fn update_rrset(&self, new_rrset: SharedRrset) -> Result<(), io::Error> {
-        let rrsets = match self.node {
-            Either::Right(ref apex) => apex.rrsets(),
-            Either::Left(ref node) => node.rrsets(),
-        };
-
         trace!("Updating RRset");
-        if let Some((owner, diff)) = &self.diff {
-            let current_rrset = if let Some(current_rrset) = rrsets
-                .get(new_rrset.rtype(), self.zone.last_published_version())
-            {
-                let changed = new_rrset != current_rrset;
 
-                if changed && !current_rrset.is_empty() {
-                    Some(current_rrset)
-                } else {
-                    None
+        let rtype = new_rrset.rtype();
+        let rrset_before = self.get_rrset(rtype)?;
+
+        match self.node {
+            Either::Right(ref node) => {
+                if !self.update_rrset_special(&new_rrset, node)? {
+                    node.rrsets().update(new_rrset, self.zone.new_version);
                 }
-            } else {
-                None
-            };
+            }
+            Either::Left(ref apex) => {
+                apex.rrsets().update(new_rrset, self.zone.new_version);
+            }
+        }
 
-            match (current_rrset.is_some(), !new_rrset.is_empty()) {
-                (true, true) => {
-                    trace!(
-                        "Diff detected: update of existing RRSET - recording change of RRSET from {current_rrset:?} to {new_rrset:#?}"
-                    );
+        self.check_nx_domain()?;
 
-                    // Check each resource record in the RRset being updated
-                    // to see if it is missing from the new RRSet.
-                    let new_rrs = new_rrset.as_rrset().data();
-                    let mut removed_rrs =
-                        Rrset::new(new_rrset.rtype(), new_rrset.ttl());
-                    for removed_rr in current_rrset
-                        .as_ref()
-                        .unwrap()
-                        .as_rrset()
-                        .data()
-                        .iter()
-                        .filter(|rr| !new_rrs.contains(rr))
-                    {
-                        removed_rrs.push_data(removed_rr.clone());
-                    }
+        let rrset_after = self.get_rrset(rtype)?;
+        self.update_rrsets_diff(rrset_before, rrset_after);
 
-                    if !removed_rrs.is_empty() {
-                        diff.lock().unwrap().remove(
-                            owner.clone(),
-                            new_rrset.rtype(),
-                            SharedRrset::new(removed_rrs),
-                        );
-                    }
+        Ok(())
+    }
 
-                    // Check each resource record in the new RRset to see if
-                    // it is missing from the RRset being updated.
-                    let old_rrs =
-                        current_rrset.as_ref().unwrap().as_rrset().data();
-                    let mut added_rrs =
-                        Rrset::new(new_rrset.rtype(), new_rrset.ttl());
-                    for added_rr in new_rrset
-                        .as_rrset()
-                        .data()
-                        .iter()
-                        .filter(|rr| !old_rrs.contains(rr))
-                    {
-                        added_rrs.push_data(added_rr.clone());
-                    }
+    /// Update the diff as if the given RRSET is applied to the given set
+    /// diff.
+    fn update_rrsets_diff(
+        &self,
+        before: Option<SharedRrset>,
+        after: Option<SharedRrset>,
+    ) {
+        std::dbg!(&before);
+        std::dbg!(&after);
+        let Some(diff) = &self.diff else { return };
 
-                    if !added_rrs.is_empty() {
-                        diff.lock().unwrap().add(
-                            owner.clone(),
-                            new_rrset.rtype(),
-                            SharedRrset::new(added_rrs),
-                        );
-                    }
+        let mut added: Option<SharedRrset> = None;
+        let mut removed: Option<SharedRrset> = None;
+
+        match (&before, &after) {
+            (None, None) => { /* Nothing to do */ }
+            (None, Some(_)) => added = after,
+            (Some(_), None) => removed = before,
+            (Some(before), Some(after)) => {
+                // Check each resource record in the RRset being updated
+                // to see if it is missing from the new RRSet.
+                let mut removed_rrs =
+                    Rrset::new(before.rtype(), before.ttl());
+                for removed_rr in before
+                    .data()
+                    .iter()
+                    .filter(|&rr| !after.data().contains(rr))
+                {
+                    removed_rrs.push_data(removed_rr.clone());
                 }
-                (true, false) => {
-                    trace!(
-                        "Diff detected: update of existing RRSET - recording removal of the current RRSET {current_rrset:#?}"
-                    );
-                    diff.lock().unwrap().remove(
-                        owner.clone(),
-                        new_rrset.rtype(),
-                        current_rrset.unwrap().clone(),
-                    );
+                if !removed_rrs.is_empty() {
+                    removed = Some(SharedRrset::new(removed_rrs));
                 }
-                (false, true) => {
-                    trace!(
-                        "Diff detected: update of existing RRSET - recording addition of new RRSET {new_rrset:#?}"
-                    );
-                    diff.lock().unwrap().add(
-                        owner.clone(),
-                        new_rrset.rtype(),
-                        new_rrset.clone(),
-                    );
+
+                // Check each resource record in the new RRset to see if
+                // it is missing from the RRset being updated.
+                let mut added_rrs = Rrset::new(after.rtype(), after.ttl());
+                for added_rr in after
+                    .data()
+                    .iter()
+                    .filter(|&rr| !before.data().contains(rr))
+                {
+                    added_rrs.push_data(added_rr.clone());
                 }
-                (false, false) => {
-                    // NOOP
+                if !added_rrs.is_empty() {
+                    added = Some(SharedRrset::new(added_rrs));
                 }
             }
         }
 
-        rrsets.update(new_rrset, self.zone.new_version);
-        self.check_nx_domain()?;
-        Ok(())
+        let mut locked = diff.lock().unwrap();
+        if let Some(removed) = removed {
+            locked.remove(self.owner.clone(), removed.rtype(), removed);
+        }
+        if let Some(added) = added {
+            locked.add(self.owner.clone(), added.rtype(), added);
+        }
+    }
+
+    /// Apply an RRSET update to the "special" if applicable.
+    ///
+    /// Returns true when the special was applied and the caller should not
+    /// attempt to further apply the update, false otherwise.
+    fn update_rrset_special(
+        &self,
+        new_rrset: &SharedRrset,
+        node: &Arc<ZoneNode>,
+    ) -> Result<bool, io::Error> {
+        match new_rrset.rtype() {
+            Rtype::NS => {
+                // Keep any existing DS or Glue at the zone cut as this update
+                // should only affect the NS RRs, not other RRs.
+                let possible_cut = node.zone_cut(self.zone.new_version);
+
+                // Also convert any plain DS record existed that was not
+                // yet able to be stored in a ZoneCut as the accompanying NS
+                // record was missing.
+                let existing_ds =
+                    node.rrsets().get(Rtype::DS, self.zone.new_version);
+                node.rrsets().remove_rtype(Rtype::DS, self.zone.new_version);
+
+                let cut = match possible_cut {
+                    Some(mut cut) => {
+                        // There shouldn't have been a DS RRSET in the
+                        // separate RRSET collection if there is an existing
+                        // zone cut as the attempt to insert a DS should have
+                        // caused it to be added into the existing zone cut at
+                        // that time. We don't know how to merge any existing
+                        // separate DS RRSET with any DS RRSET that is already
+                        // part of the existing zone cut so we don't try and
+                        // handle this case that shouldn't happen.
+                        if existing_ds.is_some() && cut.ds.is_some() {
+                            return Err(io::Error::other(
+                                "Cannot update zone cut because DS RRSET exists both in the existing cut and in the free RRSET collection",
+                            ));
+                        }
+
+                        // Replace the existing NS RRSET with the new one.
+                        cut.ns = new_rrset.clone();
+                        cut
+                    }
+                    None => {
+                        // Create a new zone cut combining the given NS RRSET
+                        // and any existing DS RRSET.
+                        ZoneCut {
+                            name: self.owner.clone(),
+                            ns: new_rrset.clone(),
+                            ds: existing_ds,
+                            glue: vec![],
+                        }
+                    }
+                };
+
+                self.make_zone_cut(cut)?;
+                return Ok(true);
+            }
+            Rtype::DS => {
+                if let Some(mut cut) = node.zone_cut(self.zone.new_version) {
+                    cut.ds = Some(new_rrset.clone());
+                    self.make_zone_cut(cut)?;
+                    return Ok(true);
+                } else {
+                    // A naked DS without NS cannot be represented by a
+                    // "special" zone cut, proceed to the plain RRSET update
+                    // mechanism.
+                }
+            }
+            Rtype::CNAME => {
+                if new_rrset.data().len() != 1 {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                let cname = SharedRr::new(
+                    new_rrset.ttl(),
+                    new_rrset.data()[0].clone(),
+                );
+                self.make_cname(cname)?;
+                return Ok(true);
+            }
+            _ => {
+                // This RTYPE is not stored in a "special", proceed to the
+                // plain RRSET update mechanism.
+            }
+        }
+
+        Ok(false)
     }
 
     fn get_rrset(
@@ -565,7 +631,41 @@ impl WriteNode {
     ) -> Result<Option<SharedRrset>, io::Error> {
         let rrsets = match self.node {
             Either::Left(ref apex) => apex.rrsets(),
-            Either::Right(ref node) => node.rrsets(),
+            Either::Right(ref node) => {
+                // Emulate storing of "special" records as RRsets because
+                // the WritableZone interface we are implementing offers an
+                // RRset based interface to the caller which means that the
+                // caller has no way to obtain records that are represented as
+                // "specials" (as these are an internal implementation detail
+                // of the in-memory zone tree) and so we have to expose any
+                // records we store, regardless of whether stored as an RRset
+                // or as a "special", as RRsets.
+                if matches!(rtype, Rtype::CNAME | Rtype::NS | Rtype::DS) {
+                    return Ok(node.with_special(
+                        self.zone.new_version,
+                        |special| {
+                            special.and_then(|special| match special {
+                                Special::Cname(rr)
+                                    if rtype == Rtype::CNAME =>
+                                {
+                                    let mut rrset =
+                                        Rrset::new(rr.rtype(), rr.ttl());
+                                    rrset.push_data(rr.data().clone());
+                                    Some(SharedRrset::new(rrset))
+                                }
+                                Special::Cut(cut) if rtype == Rtype::NS => {
+                                    Some(cut.ns.clone())
+                                }
+                                Special::Cut(cut) if rtype == Rtype::DS => {
+                                    cut.ds.clone()
+                                }
+                                _ => None,
+                            })
+                        },
+                    ));
+                }
+                node.rrsets()
+            }
         };
 
         Ok(rrsets.get(rtype, self.zone.new_version))
@@ -577,7 +677,7 @@ impl WriteNode {
             Either::Right(ref node) => node.rrsets(),
         };
 
-        if let Some((owner, diff)) = &self.diff {
+        if let Some(diff) = &self.diff {
             if let Some(removed) =
                 rrsets.get(rtype, self.zone.last_published_version())
             {
@@ -585,7 +685,7 @@ impl WriteNode {
                     "Diff detected: removal of existing RRSET: {removed:#?}"
                 );
                 diff.lock().unwrap().remove(
-                    owner.clone(),
+                    self.owner.clone(),
                     rtype,
                     removed.clone(),
                 );
@@ -593,6 +693,52 @@ impl WriteNode {
         }
 
         rrsets.remove_rtype(rtype, self.zone.new_version);
+
+        if let Either::Right(ref node) = self.node {
+            let update =
+                node.with_special(self.zone.new_version, |special| {
+                    if let Some(special) = special {
+                        match special {
+                            Special::Cut(zone_cut)
+                                if rtype == Rtype::DS
+                                    && zone_cut.ds.is_some() =>
+                            {
+                                // The caller is removing a DS record and
+                                // the node special represents a zone cut. We
+                                // have to remove the DS from the zone cut but
+                                // otherwise preserve it.
+                                let mut updated_zone_cut = zone_cut.clone();
+                                updated_zone_cut.ds = None;
+                                Some(Some(Special::Cut(updated_zone_cut)))
+                            }
+                            Special::Cut(_) if rtype == Rtype::NS => {
+                                // The caller is removing an NS record and the
+                                // node special represents a zone cut so we
+                                // need to remove the special by setting it
+                                // to None.
+                                Some(None)
+                            }
+                            Special::Cname(_) if rtype == Rtype::CNAME => {
+                                // The caller is removing a CNAME record and
+                                // the node special represents a CNAME so we
+                                // need to remove the special by setting it
+                                // to None.
+                                Some(None)
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some(updated_special) = update {
+                node.update_special(self.zone.new_version, updated_special);
+            }
+        }
+
+        // If we removed the last RRSET make sure that this entire node is
+        // reported as non-existent.
         self.check_nx_domain()?;
 
         Ok(())
@@ -687,9 +833,7 @@ impl WriteNode {
     }
 
     fn diff(&self) -> Option<Arc<Mutex<InMemoryZoneDiffBuilder>>> {
-        self.diff
-            .as_ref()
-            .map(|(_, diff_builder)| diff_builder.clone())
+        self.diff.clone()
     }
 }
 

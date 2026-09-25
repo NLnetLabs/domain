@@ -464,6 +464,9 @@ where
         let rtype = rec.rtype();
         let data = rec.data();
 
+        // Loop over all existing records, keeping all except the one to
+        // delete. get_rrset() will return the "special" records, if set, else
+        // it will return the non-special RRset records.
         let mut found = false;
         if let Some(existing_rrset) = tree_node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
@@ -677,7 +680,9 @@ mod tests {
     use bytes::BytesMut;
     use octseq::Octets;
 
-    use crate::base::iana::{Class, Rcode};
+    use crate::base::iana::{
+        Class, DigestAlgorithm, Rcode, SecurityAlgorithm,
+    };
     use crate::base::message_builder::{AnswerBuilder, QuestionBuilder};
     use crate::base::net::Ipv4Addr;
     use crate::base::rdata::ComposeRecordData;
@@ -686,8 +691,8 @@ mod tests {
     };
     use crate::logging::init_logging;
     use crate::net::xfr::protocol::XfrResponseInterpreter;
-    use crate::rdata::{A, Ns, Soa};
-    use crate::zonetree::ZoneBuilder;
+    use crate::rdata::{A, Cname, Ds, Ns, Soa};
+    use crate::zonetree::{SharedRr, ZoneBuilder};
 
     use super::*;
 
@@ -1243,6 +1248,327 @@ mod tests {
         expected.sort();
         actual.sort();
         assert_eq!(expected, actual);
+    }
+
+    #[tokio::test]
+    async fn clear_special_on_delete() {
+        init_logging();
+
+        // --- Create a zone containing NS and CNAME records, which are both
+        //     handled internally by the in-memory zone storage as "special"
+        //     types.
+
+        // Define some helper functions that we use below.
+        fn verify_query<O: AsRef<[u8]>>(
+            zone: &Zone,
+            name: &Name<Bytes>,
+            rtype: Rtype,
+            rdatas: &[&ZoneRecordData<O, Name<Bytes>>],
+        ) {
+            match rtype {
+                Rtype::NS => {
+                    let query = MessageBuilder::new_vec();
+                    let mut query = query.question();
+                    query.push((name.clone(), rtype)).unwrap();
+                    let message: Message<Vec<u8>> = query.into();
+                    let builder = MessageBuilder::new_bytes();
+                    let res_msg: Message<Bytes> = zone
+                        .read()
+                        .query(name.clone(), rtype)
+                        .unwrap()
+                        .to_message(&message, builder)
+                        .into();
+                    assert_eq!(res_msg.opt_rcode(), Rcode::NOERROR.into());
+                    let mut authority = res_msg
+                        .authority()
+                        .unwrap()
+                        .limit_to::<ZoneRecordData<_, _>>();
+                    for rdata in rdatas {
+                        let rec = authority.next().unwrap().unwrap();
+                        std::dbg!(&rec);
+                        let data = rec.into_data();
+                        assert_eq!(data, **rdata);
+                    }
+                    assert!(authority.next().is_none());
+                }
+
+                Rtype::CNAME | Rtype::DS => {
+                    assert!(rdatas.len() == 1);
+                    let res = zone.read().query(name.clone(), rtype).unwrap();
+                    assert_eq!(res.rcode(), Rcode::NOERROR);
+                    let data = res.content().first().unwrap().1;
+                    assert_eq!(data, *rdatas[0]);
+                }
+
+                _ => unimplemented!(
+                    "Only NS, CNAME and DS RTYPE queries are needed by the test at this time"
+                ),
+            }
+        }
+
+        // Prepare some data that we use below when inserting the records.
+        let apex_name = Name::from_str("example.").unwrap();
+        let ns1_name: Name<Bytes> = Name::from_str("ns.example.").unwrap();
+        let ns2_name: Name<Bytes> = Name::from_str("ns2.example.").unwrap();
+        let ns3_name: Name<Bytes> = Name::from_str("ns3.example.").unwrap();
+        let ns4_name: Name<Bytes> = Name::from_str("ns4.example.").unwrap();
+        let ns5_name: Name<Bytes> = Name::from_str("ns5.example.").unwrap();
+        let ns_names = [
+            ns1_name.clone(),
+            ns2_name.clone(),
+            ns3_name.clone(),
+            ns4_name.clone(),
+            ns5_name.clone(),
+        ];
+        let ns_dest1_name = Name::from_str("ns1.example.").unwrap();
+        let ns_dest2_name = Name::from_str("ns2.example.").unwrap();
+        let cname1_name: Name<Bytes> =
+            Name::from_str("cname.example.").unwrap();
+        let cname2_name: Name<Bytes> =
+            Name::from_str("cname2.example.").unwrap();
+        let cnames = [cname1_name.clone(), cname2_name.clone()];
+        let cname_dest_name = Name::from_str("other.example.").unwrap();
+        let ns_rdata1 = ZoneRecordData::Ns(Ns::new(ns_dest1_name.clone()));
+        let ns_rdata2 = ZoneRecordData::Ns(Ns::new(ns_dest2_name.clone()));
+        let cname_rdata = ZoneRecordData::Cname(Cname::new(cname_dest_name));
+        let mut ns_rrset = Rrset::new(Rtype::NS, Ttl::from_secs(3600));
+        ns_rrset.push_data(ns_rdata1.clone());
+        ns_rrset.push_data(ns_rdata2.clone());
+        let mut ds_rrset = Rrset::new(Rtype::DS, Ttl::from_secs(3600));
+        let some_key_tag1 = 16;
+        let some_key_tag2 = 99;
+        let ds_rdata1 = ZoneRecordData::Ds(
+            Ds::new(
+                some_key_tag1,
+                SecurityAlgorithm::RSASHA256,
+                DigestAlgorithm::SHA256,
+                Bytes::new(),
+            )
+            .unwrap(),
+        );
+        let ds_rdata2 = ZoneRecordData::Ds(
+            Ds::new(
+                some_key_tag2,
+                SecurityAlgorithm::RSASHA256,
+                DigestAlgorithm::SHA256,
+                Bytes::new(),
+            )
+            .unwrap(),
+        );
+        ds_rrset.push_data(ds_rdata1.clone());
+
+        let mut zone = ZoneBuilder::new(apex_name.clone(), Class::IN);
+
+        // Insert the NS RRSETs which should cause "special"s to be set at the
+        // created zone tree nodes.
+        for name in &ns_names[0..=3] {
+            zone.insert_zone_cut(
+                &name,
+                SharedRrset::new(ns_rrset.clone()),
+                // RFC 4035 section 2.6 updates RFC 1034 to allow DS and NSEC
+                // records at the parental side of a zone cut.
+                Some(SharedRrset::new(ds_rrset.clone())),
+                vec![],
+            )
+            .unwrap();
+        }
+        // Create one zone cut more manually by adding the NS first then the DS,
+        // to test that this path is handled correctly.
+        zone.insert_zone_cut(
+            &ns_names[4],
+            SharedRrset::new(ns_rrset.clone()),
+            None,
+            vec![],
+        )
+        .unwrap();
+        zone.insert_rrset(&ns_names[4], SharedRrset::new(ds_rrset.clone()))
+            .unwrap();
+
+        // Insert the CNAME RR sets which should cause "special"s to be set at
+        // the created zone tree nodes.
+        for name in &cnames {
+            zone.insert_cname(
+                &name,
+                SharedRr::new(Ttl::from_secs(3600), cname_rdata.clone()),
+            )
+            .unwrap();
+        }
+
+        // --- Build the zone.
+        let zone = zone.build();
+
+        // --- Verify that all of the NS, DS and CNAME records can be queried.
+        for name in &ns_names {
+            verify_query(
+                &zone,
+                name,
+                Rtype::NS,
+                &[&ns_rdata1, &ns_rdata2, &ds_rdata1],
+            );
+        }
+        for name in &cnames {
+            verify_query(&zone, name, Rtype::CNAME, &[&cname_rdata]);
+        }
+
+        // --- Attempt to make changes to the zone.
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+
+        // Case 1: Mismatched RTYPE removal.
+
+        // Removing a non-existing RTYPE at an NS node should have no effect.
+        let a_rdata1 = A::new(Ipv4Addr::from_str("127.0.0.1").unwrap());
+        let a_rec = Record::new(
+            ns1_name.clone(),
+            Class::IN,
+            Ttl::from_secs(3600),
+            ZoneRecordData::A(a_rdata1.clone()),
+        );
+        updater.delete_record_from_rrset(a_rec).await.unwrap();
+
+        // Removing a non-existing RTYPE at a CNAME node should have no
+        // effect.
+        let a_rdata1 = A::new(Ipv4Addr::from_str("127.0.0.1").unwrap());
+        let a_rec = Record::new(
+            cname1_name.clone(),
+            Class::IN,
+            Ttl::from_secs(3600),
+            ZoneRecordData::A(a_rdata1.clone()),
+        );
+        updater.delete_record_from_rrset(a_rec).await.unwrap();
+
+        // Case 2: Entire RRSET removal should cause everything at the zone
+        // tree node to be removed. The DS records can only exist at a node if
+        // that node also has an NS record so deleting the NS records should
+        // also delete the DS records.
+        for ns_rdata in [&ns_rdata1, &ns_rdata2] {
+            let ns_rec = Record::new(
+                ns2_name.clone(),
+                Class::IN,
+                Ttl::from_secs(3600),
+                ns_rdata.clone(),
+            );
+            updater.delete_record_from_rrset(ns_rec).await.unwrap();
+        }
+
+        let cname_rec = Record::new(
+            cname2_name.clone(),
+            Class::IN,
+            Ttl::from_secs(3600),
+            cname_rdata.clone(),
+        );
+        updater.delete_record_from_rrset(cname_rec).await.unwrap();
+
+        // Case 3: Partial update. The NS RRSETs have two RRs with different
+        // RDATA, removing just one RR at ns_name3 should leave the other RR
+        // at ns_name3 intact.
+        let ns_rec = Record::new(
+            ns3_name.clone(),
+            Class::IN,
+            Ttl::from_secs(3600),
+            ns_rdata1.clone(),
+        );
+        trace!("NS3 DELETE");
+        updater.delete_record_from_rrset(ns_rec).await.unwrap();
+
+        // Case 4: Partial update. The zone cuts we created consist of both NS
+        // and DS RRs. Removing just the DS RR should not affect the NS RRs.
+        let ds_rec = Record::new(
+            ns4_name.clone(),
+            Class::IN,
+            Ttl::from_secs(3600),
+            ds_rdata1.clone(),
+        );
+        updater.delete_record_from_rrset(ds_rec).await.unwrap();
+
+        // Case 5: Partial update. Modify the DS of an existing zone cut.
+        // As the updater was intended for applying IXFR updates a
+        // modification is done by deleting then adding.
+        let ds_rec = Record::new(
+            ns5_name.clone(),
+            Class::IN,
+            Ttl::from_secs(3600),
+            ds_rdata1.clone(),
+        );
+        updater.delete_record_from_rrset(ds_rec).await.unwrap();
+        let ds_rec = Record::new(
+            ns5_name.clone(),
+            Class::IN,
+            Ttl::from_secs(3600),
+            ds_rdata2.clone(),
+        );
+        updater.add_record_to_rrset(ds_rec).await.unwrap();
+
+        // Cause the changes to be committed.
+        let soa_rec = Record::new(
+            apex_name.clone(),
+            Class::IN,
+            Ttl::from_secs(0),
+            ZoneRecordData::Soa(Soa::new(
+                Name::from_str("mname.").unwrap(),
+                Name::from_str("rname.").unwrap(),
+                Serial(1),
+                Ttl::from_secs(600),
+                Ttl::from_secs(600),
+                Ttl::from_secs(3600000),
+                Ttl::from_secs(604800),
+            )),
+        );
+        updater.apply(ZoneUpdate::Finished(soa_rec)).await.unwrap();
+
+        // --- Verify that the expected changes have occurred.
+
+        // Case 1: Mismatched RTYPE removal should have had no effect on the
+        // ns1 and cname1 records.
+        verify_query(
+            &zone,
+            &ns1_name,
+            Rtype::NS,
+            &[&ns_rdata1, &ns_rdata2, &ds_rdata1],
+        );
+        verify_query(&zone, &cname1_name, Rtype::CNAME, &[&cname_rdata]);
+
+        // Case 2: Entire RRSET removal.
+        assert_eq!(
+            zone.read()
+                .query(ns2_name.clone(), Rtype::NS)
+                .unwrap()
+                .rcode(),
+            Rcode::NXDOMAIN
+        );
+        assert_eq!(
+            zone.read()
+                .query(cname2_name.clone(), Rtype::CNAME)
+                .unwrap()
+                .rcode(),
+            Rcode::NXDOMAIN
+        );
+
+        // Case 3: Partial update. The NS RRSETs have two RRs with different
+        // RDATA, removing just one RR at ns_name3 should leave the other RR
+        // at ns_name3 intact.
+        //
+        // A query for NS records should return both the NS and the DS records
+        // in the authority section of the response (and RRSIGs but the zone
+        // tree doesn't support answering DNSSEC queries properly yet).
+        //
+        // A query for a DS record should return the DS (and RRSIG but again
+        // the zone tree doesn't support this) in the answer section of the
+        // response.
+        verify_query(&zone, &ns3_name, Rtype::NS, &[&ns_rdata2, &ds_rdata1]);
+        verify_query(&zone, &ns3_name, Rtype::DS, &[&ds_rdata1]);
+
+        // Case 4: Partial update. The zone cuts we created consist of both NS
+        // and DS RRs. Removing just the DS RR should not affect the NS RRs.
+        verify_query(&zone, &ns4_name, Rtype::NS, &[&ns_rdata1, &ns_rdata2]);
+
+        // Case 5: Partial update. Modify the DS of an existing zone cut.
+        verify_query(
+            &zone,
+            &ns5_name,
+            Rtype::NS,
+            &[&ns_rdata1, &ns_rdata2, &ds_rdata2],
+        );
+        verify_query(&zone, &ns5_name, Rtype::DS, &[&ds_rdata2]);
     }
 
     #[tokio::test]

@@ -69,7 +69,6 @@ Unstable features
     DS/DNSKEY pair by limiting the number of records searched. ([#749])
   * Fixed a resource exhaustion issue when finding the closest encloser in
     NSEC3 by limiting the number of NSEC3 hash calculations. ([#750])
-
 * `unstable-xfr`:
   * Return an error rather than panicking when a response is not AXFR or
     IXFR. (#724)
@@ -87,6 +86,8 @@ Unstable features
     bumping the serial is requested but the SOA is unknown and do not
     return a diff if no bumping is required so you can detect something
     odd has happened. ([#743])
+  * Fixed various issues when updating “special” record types such as
+    CNAME or for zone cuts. ([#754])
 
 
 Other changes
@@ -124,6 +125,7 @@ Other changes
 [#751]: https://github.com/NLnetLabs/domain/pull/751
 [#752]: https://github.com/NLnetLabs/domain/pull/752
 [#753]: https://github.com/NLnetLabs/domain/pull/753
+[#754]: https://github.com/NLnetLabs/domain/pull/754
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
