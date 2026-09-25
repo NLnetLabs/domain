@@ -18,6 +18,9 @@ Bug fixes
 * Limited the length of CNAME chains followed by `Message::canonical_name`
   to 20. This also fixed an integer overflow in this method when ANCOUNT
   was`u16::MAX`. ([#752])
+* Changed `QuestionSection::answer` to skip over all remaining questions
+  without parsing the QNAMEs to avoid being slowed down by malicious
+  names. ([#753])
 * Don’t compress the names in RP records. ([#702] by [@SebastiaanYN])
 * Fixed a `todo!` macro in the `Hash` impl for `IpseckeyGateway`.
   ([#706] by [@SebastiaanYN])
@@ -119,6 +122,8 @@ Other changes
 [#749]: https://github.com/NLnetLabs/domain/pull/749
 [#750]: https://github.com/NLnetLabs/domain/pull/750
 [#751]: https://github.com/NLnetLabs/domain/pull/751
+[#752]: https://github.com/NLnetLabs/domain/pull/752
+[#753]: https://github.com/NLnetLabs/domain/pull/753
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
