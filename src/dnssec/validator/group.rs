@@ -32,6 +32,7 @@ use core::fmt::Debug;
 use core::slice::Iter;
 use core::time::Duration;
 use moka::future::Cache;
+use std::collections::{HashMap, hash_map};
 
 //----------- Group ----------------------------------------------------------
 
@@ -725,70 +726,79 @@ impl Group {
 /// The collection typically groups records from a single section such as the
 /// answer section or the authority section.
 #[derive(Clone, Debug)]
-pub struct GroupSet(Vec<Group>);
+pub struct GroupSet(HashMap<(Name<Bytes>, Class, Rtype), Group>);
 
 impl GroupSet {
     /// Create a new empty `GroupSet` object.
     pub fn new() -> Self {
-        Self(Vec::new())
+        Self(HashMap::new())
     }
 
     /// Add a record to the group set.
     pub fn add(&mut self, rr: ParsedRecord<'_, Bytes>) -> Result<(), Error> {
-        // Very simplistic implementation of add. Assume resource records
-        // are mostly in order. If this O(n^2) algorithm is not enough,
-        // then we should use a small hash table or sort first.
-        if self.0.is_empty() {
-            self.0.push(Group::new(rr)?);
-            return Ok(());
-        }
-        let len = self.0.len();
-        let res = self.0[len - 1].add(&rr);
-        if res.is_ok() {
-            return Ok(());
-        }
+        let owner: Name<Bytes> = rr.owner().to_name();
+        let class = rr.class();
+        let rtype = rr.rtype();
+        let rtype = if let Some(sig_record) = rr.to_record::<Rrsig<_, _>>()? {
+            sig_record.data().type_covered()
+        } else {
+            rtype
+        };
 
-        // Try all existing groups except the last one
-        for g in &mut self.0[..len - 1] {
-            let res = g.add(&rr);
-            if res.is_ok() {
-                return Ok(());
+        match self.0.entry((owner, class, rtype)) {
+            hash_map::Entry::Occupied(mut entry) => {
+                let g = entry.get_mut();
+                if g.add(&rr).is_err() {
+                    // Use Group::new to get the error.
+                    Group::new(rr)?;
+                    unreachable!();
+                }
+            }
+            hash_map::Entry::Vacant(entry) => {
+                entry.insert(Group::new(rr)?);
             }
         }
 
-        // Add a new group.
-        self.0.push(Group::new(rr)?);
         Ok(())
     }
 
     /// Move CNAMEs that are associated with a DNAME to the extra part of
     /// the DNAME's group. Then remove the CNAME's group.
-    pub fn move_redundant_cnames(&mut self) {
-        // Use indices to be able to mutate the array. Otherwise borrows
-        // will get in the way. Iterate high to low to find CNAME groups
-        // to be able to delete CNAME groups without affecting groups that
-        // still need to be checked.
-        for cname_ind in (0..self.0.len()).rev() {
-            if self.0[cname_ind].rtype() != Rtype::CNAME {
-                continue;
-            }
-            let rr_set = self.0[cname_ind].rr_set();
-            if rr_set.len() != 1 {
-                continue; // Let it fail if it is in secure zone.
-            }
-            if self.0[cname_ind].sig_set_len() != 0 {
-                // Signed CNAME, no need to check.
-                continue;
-            }
+    pub fn move_redundant_cnames(
+        &mut self,
+        config: &Config,
+    ) -> Result<(), Option<ExtendedError<Vec<u8>>>> {
+        // Extract the CNAME Groups we want to consider. Otherwise borrows
+        // will get in the way.
+        let cname_groups: Vec<_> = self
+            .0
+            .iter()
+            .filter(|(_, group)| {
+                // Take CNAME groups, that contain one record and
+                // have no signatures.
+                group.rtype() == Rtype::CNAME
+                    && group.rr_set().len() == 1
+                    && group.sig_set_len() == 0
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
 
-            if self
-                .moved_to_dname(&rr_set[0], self.0[cname_ind].found_duplicate)
-            {
+        if cname_groups.len() > config.max_cname_dname.into() {
+            // Assume that all CNAMEs are followed.
+            return Err(make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "too many CNAMEs without RRSIGs",
+            ));
+        }
+
+        for (k, v) in cname_groups {
+            if self.moved_to_dname(&v.rr_set()[0], v.found_duplicate) {
                 // Courtesy CNAME has been moved, mark this group as
                 // redundant.
-                let _ = self.0.remove(cname_ind);
+                let _ = self.0.remove(&k);
             }
         }
+        Ok(())
     }
 
     /// Try to move a CNAME record to a matching DNAME group in the group set.
@@ -803,7 +813,7 @@ impl GroupSet {
         found_duplicate: bool,
     ) -> bool {
         let cname_name = cname_rr.owner();
-        for g in &mut self.0 {
+        for g in &mut self.0.values_mut() {
             if g.rtype() != Rtype::DNAME {
                 continue;
             }
@@ -847,8 +857,10 @@ impl GroupSet {
     }
 
     /// Return an iterator over the group set.
-    pub fn iter(&mut self) -> Iter<'_, Group> {
-        self.0.iter()
+    pub fn iter(
+        &mut self,
+    ) -> hash_map::Values<'_, (Name<Bytes>, Class, Rtype), Group> {
+        self.0.values()
     }
 }
 

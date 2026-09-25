@@ -56,6 +56,7 @@ Unstable features
   * Fixed a panic when encountering an invalid NSEC3 label. ([#728])
   * Fixed a potential integer underflow when subtracting TTLs. ([#740])
   * Fixed a panic when encountering malformed OPT data. ([#747])
+  * Fixed a linear scan during name insertion. ([#748])
 * `unstable-xfr`:
   * Return an error rather than panicking when a response is not AXFR or
     IXFR. (#724)
@@ -104,6 +105,7 @@ Other changes
 [#745]: https://github.com/NLnetLabs/domain/pull/745
 [#746]: https://github.com/NLnetLabs/domain/pull/746
 [#747]: https://github.com/NLnetLabs/domain/pull/747
+[#748]: https://github.com/NLnetLabs/domain/pull/748
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
