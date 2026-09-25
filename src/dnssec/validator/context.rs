@@ -152,7 +152,7 @@ pub struct Config {
 
     /// Maximum number of CNAME and DNAME records that are followed
     /// during validation.
-    max_cname_dname: u8,
+    pub max_cname_dname: u8,
 }
 
 impl Config {
@@ -388,7 +388,9 @@ impl<Upstream> ValidationContext<Upstream> {
         }
 
         // Move redundant unsigned CNAMEs to the corresponding DNAME group.
-        answers.move_redundant_cnames();
+        if let Err(opt_ede) = answers.move_redundant_cnames(&self.config) {
+            return Ok((ValidationState::Bogus, opt_ede));
+        }
 
         let mut fix_reply = false;
 
