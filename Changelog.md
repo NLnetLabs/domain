@@ -50,6 +50,8 @@ Unstable features
     truncated response fails. ([#741])
   * Fixed a panic when the QNAME of an IXFR is not the zone apex in the
     XFR middleware. ([#746])
+  * Fixed a panic when constructing a response from a potentially
+    malicious source message. ([#751])
 * `unstable-sign`:
   * Fixed a panic when an NSEC owner name is too long. ([#735])
 * `unstable-validator`:
@@ -112,6 +114,8 @@ Other changes
 [#747]: https://github.com/NLnetLabs/domain/pull/747
 [#748]: https://github.com/NLnetLabs/domain/pull/748
 [#749]: https://github.com/NLnetLabs/domain/pull/749
+[#750]: https://github.com/NLnetLabs/domain/pull/750
+[#751]: https://github.com/NLnetLabs/domain/pull/751
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
