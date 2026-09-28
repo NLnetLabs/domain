@@ -10,9 +10,14 @@ Improvements
 
 Bug fixes
 
+* Reject empty TXT records when parsing. ([#709] by [@SebastiaanYN])
+
 Unstable features
 
 Other changes
+
+[#709]: https://github.com/NLnetLabs/domain/pull/709
+[@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
 ## 0.12.3
