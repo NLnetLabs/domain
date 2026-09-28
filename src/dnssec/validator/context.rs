@@ -31,6 +31,7 @@ use crate::base::{
 };
 use crate::base::{name, wire};
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
+use crate::dnssec::validator::reply_from_chain::ReplyFromChain;
 use crate::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,
 };
@@ -775,6 +776,17 @@ impl<Upstream> ValidationContext<Upstream> {
         Ok((ValidationState::Bogus, ede))
     }
 
+    pub fn get_ta(&self) -> &TrustAnchors {
+        &self.ta
+    }
+
+    pub fn get_upstream(&self) -> Upstream
+    where
+        Upstream: Clone,
+    {
+        self.upstream.clone()
+    }
+
     /// Get the apprioprate node for validating `name`.
     pub(crate) async fn get_node<Octs>(
         &self,
@@ -1428,6 +1440,61 @@ impl<Upstream> ValidationContext<Upstream> {
             vgs.push(vg);
         }
         VGResult::Groups(vgs, fix_reply)
+    }
+}
+
+impl<VCUpstream> ValidationContext<ReplyFromChain<VCUpstream>> {
+    /// Generate a CHAIN EDNS option.
+    ///
+    /// This will send the closes trust point in the chain (furthest from the root) that is found
+    /// in cache. This returns None if requested name is already cached.
+    pub async fn generate_chain_option<CR, Octs>(
+        &self,
+        request: &CR,
+    ) -> Option<crate::base::opt::Chain<Name<Bytes>>>
+    where
+        CR: ComposeRequest,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
+        VCUpstream: SendRequest<RequestMessage<Octs>>,
+    {
+        let Ok(msg) = request.to_message() else {
+            // TODO: Handle error
+            return None;
+        };
+
+        let Ok(question) = msg.sole_question() else {
+            // TODO: Handle?
+            return None;
+        };
+
+        let qname = question.into_qname();
+        if let Some(cached_node) =
+            self.cache_lookup(&qname.to_name::<Bytes>()).await
+            && matches!(
+                cached_node.validation_state(),
+                ValidationState::Secure | ValidationState::Insecure
+            )
+        {
+            // TODO: Do we send chain even if we have everything cached?
+            return None;
+        }
+
+        let mut current = qname;
+        while current.parent() {
+            if let Some(cached_node) =
+                self.cache_lookup(&current.to_name::<Bytes>()).await
+                && matches!(
+                    cached_node.validation_state(),
+                    ValidationState::Secure | ValidationState::Insecure
+                )
+            {
+                return Some(crate::base::opt::Chain::new(current.to_name()));
+            }
+        }
+
+        let ta = self.ta.find(qname)?;
+        Some(crate::base::opt::Chain::new(ta.owner()))
     }
 }
 

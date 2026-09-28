@@ -11,6 +11,7 @@ use super::super::message_builder::OptBuilder;
 use super::super::name::{Name, ToName};
 use super::super::wire::{Composer, ParseError};
 use super::{ComposeOptData, Opt, OptData, ParseOptData};
+use alloc::string::ToString;
 use core::cmp::Ordering;
 use core::{fmt, hash, mem};
 use octseq::builder::OctetsBuilder;
@@ -30,9 +31,9 @@ use octseq::parse::Parser;
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[repr(transparent)]
-pub struct Chain<Name: ?Sized> {
+pub struct Chain<Name: Sized> {
     /// The start name AKA ‘closest trust point.’
-    start: Name,
+    start: Option<Name>,
 }
 
 impl Chain<()> {
@@ -40,13 +41,14 @@ impl Chain<()> {
     pub(super) const CODE: OptionCode = OptionCode::CHAIN;
 }
 
-impl<Name: ?Sized> Chain<Name> {
+impl<Name: Sized> Chain<Name> {
     /// Creates new CHAIN option data using the given name as the start.
-    pub fn new(start: Name) -> Self
-    where
-        Name: Sized,
-    {
-        Chain { start }
+    pub fn new(start: Name) -> Self {
+        Chain { start: Some(start) }
+    }
+
+    pub fn empty() -> Self {
+        Chain { start: None }
     }
 
     /// Creates a reference to CHAIN option data from a reference to the start.
@@ -59,15 +61,12 @@ impl<Name: ?Sized> Chain<Name> {
     ///
     /// The start point is the name furthest along the chain to which the
     /// requester already has all necessary records.
-    pub fn start(&self) -> &Name {
-        &self.start
+    pub fn start(&self) -> Option<&Name> {
+        self.start.as_ref()
     }
 
     /// Converts the value into the start point.
-    pub fn into_start(self) -> Name
-    where
-        Name: Sized,
-    {
+    pub fn into_start(self) -> Option<Name> {
         self.start
     }
 }
@@ -77,6 +76,10 @@ impl<Octs> Chain<Name<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
+        let tmp = parser.peek_all();
+        if tmp.is_empty() {
+            return Ok(Self::empty());
+        }
         Name::parse(parser).map(Self::new)
     }
 }
@@ -90,7 +93,13 @@ where
     type Error = Name::Error;
 
     fn try_octets_from(src: Chain<SrcName>) -> Result<Self, Self::Error> {
-        Name::try_octets_from(src.start).map(Self::new)
+        src.start
+            .map(Name::try_octets_from)
+            .transpose()
+            .map(|start| match start {
+                Some(start) => Self::new(start),
+                None => Self::empty(),
+            })
     }
 }
 
@@ -102,7 +111,11 @@ where
     OtherName: ToName,
 {
     fn eq(&self, other: &Chain<OtherName>) -> bool {
-        self.start().name_eq(other.start())
+        match (self.start(), other.start()) {
+            (Some(this), Some(other)) => this.name_eq(other),
+            (None, None) => true,
+            (None, Some(_)) | (Some(_), None) => false,
+        }
     }
 }
 
@@ -116,13 +129,23 @@ where
     OtherName: ToName,
 {
     fn partial_cmp(&self, other: &Chain<OtherName>) -> Option<Ordering> {
-        Some(self.start().name_cmp(other.start()))
+        match (self.start(), other.start()) {
+            (Some(this), Some(other)) => Some(this.name_cmp(other)),
+            (None, None) => Some(Ordering::Equal),
+            (None, Some(_)) => Some(Ordering::Less),
+            (Some(_), None) => Some(Ordering::Greater),
+        }
     }
 }
 
 impl<Name: ToName> Ord for Chain<Name> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.start().name_cmp(other.start())
+        match (self.start(), other.start()) {
+            (Some(this), Some(other)) => this.name_cmp(other),
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+        }
     }
 }
 
@@ -160,14 +183,18 @@ where
 
 impl<Name: ToName> ComposeOptData for Chain<Name> {
     fn compose_len(&self) -> u16 {
-        self.start.compose_len()
+        self.start.as_ref().map(|n| n.compose_len()).unwrap_or(0)
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        self.start.compose(target)
+        if let Some(start) = &self.start {
+            start.compose(target)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -175,14 +202,27 @@ impl<Name: ToName> ComposeOptData for Chain<Name> {
 
 impl<Name: fmt::Display> fmt::Display for Chain<Name> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.start)
+        if let Some(start) = &self.start {
+            write!(f, "{}", start)
+        } else {
+            Ok(())
+        }
     }
 }
 
 impl<Name: fmt::Display> fmt::Debug for Chain<Name> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Chain")
-            .field("start", &format_args!("{}", self.start))
+            .field(
+                "start",
+                &format_args!(
+                    "{}",
+                    self.start
+                        .as_ref()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default()
+                ),
+            )
             .finish()
     }
 }
