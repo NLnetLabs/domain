@@ -152,6 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTDOCFLAGS: "-D warnings"
+      CARGO_INCREMENTAL: 1 # We use a cached `target/`.
     steps:
 
     # Load the repository.
@@ -196,6 +197,8 @@ jobs:
   check-examples:
     name: Check examples
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 1 # We use a cached `target/`.
     steps:
 
     # Load the repository.
@@ -247,6 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-D warnings"
+      # CARGO_INCREMENTAL: 1 # No caching at the moment.
     steps:
 
     # Load the repository.
@@ -296,6 +300,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     env:
+      CARGO_INCREMENTAL: 1 # We use a cached `target/`.
       RUSTFLAGS: "-D warnings"
     steps:
 
@@ -370,6 +375,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
+      CARGO_INCREMENTAL: 1 # We use a cached `target/`.
       RUSTFLAGS: "-D warnings"
       DOMAIN_FEATURES: "--all-features"
     steps:

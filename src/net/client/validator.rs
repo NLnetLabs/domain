@@ -561,6 +561,7 @@ fn remove_dnssec(
         target.push(rr).expect("push error");
     }
     if let Some(opt) = opt {
+        let mut got_err: Option<Error> = None;
         target
             .opt(|ob| {
                 ob.set_dnssec_ok(false);
@@ -568,12 +569,21 @@ fn remove_dnssec(
                 ob.set_udp_payload_size(opt.udp_payload_size());
                 ob.set_version(opt.version());
                 for o in opt.opt().iter() {
-                    let x: AllOptData<_, _> = o.expect("should not fail");
+                    let x: AllOptData<_, _> = match o {
+                        Ok(o) => o,
+                        Err(_) => {
+                            got_err = Some(Error::MessageParseError);
+                            continue;
+                        }
+                    };
                     ob.push(&x)?;
                 }
                 Ok(())
             })
             .expect("should not fail");
+        if let Some(error) = got_err {
+            return Err(error);
+        }
     }
 
     let result = target.as_builder().clone();

@@ -9,7 +9,7 @@ int_enum! {
     /// as input to the hashing function for use with [ZONEMD].
     ///
     /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2024-11-29.
+    /// type is complete as of the registry update of 2026-07-06.
     ///
     /// [ZONEMD]: ../../../rdata/zonemd/index.html
     /// [IANA registration]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#zonemd-schemes
@@ -32,7 +32,7 @@ int_enum! {
     /// the [ZONEMD].
     ///
     /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2024-11-29.
+    /// type is complete as of the registry update of 2026-07-06.
     ///
     /// [ZONEMD]: ../../../rdata/zonemd/index.html
     /// [IANA registration]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#zonemd-hash-algorithms

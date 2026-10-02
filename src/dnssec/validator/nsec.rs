@@ -3,7 +3,7 @@
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::str::{FromStr, Utf8Error};
+use core::str::FromStr;
 
 use bytes::Bytes;
 use moka::future::Cache;
@@ -677,6 +677,7 @@ pub async fn nsec3_for_not_exists(
 
     let mut maybe_ce = signer_name.clone();
     let mut maybe_ce_exists = false;
+    let mut nsec3_hashes = 0;
     'next_name: for n in names {
         if n == signer_name {
             maybe_ce = n;
@@ -707,8 +708,18 @@ pub async fn nsec3_for_not_exists(
                 ),
             };
 
-            // Create the hash with the parameters in this record. We should
-            // cache the hash.
+            if nsec3_hashes >= config.max_nsec3_hashes_closest_encloser() {
+                // totest: try with a zone that exceeds the limits.
+                return (
+                    Nsec3NXState::Nothing,
+                    make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "Too many NSEC3 hash calculations needed to find closest-encloser",
+                    ),
+                );
+            }
+
+            // Create the hash with the parameters in this record.
             let hash = cached_nsec3_hash(
                 &n,
                 nsec3.hash_algorithm(),
@@ -717,6 +728,8 @@ pub async fn nsec3_for_not_exists(
                 nsec3_cache,
             )
             .await;
+
+            nsec3_hashes += 1;
 
             if ownerhash == hash.as_ref() {
                 // We found an exact match.
@@ -992,10 +1005,14 @@ pub async fn cached_nsec3_hash(
 /// Convert a label to an NSEC3 hash value.
 pub fn nsec3_label_to_hash(
     label: &Label,
-) -> Result<OwnerHash<Vec<u8>>, Utf8Error> {
-    let label_str = core::str::from_utf8(label.as_ref())?;
-    Ok(OwnerHash::<Vec<u8>>::from_str(label_str).expect("should not fail"))
+) -> Result<OwnerHash<Vec<u8>>, LabelToHashError> {
+    let label_str =
+        str::from_utf8(label.as_ref()).map_err(|_| LabelToHashError)?;
+    OwnerHash::<Vec<u8>>::from_str(label_str).map_err(|_| LabelToHashError)
 }
+
+/// An error happened converting a label to a hash.
+pub struct LabelToHashError;
 
 /// Is targethash in the range between ownerhash and nexthash?
 pub fn nsec3_in_range<O1, O2, O3>(

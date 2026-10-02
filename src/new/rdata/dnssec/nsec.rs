@@ -11,13 +11,116 @@ use crate::utils::dst::UnsizedCopy;
 
 //----------- Nsec -----------------------------------------------------------
 
-/// An indication of the non-existence of a set of DNS records (version 1).
+/// Reference to the **N**ext **Sec**ure record (version 1).
+///
+/// The purpose of the [`Nsec`] record is to transparently show which
+/// RRsets[^rrset] exist for this particular owner name and which owner name
+/// is next in the canonically ordered list of records.
+///
+/// [`Nsec`] records are always accompanied by [`Rrsig`] records to
+/// authenticate the data in the [`Nsec`] record.
+///
+/// [`Nsec`] in combination with [`Rrsig`] show and proof the following:
+///
+///  1) Which [`RType`]s exist under the current owner name ([`types`]). This
+///     proves that any other RRset does not exist.
+///  2) Which owner name is [`next`] in the canonical order of the zone. This
+///     proves that any other owner name, which would be sorted in between
+///     these names, does not exist.
+///
+/// [`Nsec`] records allows everyone to iterate over the records of a zone.
+/// First it shows all the [`RType`]s that exist for an owner name and
+/// additionally the next owner name. This is a security implication to beware
+/// of.
+///
+/// [`Nsec3`] is an alternative record which solves the above issue.
+///
+/// ## Operational specifications
+///
+/// - The [`TTL`] of the [`Nsec`] record is either the value of the
+///   [`Soa::minimum`] field or the [`Soa`] records [`TTL`] itself. Choose
+///   which ever is lower. (See [Section 3.2, RFC 9077])
+/// - Not all RRsets require an [`Nsec`] record. Authoritative and Delegation
+///   RRsets require an [`Nsec`] record, Glue RRsets don't require one. (See
+///   [Section 2.3, RFC 4035])
+///
+/// [Section 2.3, RFC 4035]: https://datatracker.ietf.org/doc/html/rfc4035#section-2.3
+/// [Section 3.2, RFC 9077]: https://datatracker.ietf.org/doc/html/rfc9077#section-3.2
+///
+/// ## Wire format
+///
+/// The wire format of an [`Nsec`] record is the concatenation of its fields,
+/// in the same order as the `struct` definition. The name in [`next`] cannot
+/// be compressed in DNS messages. See [`TypeBitmaps`] for its wire format.
+///
+/// The memory layout of the [`Nsec`] type is identical to the wire format, so
+/// it can be parsed in a zero-copy fashion, avoiding a copy of the data.
+///
+/// ## Usage
+///
+/// Because [`Nsec`] is a record data type, it is usually handled within an
+/// enum like [`RecordData`]. This section describes how to use it
+/// independently.
+///
+/// ```
+/// # use domain::new::base::RType;
+/// # use domain::new::base::name::NameBuf;
+/// # use domain::new::base::wire::{ParseBytes, ParseBytesZC, U16};
+/// # use domain::new::rdata::{Nsec, TypeBitmaps};
+/// #
+/// // Create the `Nsec` record data directly from the byte representation.
+/// let nsec_raw_bytes = b"\
+///     \x07example\x03com\x00\
+///     \x00\x06\x40\x00\x00\x00\x00\x03\x01\x01\x40";
+/// let nsec_from_bytes = Nsec::parse_bytes(nsec_raw_bytes).unwrap();
+///
+/// //--- Alternatively, construct from it's components.
+///
+/// let name: NameBuf = "example.com.".parse().unwrap();
+///
+/// // Create the `TypeBitmaps` data directly from the byte representation.
+/// let typebitmaps_bytes = b"\x00\x06\x40\x00\x00\x00\x00\x03\x01\x01\x40";
+/// let typebitmaps =
+///     TypeBitmaps::parse_bytes_by_ref(typebitmaps_bytes).unwrap();
+///
+/// // Construct the `Nsec` record from the existing `name` and `typebitmaps`.
+/// let nsec_manual = Nsec {
+///     next: &name,
+///     types: &typebitmaps,
+/// };
+///
+/// assert_eq!(nsec_manual, nsec_from_bytes);
+/// assert_eq!(
+///     nsec_manual.types.types().collect::<Vec<_>>(),
+///     vec![
+///         RType::A,
+///         RType::RRSIG,
+///         RType::NSEC,
+///         RType {
+///             code: U16::new(257) // CAA record
+///         }
+///     ]
+/// )
+/// ```
+///
+/// [^rrset]: Resource Record Set; A group of records sharing the same
+/// [`RType`], [`RClass`] and `owner name`.
+///
+/// [`Nsec3`]: crate::new::rdata::Nsec3
+/// [`RClass`]: crate::new::base::RClass
+/// [`RecordData`]: crate::new::rdata::RecordData
+/// [`Rrsig`]: crate::new::rdata::Rrsig
+/// [`Soa::minimum`]: crate::new::rdata::Soa::minimum
+/// [`Soa`]: crate::new::rdata::Soa
+/// [`TTL`]: crate::new::base::TTL
+/// [`next`]: Self::next
+/// [`types`]: Self::types
 #[derive(Clone, Debug, PartialEq, Eq, Hash, BuildBytes)]
 pub struct Nsec<'a> {
-    /// The name of the next existing DNS record.
+    /// Next owner name in canonically ordered zone.
     pub next: &'a Name,
 
-    /// The types of the records that exist at this owner name.
+    /// List of [`RType`]s present at this owner name.
     pub types: &'a TypeBitmaps,
 }
 
@@ -252,6 +355,9 @@ mod tests {
     use super::TypeBitmaps;
 
     /// Test that [`TypeBitmaps`] parses correctly.
+    ///
+    /// Source of the example:
+    /// https://datatracker.ietf.org/doc/html/rfc4034#section-4.3
     #[test]
     fn type_bitmaps_parse() {
         let bytes = b"\x00\x06\x40\x01\x00\x00\x00\x03\

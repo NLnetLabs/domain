@@ -869,11 +869,8 @@ impl Scanner for EntryScanner<'_> {
 
         // Done. `write` marks the end.
         self.zonefile.buf.next_item()?;
-        Ok(unsafe {
-            Str::from_utf8_unchecked(
-                self.zonefile.buf.split_to(write).freeze(),
-            )
-        })
+        Str::from_utf8(self.zonefile.buf.split_to(write).freeze())
+            .map_err(|_| EntryError::bad_string())
     }
 
     fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error> {
@@ -895,6 +892,8 @@ impl Scanner for EntryScanner<'_> {
         assert!(self.zonefile.buf.start > 0, "missing token prefix space");
         self.zonefile.buf.trim_to(self.zonefile.buf.start - 1);
         let mut write = 0;
+
+        self.zonefile.buf.require_token()?;
 
         // Now convert token by token.
         loop {
@@ -1608,6 +1607,14 @@ impl EntryError {
         }
     }
 
+    fn bad_string() -> Self {
+        EntryError {
+            msg: "bad UTF-8",
+            #[cfg(feature = "std")]
+            context: None,
+        }
+    }
+
     fn unbalanced_parens() -> Self {
         EntryError {
             msg: "unbalanced parens",
@@ -1793,6 +1800,25 @@ mod test {
         test(" \"quoted\"\n", b"quoted");
         test(" \"quoted\" ", b"quoted");
         test("\"quoted\" ", b"quoted");
+    }
+
+    #[test]
+    fn test_empty_txt() {
+        let mut input =
+            "example.com IN TXT hello\nexample.com IN TXT\n".as_bytes();
+        let mut zone = Zonefile::load(&mut input).unwrap();
+        zone.set_origin(Name::from_str("example.com").unwrap());
+        zone.set_default_class(Class::IN);
+        assert!(zone.next_entry().is_ok());
+        assert!(zone.next_entry().is_err());
+
+        let mut input =
+            "example.com IN TXT hello\nexample.com IN TXT".as_bytes();
+        let mut zone = Zonefile::load(&mut input).unwrap();
+        zone.set_origin(Name::from_str("example.com").unwrap());
+        zone.set_default_class(Class::IN);
+        assert!(zone.next_entry().is_ok());
+        assert!(zone.next_entry().is_err());
     }
 
     #[derive(serde::Deserialize)]

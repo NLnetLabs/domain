@@ -509,13 +509,13 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     /// is no next CNAME in the chain and then returns the last CNAME.
     ///
     /// If the message doesn’t have a question, if there is a parse error, or
-    /// if there is a CNAME loop the method returns `None`.
-    //
-    //  Loop detection is done by breaking off after ANCOUNT + 1 steps -- if
-    //  there is more steps then there is records in the answer section we
-    //  must have a loop. While the ANCOUNT could be unreasonably large, the
-    //  iterator would break off in this case and we break out with a None
-    //  right away.
+    /// if the CNAME chain is longer than 20 elements, returns `None`.
+    ///
+    /// # Limitations
+    ///
+    /// This function will not follow CNAME chains longer than 20. This should
+    /// be a sufficiently large values. Both Unbound and Bind limit their
+    /// chains to 11 entries.
     pub fn canonical_name(&self) -> Option<ParsedName<Octs::Range<'_>>> {
         let question = self.first_question()?;
         let mut name = question.into_qname();
@@ -524,7 +524,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
             Err(_) => return None,
         };
 
-        for _ in 0..self.header_counts().ancount() + 1 {
+        for _ in 0..20 {
             let mut found = false;
             for record in answer.clone() {
                 let record = match record {
@@ -800,8 +800,14 @@ impl<'a, Octs: Octets + ?Sized> QuestionSection<'a, Octs> {
     ///
     /// [`RecordSection`]: struct.RecordSection.html
     pub fn answer(mut self) -> Result<RecordSection<'a, Octs>, ParseError> {
-        while self.next().is_some() {}
-        let _ = self.count?;
+        while let Some(new_count) = self.count?.checked_sub(1) {
+            if let Err(err) = Question::skip(&mut self.parser) {
+                self.count = Err(err);
+                return Err(err);
+            } else {
+                self.count = Ok(new_count);
+            }
+        }
         Ok(RecordSection::new(self.parser, Section::first()))
     }
 

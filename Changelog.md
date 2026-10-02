@@ -10,9 +10,148 @@ Improvements
 
 Bug fixes
 
+* Reject empty TXT records when parsing. ([#709] by [@SebastiaanYN])
+
 Unstable features
 
 Other changes
+
+[#709]: https://github.com/NLnetLabs/domain/pull/709
+[@SebastiaanYN]: https://github.com/SebastiaanYN
+
+
+## 0.12.3
+
+Released 2026-09-25.
+
+New
+
+* Updated the constants for the IANA registries. ([#699], [#716] by
+  [@SebastiaanYN])
+
+Bug fixes
+
+* Limited the number of compression pointers that are followed when parsing
+  a compressed name to 255 to avoid following really long chains. ([#745])
+* Limited the length of CNAME chains followed by `Message::canonical_name`
+  to 20. This also fixed an integer overflow in this method when ANCOUNT
+  was`u16::MAX`. ([#752])
+* Changed `QuestionSection::answer` to skip over all remaining questions
+  without parsing the QNAMEs to avoid being slowed down by malicious
+  names. ([#753])
+* Fixed maximum pointer created by the name compressors. ([#707] by
+  [@SebastiaanYN])
+* Don’t compress the names in RP records. ([#702] by [@SebastiaanYN])
+* Fixed a `todo!` macro in the `Hash` impl for `IpseckeyGateway`.
+  ([#706] by [@SebastiaanYN])
+* Added length checks when scanning and parsing variable length record
+  data types: `Caa`, `Ipseckey`, `Nsec3Salt`, `Openpgpkey`, `Sshfp`,
+  `Tlsa` `Txt` `Zonemd`. ([#726])
+* Fixed possible panics in the resolver’s `FoundHosts::qname` and
+  `FoundHosts::canonical_name`. ([#727])
+* Fixed a wrong start in the resolver when re-ordering SRV records by
+  priority and weight. ([#738])
+* Switched additional processing for SRV in the resolver to use an
+  intermediary  hash map, avoiding a resource exhaustion issue with
+  crafted malicious responses. ([#744])
+* TSIG server: Don’t panic when creating a TSIG error response ([#729])
+* Zonefile parser: check for invalid UTF-8. ([#730])
+* Fixed integer overflow in `Scan` impl for unsigned integers. ([#725])
+* Fixed a panic in the zonefile parser when an empty TXT record is
+  encountered. ([#736])
+
+Unstable features
+
+* `unstable-client-transport`:
+  * Fix a panic when the TSIG client can’t create a request message due to
+    lack of space. ([#742])
+* `unstable-server-transport`:
+  * Fixed a panic in the NOTIFY middleware when it can’t copy the request.
+    ([#733])
+  * Fixed a panic in `QnameRouter` if a request that doesn’t have at least
+    one valid name is dispatched to it. ([#734])
+  * Fixed a reachable `unreachable!` in the XFR server middleware.
+    ([#739])
+  * Fixed a panic in the TSIG middleware when starting to create a signed
+    truncated response fails. ([#741])
+  * Fixed a panic when the QNAME of an IXFR is not the zone apex in the
+    XFR middleware. ([#746])
+  * Fixed a panic when constructing a response from a potentially
+    malicious source message. ([#751])
+* `unstable-sign`:
+  * Fixed a panic when an NSEC owner name is too long. ([#735])
+* `unstable-validator`:
+  * Fixed a panic when encountering an invalid NSEC3 label. ([#728])
+  * Fixed a potential integer underflow when subtracting TTLs. ([#740])
+  * Fixed a panic when encountering malformed OPT data. ([#747])
+  * Fixed a linear scan during name insertion. ([#748])
+  * Fixed a resource exhaustion issue when trying to find a matching
+    DS/DNSKEY pair by limiting the number of records searched. ([#749])
+  * Fixed a resource exhaustion issue when finding the closest encloser in
+    NSEC3 by limiting the number of NSEC3 hash calculations. ([#750])
+* `unstable-xfr`:
+  * Return an error rather than panicking when a response is not AXFR or
+    IXFR. (#724)
+* `unstable-zonetree`:
+  * Fixed a panic in `zonetree::Answer::to_message` when the request does
+    not have exactly one question. ([#731])
+  * Avoid a panic when requesting origin or class from an empty
+    `parsed::Zonefile`. This change removes the `Default` impl, which
+    means an origin and class must be given when creating a value.
+    ([#732])
+  * Prevent unbounded allocation when updating a zone. Changes existing
+    behaviour by returning errors when deleting non-existing record and
+    adding of existing records. ([#737])
+  * Better deal with apex SOA in unknown record format: return an error if
+    bumping the serial is requested but the SOA is unknown and do not
+    return a diff if no bumping is required so you can detect something
+    odd has happened. ([#743])
+  * Fixed various issues when updating “special” record types such as
+    CNAME or for zone cuts. ([#754])
+
+Acknowledgements
+
+* We would like to thank Qifan Zhang, Palo Alto Networks,
+  Antoni (Tony) Jagodka ([@DrVelvetFog]), and [@SebastiaanYN] for
+  reporting issues fixed in this release.
+
+[#699]: https://github.com/NLnetLabs/domain/pull/699
+[#702]: https://github.com/NLnetLabs/domain/pull/702
+[#706]: https://github.com/NLnetLabs/domain/pull/706
+[#707]: https://github.com/NLnetLabs/domain/pull/707
+[#716]: https://github.com/NLnetLabs/domain/pull/716
+[#724]: https://github.com/NLnetLabs/domain/pull/724
+[#725]: https://github.com/NLnetLabs/domain/pull/725
+[#726]: https://github.com/NLnetLabs/domain/pull/726
+[#727]: https://github.com/NLnetLabs/domain/pull/727
+[#728]: https://github.com/NLnetLabs/domain/pull/728
+[#729]: https://github.com/NLnetLabs/domain/pull/729
+[#730]: https://github.com/NLnetLabs/domain/pull/730
+[#731]: https://github.com/NLnetLabs/domain/pull/731
+[#732]: https://github.com/NLnetLabs/domain/pull/732
+[#733]: https://github.com/NLnetLabs/domain/pull/733
+[#734]: https://github.com/NLnetLabs/domain/pull/734
+[#735]: https://github.com/NLnetLabs/domain/pull/735
+[#736]: https://github.com/NLnetLabs/domain/pull/736
+[#737]: https://github.com/NLnetLabs/domain/pull/737
+[#738]: https://github.com/NLnetLabs/domain/pull/738
+[#739]: https://github.com/NLnetLabs/domain/pull/739
+[#740]: https://github.com/NLnetLabs/domain/pull/740
+[#741]: https://github.com/NLnetLabs/domain/pull/741
+[#743]: https://github.com/NLnetLabs/domain/pull/743
+[#744]: https://github.com/NLnetLabs/domain/pull/744
+[#745]: https://github.com/NLnetLabs/domain/pull/745
+[#746]: https://github.com/NLnetLabs/domain/pull/746
+[#747]: https://github.com/NLnetLabs/domain/pull/747
+[#748]: https://github.com/NLnetLabs/domain/pull/748
+[#749]: https://github.com/NLnetLabs/domain/pull/749
+[#750]: https://github.com/NLnetLabs/domain/pull/750
+[#751]: https://github.com/NLnetLabs/domain/pull/751
+[#752]: https://github.com/NLnetLabs/domain/pull/752
+[#753]: https://github.com/NLnetLabs/domain/pull/753
+[#754]: https://github.com/NLnetLabs/domain/pull/754
+[@DrVelvetFog]: https://github.com/DrVelvetFog
+[@SebastiaanYN]: https://github.com/SebastiaanYN
 
 
 ## 0.12.2

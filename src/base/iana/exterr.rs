@@ -8,7 +8,8 @@ int_enum! {
     /// A complementary data can be put in EDNS opt, providing
     /// additional information about the cause of DNS errors. Defined
     /// in [RFC 8914]. Current registered values can be found in [IANA
-    /// registry].
+    /// registry]. This type is complete as of the registry update of
+    /// 2026-01-13.
     ///
     /// [RFC 8914]: https://tools.ietf.org/html/rfc8914
     /// [IANA registry]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#extended-dns-error-codes
@@ -150,12 +151,43 @@ int_enum! {
     /// its most recent zone being too old or having expired.
     (INVALID_DATA => 24, "Invalid Data")
 
+    /// The resolver attempted to perform DNSSEC validation, but no signatures
+    /// are presently valid and at least some have an expiry date before the
+    /// inception date.
+    (SIGNATURE_EXPIRED_BEFORE_VALID => 25, "Signature Expired before Valid")
+
+    /// The client tried to use QUIC session Zero Round Trip Time (0-RTT) with
+    /// a non-replayable transaction. The server is not allowed to process
+    /// that and therefore responds with this error.
+    (TOO_EARLY => 26, "Too Early")
+
+    /// The resolver encountered an NSEC3 iteration value greater than 0.
+    (UNSUPPORTED_NSEC3_ITERATIONS_VALUE => 27, "Unsupported NSEC3 Iterations Value")
+
+    /// The error is returned when the proxy cannot meet the requirements in a
+    /// PROXY CONTROL Option or the option is malformed.
+    (UNABLE_TO_CONFORM_TO_POLICY => 28, "Unable to conform to policy")
+
+    /// The recursor decided to synthesise (construct an answer without
+    /// getting it verbatim from an authoritative server previously).
+    (SYNTHESIZED => 29, "Synthesized")
+
     /// The requested resource record type should not appear in a query.
     (INVALID_QUERY_TYPE => 30, "Invalid Query Type")
+
+    /// The query is rate-limited, e.g., due to the effect of DNS Response
+    /// Rate Limiting (RRL) or client IP-address based rate limiting.
+    (RATE_LIMITED => 31, "Rate Limited")
+
+    /// The query caused an over-quota condition.
+    (OVER_QUOTA => 32, "Over Quota")
 
     /// The resolver is configured with a Negative Trust Anchor for the
     /// queried name, disabling DNSSEC validation.
     (NEGATIVE_TRUST_ANCHOR => 33, "Negative Trust Anchor")
+
+    /// When there are no NS records for a delegated zone.
+    (NEW_DELEGATION_ONLY => 34, "New Delegation Only")
 }
 
 /// Start of the private range for EDE codes.

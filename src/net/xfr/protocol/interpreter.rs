@@ -191,7 +191,7 @@ impl Inner {
         let xfr_type = match resp.qtype() {
             Some(Rtype::AXFR) => XfrType::Axfr,
             Some(Rtype::IXFR) => XfrType::Ixfr,
-            _ => unreachable!(),
+            _ => return Err(Error::Malformed),
         };
 
         let Some(Ok(record)) = records.next() else {

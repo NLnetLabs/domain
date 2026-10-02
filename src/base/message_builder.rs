@@ -261,15 +261,18 @@ impl<Target: Composer> MessageBuilder<Target> {
         Ok(builder.answer())
     }
 
-    /// Starts creating an error for the given message.
+    /// Tries creating the start of an answer for the given message.
     ///
-    /// Like [`start_answer()`][Self::start_answer] but infallible. Questions
-    /// will be pushed if possible.
-    pub fn start_error<Octs: Octets + ?Sized>(
+    /// This is mostly the same as [`start_answer`][Self::start_answer] but
+    /// returns an answer builder with an appropriate error message in case
+    /// the answer cannot be created. This happens if the question section
+    /// cannot be copied over to the answer. The error message will have an
+    /// rcode of SERVFAIL.
+    pub fn try_start_answer<Octs: Octets + ?Sized>(
         mut self,
         msg: &Message<Octs>,
         rcode: Rcode,
-    ) -> AnswerBuilder<Target> {
+    ) -> Result<AnswerBuilder<Target>, AnswerBuilder<Target>> {
         {
             let header = self.header_mut();
             header.set_id(msg.header().id());
@@ -283,11 +286,26 @@ impl<Target: Composer> MessageBuilder<Target> {
         for item in msg.question().flatten() {
             if builder.push(item).is_err() {
                 builder.header_mut().set_rcode(Rcode::SERVFAIL);
-                break;
+                return Err(builder.answer());
             }
         }
 
-        builder.answer()
+        Ok(builder.answer())
+    }
+
+    /// Starts creating an error for the given message.
+    ///
+    /// Like [`try_start_answer()`][Self::try_start_answer] but both result
+    /// cases rolled into one.
+    pub fn start_error<Octs: Octets + ?Sized>(
+        self,
+        msg: &Message<Octs>,
+        rcode: Rcode,
+    ) -> AnswerBuilder<Target> {
+        match self.try_start_answer(msg, rcode) {
+            Ok(res) => res,
+            Err(res) => res,
+        }
     }
 
     /// Creates an AXFR request for the given domain.
@@ -904,6 +922,21 @@ impl<Target: Composer> AnswerBuilder<Target> {
         self.counts_mut().set_ancount(0);
     }
 
+    /// Rewinds to an empty answer and returns the answer builder.
+    ///
+    /// This can be handy when having to return early in an error case.
+    pub fn rewind_into(mut self) -> Self {
+        self.rewind();
+        self
+    }
+
+    /// Sets the TC bit, rewinds, and returns the answer builder.
+    pub fn tc_rewind_into(mut self) -> Self {
+        self.rewind();
+        self.header_mut().set_tc(true);
+        self
+    }
+
     /// Converts the answer builder into a message builder.
     ///
     /// All questions and answers will be dropped and all sections will be
@@ -1155,6 +1188,21 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     pub fn rewind(&mut self) {
         self.answer.as_target_mut().truncate(self.start);
         self.counts_mut().set_nscount(0);
+    }
+
+    /// Rewinds to an empty answer and returns the answer builder.
+    ///
+    /// This can be handy when having to return early in an error case.
+    pub fn rewind_into(mut self) -> Self {
+        self.rewind();
+        self
+    }
+
+    /// Sets the TC bit, rewinds, and returns the answer builder.
+    pub fn tc_rewind_into(mut self) -> Self {
+        self.rewind();
+        self.header_mut().set_tc(true);
+        self
     }
 
     /// Converts the authority builder into a message builder.
@@ -1436,6 +1484,21 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     pub fn rewind(&mut self) {
         self.authority.as_target_mut().truncate(self.start);
         self.counts_mut().set_arcount(0);
+    }
+
+    /// Rewinds to an empty answer and returns the answer builder.
+    ///
+    /// This can be handy when having to return early in an error case.
+    pub fn rewind_into(mut self) -> Self {
+        self.rewind();
+        self
+    }
+
+    /// Sets the TC bit, rewinds, and returns the answer builder.
+    pub fn tc_rewind_into(mut self) -> Self {
+        self.rewind();
+        self.header_mut().set_tc(true);
+        self
     }
 
     /// Converts the additional builder into a message builder.
@@ -1963,6 +2026,10 @@ where
     }
 }
 
+/// Compression pointers encode the offset in 14 bits, so positions at or
+/// above this limit cannot be referenced.
+const MAX_COMPRESSION_OFFSET: usize = 1 << 14;
+
 //------------ StaticCompressor ----------------------------------------------
 
 /// A domain name compressor that doesn’t require an allocator.
@@ -2050,7 +2117,7 @@ impl<Target> StaticCompressor<Target> {
 
     /// Inserts the position of a new domain name if possible.
     fn insert(&mut self, pos: usize) -> bool {
-        if pos < 0xc000 && self.len < self.entries.len() {
+        if pos < MAX_COMPRESSION_OFFSET && self.len < self.entries.len() {
             self.entries[self.len] = pos as u16;
             self.len += 1;
             true
@@ -2133,7 +2200,7 @@ impl<Target: Composer> Composer for StaticCompressor<Target> {
 impl<Target: Truncate> Truncate for StaticCompressor<Target> {
     fn truncate(&mut self, len: usize) {
         self.target.truncate(len);
-        if len < 0xC000 {
+        if len < MAX_COMPRESSION_OFFSET {
             let len = len as u16;
             for i in 0..self.len {
                 if self.entries[i] >= len {
@@ -2264,7 +2331,7 @@ impl<Target> TreeCompressor<Target> {
         name: N,
         pos: usize,
     ) -> bool {
-        if pos >= 0xC000 {
+        if pos >= MAX_COMPRESSION_OFFSET {
             return false;
         }
         let pos = pos as u16;
@@ -2361,7 +2428,7 @@ impl<Target: Composer> Composer for TreeCompressor<Target> {
 impl<Target: Composer> Truncate for TreeCompressor<Target> {
     fn truncate(&mut self, len: usize) {
         self.target.truncate(len);
-        if len < 0xC000 {
+        if len < MAX_COMPRESSION_OFFSET {
             self.start.drop_above(len as u16)
         }
     }
@@ -2457,7 +2524,7 @@ struct HashEntry {
 impl HashEntry {
     /// Try constructing a [`HashEntry`].
     fn new(head: usize, tail: usize) -> Option<Self> {
-        if head < 0xC000 {
+        if head < MAX_COMPRESSION_OFFSET {
             Some(Self {
                 head: head as u16,
                 tail: tail as u16,
@@ -2600,7 +2667,7 @@ impl<Target: Composer> Composer for HashCompressor<Target> {
 
             // Remember this label for future compression, if possible.
             //
-            // If some labels in this name pass the 0xC000 boundary point, then
+            // If some labels in this name pass the 14-bit boundary, then
             // none of its remembered labels can be used (since they are looked
             // up from right to left, and the rightmost ones will fail first).
             // We could check more thoroughly for this, but it's not worth it.
@@ -2636,7 +2703,7 @@ impl<Target: Composer> Composer for HashCompressor<Target> {
 impl<Target: Composer> Truncate for HashCompressor<Target> {
     fn truncate(&mut self, len: usize) {
         self.target.truncate(len);
-        if len < 0xC000 {
+        if len < MAX_COMPRESSION_OFFSET {
             self.names.retain(|name| name.head < len as u16);
         }
     }
@@ -2694,6 +2761,8 @@ impl core::error::Error for PushError {}
 #[cfg(test)]
 #[cfg(feature = "alloc")]
 mod test {
+    use rstest::rstest;
+
     use super::*;
     use crate::base::iana::Rtype;
     use crate::base::opt;
@@ -2953,6 +3022,45 @@ mod test {
         let actual = msg.finish().into_target();
         assert_eq!(45, actual.len(), "unexpected response size");
         assert_eq!(expect[..], actual, "unexpected response data");
+    }
+
+    #[rstest]
+    #[case::static_compressor(StaticCompressor::new(Vec::new()))]
+    #[case::tree_compressor(TreeCompressor::new(Vec::new()))]
+    #[cfg_attr(
+        feature = "std",
+        case::hash_compressor(HashCompressor::new(Vec::new()))
+    )]
+    fn compress_past_14bit_limit<T>(#[case] target: T)
+    where
+        T: Composer + FreezeBuilder,
+        T::AppendError: fmt::Debug,
+        T::Octets: Octets,
+    {
+        use crate::rdata::{AllRecordData, Txt};
+
+        let pad = "pad.example.com.".parse::<Name<Vec<u8>>>().unwrap();
+        let txt = Txt::<Vec<u8>>::build_from_slice(&[0u8; 16_400]).unwrap();
+        let name = "a.b.c.".parse::<Name<Vec<u8>>>().unwrap();
+
+        let mut msg = MessageBuilder::from_target(target).unwrap().answer();
+        msg.push((&pad, 0, &txt)).unwrap();
+        msg.push((&name, 0, A::from_octets(1, 2, 3, 4))).unwrap();
+        msg.push((&name, 0, A::from_octets(5, 6, 7, 8))).unwrap();
+        let msg = msg.into_message();
+
+        let records = msg
+            .answer()
+            .unwrap()
+            .into_records::<AllRecordData<_, _>>()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(
+            records[1].owner().name_eq(records[2].owner()),
+            "compression pointer corrupted: record[2] owner {:?} != {:?}",
+            records[2].owner(),
+            records[1].owner(),
+        );
     }
 
     #[cfg(feature = "std")]

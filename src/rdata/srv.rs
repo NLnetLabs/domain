@@ -308,7 +308,7 @@ mod test {
     use super::*;
     use crate::base::name::Name;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
     use alloc::vec::Vec;
     use core::str::FromStr;
@@ -324,6 +324,10 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Srv::parse(parser));
-        test_scan(&["10", "11", "12", "example.com."], Srv::scan, &rdata);
+        test_scan_check(
+            &["10", "11", "12", "example.com."],
+            Srv::scan,
+            &rdata,
+        );
     }
 }

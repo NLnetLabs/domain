@@ -17,7 +17,7 @@ int_enum! {
     /// [`Sshfp`] record.
     ///
     /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2025-09-04.
+    /// type is complete as of the registry update of 2020-02-25.
     ///
     /// [`Sshfp`]: crate::rdata::sshfp::Sshfp
     /// [IANA registration]: https://www.iana.org/assignments/dns-sshfp-rr-parameters/dns-sshfp-rr-parameters.xhtml#dns-sshfp-rr-parameters-2
@@ -49,7 +49,7 @@ int_enum! {
     /// This type selects the algorithm of the public key associated with the [`Sshfp`].
     ///
     /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2025-09-04.
+    /// type is complete as of the registry update of 2020-02-25.
     ///
     /// [`Sshfp`]: crate::rdata::sshfp::Sshfp
     /// [IANA registration]: https://www.iana.org/assignments/dns-sshfp-rr-parameters/dns-sshfp-rr-parameters.xhtml#dns-sshfp-rr-parameters-1

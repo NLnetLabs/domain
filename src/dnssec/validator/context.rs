@@ -116,6 +116,28 @@ const NSEC3_ITER_BOGUS: DefMinMax<u16> = DefMinMax::new(500, 0, 500);
 /// the default as used in unbound is 11.
 const MAX_CNAME_DNAME: DefMinMax<u8> = DefMinMax::new(11, 0, 100);
 
+/// Maximum number of DS records in an RRset that are tried to find a matching
+/// DNSKEY record.
+///
+/// The minimum is 1, the maximum is 100,
+/// the default as used in unbound is 20.
+const MAX_DS_RECORDS: DefMinMax<u8> = DefMinMax::new(20, 1, 100);
+
+/// Maximum number of DNSKEY records in an RRset that are tried to find a
+/// match with a DS record.
+///
+/// The minimum is 1, the maximum is 100,
+/// the default as used in unbound is 4.
+const MAX_DNSKEYS_PER_DS: DefMinMax<u8> = DefMinMax::new(4, 1, 100);
+
+/// Maximum number of NSEC3 hashes that are computed to find a closest
+/// encloser.
+///
+/// The minimum is 1, the maximum is 100,
+/// the default is 60. This seems a resonable value for deep zones.
+const MAX_NSEC3_HASHES_CLOSEST_ENCLOSER: DefMinMax<u8> =
+    DefMinMax::new(60, 1, 100);
+
 //------------ Config ---------------------------------------------------------
 
 /// Configuration of a validator.
@@ -153,6 +175,17 @@ pub struct Config {
     /// Maximum number of CNAME and DNAME records that are followed
     /// during validation.
     max_cname_dname: u8,
+
+    /// Maximum number of DS records in an RRset that are tried to find a
+    /// matching DNSKEY.
+    max_ds_records: u8,
+
+    /// Maximum number of DNSKEY records in an RRset that are tried to match
+    /// with a DS record.
+    max_dnskeys_per_ds: u8,
+
+    /// Maximum number of NSEC3 hash calculations to find a closest encloser.
+    max_nsec3_hashes_closest_encloser: u8,
 }
 
 impl Config {
@@ -286,6 +319,11 @@ impl Config {
     pub fn set_max_cname_dname(&mut self, value: u8) {
         self.max_cname_dname = MAX_CNAME_DNAME.limit(value)
     }
+
+    /// Returns the value of the maximum number of NSEC3 hash calculations.
+    pub(crate) fn max_nsec3_hashes_closest_encloser(&self) -> u8 {
+        self.max_nsec3_hashes_closest_encloser
+    }
 }
 
 impl Default for Config {
@@ -301,6 +339,10 @@ impl Default for Config {
             nsec3_iter_insecure: NSEC3_ITER_INSECURE.default(),
             nsec3_iter_bogus: NSEC3_ITER_BOGUS.default(),
             max_cname_dname: MAX_CNAME_DNAME.default(),
+            max_ds_records: MAX_DS_RECORDS.default(),
+            max_dnskeys_per_ds: MAX_DNSKEYS_PER_DS.default(),
+            max_nsec3_hashes_closest_encloser:
+                MAX_NSEC3_HASHES_CLOSEST_ENCLOSER.default(),
         }
     }
 }
@@ -388,7 +430,9 @@ impl<Upstream> ValidationContext<Upstream> {
         }
 
         // Move redundant unsigned CNAMEs to the corresponding DNAME group.
-        answers.move_redundant_cnames();
+        if let Err(opt_ede) = answers.move_redundant_cnames(&self.config) {
+            return Ok((ValidationState::Bogus, opt_ede));
+        }
 
         let mut fix_reply = false;
 
@@ -1194,7 +1238,7 @@ impl<Upstream> ValidationContext<Upstream> {
 
         let mut bad_sigs = 0;
         let mut ede = None;
-        for ds in tmp_group
+        for (i, ds) in tmp_group
             .rr_iter()
             .map(|r| {
                 if let AllRecordData::Ds(ds) = r.data() {
@@ -1207,8 +1251,29 @@ impl<Upstream> ValidationContext<Upstream> {
                 supported_algorithm(&ds.algorithm())
                     && supported_digest(&ds.digest_type())
             })
+            .enumerate()
         {
-            let r_dnskey = match find_key_for_ds(ds, dnskey_group) {
+            if i >= self.config.max_ds_records.into() {
+                // totest, too many DS records
+                let ede = make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "too many DS records",
+                );
+                return Ok(Node::new_delegation(
+                    name,
+                    ValidationState::Bogus,
+                    Vec::new(),
+                    ede,
+                    self.config.max_bogus_validity,
+                ));
+            }
+
+            let r_dnskey = match find_key_for_ds(
+                ds,
+                dnskey_group,
+                &self.config,
+                &mut ede,
+            ) {
                 None => continue,
                 Some(r) => r,
             };
@@ -1506,7 +1571,7 @@ impl Node {
             let opt_dnskey_rr = if ta_rr.rtype() == Rtype::DNSKEY {
                 has_key(dnskeys, ta_rr)
             } else if ta_rr.rtype() == Rtype::DS {
-                has_ds(dnskeys, ta_rr)
+                has_ds(dnskeys, ta_rr, config, &mut opt_ede)
             } else {
                 None
             };
@@ -1687,7 +1752,7 @@ impl Node {
 
     /// Return the remaining time to live.
     pub fn ttl(&self) -> Duration {
-        self.valid_for - self.created_at.elapsed()
+        self.valid_for.saturating_sub(self.created_at.elapsed())
     }
 }
 
@@ -1739,6 +1804,8 @@ fn has_ds(
         Chain<RelativeName<Bytes>, Name<Bytes>>,
         ZoneRecordData<Bytes, Chain<RelativeName<Bytes>, Name<Bytes>>>,
     >,
+    config: &Config,
+    opt_ede: &mut Option<ExtendedError<Vec<u8>>>,
 ) -> Option<Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>> {
     let ds = if let ZoneRecordData::Ds(ds) = ta_rr.data() {
         ds
@@ -1746,7 +1813,7 @@ fn has_ds(
         return None;
     };
 
-    find_key_for_ds(ds, dnskeys)
+    find_key_for_ds(ds, dnskeys, config, opt_ede)
 }
 
 /// Find a match DNSKEY record for a given DS record. Return the record if it
@@ -1755,19 +1822,36 @@ fn has_ds(
 fn find_key_for_ds(
     ds: &Ds<Bytes>,
     dnskey_group: &Group,
+    config: &Config,
+    opt_ede: &mut Option<ExtendedError<Vec<u8>>>,
 ) -> Option<Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>> {
     let ds_alg = ds.algorithm();
     let ds_tag = ds.key_tag();
     let digest_type = ds.digest_type();
-    for key in dnskey_group.clone().rr_iter() {
+    for (i, key) in dnskey_group
+        .clone()
+        .rr_iter()
+        .filter(|key| {
+            if let AllRecordData::Dnskey(dnskey) = key.data() {
+                dnskey.algorithm() == ds_alg && dnskey.key_tag() == ds_tag
+            } else {
+                false
+            }
+        })
+        .enumerate()
+    {
         let AllRecordData::Dnskey(dnskey) = key.data() else {
             panic!("Dnskey expected");
         };
-        if dnskey.algorithm() != ds_alg {
-            continue;
-        }
-        if dnskey.key_tag() != ds_tag {
-            continue;
+        if i >= config.max_dnskeys_per_ds.into() {
+            // totest: To many DNSKEY records that match DS record.
+            if opt_ede.is_none() {
+                *opt_ede = make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "Too many DNSKEYs that do not match DS record",
+                );
+            }
+            return None;
         }
         let digest = match dnskey.digest(key.owner(), digest_type) {
             Ok(d) => d,

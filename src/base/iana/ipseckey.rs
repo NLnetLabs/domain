@@ -11,8 +11,8 @@ int_enum! {
     /// This type identifies the public key's cryptographic algorithm of the
     /// [IPSECKEY].
     ///
-    /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2025-09-09.
+    /// For the currently registered values see the [IANA registration].
+    /// This type is complete as of the registry update of 2023-03-15.
     ///
     /// [IPSECKEY]: ../../../rdata/ipseckey/index.html
     /// [IANA registration]:  https://www.iana.org/assignments/ipseckey-rr-parameters/ipseckey-rr-parameters.xhtml#ipseckey-rr-parameters-1
@@ -47,7 +47,7 @@ int_enum! {
     /// the gateway field of the [IPSECKEY].
     ///
     /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2025-09-09.
+    /// type is complete as of the registry update of 2023-03-15.
     ///
     /// [IPSECKEY]: ../../../rdata/ipseckey/index.html
     /// [IANA registration]: https://www.iana.org/assignments/ipseckey-rr-parameters/ipseckey-rr-parameters.xhtml#ipseckey-rr-parameters-2

@@ -9,12 +9,12 @@ use crate::rdata::{A, Aaaa, Srv};
 use crate::resolv::resolver::Resolver;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::fmt;
 use core::net::{IpAddr, SocketAddr};
-use core::{mem, ops};
+use core::{fmt, mem, ops};
 use futures_util::stream::{self, Stream, StreamExt};
 use octseq::octets::Octets;
 use rand::distr::{Distribution, Uniform};
+use std::collections::HashMap;
 use std::io;
 
 // Look up SRV record. Three outcomes:
@@ -203,29 +203,61 @@ impl FoundSrvs {
         answer: &Message<[u8]>,
     ) -> Result<(), SrvError> {
         let additional = answer.additional()?;
-        for item in items {
-            let mut addrs = Vec::new();
-            for record in additional {
-                let record = match record {
-                    Ok(record) => record,
-                    Err(_) => continue,
-                };
-                if record.class() != Class::IN
-                    || record.owner() != item.target()
-                {
-                    continue;
-                }
-                if let Ok(Some(record)) = record.to_record::<A>() {
-                    addrs.push(record.data().addr().into())
-                }
-                if let Ok(Some(record)) = record.to_record::<Aaaa>() {
-                    addrs.push(record.data().addr().into())
-                }
+
+        // Create a map with all the targets we are looking for.
+        let mut targets = items
+            .iter()
+            .map(|item| (item.target(), Vec::new()))
+            .collect::<HashMap<_, _>>();
+
+        // Go over all additional records and add addresses to targets.
+        for record in additional {
+            let record = match record {
+                Ok(record) => record,
+                Err(_) => continue,
+            };
+            if record.class() != Class::IN {
+                continue;
             }
-            if !addrs.is_empty() {
-                item.resolved = Some(addrs)
+
+            let addr = if let Ok(Some(record)) = record.to_record::<A>() {
+                IpAddr::from(record.data().addr())
+            } else if let Ok(Some(record)) = record.to_record::<Aaaa>() {
+                IpAddr::from(record.data().addr())
+            } else {
+                continue;
+            };
+
+            // XXX This conversion here could be avoided if we use a
+            //     hashbrown::HashTable instead of an std::HashMap. However,
+            //     this would mean changing the required features for resolv
+            //     which I don’t want to do in a non-breaking release.
+            //
+            //     So, TODO for the next breaking release: Use a HashTable.
+            let owner = record.owner().to_name::<OctetsVec>();
+
+            if let Some(target) = targets.get_mut(&owner) {
+                target.push(addr)
             }
         }
+
+        // Write back the collected targets.
+        //
+        // We can’t put things directly into `items` because that is still
+        // locked by serving as `targets` keys.
+        let mut addrs = vec![None; items.len()];
+        for (idx, item) in items.iter().enumerate() {
+            if let Some(res) = targets.get(item.target()) {
+                if !res.is_empty() {
+                    addrs[idx] = Some(res.clone())
+                }
+            }
+        }
+        drop(targets);
+        for (item, addr) in items.iter_mut().zip(addrs) {
+            item.resolved = addr;
+        }
+
         Ok(())
     }
 
@@ -254,7 +286,11 @@ impl FoundSrvs {
         Self::reorder_by_weight(&mut items[first_index..], weight_sum);
     }
 
-    /// Reorders items in a priority level based on their weight
+    /// Reorders items in a priority level based on their weight.
+    ///
+    /// `items` contains a slice of items with the same priority ordered by
+    /// their weight. `weight_sum` is the sum of all the weights of the items
+    /// in `items`.
     fn reorder_by_weight(items: &mut [SrvItem], weight_sum: u32) {
         let mut rng = rand::rng();
         let mut weight_sum = weight_sum;
@@ -263,7 +299,7 @@ impl FoundSrvs {
             let range = Uniform::new(0, weight_sum + 1).unwrap();
             let mut sum: u32 = 0;
             let pick = range.sample(&mut rng);
-            for j in 0..items.len() {
+            for j in i..items.len() {
                 sum += u32::from(items[j].weight());
                 if sum >= pick {
                     weight_sum -= u32::from(items[j].weight());
@@ -419,5 +455,138 @@ impl From<io::Error> for SrvError {
 impl From<ParseError> for SrvError {
     fn from(_: ParseError) -> SrvError {
         SrvError::MalformedAnswer
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::base::name::Name;
+    use crate::base::{
+        MessageBuilder, Rtype, StaticCompressor, StreamTarget,
+    };
+    use crate::rdata::{A, Srv};
+    use alloc::vec::Vec;
+    use core::str::FromStr;
+
+    #[test]
+    fn process_srv_response() {
+        let example_com = Name::<Vec<u8>>::from_str("example.com").unwrap();
+        // Make an SRV response.
+        let mut msg = MessageBuilder::from_target(StaticCompressor::new(
+            StreamTarget::new_vec(),
+        ))
+        .unwrap();
+        msg.header_mut().set_qr(true);
+        let mut msg = msg.question();
+        msg.push((&example_com, Rtype::SRV)).unwrap();
+        let mut msg = msg.answer();
+        let srv20 = Srv::new(
+            20,
+            100,
+            1000,
+            Name::<Vec<u8>>::from_str("20.example.com").unwrap(),
+        );
+        msg.push((&example_com, 100, &srv20)).unwrap();
+        let srv101 = Srv::new(
+            10,
+            100,
+            1000,
+            Name::<Vec<u8>>::from_str("100.10.example.com").unwrap(),
+        );
+        msg.push((&example_com, 100, &srv101)).unwrap();
+        let srv15 = Srv::new(
+            15,
+            100,
+            1000,
+            Name::<Vec<u8>>::from_str("15.example.com").unwrap(),
+        );
+        msg.push((&example_com, 100, &srv15)).unwrap();
+        let srv102 = Srv::new(
+            10,
+            200,
+            1000,
+            Name::<Vec<u8>>::from_str("200.10.example.com").unwrap(),
+        );
+        msg.push((&example_com, 100, &srv102)).unwrap();
+        let mut msg = msg.additional();
+        msg.push((
+            Name::<Vec<u8>>::from_str("20.example.com").unwrap(),
+            100,
+            A::from_octets(192, 0, 2, 20),
+        ))
+        .unwrap();
+        msg.push((
+            Name::<Vec<u8>>::from_str("200.10.example.com").unwrap(),
+            100,
+            A::from_octets(192, 0, 2, 210),
+        ))
+        .unwrap();
+        msg.push((
+            Name::<Vec<u8>>::from_str("15.example.com").unwrap(),
+            100,
+            A::from_octets(192, 0, 2, 15),
+        ))
+        .unwrap();
+        msg.push((
+            Name::<Vec<u8>>::from_str("100.10.example.com").unwrap(),
+            100,
+            A::from_octets(192, 0, 2, 110),
+        ))
+        .unwrap();
+        let target = msg.finish().into_target();
+        let message = Message::from_slice(target.as_dgram_slice()).unwrap();
+
+        let srvs = FoundSrvs::new(
+            message,
+            Name::<Vec<u8>>::from_str("target4.example.com").unwrap(),
+            6000,
+        )
+        .unwrap()
+        .unwrap()
+        .items
+        .unwrap();
+
+        assert_eq!(srvs.len(), 4);
+
+        if srvs[0].srv == srv101 {
+            assert_eq!(
+                srvs[0].resolved,
+                Some(vec![IpAddr::from_str("192.0.2.110").unwrap()])
+            );
+
+            assert_eq!(srvs[1].srv, srv102);
+            assert_eq!(
+                srvs[1].resolved,
+                Some(vec![IpAddr::from_str("192.0.2.210").unwrap()])
+            );
+        } else if srvs[0].srv == srv102 {
+            assert_eq!(
+                srvs[0].resolved,
+                Some(vec![IpAddr::from_str("192.0.2.210").unwrap()])
+            );
+
+            assert_eq!(srvs[1].srv, srv101);
+            assert_eq!(
+                srvs[1].resolved,
+                Some(vec![IpAddr::from_str("192.0.2.110").unwrap()])
+            );
+        } else {
+            panic!("srv[0] is not srv101 or srv102");
+        }
+
+        assert_eq!(srvs[2].srv, srv15);
+        assert_eq!(
+            srvs[2].resolved,
+            Some(vec![IpAddr::from_str("192.0.2.15").unwrap()])
+        );
+
+        assert_eq!(srvs[3].srv, srv20);
+        assert_eq!(
+            srvs[3].resolved,
+            Some(vec![IpAddr::from_str("192.0.2.20").unwrap()])
+        );
     }
 }

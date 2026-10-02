@@ -527,6 +527,16 @@ impl LongRecordData {
         // This version is safe on 16 bit systems.
         Self::check_len(len.checked_add(extra_len).ok_or(Self(()))?)
     }
+
+    pub fn check_multi_len<const N: usize>(
+        len: [usize; N],
+    ) -> Result<(), Self> {
+        let mut res: usize = 0;
+        for item in len {
+            res = res.checked_add(item).ok_or(Self(()))?;
+        }
+        Self::check_len(res)
+    }
 }
 
 impl From<LongRecordData> for ParseError {
@@ -591,8 +601,28 @@ pub(crate) mod test {
     type TestScanner =
         IterScanner<alloc::vec::IntoIter<alloc::string::String>, Vec<u8>>;
 
+    /// Scan and return the result.
+    pub fn test_scan<F, T>(
+        input: &[&str],
+        scan: F,
+    ) -> Result<T, <TestScanner as Scanner>::Error>
+    where
+        F: FnOnce(
+            &mut TestScanner,
+        ) -> Result<T, <TestScanner as Scanner>::Error>,
+        T: Debug,
+    {
+        let mut scanner = IterScanner::new(
+            input
+                .iter()
+                .map(|s| alloc::string::String::from(*s))
+                .collect::<Vec<_>>(),
+        );
+        scan(&mut scanner)
+    }
+
     /// Checks scanning.
-    pub fn test_scan<F, T, X>(input: &[&str], scan: F, expected: &X)
+    pub fn test_scan_check<F, T, X>(input: &[&str], scan: F, expected: &X)
     where
         F: FnOnce(
             &mut TestScanner,

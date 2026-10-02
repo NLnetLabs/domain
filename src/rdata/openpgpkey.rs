@@ -1,6 +1,7 @@
 //! OPENPGPKEY record data.
 //!
-//! The OPENPGPKEY Resource Record carries a single OpenPGP Transferable Public Key.
+//! The OPENPGPKEY Resource Record carries a single OpenPGP Transferable
+//! Public Key.
 //!
 //! [RFC 7929]: https://tools.ietf.org/html/rfc7929
 
@@ -10,8 +11,8 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::rdata::{ComposeRecordData, RecordData};
-use crate::base::scan::Scanner;
+use crate::base::rdata::{ComposeRecordData, LongRecordData, RecordData};
+use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, ParseError};
 use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base64;
@@ -45,8 +46,26 @@ impl Openpgpkey<()> {
 
 impl<Octs> Openpgpkey<Octs> {
     /// Create a Openpgpkey record data from provided parameters.
+    ///
+    /// # Note
+    ///
+    /// This function allows you to create an `Openpgpkey` value that is too
+    /// large to be composed into record data. Unless you are certain that
+    /// `key` is less than 65,536 bytes in size, you should use
+    /// [`try_new`][Self::try_new] instead.
     pub fn new(key: Octs) -> Self {
         Self { key }
+    }
+
+    /// Create a Openpgpkey record data from provided parameters.
+    ///
+    /// Returns an error if `key` is larger than 65,535 bytes.
+    pub fn try_new(key: Octs) -> Result<Self, LongRecordData>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        LongRecordData::check_len(key.as_ref().len())?;
+        Ok(Self { key })
     }
 
     /// Get the key field.
@@ -59,6 +78,7 @@ impl<Octs> Openpgpkey<Octs> {
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
+        LongRecordData::check_len(len)?;
         let key = parser.parse_octets(len)?;
         Ok(Self { key })
     }
@@ -66,10 +86,12 @@ impl<Octs> Openpgpkey<Octs> {
     /// Parse the record data from zonefile format.
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+    {
         let key = scanner.convert_entry(base64::SymbolConverter::new())?;
-
-        Ok(Self { key })
+        Self::try_new(key).map_err(|err| S::Error::custom(err.as_str()))
     }
 
     pub(super) fn flatten<Target: OctetsFrom<Octs>>(
@@ -190,9 +212,9 @@ impl<Octs: AsRef<[u8]>> Ord for Openpgpkey<Octs> {
 mod test {
     use super::*;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan, test_scan_check,
     };
-    use crate::utils::base64::decode;
+    use crate::utils::base64;
     use alloc::vec::Vec;
 
     #[test]
@@ -201,11 +223,29 @@ mod test {
     #[allow(clippy::redundant_closure)]
     fn openpgpkey_compose_parse_scan() {
         let key_str = "mDMEaLmjchYJKwYBBAHaRw8BAQdAaO6PfPJsT8to5dksKP1JsCmR0DqOTmVYLOv7mFeQPC+0HVRlc3QgVXNlciA8dGVzdEBubG5ldGxhYnMubmw+iJYEExYKAD4WIQT/B5WhrMOftpJIwIkxXU3+oVEKegUCaLmjcgIbAwUJBaOagAULCQgHAgYVCgkICwIEFgIDAQIeAQIXgAAKCRAxXU3+oVEKemSgAP97Zvz+PWEJC9vhlSN4gVRPR9VZYhzGwfpixgRI4sqKfwD9FxJhsj43vGEbOLdsWwf/lQvkajRov5FpofS1IFy/dgi4OARouaNyEgorBgEEAZdVAQUBAQdAUQr9riJNCFWRzQ6q70B/H/o+uwvL6nGJRhWSg1v7mRkDAQgHiH4EGBYKACYWIQT/B5WhrMOftpJIwIkxXU3+oVEKegUCaLmjcgIbDAUJBaOagAAKCRAxXU3+oVEKeuX3APkB5piWOSbOPLvtiElIVTHT6gWlu1wSpVVzZEmgtnOpiQD+Kk/IFjHpT0RbgsIvI3qhnXWwHvIw4JxHS1a/piLwkwM=";
-        let key: Vec<u8> = decode(key_str).unwrap();
+        let key: Vec<u8> = base64::decode(key_str).unwrap();
         let rdata = Openpgpkey::new(key);
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Openpgpkey::parse(parser));
-        test_scan(&[key_str], Openpgpkey::scan, &rdata);
+        test_scan_check(&[key_str], Openpgpkey::scan, &rdata);
+    }
+
+    #[test]
+    fn openpgpkey_scan_limits() {
+        assert!(
+            test_scan(
+                &[base64::encode_string(&b"a".repeat(0xFFFF)).as_str()],
+                Openpgpkey::scan
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &[base64::encode_string(&b"a".repeat(0x10000)).as_str()],
+                Openpgpkey::scan
+            )
+            .is_err()
+        );
     }
 
     #[cfg(feature = "zonefile")]

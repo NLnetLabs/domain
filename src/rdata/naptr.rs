@@ -516,7 +516,7 @@ mod test {
     use super::*;
     use crate::base::{
         Name,
-        rdata::test::{test_compose_parse, test_rdlen, test_scan},
+        rdata::test::{test_compose_parse, test_rdlen, test_scan_check},
     };
     use alloc::vec::Vec;
     use core::str::FromStr;
@@ -535,7 +535,7 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Naptr::parse(parser));
-        test_scan(
+        test_scan_check(
             &[
                 "100",
                 "50",

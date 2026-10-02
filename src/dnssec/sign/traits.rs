@@ -35,6 +35,9 @@ use crate::rdata::{Rrsig, ZoneRecordData};
 
 //------------ SortedExtend --------------------------------------------------
 
+/// Extend sorted data.
+///
+/// All records in an RRset are required to have the same TTL.
 pub trait SortedExtend<N, Octs, Sort>
 where
     Sort: Sorter,
@@ -397,6 +400,8 @@ where
 /// Other DNSSEC record types such as `NSEC(3)` and `DNSKEY` can only be
 /// generated in the context of a full zone and so will **NOT** be generated
 /// by the functions offered by this trait.
+///
+/// All records in an RRset are required to have the same TTL.
 ///
 /// # Example
 ///

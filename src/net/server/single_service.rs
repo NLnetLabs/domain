@@ -137,7 +137,7 @@ impl ComposeReply for ReplyMessage {
         let mut target = target.additional().builder().question();
         for rr in source {
             let rr = rr?;
-            target.push(rr).expect("push should not fail");
+            target.push(rr)?;
         }
         let mut source = source.answer()?;
         let mut target = target.answer();
@@ -146,7 +146,7 @@ impl ComposeReply for ReplyMessage {
             let rr = rr
                 .into_record::<AllRecordData<_, ParsedName<_>>>()?
                 .expect("AllRecordData should not fail");
-            target.push(rr).expect("push should not fail");
+            target.push(rr)?;
         }
 
         let mut source = source
@@ -158,7 +158,7 @@ impl ComposeReply for ReplyMessage {
             let rr = rr
                 .into_record::<AllRecordData<_, ParsedName<_>>>()?
                 .expect("AllRecordData should not fail");
-            target.push(rr).expect("push should not fail");
+            target.push(rr)?;
         }
 
         let source = source
@@ -172,11 +172,11 @@ impl ComposeReply for ReplyMessage {
                 let rr = rr
                     .into_record::<AllRecordData<_, ParsedName<_>>>()?
                     .expect("AllRecordData should not fail");
-                target.push(rr).expect("push should not fail");
+                target.push(rr)?;
             }
         }
         if let Some(opt) = self.opt.as_ref() {
-            target.push(opt.as_record()).expect("push should not fail");
+            target.push(opt.as_record())?;
         }
 
         Ok(target)

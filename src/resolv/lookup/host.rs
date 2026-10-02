@@ -24,7 +24,10 @@ use std::net::ToSocketAddrs;
 pub async fn lookup_host<R: Resolver>(
     resolver: &R,
     qname: impl ToName,
-) -> Result<FoundHosts<R>, io::Error> {
+) -> Result<FoundHosts<R>, io::Error>
+where
+    R::Octets: Octets,
+{
     let (a, aaaa) = tokio::join!(
         resolver.query((&qname, Rtype::A)),
         resolver.query((&qname, Rtype::AAAA)),
@@ -37,7 +40,10 @@ pub async fn lookup_host<R: Resolver>(
 pub async fn search_host<R: Resolver + SearchNames>(
     resolver: &R,
     qname: impl ToRelativeName,
-) -> Result<FoundHosts<R>, io::Error> {
+) -> Result<FoundHosts<R>, io::Error>
+where
+    R::Octets: Octets,
+{
     for suffix in resolver.search_iter() {
         if let Ok(name) = (&qname).chain(suffix) {
             if let Ok(answer) = lookup_host(resolver, name).await {
@@ -73,7 +79,10 @@ impl<R: Resolver> FoundHosts<R> {
     pub fn new(
         aaaa: Result<R::Answer, io::Error>,
         a: Result<R::Answer, io::Error>,
-    ) -> Result<Self, io::Error> {
+    ) -> Result<Self, io::Error>
+    where
+        R::Octets: Octets,
+    {
         if aaaa.is_err() && a.is_err() {
             match aaaa {
                 Err(err) => return Err(err),
@@ -81,7 +90,23 @@ impl<R: Resolver> FoundHosts<R> {
             }
         }
 
-        Ok(FoundHosts { aaaa, a })
+        let this = Self { aaaa, a };
+
+        // We check this here so that Self::qname doesn't need to return
+        // a result.
+        if this.answer().as_ref().first_question().is_none() {
+            return Err(io::Error::other(
+                "no question present in the response",
+            ));
+        }
+
+        // We check this here so that Self::canonical_name doesn't need to
+        // return a result.
+        if this.answer().as_ref().canonical_name().is_none() {
+            return Err(io::Error::other("CNAME loop in response"));
+        }
+
+        Ok(this)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -112,6 +137,8 @@ where
     R::Octets: Octets,
 {
     pub fn qname(&self) -> ParsedName<<R::Octets as Octets>::Range<'_>> {
+        // PANIC: The unwrap here is ok because we check that `first_question`
+        // returns Some in Self::new.
         self.answer()
             .as_ref()
             .first_question()
@@ -129,6 +156,8 @@ where
     pub fn canonical_name(
         &self,
     ) -> ParsedName<<R::Octets as Octets>::Range<'_>> {
+        // PANIC: The unwrap here is ok because we check that `first_question`
+        // returns Some in Self::new.
         self.answer().as_ref().canonical_name().unwrap()
     }
 

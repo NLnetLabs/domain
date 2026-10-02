@@ -65,6 +65,10 @@ impl Sorter for DefaultSorter {
 /// The sort algorithm used defaults to [`DefaultSorter`] but can be
 /// overridden by being generic over an alternate implementation of
 /// [`Sorter`].
+///
+/// All records in an RRset are required to have the same TTL. This is
+/// currently not enforced when inserting records. RRsets with records with
+/// differing TTL will cause a panic in [`sign_zone`][super::sign_zone].
 #[derive(Clone)]
 pub struct SortedRecords<N, D, Sort = DefaultSorter>
 where
@@ -378,6 +382,8 @@ where
 //------------ OwnerRrs ------------------------------------------------------
 
 /// A set of records with the same owner name.
+///
+/// All records in an RRset are required to have the same TTL.
 #[derive(Clone)]
 pub struct OwnerRrs<'a, N, D> {
     slice: SliceRefsOrOwned<'a, Record<N, D>>,
@@ -433,6 +439,14 @@ impl<'a, N, D> Rrset<'a, N, D>
 where
     D: RecordData,
 {
+    /// Create new Rrset from a SliceRefsOrOwned.
+    ///
+    /// All records in an RRset are required to have the same TTL.
+    ///
+    /// # Panic
+    ///
+    /// This function panics if the records in `slice` do not all have the
+    /// same TTL.
     pub fn new(
         slice: SliceRefsOrOwned<'a, Record<N, D>>,
     ) -> Result<Self, SigningError> {
@@ -446,6 +460,14 @@ where
         }
     }
 
+    /// Create new Rrset from a slice of references.
+    ///
+    /// All records in an RRset are required to have the same TTL.
+    ///
+    /// # Panic
+    ///
+    /// This function panics if the records in `slice` do not all have the
+    /// same TTL.
     pub fn new_from_refs(
         slice: &'a [&Record<N, D>],
     ) -> Result<Self, SigningError> {
@@ -462,6 +484,14 @@ where
         }
     }
 
+    /// Create new Rrset from a slice of owned records.
+    ///
+    /// All records in an RRset are required to have the same TTL.
+    ///
+    /// # Panic
+    ///
+    /// This function panics if the records in `slice` do not all have the
+    /// same TTL.
     pub fn new_from_owned(
         slice: &'a [Record<N, D>],
     ) -> Result<Self, SigningError> {
@@ -536,6 +566,8 @@ where
 
 /// An iterator that produces groups of records belonging to the same owner
 /// from sorted records.
+///
+/// All records in an RRset are required to have the same TTL.
 pub struct RecordsIter<'a, N, D> {
     slice: SliceRefsOrOwned<'a, Record<N, D>>,
 }
@@ -606,6 +638,9 @@ pub struct RrsetIter<'a, N, D> {
 }
 
 impl<'a, N, D> RrsetIter<'a, N, D> {
+    /// Create new RrsetIter from a slice of owned records.
+    ///
+    /// All records in an RRset are required to have the same TTL.
     fn new_from_owned(slice: &'a [Record<N, D>]) -> Self {
         Self {
             slice: SliceRefsOrOwned::new_from_owned(slice),
@@ -641,6 +676,8 @@ where
 
 /// An iterator that produces RRsets from a set of records with the same owner
 /// name.
+///
+/// All records in an RRset are required to have the same TTL.
 pub struct OwnerRrsIter<'a, N, D> {
     slice: SliceRefsOrOwned<'a, Record<N, D>>,
 }

@@ -2738,7 +2738,7 @@ mod test {
     use crate::base::iana::Rtype;
     use crate::base::name::Name;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
     use alloc::vec;
     use alloc::vec::Vec;
@@ -2753,7 +2753,7 @@ mod test {
             Dnskey::new(10, 11, SecurityAlgorithm::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
-        test_scan(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
+        test_scan_check(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
     }
 
     //--- Rrsig
@@ -2775,7 +2775,7 @@ mod test {
         .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Rrsig::parse(parser));
-        test_scan(
+        test_scan_check(
             &[
                 "A",
                 "5",
@@ -2806,14 +2806,14 @@ mod test {
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Nsec::parse(parser));
-        test_scan(&["example.com.", "A", "SRV"], Nsec::scan, &rdata);
+        test_scan_check(&["example.com.", "A", "SRV"], Nsec::scan, &rdata);
 
         // scan empty rtype bitmap
         let rdata = Nsec::new(
             Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             RtypeBitmapBuilder::new_vec().finalize(),
         );
-        test_scan(&["example.com."], Nsec::scan, &rdata);
+        test_scan_check(&["example.com."], Nsec::scan, &rdata);
     }
 
     //--- Ds
@@ -2830,7 +2830,7 @@ mod test {
         .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
-        test_scan(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
+        test_scan_check(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
     }
 
     //--- RtypeBitmape

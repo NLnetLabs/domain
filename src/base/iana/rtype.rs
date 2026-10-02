@@ -12,7 +12,7 @@ int_enum! {
     /// questions. This type represents both these types.
     ///
     /// The currently assigned values are maintained in an [IANA registry].
-    /// This type is complete as of 2019-01-28.
+    /// This type is complete as of the registry update of 2026-07-06.
     ///
     /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
     ///
@@ -309,6 +309,21 @@ int_enum! {
     /// See draft-ietf-dnsop-svcb-httpssvc
     (HTTPS => 65, "HTTPS")
 
+    /// DSYNC Endpoint discovery for delegation synchronization.
+    ///
+    /// See RFC 9859.
+    (DSYNC => 66, "DSYNC")
+
+    /// HHIT Hierarchical Host Identity Tag.
+    ///
+    /// See RFC 9886.
+    (HHIT => 67, "HHIT")
+
+    /// BRID UAS Broadcast Remote Identification
+    ///
+    /// See RFC 9886.
+    (BRID => 68, "BRID")
+
     /// SPF.
     ///
     /// RFC 7208.
@@ -419,6 +434,29 @@ int_enum! {
     ///
     /// See draft-durand-doa-over-dns.
     (DOA => 259, "DOA")
+
+    /// AMTRELAY Automatic Multicast Tunneling Relay.
+    ///
+    /// See RFC 8777.
+    (AMTRELAY => 260, "AMTRELAY")
+
+    /// RESINFO Resolver Information as Key/Value Pairs.
+    ///
+    /// See RFC 9606.
+    (RESINFO => 261, "RESINFO")
+
+    /// WALLET Public wallet address
+    (WALLET => 262, "WALLET")
+
+    /// CLA BP Convergence Layer Adapter.
+    ///
+    /// See draft-johnson-dns-ipn-cla-07.
+    (CLA => 263, "CLA")
+
+    /// IPN BP Node Number.
+    ///
+    /// See draft-johnson-dns-ipn-cla-07.
+    (IPN => 264, "IPN")
 
     /// DNSSEC trust authorities.
     (TA => 32768, "TA")

@@ -67,8 +67,8 @@
 //! # use domain::crypto::common;
 //! # use domain::crypto::sign::{generate, GenerateParams, KeyPair, SignRaw};
 //! # let (sec_bytes, pub_bytes) = generate(
-//!        &GenerateParams::Ed25519,
-//!        256).unwrap();
+//! #      &GenerateParams::Ed25519,
+//! #      256).unwrap();
 //! # let key_pair = KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
 //! // Sign arbitrary byte sequences with the key.
 //! let sig = key_pair.sign_raw(b"Hello, World!").unwrap();

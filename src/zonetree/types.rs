@@ -1,6 +1,7 @@
 //! Zone tree related types.
 
 use core::future::{Future, ready};
+use core::ops;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
@@ -8,8 +9,11 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ops;
-use std::collections::{HashMap, hash_map};
+
+use std::collections::{
+    HashMap,
+    hash_map::{self, Entry},
+};
 
 use bytes::Bytes;
 use futures_util::stream;
@@ -17,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use super::traits::{ZoneDiff, ZoneDiffItem};
+
 use crate::base::name::Name;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
@@ -287,7 +292,13 @@ impl InMemoryZoneDiffBuilder {
         rtype: Rtype,
         rrset: SharedRrset,
     ) {
-        self.added.insert((owner, rtype), rrset);
+        let key = (owner, rtype);
+
+        // Add if not already added.
+        Self::add_non_matching_rdata(self.added.entry(key.clone()), &rrset);
+
+        // No longer remove if marked for removal
+        Self::remove_matching_rdata(self.removed.entry(key), &rrset);
     }
 
     /// Record in the diff that a resource record was removed.
@@ -297,7 +308,13 @@ impl InMemoryZoneDiffBuilder {
         rtype: Rtype,
         rrset: SharedRrset,
     ) {
-        self.removed.insert((owner, rtype), rrset);
+        let key = (owner, rtype);
+
+        // Remove if not already removed.
+        Self::remove_matching_rdata(self.added.entry(key.clone()), &rrset);
+
+        // No longer add if marked for addition.
+        Self::add_non_matching_rdata(self.removed.entry(key), &rrset);
     }
 
     /// Exchange this builder instnace for an immutable [`ZoneDiff`].
@@ -311,6 +328,48 @@ impl InMemoryZoneDiffBuilder {
     /// diff.
     pub fn build(self) -> Result<InMemoryZoneDiff, ZoneDiffError> {
         InMemoryZoneDiff::new(self.added, self.removed)
+    }
+
+    /// Add any RDATA from the given RRSET that is not already in the entry.
+    fn add_non_matching_rdata(
+        entry: Entry<'_, (StoredName, Rtype), SharedRrset>,
+        rrset: &SharedRrset,
+    ) {
+        match entry {
+            Entry::Occupied(mut e) => {
+                let mut new_rrset = e.get().as_rrset().clone();
+                for data in rrset.data() {
+                    if !new_rrset.data().contains(data) {
+                        new_rrset.push_data(data.clone());
+                    }
+                }
+                *e.get_mut() = SharedRrset::new(new_rrset);
+            }
+            Entry::Vacant(e) => {
+                e.insert(rrset.clone());
+            }
+        }
+    }
+
+    /// Remove all RDATA in the given entry that is present in the entry.
+    fn remove_matching_rdata(
+        entry: Entry<'_, (StoredName, Rtype), SharedRrset>,
+        rrset: &SharedRrset,
+    ) {
+        match entry {
+            Entry::Occupied(mut e) => {
+                let old_rrset = e.get();
+                let mut new_rrset =
+                    Rrset::new(old_rrset.rtype(), old_rrset.ttl());
+                for data in old_rrset.data() {
+                    if !rrset.data().contains(data) {
+                        new_rrset.push_data(data.clone());
+                    }
+                }
+                *e.get_mut() = SharedRrset::new(new_rrset);
+            }
+            Entry::Vacant(_) => { /* Nothing to do */ }
+        }
     }
 }
 

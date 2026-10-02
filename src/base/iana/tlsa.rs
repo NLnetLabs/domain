@@ -9,7 +9,7 @@ int_enum! {
     /// presented in the TLS handshake
     ///
     /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2025-09-04.
+    /// type is complete as of the registry update of 2026-02-05.
     ///
     /// [TLSA]: ../../../rdata/tlsa/index.html
     /// [IANA registration]: https://www.iana.org/assignments/dane-parameters/dane-parameters.xhtml#certificate-usages
@@ -43,11 +43,11 @@ int_enum_zonefile_fmt_decimal!(
 int_enum! {
     /// TLSA Selector type.
     ///
-    /// This type specifies which part of the TLS certificate presented by the server will be
-    /// matched against the association data
+    /// This type specifies which part of the TLS certificate presented by the
+    /// server will be matched against the association data
     ///
     /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2025-09-04.
+    /// type is complete as of the registry update of 2026-02-05.
     ///
     /// [TLSA]: ../../../rdata/tlsa/index.html
     /// [IANA registration]: https://www.iana.org/assignments/dane-parameters/dane-parameters.xhtml#selectors
@@ -75,7 +75,7 @@ int_enum! {
     /// This type specifies how the certificate association is presented.
     ///
     /// For the currently registered values see the [IANA registration]. This
-    /// type is complete as of 2025-09-04.
+    /// type is complete as of the registry update of 2026-02-05.
     ///
     /// [TLSA]: ../../../rdata/tlsa/index.html
     /// [IANA registration]: https://www.iana.org/assignments/dane-parameters/dane-parameters.xhtml#matching-types

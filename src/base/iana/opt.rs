@@ -163,11 +163,98 @@ int_enum! {
     /// [draft-bellis-dnsop-edns-tags]: https://datatracker.ietf.org/doc/draft-bellis-dnsop-edns-tags/
     (SERVER_TAG => 17, "EDNS-Server-Tag")
 
-    /// DeviceID (26946).
+    /// Report-Channel (18).
+    ///
+    /// DNS error reporting is a lightweight reporting mechanism that provides
+    /// the operator of an authoritative server with reports on DNS resource
+    /// records that fail to resolve or validate. Defined in [RFC9567].
+    ///
+    /// [RFC9567]: https://datatracker.ietf.org/doc/html/rfc9567
+    (REPORT_CHANNEL => 18, "Report-Channel")
+
+    /// ZONEVERSION (19).
+    ///
+    /// The DNS ZONEVERSION option is a way for DNS clients to request, and
+    /// for authoritative DNS servers to provide, information regarding the
+    /// version of the zone from which a response is generated. Defined in
+    /// [RFC9660].
+    ///
+    /// [RFC9660]: https://datatracker.ietf.org/doc/html/rfc9660
+    (ZONEVERSION => 19, "ZONEVERSION")
+
+    /// MQTYPE-Query (20).
+    ///
+    /// Client to request additional DNS record types to be delivered
+    /// alongside the primary record type specified in the question section of
+    /// a DNS QUERY (OpCode=0). Defined in [RFC-ietf-dnssd-multi-qtypes].
+    ///
+    /// [RFC-ietf-dnssd-multi-qtypes]: https://datatracker.ietf.org/doc/html/draft-ietf-dnssd-multi-qtypes
+    (MQTYPE_QUERY => 20, "MQTYPE-Query")
+
+    /// MQTYPE-Response (21).
+    ///
+    /// Server to respond with additional DNS records delivered alongside the
+    /// primary record type specified in the question section of a DNS QUERY
+    /// (OpCode=0). Defined in [RFC-ietf-dnssd-multi-qtypes].
+    ///
+    /// [RFC-ietf-dnssd-multi-qtypes]: https://datatracker.ietf.org/doc/html/draft-ietf-dnssd-multi-qtypes
+    (MQTYPE_RESPONSE => 21, "MQTYPE-Response")
+
+    /// EDE-EXTRA-TEXT-LANGUAGE (22).
+    ///
+    /// This option specifies the language that is used in the EXTRA-TEXT
+    /// field of EDNS Extended DNS Error options in the same DNS message.
+    /// Defined in [draft-muks-dns-filtering].
+    ///
+    /// [draft-muks-dns-filtering]: https://datatracker.ietf.org/doc/html/draft-muks-dns-filtering#name-ede-extra-text-language-edn
+    (EDE_EXTRA_TEXT_LANGUAGE => 22, "EDE-EXTRA-TEXT-LANGUAGE")
+
+    /// FILTERING-CONTACT (23).
+    ///
+    /// When DNS queries cause filtering to be performed by nameservers and
+    /// negative responses to be returned due to it, the nameserver MAY return
+    /// zero or more FILTERING-CONTACT EDNS options in responses, containing
+    /// contact information of the party that performed the filtering.
+    /// Defined in [draft-muks-dns-filtering].
+    ///
+    /// [draft-muks-dns-filtering]: https://datatracker.ietf.org/doc/html/draft-muks-dns-filtering#name-filtering-contact-edns-opti
+    (FILTERING_CONTACT => 23, "FILTERING-CONTACT")
+
+    /// FILTERING-ORGANIZATION (24).
+    ///
+    /// When DNS queries cause filtering to be performed by nameservers and
+    /// negative responses to be returned due to it, the nameserver MAY return
+    /// zero or one FILTERING-ORGANIZATION EDNS option in responses,
+    /// containing the name of the organization that performed the filtering.
+    /// Defined in [draft-muks-dns-filtering].
+    ///
+    /// [draft-muks-dns-filtering]: https://datatracker.ietf.org/doc/html/draft-muks-dns-filtering#name-filtering-organization-edns
+    (FILTERING_ORGANIZATION => 24, "FILTERING-ORGANIZATION")
+
+    /// FILTERING-DB (25).
+    ///
+    /// When DNS queries cause filtering to be performed by nameservers and
+    /// negative responses to be returned due to it, the nameserver MAY return
+    /// zero or one FILTERING-DB EDNS option in responses, containing the
+    /// identifier, name, or description of the filtering database against
+    /// which a matched query caused the filtering to occur.
+    /// Defined in [draft-muks-dns-filtering].
+    ///
+    /// [draft-muks-dns-filtering]: https://datatracker.ietf.org/doc/html/draft-muks-dns-filtering#name-filtering-db-edns-option
+    (FILTERING_DB => 25, "FILTERING-DB")
+
+    /// Umbrella Ident (20292).
     ///
     /// Ths option is used by the [Cisco Umbrella network device API].
     ///
-    /// [Cisco Umbrella network device API]: https://docs.umbrella.com/developer/networkdevices-api/identifying-dns-traffic2
+    /// [Cisco Umbrella network device API]: https://developer.cisco.com/docs/cloud-security/network-devices-with-cisco-umbrella-dns/#network-devices-with-cisco-umbrella-dns
+    (UMBRELLA_IDENT => 20292, "Umbrella Ident")
+
+    /// DeviceID (26946).
+    ///
+    /// This option is used by the [Cisco Umbrella network device API].
+    ///
+    /// [Cisco Umbrella network device API]: https://developer.cisco.com/docs/cloud-security/network-devices-with-cisco-umbrella-dns/#network-devices-with-cisco-umbrella-dns
     (DEVICE_ID => 26946, "DeviceId")
 }
 

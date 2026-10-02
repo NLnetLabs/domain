@@ -44,6 +44,10 @@ pub enum Nsec3HashError {
 
     /// The hash provider did not provide a hash for the given owner name.
     MissingHash,
+
+    /// The NSEC3 label cannot be prepended to the origin because that would
+    /// make the full name too long.
+    Nsec3NameTooLong,
 }
 
 //--- Display
@@ -65,6 +69,9 @@ impl core::fmt::Display for Nsec3HashError {
             }
             Nsec3HashError::MissingHash => {
                 f.write_str("Missing hash for owner name")
+            }
+            Nsec3HashError::Nsec3NameTooLong => {
+                f.write_str("Resulting NSEC3 owner name too long")
             }
         }
     }

@@ -139,7 +139,7 @@ mod test {
     use super::*;
     use crate::base::name::Name;
     use crate::base::rdata::test::{
-        test_compose_parse, test_rdlen, test_scan,
+        test_compose_parse, test_rdlen, test_scan_check,
     };
     use alloc::vec::Vec;
 
@@ -152,6 +152,6 @@ mod test {
             Cname::<Name<Vec<u8>>>::from_str("www.example.com").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cname::parse(parser));
-        test_scan(&["www.example.com"], Cname::scan, &rdata);
+        test_scan_check(&["www.example.com"], Cname::scan, &rdata);
     }
 }
