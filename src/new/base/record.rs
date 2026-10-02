@@ -255,6 +255,10 @@ where
 //----------- RType ----------------------------------------------------------
 
 /// The type of a record.
+///
+/// IANA maintains [the registry][iana-rtype] of assignments for Record Types.
+///
+/// [iana-rtype]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
 #[derive(
     Copy,
     Clone,
@@ -277,85 +281,91 @@ pub struct RType {
     pub code: U16,
 }
 
-//--- Associated Constants
-
 impl RType {
     /// Create a new [`RType`].
-    const fn new(value: u16) -> Self {
+    pub const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
         }
     }
-
-    /// The type of an [`A`](crate::new::rdata::A) record.
-    pub const A: Self = Self::new(1);
-
-    /// The type of an [`Ns`](crate::new::rdata::Ns) record.
-    pub const NS: Self = Self::new(2);
-
-    /// The type of a [`CName`](crate::new::rdata::CName) record.
-    pub const CNAME: Self = Self::new(5);
-
-    /// The type of an [`Soa`](crate::new::rdata::Soa) record.
-    pub const SOA: Self = Self::new(6);
-
-    /// The type of a [`Ptr`](crate::new::rdata::Ptr) record.
-    pub const PTR: Self = Self::new(12);
-
-    /// The type of a [`HInfo`](crate::new::rdata::HInfo) record.
-    pub const HINFO: Self = Self::new(13);
-
-    /// The type of a [`Mx`](crate::new::rdata::Mx) record.
-    pub const MX: Self = Self::new(15);
-
-    /// The type of a [`Txt`](crate::new::rdata::Txt) record.
-    pub const TXT: Self = Self::new(16);
-
-    /// The type of an [`Rp`](crate::new::rdata::Rp) record.
-    pub const RP: Self = Self::new(17);
-
-    /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
-    pub const AAAA: Self = Self::new(28);
-
-    /// The type of an [`Srv`](crate::new::rdata::Srv) record.
-    pub const SRV: Self = Self::new(33);
-
-    /// The type of a [`DName`](crate::new::rdata::DName) record.
-    pub const DNAME: Self = Self::new(39);
-
-    /// The type of an [`Opt`](crate::new::rdata::Opt) record.
-    pub const OPT: Self = Self::new(41);
-
-    /// The type of a [`Ds`](crate::new::rdata::Ds) record.
-    pub const DS: Self = Self::new(43);
-
-    /// The type of an [`Rrsig`](crate::new::rdata::Rrsig) record.
-    pub const RRSIG: Self = Self::new(46);
-
-    /// The type of an [`Nsec`](crate::new::rdata::Nsec) record.
-    pub const NSEC: Self = Self::new(47);
-
-    /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.
-    pub const DNSKEY: Self = Self::new(48);
-
-    /// The type of an [`Nsec3`](crate::new::rdata::Nsec3) record.
-    pub const NSEC3: Self = Self::new(50);
-
-    /// The type of an [`Nsec3Param`](crate::new::rdata::Nsec3Param) record.
-    pub const NSEC3PARAM: Self = Self::new(51);
-
-    /// The type of a `Cds` record.
-    pub const CDS: Self = Self::new(59);
-
-    /// The type of a `CDNSKey` record.
-    pub const CDNSKEY: Self = Self::new(60);
-
-    /// The type of a [`ZoneMD`](crate::new::rdata::ZoneMD) record.
-    pub const ZONEMD: Self = Self::new(63);
-
-    /// The type of a `TSig` record.
-    pub const TSIG: Self = Self::new(250);
 }
+
+//--- Associated Constants
+
+// [`RType`] implementation using macro. See macro for implementation details.
+known_values_define! (
+    RType::(pub TYPES, pub MNEMONICS) = [
+        /// The type of an [`A`](crate::new::rdata::A) record.
+        "A" as A = Self::new(1),
+
+        /// The type of an [`Ns`](crate::new::rdata::Ns) record.
+        "NS" as NS = Self::new(2),
+
+        /// The type of a [`CName`](crate::new::rdata::CName) record.
+        "CNAME" as CNAME = Self::new(5),
+
+        /// The type of an [`Soa`](crate::new::rdata::Soa) record.
+        "SOA" as SOA = Self::new(6),
+
+        /// The type of a [`Ptr`](crate::new::rdata::Ptr) record.
+        "PTR" as PTR = Self::new(12),
+
+        /// The type of a [`HInfo`](crate::new::rdata::HInfo) record.
+        "HINFO" as HINFO = Self::new(13),
+
+        /// The type of a [`Mx`](crate::new::rdata::Mx) record.
+        "MX" as MX = Self::new(15),
+
+        /// The type of a [`Txt`](crate::new::rdata::Txt) record.
+        "TXT" as TXT = Self::new(16),
+
+        /// The type of an [`Rp`](crate::new::rdata::Rp) record.
+        "RP" as RP = Self::new(17),
+
+        /// The type of an [`Aaaa`](crate::new::rdata::Aaaa) record.
+        "AAAA" as AAAA = Self::new(28),
+
+        /// The type of an [`Srv`](crate::new::rdata::Srv) record.
+        "SRV" as SRV = Self::new(33),
+
+        /// The type of a [`DName`](crate::new::rdata::DName) record.
+        "DNAME" as DNAME = Self::new(39),
+
+        /// The type of an [`Opt`](crate::new::rdata::Opt) record.
+        "OPT" as OPT = Self::new(41),
+
+        /// The type of a [`Ds`](crate::new::rdata::Ds) record.
+        "DS" as DS = Self::new(43),
+
+        /// The type of an [`Rrsig`](crate::new::rdata::Rrsig) record.
+        "RRSIG" as RRSIG = Self::new(46),
+
+        /// The type of an [`Nsec`](crate::new::rdata::Nsec) record.
+        "NSEC" as NSEC = Self::new(47),
+
+        /// The type of a [`DNSKey`](crate::new::rdata::DNSKey) record.
+        "DNSKEY" as DNSKEY = Self::new(48),
+
+        /// The type of an [`Nsec3`](crate::new::rdata::Nsec3) record.
+        "NSEC3" as NSEC3 = Self::new(50),
+
+        /// The type of an [`Nsec3Param`](crate::new::rdata::Nsec3Param) record.
+        "NSEC3PARAM" as NSEC3PARAM = Self::new(51),
+
+        /// The type of a `Cds` record.
+        "CDS" as CDS = Self::new(59),
+
+        /// The type of a `CDNSKey` record.
+        "CDNSKEY" as CDNSKEY = Self::new(60),
+
+        /// The type of a [`ZoneMD`](crate::new::rdata::ZoneMD) record.
+        "ZONEMD" as ZONEMD = Self::new(63),
+
+        /// The type of a `TSig` record.
+        "TSIG" as TSIG = Self::new(250),
+    ];
+
+);
 
 //--- Interaction
 
@@ -411,105 +421,72 @@ impl RType {
 
 //--- Conversion to and from 'u16'
 
-impl From<u16> for RType {
-    fn from(value: u16) -> Self {
-        Self {
-            code: U16::new(value),
+known_values_from_and_to_primitive!(RType, u16);
+
+//--- Formatting
+
+/// Format a [`RType`] for debugging.
+///
+/// The output displays the mnemonic, if known, and the code associated to the
+/// [`RType`].
+///
+/// ```
+/// # use domain::new::base::RType;
+/// // Known Record Type.
+/// assert_eq!(
+///     "RType::A(1)",
+///     format!("{:?}", RType::A)
+/// );
+/// // Unknown Record Type.
+/// assert_eq!(
+///     "RType(42)",
+///     format!("{:?}", RType::from(42))
+/// );
+/// ```
+impl fmt::Debug for RType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "RType::{}({})", m, self.code),
+            None => write!(f, "RType({})", self.code),
         }
     }
 }
 
-impl From<RType> for u16 {
-    fn from(value: RType) -> Self {
-        value.code.get()
-    }
-}
-
-//--- Formatting
-
-impl fmt::Debug for RType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::A => "RType::A",
-            Self::NS => "RType::NS",
-            Self::CNAME => "RType::CNAME",
-            Self::SOA => "RType::SOA",
-            Self::PTR => "RType::PTR",
-            Self::HINFO => "RType::HINFO",
-            Self::MX => "RType::MX",
-            Self::TXT => "RType::TXT",
-            Self::RP => "RType::RP",
-            Self::AAAA => "RType::AAAA",
-            Self::SRV => "RType::SRV",
-            Self::DNAME => "RType::DNAME",
-            Self::OPT => "RType::OPT",
-            Self::DS => "RType::DS",
-            Self::RRSIG => "RType::RRSIG",
-            Self::NSEC => "RType::NSEC",
-            Self::DNSKEY => "RType::DNSKEY",
-            Self::NSEC3 => "RType::NSEC3",
-            Self::NSEC3PARAM => "RType::NSEC3PARAM",
-            Self::CDS => "RType::CDS",
-            Self::CDNSKEY => "RType::CDNSKEY",
-            Self::ZONEMD => "RType::ZONEMD",
-            Self::TSIG => "RType::TSIG",
-            _ => return write!(f, "RType({})", self.code),
-        })
-    }
-}
-
-/// Format an [`RType`] in a human-readable way
+/// Format a [`RType`] in a human-readable way.
 ///
 /// Return the mnemonic of [`RType`]. If [`RType`] is unknown, then the
 /// returned string contains the type in the unknown format as defined in
-/// Section 5 in [RFC3597].
+/// [Section 5 of RFC3597].
 ///
 /// The mnemonics are consolidated by [IANA].
 ///
 /// ```
 /// # use domain::new::base::RType;
-/// // Known RType with mnemonic
+/// // Known Record Type with mnemonic.
 /// assert_eq!("A", format!("{}", RType::A));
-/// // Unknown RType
+/// // Unknown Record Type.
 /// assert_eq!("TYPE265", format!("{}", RType::from(265)));
 /// ```
 ///
-/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
-/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+/// [Section 5 of RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
 impl fmt::Display for RType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::A => "A",
-            Self::NS => "NS",
-            Self::CNAME => "CNAME",
-            Self::SOA => "SOA",
-            Self::PTR => "PTR",
-            Self::HINFO => "HINFO",
-            Self::MX => "MX",
-            Self::TXT => "TXT",
-            Self::RP => "RP",
-            Self::AAAA => "AAAA",
-            Self::SRV => "SRV",
-            Self::DNAME => "DNAME",
-            Self::OPT => "OPT",
-            Self::DS => "DS",
-            Self::RRSIG => "RRSIG",
-            Self::NSEC => "NSEC",
-            Self::DNSKEY => "DNSKEY",
-            Self::NSEC3 => "NSEC3",
-            Self::NSEC3PARAM => "NSEC3PARAM",
-            Self::CDS => "CDS",
-            Self::CDNSKEY => "CDNSKEY",
-            Self::ZONEMD => "ZONEMD",
-            Self::TSIG => "TSIG",
-            _ => return write!(f, "TYPE{}", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "{}", m),
+            None => write!(f, "TYPE{}", self.code),
+        }
     }
 }
 
 //----------- RClass ---------------------------------------------------------
 
 /// The class of a record.
+///
+/// IANA maintains [the registry][iana-rclass] of assignments for Record
+/// Classes.
+///
+/// [iana-rclass]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
 #[derive(
     Copy,
     Clone,
@@ -536,72 +513,79 @@ pub struct RClass {
 
 impl RClass {
     /// Create a new [`RType`].
-    const fn new(value: u16) -> Self {
+    pub const fn new(value: u16) -> Self {
         Self {
             code: U16::new(value),
         }
     }
-
-    /// The Internet class.
-    pub const IN: Self = Self::new(1);
-
-    /// The CHAOS class.
-    pub const CH: Self = Self::new(3);
 }
+
+known_values_define! (
+    RClass::(pub CLASSES, pub MNEMONICS) = [
+        /// The Internet class.
+        "IN" as IN = Self::new(1),
+        /// The CHAOS class.
+        "CH" as CH = Self::new(3),
+    ];
+);
 
 //--- Conversion to and from 'u16'
 
-impl From<u16> for RClass {
-    fn from(value: u16) -> Self {
-        Self {
-            code: U16::new(value),
+known_values_from_and_to_primitive!(RClass, u16);
+
+//--- Formatting
+
+/// Format a [`RClass`] for debugging.
+///
+/// The output displays the mnemonic, if known, and the code associated to the
+/// [`RClass`].
+///
+/// ```
+/// # use domain::new::base::RClass;
+/// // Known Record Class.
+/// assert_eq!(
+///     "RClass::IN(1)",
+///     format!("{:?}", RClass::IN)
+/// );
+/// // Unknown Record Class.
+/// assert_eq!(
+///     "RClass(42)",
+///     format!("{:?}", RClass::from(42))
+/// );
+/// ```
+impl fmt::Debug for RClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "RClass::{}({})", m, self.code),
+            None => write!(f, "RClass({})", self.code),
         }
     }
 }
 
-impl From<RClass> for u16 {
-    fn from(value: RClass) -> Self {
-        value.code.get()
-    }
-}
-
-//--- Formatting
-
-impl fmt::Debug for RClass {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::IN => "RClass::IN",
-            Self::CH => "RClass::CH",
-            _ => return write!(f, "RClass({})", self.code),
-        })
-    }
-}
-
-/// Format an [`RClass`] in a human-readable way
+/// Format a [`RClass`] in a human-readable way.
 ///
 /// Return the mnemonic of [`RClass`]. If [`RClass`] is unknown, then the
 /// returned string contains the class in the unknown format as defined in
-/// Section 5 in [RFC3597].
+/// [Section 5 of RFC3597].
 ///
 /// The mnemonics are consolidated by [IANA].
 ///
 /// ```
 /// # use domain::new::base::RClass;
-/// // Known RClass with mnemonic
+/// // Known Record Class with mnemonic.
 /// assert_eq!("IN", format!("{}", RClass::IN));
-/// // Unknown RClass
+/// // Unknown Record Class.
 /// assert_eq!("CLASS42", format!("{}", RClass::from(42)));
 /// ```
 ///
-/// [RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
-/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+/// [Section 5 of RFC3597]: https://datatracker.ietf.org/doc/html/rfc3597#section-5
+/// [IANA]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
 impl fmt::Display for RClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match *self {
-            Self::IN => "IN",
-            Self::CH => "CH",
-            _ => return write!(f, "CLASS{}", self.code),
-        })
+        match self.get_mnemonic() {
+            Some(m) => write!(f, "{}", m),
+            None => write!(f, "CLASS{}", self.code),
+        }
     }
 }
 
@@ -873,12 +857,10 @@ impl<N> Record<N, BoxedRecordData> {
 
 #[cfg(test)]
 mod test {
-    #[cfg(feature = "alloc")]
-    use alloc::format;
-
     use super::{RClass, RType, Record, TTL, UnparsedRecordData};
 
     use crate::new::base::{
+        QClass, QType,
         name::Name,
         wire::{AsBytes, BuildBytes, ParseBytes, SplitBytes},
     };
@@ -923,19 +905,97 @@ mod test {
         assert_eq!(number, 6);
     }
 
-    #[cfg(feature = "alloc")]
     #[test]
-    fn test_rclass_display() {
-        assert_eq!("IN", format!("{}", RClass::IN));
-        assert_eq!("CH", format!("{}", RClass::CH));
-        assert_eq!("CLASS42", format!("{}", RClass::from(42)));
+    fn test_rtype_from_mnemonic() {
+        assert_eq!(RType::from_mnemonic("A").unwrap(), RType::A);
+        assert_eq!(RType::from_mnemonic("MX").unwrap(), RType::MX);
+        // Make sure from_mnemonic does NOT parse unknown format.
+        assert!(RType::from_mnemonic("TYPE10").is_none());
     }
 
-    #[cfg(feature = "alloc")]
     #[test]
-    fn test_rtype_display() {
-        assert_eq!("A", format!("{}", RType::A));
-        assert_eq!("MX", format!("{}", RType::MX));
-        assert_eq!("TYPE265", format!("{}", RType::from(265)));
+    fn test_rclass_from_mnemonic() {
+        assert_eq!(RClass::from_mnemonic("IN").unwrap(), RClass::IN);
+        assert_eq!(RClass::from_mnemonic("CH").unwrap(), RClass::CH);
+        // Make sure from_mnemonic does NOT parse unknown format.
+        assert!(RClass::from_mnemonic("CLASS10").is_none());
+    }
+
+    // Currently `RType` (Record Type) and `QType` (Question Type) are
+    // separate. Reason is that the overlap between the two is big but not
+    // complete. See IANA definition below.
+    // https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
+    //
+    // To prevent drift of the implementation this test confirms the overlap
+    // but keeps track of exceptions where there is no overlap.
+    #[test]
+    fn test_rtype_qtype_sync() {
+        // Specify the special cases
+        const RTYPE_ONLY: &[RType] = &[];
+        const QTYPE_ONLY: &[QType] = &[QType::IXFR, QType::AXFR, QType::ANY];
+
+        let mut rtype: Option<&str>;
+        let mut qtype: Option<&str>;
+
+        // Iterate over the entire Type space
+        for i in 0..=u16::MAX {
+            rtype = RType::from(i).get_mnemonic();
+            qtype = QType::from(i).get_mnemonic();
+            match (rtype, qtype) {
+                // Both implement this type. This should be the most common
+                // case. Now make sure the resulting mnemonic is the same.
+                (Some(rtype), Some(qtype)) => {
+                    assert_eq!(rtype, qtype);
+                }
+                // Both do not implement this Type. This is ok.
+                (None, None) => (),
+
+                // RType does not implement this Type, but QType does. This is
+                // _only_ in specific cases ok.
+                (None, Some(qtype)) => {
+                    // check if the QType is allowed.
+                    assert!(
+                        QTYPE_ONLY.contains(&i.into()),
+                        "Failed for {qtype:?}"
+                    );
+                }
+                // RType does implement this Type, but QType does not. This is
+                // _only_ in specific cases ok.
+                (Some(rtype), None) => {
+                    assert!(
+                        RTYPE_ONLY.contains(&i.into()),
+                        "Failed for {rtype:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    // The same (as for QType and RType, see above) applies for RClass and
+    // QClass. But currently there are no differences in the defined Classes
+    // therefore a quick comparision is enough.
+    #[test]
+    fn test_rclass_qclass_sync() {
+        let mut rclass: Option<&str>;
+        let mut qclass: Option<&str>;
+        for i in 0..=u16::MAX {
+            rclass = RClass::from(i).get_mnemonic();
+            qclass = QClass::from(i).get_mnemonic();
+            match (rclass, qclass) {
+                // Both implement this type. This should be the most common
+                // case. Now make sure the resulting mnemonic is the same.
+                (Some(rtype), Some(qtype)) => {
+                    assert_eq!(rtype, qtype);
+                }
+                // Both do not implement this Type. This is ok.
+                (None, None) => (),
+                (None, Some(qclass)) => {
+                    panic!("{qclass:?} not correctly implemented for both")
+                }
+                (Some(rclass), None) => {
+                    panic!("{rclass:?} not correctly implemented for both")
+                }
+            }
+        }
     }
 }
