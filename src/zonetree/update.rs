@@ -666,6 +666,64 @@ impl ReopenableZoneWriter {
     }
 }
 
+//------------ Error ----------------------------------------------------------
+
+/// Zone update error.
+#[derive(Debug)]
+pub enum Error {
+    /// The record owner is outside the zone.
+    OutOfZone,
+
+    /// The record must be a SOA record.
+    NotSoaRecord,
+
+    /// An attempt was made to remove a record that doesn't exist or to add a
+    /// record that already exists.
+    ///
+    /// No further updates to the zone will be permitted as it is only safe to
+    /// apply a diff to a zone if the updater and the updatee share the same
+    /// view of the zone.
+    ///
+    /// Updates already applied will be discarded when the [`ZoneUpdater`]
+    /// instance is dropped.
+    IncompatibleUpdate,
+
+    /// An I/O error occurred while updating the zone.
+    IoError(std::io::Error),
+
+    /// The updater has finished and cannot be used anymore.
+    Finished,
+}
+
+//--- Display
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Error::OutOfZone => f.write_str("OutOfZone"),
+            Error::NotSoaRecord => f.write_str("NotSoaRecord"),
+            Error::IncompatibleUpdate => f.write_str("IncompatibleUpdate"),
+            Error::IoError(err) => write!(f, "I/O error: {err}"),
+
+            Error::Finished => f.write_str("Finished"),
+        }
+    }
+}
+
+//--- From
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self::IoError(err)
+    }
+}
+
+impl From<OutOfZone> for Error {
+    fn from(_: OutOfZone) -> Self {
+        Self::OutOfZone
+    }
+}
+
 //------------ Tests ----------------------------------------------------------
 
 #[cfg(test)]
@@ -1732,63 +1790,5 @@ mod tests {
         answer
             .push((qname, qclass, Ttl::from_secs(0), item))
             .unwrap();
-    }
-}
-
-//------------ Error ----------------------------------------------------------
-
-/// Zone update error.
-#[derive(Debug)]
-pub enum Error {
-    /// The record owner is outside the zone.
-    OutOfZone,
-
-    /// The record must be a SOA record.
-    NotSoaRecord,
-
-    /// An attempt was made to remove a record that doesn't exist or to add a
-    /// record that already exists.
-    ///
-    /// No further updates to the zone will be permitted as it is only safe to
-    /// apply a diff to a zone if the updater and the updatee share the same
-    /// view of the zone.
-    ///
-    /// Updates already applied will be discarded when the [`ZoneUpdater`]
-    /// instance is dropped.
-    IncompatibleUpdate,
-
-    /// An I/O error occurred while updating the zone.
-    IoError(std::io::Error),
-
-    /// The updater has finished and cannot be used anymore.
-    Finished,
-}
-
-//--- Display
-
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Error::OutOfZone => f.write_str("OutOfZone"),
-            Error::NotSoaRecord => f.write_str("NotSoaRecord"),
-            Error::IncompatibleUpdate => f.write_str("IncompatibleUpdate"),
-            Error::IoError(err) => write!(f, "I/O error: {err}"),
-
-            Error::Finished => f.write_str("Finished"),
-        }
-    }
-}
-
-//--- From
-
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Self::IoError(err)
-    }
-}
-
-impl From<OutOfZone> for Error {
-    fn from(_: OutOfZone) -> Self {
-        Self::OutOfZone
     }
 }
