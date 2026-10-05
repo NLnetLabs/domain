@@ -333,7 +333,7 @@ jobs:
     - name: Enable annotations
       run: echo "::add-matcher::.github/workflows/rust-annotations.json"
 
-    # Do the actually Clippy run.
+    # Do the actual Clippy run.
     - name: Check Clippy
       run: cargo clippy --all-targets --all-features
 
