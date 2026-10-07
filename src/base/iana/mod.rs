@@ -85,7 +85,8 @@ mod test {
     use crate::base::iana::tlsa::TlsaSelector;
     use crate::base::iana::zonemd::ZonemdAlgorithm;
     use crate::base::iana::zonemd::ZonemdScheme;
-
+    use crate::base::scan::IterScanner;
+    use alloc::vec::Vec;
     use core::fmt::Debug;
     use core::fmt::Display;
     use core::str::FromStr;
@@ -558,5 +559,49 @@ mod test {
             "42",
             r#"42"#,
         );
+    }
+
+    #[test]
+    fn security_algorithm_scanner_accepts_decimal_and_mnemonic() {
+        let scanned = ["8", "RSASHA256"].map(|token| {
+            let mut scanner = IterScanner::<_, Vec<u8>>::new([token]);
+            SecurityAlgorithm::scan(&mut scanner).unwrap()
+        });
+
+        assert_eq!(scanned, [SecurityAlgorithm::RSASHA256; 2]);
+    }
+
+    #[test]
+    fn decimal_scanners_reject_all_mnemonics() {
+        macro_rules! assert_rejects_mnemonics {
+            ($ianatype:path) => {
+                for value in 0..=u8::MAX {
+                    let value = <$ianatype>::from_int(value);
+                    let Some(mnemonic) = value.to_mnemonic_str() else {
+                        continue;
+                    };
+                    let mut scanner = IterScanner::<_, Vec<u8>>::new(
+                        [mnemonic].into_iter(),
+                    );
+                    assert!(
+                        <$ianatype>::scan(&mut scanner).is_err(),
+                        "{} accepted mnemonic {mnemonic}",
+                        stringify!($ianatype)
+                    );
+                }
+            };
+        }
+
+        assert_rejects_mnemonics!(DigestAlgorithm);
+        assert_rejects_mnemonics!(IpseckeyAlgorithm);
+        assert_rejects_mnemonics!(IpseckeyGatewayType);
+        assert_rejects_mnemonics!(Nsec3HashAlgorithm);
+        assert_rejects_mnemonics!(SshfpAlgorithm);
+        assert_rejects_mnemonics!(SshfpType);
+        assert_rejects_mnemonics!(TlsaCertificateUsage);
+        assert_rejects_mnemonics!(TlsaMatchingType);
+        assert_rejects_mnemonics!(TlsaSelector);
+        assert_rejects_mnemonics!(ZonemdAlgorithm);
+        assert_rejects_mnemonics!(ZonemdScheme);
     }
 }
