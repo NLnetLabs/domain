@@ -271,5 +271,9 @@ mod test {
             &Chain::new(Name::<Vec<u8>>::from_str("example.com").unwrap()),
             |parser| Chain::parse(parser),
         );
+        test_option_compose_parse(
+            &Chain::<Name<Vec<u8>>>::empty(),
+            |parser| Chain::parse(parser),
+        );
     }
 }
