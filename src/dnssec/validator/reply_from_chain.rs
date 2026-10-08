@@ -28,7 +28,7 @@ use std::sync::Mutex;
 type AnyRecord =
     Record<ParsedName<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
 
-/// A container for CHAIN [RFC7901] reply.
+/// A container for CHAIN [RFC 7901] reply.
 ///
 /// Used to provide DNSSEC records directly from a CHAIN response,
 /// avoiding upstream requests when possible.
@@ -72,7 +72,7 @@ impl<Upstream> ReplyFromChain<Upstream> {
 
     /// Creates an empty value with the provided upstream.
     ///
-    /// [`ReplyFromChain::set_from_message`] can be used to add reply data.
+    /// [`ReplyFromChain::add_from_message`] can be used to add reply data.
     pub fn empty(upstream: Upstream) -> Self {
         Self {
             records: Arc::new(Mutex::new(Vec::new())),
