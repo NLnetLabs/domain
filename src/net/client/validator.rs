@@ -130,6 +130,7 @@ use core::pin::Pin;
 /// Configuration of a validator.
 #[derive(Clone, Default, Debug)]
 pub struct Config {
+    /// Should CHAIN EDNS0 option be sent in request?
     request_chain_query: bool,
 }
 
@@ -141,6 +142,7 @@ impl Config {
         Default::default()
     }
 
+    /// Enables or disables CHAIN EDNS0 option in requests.
     pub fn set_request_chain_query(&mut self, value: bool) {
         self.request_chain_query = value;
     }
@@ -157,7 +159,10 @@ pub struct Connection<Upstream, VCOcts, VCUpstream> {
     /// The validation context for this connection.
     vc: Arc<ValidationContext<VCUpstream>>,
 
+    /// The validation context for CHAIN requests for this connection.
     chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
+
+    /// The CHAIN reply container for this connection.
     reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
 
     /// The configuration of this connection.
@@ -264,7 +269,10 @@ where
     /// The validation context.
     vc: Arc<ValidationContext<VCUpstream>>,
 
+    /// The validation context for CHAIN requests.
     chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
+
+    /// The CHAIN reply container for this connection.
     reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
 
     /// The configuration of the connection.
@@ -497,7 +505,7 @@ where
                     self.reply_from_chain
                         .as_ref()
                         .unwrap()
-                        .set_from_message(response_msg);
+                        .add_from_message(response_msg);
 
                     let res = self
                         .chain_vc
@@ -880,13 +888,15 @@ fn serve_fail(
     Ok(msg)
 }
 
+/// Checks if the response message contains CHAIN response.
+///
+/// This checks whether the CHAIN EDNS0 option is present and if it has a
+/// non-empty value, because it can also be empty to indicate lack of related
+/// records in the reply, for any reason.
 fn has_chain_query_option(msg: &Message<Bytes>) -> bool {
     let Some(opt) = msg.opt() else {
         return false;
     };
 
-    if let Some(chain) = opt.opt().chain() {
-        return true;
-    }
-    false
+    opt.opt().chain().is_some_and(|c| c.start().is_some())
 }

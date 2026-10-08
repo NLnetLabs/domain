@@ -732,10 +732,12 @@ impl<Upstream> ValidationContext<Upstream> {
         Ok((ValidationState::Bogus, ede))
     }
 
+    /// Get DNSSEC trust anchors.
     pub fn get_ta(&self) -> &TrustAnchors {
         &self.ta
     }
 
+    /// Get Upstream client transport.
     pub fn get_upstream(&self) -> Upstream
     where
         Upstream: Clone,
