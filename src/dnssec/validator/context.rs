@@ -1406,12 +1406,15 @@ impl<VCUpstream> ValidationContext<ReplyFromChain<VCUpstream>> {
         };
 
         let qname = question.into_qname();
-        if let Some(cached_node) =
-            self.cache_lookup(&qname.to_name::<Bytes>()).await
-            && matches!(
-                cached_node.validation_state(),
-                ValidationState::Secure | ValidationState::Insecure
-            )
+        if self
+            .cache_lookup(&qname.to_name::<Bytes>())
+            .await
+            .is_some_and(move |cached_node| {
+                matches!(
+                    cached_node.validation_state(),
+                    ValidationState::Secure | ValidationState::Insecure
+                )
+            })
         {
             // TODO: Do we send chain even if we have everything cached?
             return None;
@@ -1419,12 +1422,15 @@ impl<VCUpstream> ValidationContext<ReplyFromChain<VCUpstream>> {
 
         let mut current = qname;
         while current.parent() {
-            if let Some(cached_node) =
-                self.cache_lookup(&current.to_name::<Bytes>()).await
-                && matches!(
-                    cached_node.validation_state(),
-                    ValidationState::Secure | ValidationState::Insecure
-                )
+            if self
+                .cache_lookup(&qname.to_name::<Bytes>())
+                .await
+                .is_some_and(move |cached_node| {
+                    matches!(
+                        cached_node.validation_state(),
+                        ValidationState::Secure | ValidationState::Insecure
+                    )
+                })
             {
                 return Some(crate::base::opt::Chain::new(current.to_name()));
             }

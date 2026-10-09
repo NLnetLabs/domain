@@ -347,13 +347,14 @@ where
                         self.request_msg.header_mut().set_cd(true);
                     }
 
-                    if let Some(chain_vc) = &self.chain_vc
-                        && let Some(chain_opt) = chain_vc
+                    if let Some(chain_vc) = &self.chain_vc {
+                        if let Some(chain_opt) = chain_vc
                             .generate_chain_option(&self.request_msg)
                             .await
-                    {
-                        // TODO: What on error?
-                        let _ = self.request_msg.add_opt(&chain_opt);
+                        {
+                            // TODO: What on error?
+                            let _ = self.request_msg.add_opt(&chain_opt);
+                        }
                     }
 
                     let request =
