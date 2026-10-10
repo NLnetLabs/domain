@@ -81,12 +81,12 @@ const RESPONSE_WRITE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
 
 /// Limit on the number of DNS responses queued for writing to the client.
 ///
-/// The value has to be between zero and 1,024. The default value is 10. These
+/// The value has to be between one and 1,024. The default value is 10. These
 /// numbers are just a guess at something reasonable.
 ///
 /// If the limit is hit handling of client requests will block until space
 /// becomes available.
-const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
+const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 1, 1024);
 
 //----------- Config ---------------------------------------------------------
 
@@ -181,7 +181,7 @@ impl Config {
     /// Set the limit on the number of DNS responses queued for writing to the
     /// client.
     ///
-    /// The value has to be between zero and 1,024. The default value is 10.
+    /// The value has to be between one and 1,024. The default value is 10.
     /// These numbers are just a guess at something reasonable.
     ///
     /// DNS response messages will be discarded if they cannot be queued for
@@ -196,7 +196,7 @@ impl Config {
     /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     pub fn set_max_queued_responses(&mut self, value: usize) {
-        self.max_queued_responses = value;
+        self.max_queued_responses = MAX_QUEUED_RESPONSES.limit(value);
     }
 }
 
@@ -1163,5 +1163,21 @@ where
         _meta: &(),
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(async move { self.do_enqueue_response(response).await })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn max_queued_responses_is_limited() {
+        let mut config = Config::new();
+
+        config.set_max_queued_responses(usize::MAX);
+        assert_eq!(config.max_queued_responses, 1024);
+
+        config.set_max_queued_responses(0);
+        assert_eq!(config.max_queued_responses, 1);
     }
 }
