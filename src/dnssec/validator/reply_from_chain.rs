@@ -179,7 +179,7 @@ fn create_reply(
 
 #[cfg(test)]
 mod tests {
-    use core::{cmp::Ordering, str::FromStr, sync::atomic::AtomicUsize};
+    use core::{cmp::Ordering, str::FromStr};
 
     use crate::{
         base::{
@@ -193,48 +193,6 @@ mod tests {
     };
 
     use super::*;
-
-    #[derive(Debug)]
-    struct ErrorResponse;
-
-    impl GetResponse for ErrorResponse {
-        fn get_response(
-            &mut self,
-        ) -> Pin<
-            Box<
-                dyn Future<Output = Result<Message<Bytes>, Error>>
-                    + Send
-                    + Sync,
-            >,
-        > {
-            Box::pin(ready(Err(Error::ConnectionClosed)))
-        }
-    }
-
-    #[derive(Clone, Default)]
-    struct UpstreamSendRequest {
-        calls: Arc<AtomicUsize>,
-    }
-
-    impl UpstreamSendRequest {
-        fn get_call_count(&self) -> usize {
-            self.calls.load(core::sync::atomic::Ordering::Relaxed)
-        }
-    }
-
-    impl<CR> SendRequest<CR> for UpstreamSendRequest
-    where
-        CR: ComposeRequest,
-    {
-        fn send_request(
-            &self,
-            _request_msg: CR,
-        ) -> Box<dyn GetResponse + Send + Sync> {
-            self.calls
-                .fetch_add(1, core::sync::atomic::Ordering::Release);
-            Box::new(ErrorResponse)
-        }
-    }
 
     fn build_dnskey_rr<Octs>() -> Dnskey<Octs>
     where
