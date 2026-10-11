@@ -161,10 +161,10 @@ pub struct Connection<Upstream, VCOcts, VCUpstream> {
     vc: Arc<ValidationContext<VCUpstream>>,
 
     /// The validation context for CHAIN requests for this connection.
-    chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
+    chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
 
     /// The CHAIN reply container for this connection.
-    reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
+    reply_from_chain: Option<ReplyFromChain>,
 
     /// The configuration of this connection.
     config: Config,
@@ -202,7 +202,7 @@ impl<Upstream, VCOcts, VCUpstream> Connection<Upstream, VCOcts, VCUpstream> {
     {
         let (chain_vc, reply_from_chain) = if config.request_chain_query {
             let ta = vc.get_ta().clone();
-            let reply_from_chain = ReplyFromChain::empty(vc.get_upstream());
+            let reply_from_chain = ReplyFromChain::empty();
             let vc = ValidationContext::new(ta, reply_from_chain.clone());
             (Some(Arc::new(vc)), Some(reply_from_chain))
         } else {
@@ -271,10 +271,10 @@ where
     vc: Arc<ValidationContext<VCUpstream>>,
 
     /// The validation context for CHAIN requests.
-    chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
+    chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
 
     /// The CHAIN reply container.
-    reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
+    reply_from_chain: Option<ReplyFromChain>,
 
     /// The CHAIN option in the latest CHAIN request.
     latest_requested_chain: Option<Chain<Name<Bytes>>>,
@@ -302,8 +302,8 @@ where
         request_msg: CR,
         upstream: Upstream,
         vc: Arc<ValidationContext<VCUpstream>>,
-        chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
-        reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
+        chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
+        reply_from_chain: Option<ReplyFromChain>,
         config: Config,
     ) -> Request<CR, Upstream, VCOcts, VCUpstream> {
         Self {
@@ -529,7 +529,7 @@ where
                         .chain_vc
                         .as_ref()
                         .unwrap()
-                        .validate_msg(response_msg)
+                        .validate_msg::<_, Bytes>(response_msg)
                         .await;
                     return match res {
                         Err(err) => Err(Error::Validation(err)),

@@ -1380,20 +1380,17 @@ impl<Upstream> ValidationContext<Upstream> {
     }
 }
 
-impl<VCUpstream> ValidationContext<ReplyFromChain<VCUpstream>> {
+impl ValidationContext<ReplyFromChain> {
     /// Generate a CHAIN EDNS option.
     ///
     /// This will send the closes trust point in the chain (furthest from the root) that is found
     /// in cache. This returns None if requested name is already cached.
-    pub async fn generate_chain_option<CR, Octs>(
+    pub async fn generate_chain_option<CR>(
         &self,
         request: &CR,
     ) -> Option<crate::base::opt::Chain<Name<Bytes>>>
     where
         CR: ComposeRequest,
-        Octs:
-            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
-        VCUpstream: SendRequest<RequestMessage<Octs>>,
     {
         let msg = request.to_message().ok()?;
         let question = msg.sole_question().ok()?;

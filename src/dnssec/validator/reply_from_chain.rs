@@ -3,12 +3,10 @@
 //! It could be made fully general and moved to net::client if that is desired.
 use crate::base::Message;
 use crate::base::MessageBuilder;
-use crate::base::Name;
 use crate::base::ParsedName;
 use crate::base::Record;
 use crate::base::StaticCompressor;
 use crate::base::iana::Rcode;
-use crate::base::opt::Chain;
 use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::Error;
@@ -30,25 +28,20 @@ type AnyRecord =
 
 /// A container for CHAIN [RFC 7901] reply.
 ///
-/// Used to provide DNSSEC records directly from a CHAIN response,
-/// avoiding upstream requests when possible.
+/// Used to provide DNSSEC records directly from a CHAIN response.
 ///
 /// [RFC 7901]: https://tools.ietf.org/html/rfc7901
 #[derive(Debug, Clone)]
-pub struct ReplyFromChain<Upstream> {
+pub struct ReplyFromChain {
     /// List of all records from CHAIN reply.
     ///
     /// This contains both answer and authority sections records.
     records: Arc<Mutex<Vec<AnyRecord>>>,
-    /// The CHAIN EDNS0 option value from the reply.
-    chain: Arc<Mutex<Chain<Name<Bytes>>>>,
-    /// The upstream [`SendRequest`] to use for records outside of this chain.
-    upstream: Upstream,
 }
 
-impl<Upstream> ReplyFromChain<Upstream> {
-    /// Creates a new value from the provided reply and upstream.
-    pub fn new(msg: &Message<Bytes>, upstream: Upstream) -> Self {
+impl ReplyFromChain {
+    /// Creates a new value from the provided reply.
+    pub fn new(msg: &Message<Bytes>) -> Self {
         let mut records = Vec::new();
         for rr in msg.answer().unwrap() {
             let rr = rr.unwrap();
@@ -60,29 +53,21 @@ impl<Upstream> ReplyFromChain<Upstream> {
             let rr = rr.into_record().unwrap().unwrap();
             records.push(rr);
         }
-        let chain =
-            Arc::new(Mutex::new(msg.opt().unwrap().opt().chain().unwrap()));
         let records = Arc::new(Mutex::new(records));
-        Self {
-            records,
-            chain,
-            upstream,
-        }
+        Self { records }
     }
 
-    /// Creates an empty value with the provided upstream.
+    /// Creates an empty value.
     ///
     /// [`ReplyFromChain::add_from_message`] can be used to add reply data.
-    pub fn empty(upstream: Upstream) -> Self {
+    pub fn empty() -> Self {
         Self {
             records: Arc::new(Mutex::new(Vec::new())),
-            chain: Arc::new(Mutex::new(Chain::empty())),
-            upstream,
         }
     }
 }
 
-impl<Upstream> ReplyFromChain<Upstream> {
+impl ReplyFromChain {
     /// Adds records from the provided message.
     pub fn add_from_message(&self, msg: &Message<Bytes>) {
         let mut records = self.records.lock().unwrap();
@@ -96,15 +81,12 @@ impl<Upstream> ReplyFromChain<Upstream> {
             let rr = rr.into_record().unwrap().unwrap();
             (*records).push(rr);
         }
-        let chain = msg.opt().unwrap().opt().chain().unwrap();
-        *(self.chain.lock().unwrap()) = chain.clone();
     }
 }
 
-impl<CR, Upstream> SendRequest<CR> for ReplyFromChain<Upstream>
+impl<CR> SendRequest<CR> for ReplyFromChain
 where
     CR: ComposeRequest,
-    Upstream: SendRequest<CR>,
 {
     fn send_request(
         &self,
@@ -131,32 +113,10 @@ where
                 }
             }
         }
-        if !result.is_empty() {
-            let reply = create_reply(&inner_msg, result);
-            Box::new(ReplyResponse::new(reply))
-        } else {
-            if self
-                .chain
-                .lock()
-                .unwrap()
-                .start()
-                .is_none_or(|chain| !question.qname().ends_with(chain))
-            {
-                // Outside of this CHAIN reply, send upstream
-                // TODO: This assumes we have received everything in a single
-                // reply
-                // We should probably make multiple CHAIN requests right away
-                // TODO: depending on interpretation of CHAIN in reply, this
-                // might be wrong - e.g. for example.com. with request
-                // CHAIN=com. this is right now expected to return com., but
-                // it might also make sense to return example.com. in which
-                // case this check is wrong.
-                self.upstream.send_request(msg)
-            } else {
-                let reply = create_reply(&inner_msg, result);
-                Box::new(ReplyResponse::new(reply))
-            }
-        }
+
+        // If the records aren't found, just return an empty answer section
+        let reply = create_reply(&inner_msg, result);
+        Box::new(ReplyResponse::new(reply))
     }
 }
 
@@ -223,7 +183,7 @@ mod tests {
 
     use crate::{
         base::{
-            Question, Rtype, ToName, Ttl,
+            Name, Question, Rtype, ToName, Ttl,
             iana::{Class, SecurityAlgorithm},
             message_builder::AdditionalBuilder,
         },
@@ -353,8 +313,7 @@ mod tests {
             add.opt(|opt| opt.chain(name.clone())).unwrap();
             add
         });
-        let upstream = UpstreamSendRequest::default();
-        let reply_from_chain = ReplyFromChain::new(&reply, upstream.clone());
+        let reply_from_chain = ReplyFromChain::new(&reply);
 
         let question = Question::new_in(
             Name::<Bytes>::from_str("example.com.").unwrap(),
@@ -364,7 +323,6 @@ mod tests {
         let mut resp = reply_from_chain.send_request(build_request(question));
         let result = resp.get_response().await.unwrap();
 
-        assert_eq!(upstream.get_call_count(), 0);
         assert_eq!(result.header_counts().ancount(), 1);
         let first_answer = result
             .answer()
@@ -405,8 +363,7 @@ mod tests {
             add.opt(|opt| opt.chain(name.clone())).unwrap();
             add
         });
-        let upstream = UpstreamSendRequest::default();
-        let reply_from_chain = ReplyFromChain::new(&reply, upstream.clone());
+        let reply_from_chain = ReplyFromChain::new(&reply);
 
         let question = Question::new_in(
             Name::<Bytes>::from_str("example.com.").unwrap(),
@@ -416,7 +373,6 @@ mod tests {
         let mut resp = reply_from_chain.send_request(build_request(question));
         let result = resp.get_response().await.unwrap();
 
-        assert_eq!(upstream.get_call_count(), 0);
         assert_eq!(result.header_counts().ancount(), 2);
         let mut answers = result.answer().expect("answer should be present");
         let first_answer = answers.next().unwrap().unwrap();
@@ -456,8 +412,7 @@ mod tests {
             add.opt(|opt| opt.chain(name.clone())).unwrap();
             add
         });
-        let upstream = UpstreamSendRequest::default();
-        let reply_from_chain = ReplyFromChain::new(&reply, upstream.clone());
+        let reply_from_chain = ReplyFromChain::new(&reply);
 
         let question = Question::new_in(
             Name::<Bytes>::from_str("example.com.").unwrap(),
@@ -467,7 +422,6 @@ mod tests {
         let mut resp = reply_from_chain.send_request(build_request(question));
         let result = resp.get_response().await.unwrap();
 
-        assert_eq!(upstream.get_call_count(), 0);
         assert_eq!(result.header_counts().ancount(), 0);
     }
 
@@ -484,8 +438,7 @@ mod tests {
             add.opt(|opt| opt.chain(name.clone())).unwrap();
             add
         });
-        let upstream = UpstreamSendRequest::default();
-        let reply_from_chain = ReplyFromChain::new(&reply, upstream.clone());
+        let reply_from_chain = ReplyFromChain::new(&reply);
 
         let question = Question::new(
             Name::<Bytes>::from_str("example.com.").unwrap(),
@@ -496,11 +449,11 @@ mod tests {
         let mut resp = reply_from_chain.send_request(build_request(question));
         let result = resp.get_response().await.unwrap();
 
-        assert_eq!(upstream.get_call_count(), 0);
         assert_eq!(result.header_counts().ancount(), 0);
     }
 
-    /// Checks that upstream is used for names not stored from the response.
+    /// Checks that empty answer is returned for names
+    /// not stored from the response.
     #[tokio::test]
     async fn test_get_wrong_name_from_reply() {
         let name = Name::<Bytes>::from_str("example.com.").unwrap();
@@ -513,8 +466,7 @@ mod tests {
             add.opt(|opt| opt.chain(name.clone())).unwrap();
             add
         });
-        let upstream = UpstreamSendRequest::default();
-        let reply_from_chain = ReplyFromChain::new(&reply, upstream.clone());
+        let reply_from_chain = ReplyFromChain::new(&reply);
 
         let question = Question::new_in(
             Name::<Bytes>::from_str("quad9.net.").unwrap(),
@@ -522,12 +474,13 @@ mod tests {
         );
 
         let mut resp = reply_from_chain.send_request(build_request(question));
-        resp.get_response().await.expect_err("Request should fail");
+        let result = resp.get_response().await.unwrap();
 
-        assert_eq!(upstream.get_call_count(), 1);
+        assert_eq!(result.header_counts().ancount(), 0);
     }
 
-    /// Checks that upstream is used for names not included in the chain.
+    /// Checks that empty answer is returned for names
+    /// not included in the chain.
     #[tokio::test]
     async fn test_get_out_of_chain_record_from_reply() {
         let name = Name::<Bytes>::from_str("example.com.").unwrap();
@@ -540,8 +493,7 @@ mod tests {
             add.opt(|opt| opt.chain(name.clone())).unwrap();
             add
         });
-        let upstream = UpstreamSendRequest::default();
-        let reply_from_chain = ReplyFromChain::new(&reply, upstream.clone());
+        let reply_from_chain = ReplyFromChain::new(&reply);
 
         let question = Question::new_in(
             Name::<Bytes>::from_str("com.").unwrap(),
@@ -549,11 +501,8 @@ mod tests {
         );
 
         let mut resp = reply_from_chain.send_request(build_request(question));
-        resp.get_response().await.expect_err(
-            "Request should fail, because upstream is 
-            configured to always fail",
-        );
+        let result = resp.get_response().await.unwrap();
 
-        assert_eq!(upstream.get_call_count(), 1);
+        assert_eq!(result.header_counts().ancount(), 0);
     }
 }
