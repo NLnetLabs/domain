@@ -1395,15 +1395,8 @@ impl<VCUpstream> ValidationContext<ReplyFromChain<VCUpstream>> {
             AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         VCUpstream: SendRequest<RequestMessage<Octs>>,
     {
-        let Ok(msg) = request.to_message() else {
-            // TODO: Handle error
-            return None;
-        };
-
-        let Ok(question) = msg.sole_question() else {
-            // TODO: Handle?
-            return None;
-        };
+        let msg = request.to_message().ok()?;
+        let question = msg.sole_question().ok()?;
 
         let qname = question.into_qname();
         if self
@@ -1416,7 +1409,7 @@ impl<VCUpstream> ValidationContext<ReplyFromChain<VCUpstream>> {
                 )
             })
         {
-            // TODO: Do we send chain even if we have everything cached?
+            // We have cached and validated data - don't send CHAIN
             return None;
         }
 

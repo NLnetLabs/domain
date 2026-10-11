@@ -105,9 +105,9 @@
 )]
 
 use crate::base::iana::Rcode;
-use crate::base::opt::{AllOptData, ExtendedError};
+use crate::base::opt::{AllOptData, Chain, ExtendedError};
 use crate::base::{
-    Message, MessageBuilder, ParsedName, Rtype, StaticCompressor,
+    Message, MessageBuilder, Name, ParsedName, Rtype, StaticCompressor,
 };
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
 use crate::dnssec::validator::context::{ValidationContext, ValidationState};
@@ -115,7 +115,7 @@ use crate::dnssec::validator::reply_from_chain::ReplyFromChain;
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
-use crate::rdata::AllRecordData;
+use crate::rdata::{AllRecordData, Rrsig};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -124,6 +124,7 @@ use core::fmt::{Debug, Formatter};
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
+use tracing::warn;
 
 //------------ Config ---------------------------------------------------------
 
@@ -272,8 +273,11 @@ where
     /// The validation context for CHAIN requests.
     chain_vc: Option<Arc<ValidationContext<ReplyFromChain<VCUpstream>>>>,
 
-    /// The CHAIN reply container for this connection.
+    /// The CHAIN reply container.
     reply_from_chain: Option<ReplyFromChain<VCUpstream>>,
+
+    /// The CHAIN option in the latest CHAIN request.
+    latest_requested_chain: Option<Chain<Name<Bytes>>>,
 
     /// The configuration of the connection.
     config: Config,
@@ -309,6 +313,7 @@ where
             vc,
             chain_vc,
             reply_from_chain,
+            latest_requested_chain: None,
             config,
             cd: false,
             dnssec_ok: false,
@@ -347,13 +352,23 @@ where
                         self.request_msg.header_mut().set_cd(true);
                     }
 
+                    // Add CHAIN option if enabled
                     if let Some(chain_vc) = &self.chain_vc {
                         if let Some(chain_opt) = chain_vc
                             .generate_chain_option(&self.request_msg)
                             .await
                         {
-                            // TODO: What on error?
-                            let _ = self.request_msg.add_opt(&chain_opt);
+                            // If adding fails for any reason, we can proceed
+                            // without CHAIN
+                            if let Err(err) =
+                                self.request_msg.add_opt(&chain_opt)
+                            {
+                                warn!(
+                                    "Failed to set CHAIN EDNS0 option in request: {err}"
+                                );
+                            } else {
+                                self.latest_requested_chain = Some(chain_opt);
+                            }
                         }
                     }
 
@@ -395,14 +410,16 @@ where
                         }
                     }
 
+                    // CHAIN should be present in response only when
+                    // requested, but check if it was enabled just in case
                     let validate_with_chain_query =
                         self.config.request_chain_query
                             && has_chain_query_option(&response_msg);
 
                     if validate_with_chain_query {
-                        // TODO: if request_msg.chain != received chain, it
-                        // means we need more of the chain, but how to know
-                        // where to start if it
+                        // If this is a partial chain response, still proceed
+                        // with validation as far as possible and then request
+                        // more
                         self.state =
                             RequestState::ValidateWithChain(response_msg);
                         continue;
@@ -556,6 +573,59 @@ where
                                     }
                                 }
                                 ValidationState::Bogus => {
+                                    // If we get Bogus and some CHAIN data is
+                                    // missing, we need to look for the rest
+                                    // of the chain
+                                    let mut response_chain = None;
+                                    if let Some(opt) = response_msg.opt() {
+                                        if let Some(chain) = opt.opt().chain()
+                                        {
+                                            response_chain =
+                                                chain.start().cloned();
+                                        }
+                                    }
+                                    if can_get_next_chain_part(
+                                        self.latest_requested_chain.as_ref(),
+                                        response_chain.as_ref(),
+                                        response_msg,
+                                    ) {
+                                        // If adding fails for any reason,
+                                        // we can proceed with regular
+                                        // validation without CHAIN
+                                        if let Err(err) = self
+                                            .request_msg
+                                            .add_opt(&Chain::new(
+                                                response_chain
+                                                    .as_ref()
+                                                    .unwrap(),
+                                            ))
+                                        {
+                                            warn!(
+                                                "Failed to set CHAIN EDNS0 \
+                                                option in request: {err}"
+                                            );
+                                            self.state =
+                                                RequestState::Validate(
+                                                    (*response_msg).clone(),
+                                                );
+                                        } else {
+                                            self.latest_requested_chain =
+                                                response_chain.map(|n| {
+                                                    Chain::new(n.clone())
+                                                });
+                                            let request =
+                                                self.upstream.send_request(
+                                                    self.request_msg.clone(),
+                                                );
+                                            self.state =
+                                                RequestState::GetResponse(
+                                                    request,
+                                                );
+                                        }
+
+                                        continue;
+                                    }
+
                                     serve_fail(response_msg, opt_ede)
                                 }
                                 ValidationState::Insecure
@@ -900,4 +970,52 @@ fn has_chain_query_option(msg: &Message<Bytes>) -> bool {
     };
 
     opt.opt().chain().is_some_and(|c| c.start().is_some())
+}
+
+/// Checks if it makes sense to make a follow-up CHAIN request.
+///
+/// This only makes sense if the initial response was partial, so we need to
+/// figure out if there is more data that could potentially be retrieved.
+fn can_get_next_chain_part<Octs>(
+    latest_requested_chain: Option<&Chain<Name<Octs>>>,
+    response_chain: Option<&Name<Octs>>,
+    response_msg: &Message<Octs>,
+) -> bool
+where
+    Octs: Octets + Clone,
+{
+    let request_chain =
+        latest_requested_chain.and_then(|c| c.start().cloned());
+
+    // If we have a non-empty CHAIN in response,
+    // we can figure out if there is more data to fetch:
+    // - if it matches our RRSIG signer, we are done
+    // - if it matches our request CHAIN, it means we got nothing?
+    // - otherwise, it would probably be good to request more
+    if response_chain.is_some_and(|chain| {
+        request_chain.is_some_and(|request| {
+            // Check if RRSIG signer is what we got in CHAIN option
+            if response_msg
+                .answer()
+                .unwrap()
+                .flatten()
+                .filter(|rr| rr.rtype() == Rtype::RRSIG)
+                .map(|rr| {
+                    rr.into_record::<Rrsig<Octs::Range<'_>, _>>()
+                        .unwrap()
+                        .unwrap()
+                })
+                .any(|rr| rr.data().signer_name() == chain)
+            {
+                // We got everything
+                return false;
+            }
+
+            request != chain
+        })
+    }) {
+        true
+    } else {
+        false
+    }
 }
