@@ -737,14 +737,6 @@ impl<Upstream> ValidationContext<Upstream> {
         &self.ta
     }
 
-    /// Get Upstream client transport.
-    pub fn get_upstream(&self) -> Upstream
-    where
-        Upstream: Clone,
-    {
-        self.upstream.clone()
-    }
-
     /// Get the apprioprate node for validating `name`.
     pub(crate) async fn get_node<Octs>(
         &self,
