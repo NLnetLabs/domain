@@ -1405,7 +1405,7 @@ impl ValidationContext<ReplyFromChain> {
         let mut current = qname;
         while current.parent() {
             if self
-                .cache_lookup(&qname.to_name::<Bytes>())
+                .cache_lookup(&current.to_name::<Bytes>())
                 .await
                 .is_some_and(move |cached_node| {
                     matches!(
