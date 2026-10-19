@@ -342,8 +342,6 @@ where
                         self.request_msg.set_dnssec_ok(true);
                     }
 
-                    // For Chain Queries, CD needs to be clear.
-
                     // Store the CD flag of the request.
                     self.cd = self.request_msg.header().cd();
                     if !self.cd {
@@ -353,21 +351,25 @@ where
                     }
 
                     // Add CHAIN option if enabled
-                    if let Some(chain_vc) = &self.chain_vc {
-                        if let Some(chain_opt) = chain_vc
-                            .generate_chain_option(&self.request_msg)
-                            .await
-                        {
-                            // If adding fails for any reason, we can proceed
-                            // without CHAIN
-                            if let Err(err) =
-                                self.request_msg.add_opt(&chain_opt)
+                    // For Chain Queries, CD needs to be clear.
+                    if !self.cd {
+                        if let Some(chain_vc) = &self.chain_vc {
+                            if let Some(chain_opt) = chain_vc
+                                .generate_chain_option(&self.request_msg)
+                                .await
                             {
-                                warn!(
-                                    "Failed to set CHAIN EDNS0 option in request: {err}"
-                                );
-                            } else {
-                                self.latest_requested_chain = Some(chain_opt);
+                                // If adding fails for any reason, we can proceed
+                                // without CHAIN
+                                if let Err(err) =
+                                    self.request_msg.add_opt(&chain_opt)
+                                {
+                                    warn!(
+                                        "Failed to set CHAIN EDNS0 option in request: {err}"
+                                    );
+                                } else {
+                                    self.latest_requested_chain =
+                                        Some(chain_opt);
+                                }
                             }
                         }
                     }
