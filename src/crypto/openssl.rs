@@ -124,6 +124,7 @@ impl DigestBuilder {
                 DigestType::Sha1 => Hasher::new(MessageDigest::sha1()),
                 DigestType::Sha256 => Hasher::new(MessageDigest::sha256()),
                 DigestType::Sha384 => Hasher::new(MessageDigest::sha384()),
+                DigestType::Sha512 => Hasher::new(MessageDigest::sha512()),
             }
             .expect("assume that new cannot fail"),
         )
