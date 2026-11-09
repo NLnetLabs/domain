@@ -1,5 +1,8 @@
 //! The HINFO record data type.
 
+// https://github.com/rust-lang/rust-clippy/issues/18033
+#![allow(clippy::doc_overindented_list_item)]
+
 use core::cmp::Ordering;
 
 use crate::new::base::build::{
