@@ -41,8 +41,6 @@
 //! * There is currently no support for generating a validation chain
 //!   ([RFC 9102](https://www.rfc-editor.org/info/rfc9102)).
 //! * There is currently no support for validating a chain.
-//! * There is currently no support for the EDNS(0) CHAIN option
-//!   ([RFC 7901](https://www.rfc-editor.org/info/rfc7901)).
 //! * There is no support for fetch the IANA trust anchor over HTTP(S)
 //!   ([RFC 7958](https://www.rfc-editor.org/info/rfc7958)).
 //! * There is no support for automated updating of trust anchors
@@ -127,4 +125,5 @@ pub mod base;
 pub mod context;
 mod group;
 mod nsec;
+pub mod reply_from_chain;
 mod utilities;
