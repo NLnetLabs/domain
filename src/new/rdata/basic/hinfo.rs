@@ -120,8 +120,8 @@ use crate::new::base::{
 ///   [`HInfo`] (it can hold any record data type).
 ///
 /// - If [`bumpalo`] is being used,
-#[cfg_attr(feature = "bumpalo", doc = "   [`HInfo::clone_to_bump()`]")]
-#[cfg_attr(not(feature = "bumpalo"), doc = "   `HInfo::clone_to_bump()`")]
+#[cfg_attr(feature = "bumpalo", doc = "  [`HInfo::clone_to_bump()`]")]
+#[cfg_attr(not(feature = "bumpalo"), doc = "  `HInfo::clone_to_bump()`")]
 ///   can clone an [`HInfo`] over to a bump allocator. This may extend its
 ///   lifetime sufficiently for some use cases.
 ///
