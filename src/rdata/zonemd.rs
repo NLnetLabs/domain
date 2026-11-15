@@ -152,6 +152,9 @@ impl<Octs> Zonemd<Octs> {
         let scheme = u8::scan(scanner)?.into();
         let algo = u8::scan(scanner)?.into();
         let digest = scanner.convert_entry(base16::SymbolConverter::new())?;
+        if digest.as_ref().len() < DIGEST_MIN_LEN {
+            return Err(S::Error::custom("ZONEMD digest too short"));
+        }
 
         Self::try_new(serial, scheme, algo, digest)
             .map_err(|err| S::Error::custom(err.as_str()))
@@ -370,6 +373,20 @@ mod test {
 
     #[test]
     fn zonemd_scan_limits() {
+        assert!(
+            test_scan(
+                &["12", "1", "2", &base16::encode_string(&[0u8; 12])],
+                Zonemd::scan
+            )
+            .is_ok()
+        );
+        assert!(
+            test_scan(
+                &["12", "1", "2", &base16::encode_string(&[0u8; 11])],
+                Zonemd::scan
+            )
+            .is_err()
+        );
         assert!(
             test_scan(
                 &[
