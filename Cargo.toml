@@ -24,7 +24,6 @@ jiff           = { version = "0.2.1", default-features = false }
 
 # Optional dependencies:
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
-bumpalo        = { version = "3.12", optional = true }
 constant_time_eq = { version = "0.4.2", optional = true }
 domain-new     = { git = "https://codeberg.org/NLnetLabs/domain-new.git", version = "0.13.0", optional = true }
 octseq         = { version = "0.6.1", default-features = false }
@@ -62,7 +61,6 @@ default     = ["std", "rand"]
 
 # Support for libraries
 alloc       = ["dep:hashbrown", "jiff/alloc", "octseq/alloc", "serde?/alloc"]
-bumpalo     = ["dep:bumpalo", "std"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 chrono      = ["dep:chrono"]
 domain-new  = ["dep:domain-new"]
@@ -70,7 +68,7 @@ heapless    = ["dep:heapless", "octseq/heapless"]
 rand        = ["dep:rand"]
 serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
-std         = ["alloc", "bumpalo?/std", "bytes?/std", "octseq/std", "jiff/std", "serde?/std"]
+std         = ["alloc", "bytes?/std", "octseq/std", "jiff/std", "serde?/std"]
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends

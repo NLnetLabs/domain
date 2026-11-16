@@ -168,7 +168,6 @@ version = "0.13.0"
 dependencies = [
  "arbitrary",
  "arc-swap",
- "bumpalo",
  "bytes",
  "chrono",
  "constant_time_eq",
@@ -214,7 +213,7 @@ dependencies = [
 [[package]]
 name = "domain-base"
 version = "0.13.0"
-source = "git+https://codeberg.org/NLnetLabs/domain-base.git#07ab2d46fd710b197607f54fc84b730fd1b595d0"
+source = "git+https://codeberg.org/NLnetLabs/domain-base.git#0acfd4ffc3acbc2643de7a22fab9c1d466d2a7c1"
 dependencies = [
  "domain-macros",
  "serde",
@@ -223,7 +222,7 @@ dependencies = [
 [[package]]
 name = "domain-macros"
 version = "0.13.0"
-source = "git+https://codeberg.org/NLnetLabs/domain-base.git#07ab2d46fd710b197607f54fc84b730fd1b595d0"
+source = "git+https://codeberg.org/NLnetLabs/domain-base.git#0acfd4ffc3acbc2643de7a22fab9c1d466d2a7c1"
 dependencies = [
  "proc-macro2",
  "quote",
