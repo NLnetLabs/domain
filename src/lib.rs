@@ -231,4 +231,3 @@ mod logging;
 
 #[cfg(feature = "unstable-new")]
 pub use domain_new as new;
-
