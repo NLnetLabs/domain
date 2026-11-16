@@ -758,6 +758,13 @@ impl From<u32> for Timestamp {
     }
 }
 
+#[cfg(feature = "domain-new")]
+impl From<domain_new::base::Timestamp> for Timestamp {
+    fn from(ts: domain_new::base::Timestamp) -> Self {
+        Self::from(ts.as_seconds())
+    }
+}
+
 impl str::FromStr for Timestamp {
     type Err = IllegalSignatureTime;
 
