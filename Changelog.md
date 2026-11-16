@@ -8,6 +8,8 @@ New
 
 Improvements
 
+* Add SHA-512 variant to DigestType. ([#762] by [@ximon18])
+
 Bug fixes
 
 * Reject empty TXT records when parsing. ([#709] by [@SebastiaanYN])
@@ -17,7 +19,9 @@ Unstable features
 Other changes
 
 [#709]: https://github.com/NLnetLabs/domain/pull/709
+[#762]: https://github.com/NLnetLabs/domain/pull/762
 [@SebastiaanYN]: https://github.com/SebastiaanYN
+[@ximon18]: https://github.com/ximon18
 
 
 ## 0.12.3

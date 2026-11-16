@@ -63,21 +63,38 @@ use super::ring;
 //----------- DigestType -----------------------------------------------------
 
 /// Type of message digest to compute.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DigestType {
-    /// [FIPS Secure Hash Standard] Section 6.1.
+    /// See [FIPS Secure Hash Standard] Section 6.1.
     ///
     /// [FIPS Secure Hash Standard]: http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
     Sha1,
 
-    /// [FIPS Secure Hash Standard] Section 6.2.
+    /// See [FIPS Secure Hash Standard] Section 6.2.
     ///
     /// [FIPS Secure Hash Standard]: http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
     Sha256,
 
-    /// [FIPS Secure Hash Standard] Section 6.5.
+    /// See [FIPS Secure Hash Standard] Section 6.5.
     ///
     /// [FIPS Secure Hash Standard]: http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
     Sha384,
+
+    /// See [FIPS Secure Hash Standard] Section 6.4.
+    ///
+    /// [FIPS Secure Hash Standard]: http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
+    Sha512,
+}
+
+impl fmt::Display for DigestType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Sha1 => f.write_str("SHA-1"),
+            Self::Sha256 => f.write_str("SHA-256"),
+            Self::Sha384 => f.write_str("SHA-384"),
+            Self::Sha512 => f.write_str("SHA-512"),
+        }
+    }
 }
 
 //----------- DigestBuilder --------------------------------------------------
