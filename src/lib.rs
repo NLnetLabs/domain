@@ -227,7 +227,7 @@ pub mod utils;
 pub mod zonefile;
 pub mod zonetree;
 
-#[cfg(feature = "unstable-new")]
-pub mod new;
-
 mod logging;
+
+#[cfg(feature = "unstable-new")]
+pub use domain_new as new;

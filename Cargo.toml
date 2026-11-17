@@ -1,13 +1,12 @@
-[workspace]
-resolver = "3"
-members = [".", "./macros"]
-
-[workspace.package]
+[package]
+name = "domain"
+description = "A DNS library for Rust."
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
 
-version = "0.12.3"
+version = "0.13.0"
 # The MSRV is at least 4 versions behind stable (about half a year).
 rust-version = "1.87.0"
+resolver = "3"
 edition = "2024"
 
 homepage = "https://nlnetlabs.nl/projects/domain/"
@@ -15,24 +14,9 @@ repository = "https://github.com/nlnetlabs/domain/"
 keywords = ["DNS", "domain"]
 license = "BSD-3-Clause"
 
-[package]
-name = "domain"
-description = "A DNS library for Rust."
-authors.workspace = true
-
-version.workspace = true
-rust-version.workspace = true
-edition.workspace = true
-
-homepage.workspace = true
-repository.workspace = true
-keywords.workspace = true
-license.workspace = true
-
 documentation = "https://docs.rs/domain"
 
 [dependencies]
-domain-macros  = { path = "./macros", version = "=0.12.3" }
 
 # TODO: This _should_ be optional, but it is used by some record-type-specific
 # zonefile scanning code that is not gated behind a feature flag.
@@ -40,8 +24,8 @@ jiff           = { version = "0.2.1", default-features = false }
 
 # Optional dependencies:
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
-bumpalo        = { version = "3.12", optional = true }
 constant_time_eq = { version = "0.4.2", optional = true }
+domain-new     = { git = "https://codeberg.org/NLnetLabs/domain-new.git", version = "0.13.0", optional = true }
 octseq         = { version = "0.6.1", default-features = false }
 rand           = { version = "0.10.1", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
@@ -77,14 +61,14 @@ default     = ["std", "rand"]
 
 # Support for libraries
 alloc       = ["dep:hashbrown", "jiff/alloc", "octseq/alloc", "serde?/alloc"]
-bumpalo     = ["dep:bumpalo", "std"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 chrono      = ["dep:chrono"]
+domain-new  = ["dep:domain-new"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 rand        = ["dep:rand"]
 serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
-std         = ["alloc", "bumpalo?/std", "bytes?/std", "octseq/std", "jiff/std", "serde?/std"]
+std         = ["alloc", "bytes?/std", "octseq/std", "jiff/std", "serde?/std"]
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends
@@ -99,7 +83,7 @@ tsig        = ["bytes", "constant_time_eq", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
-unstable-new = []
+unstable-new = ["dep:domain-new"]
 unstable-client-cache = ["unstable-client-transport", "moka"]
 unstable-client-transport = ["net", "tracing"]
 unstable-crypto = ["bytes", "std"]
