@@ -213,7 +213,7 @@ dependencies = [
 [[package]]
 name = "domain-base"
 version = "0.13.0"
-source = "git+https://codeberg.org/NLnetLabs/domain-base.git#0acfd4ffc3acbc2643de7a22fab9c1d466d2a7c1"
+source = "git+https://codeberg.org/NLnetLabs/domain-base.git#e336aa6fa241ea79229defa55924551d94eda7b8"
 dependencies = [
  "domain-macros",
  "serde",
@@ -222,7 +222,7 @@ dependencies = [
 [[package]]
 name = "domain-macros"
 version = "0.13.0"
-source = "git+https://codeberg.org/NLnetLabs/domain-base.git#0acfd4ffc3acbc2643de7a22fab9c1d466d2a7c1"
+source = "git+https://codeberg.org/NLnetLabs/domain-base.git#e336aa6fa241ea79229defa55924551d94eda7b8"
 dependencies = [
  "proc-macro2",
  "quote",
