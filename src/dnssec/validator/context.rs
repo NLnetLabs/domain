@@ -31,6 +31,7 @@ use crate::base::{
 };
 use crate::base::{name, wire};
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
+use crate::dnssec::validator::reply_from_chain::ReplyFromChain;
 use crate::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,
 };
@@ -775,6 +776,11 @@ impl<Upstream> ValidationContext<Upstream> {
         Ok((ValidationState::Bogus, ede))
     }
 
+    /// Get DNSSEC trust anchors.
+    pub fn get_ta(&self) -> &TrustAnchors {
+        &self.ta
+    }
+
     /// Get the apprioprate node for validating `name`.
     pub(crate) async fn get_node<Octs>(
         &self,
@@ -1428,6 +1434,57 @@ impl<Upstream> ValidationContext<Upstream> {
             vgs.push(vg);
         }
         VGResult::Groups(vgs, fix_reply)
+    }
+}
+
+impl ValidationContext<ReplyFromChain> {
+    /// Generate a CHAIN EDNS option.
+    ///
+    /// This will send the closes trust point in the chain (furthest from the root) that is found
+    /// in cache. This returns None if requested name is already cached.
+    pub async fn generate_chain_option<CR>(
+        &self,
+        request: &CR,
+    ) -> Option<crate::base::opt::Chain<Name<Bytes>>>
+    where
+        CR: ComposeRequest,
+    {
+        let msg = request.to_message().ok()?;
+        let question = msg.sole_question().ok()?;
+
+        let qname = question.into_qname();
+        if self
+            .cache_lookup(&qname.to_name::<Bytes>())
+            .await
+            .is_some_and(move |cached_node| {
+                matches!(
+                    cached_node.validation_state(),
+                    ValidationState::Secure | ValidationState::Insecure
+                )
+            })
+        {
+            // We have cached and validated data - don't send CHAIN
+            return None;
+        }
+
+        let mut current = qname;
+        while current.parent() {
+            if self
+                .cache_lookup(&current.to_name::<Bytes>())
+                .await
+                .is_some_and(move |cached_node| {
+                    matches!(
+                        cached_node.validation_state(),
+                        ValidationState::Secure | ValidationState::Insecure
+                    )
+                })
+            {
+                return Some(crate::base::opt::Chain::new(current.to_name()));
+            }
+        }
+
+        let ta = self.ta.find(qname)?;
+        Some(crate::base::opt::Chain::new(ta.owner()))
     }
 }
 

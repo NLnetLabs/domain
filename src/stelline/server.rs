@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use core::fmt::Debug;
 use std::println;
 
@@ -6,8 +7,9 @@ use tracing::trace;
 
 use crate::base::iana::Opcode;
 use crate::base::message_builder::AdditionalBuilder;
+use crate::base::opt::Opt;
 use crate::base::wire::Composer;
-use crate::base::{Message, MessageBuilder};
+use crate::base::{Message, MessageBuilder, Name};
 use crate::dep::octseq::Octets;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 
@@ -114,6 +116,11 @@ where
             panic!("include not expected")
         };
         msg.push(rec).unwrap();
+    }
+    if !sections.additional.edns_bytes.is_empty() {
+        let opt =
+            Opt::from_octets(sections.additional.edns_bytes.clone()).unwrap();
+        msg.push((Name::<Vec<u8>>::root(), 1, opt)).unwrap();
     }
     let reply = &entry.reply;
     let header = msg.header_mut();
