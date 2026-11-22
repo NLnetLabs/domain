@@ -898,7 +898,7 @@ impl Scanner for EntryScanner<'_> {
         // Now convert token by token.
         loop {
             self.convert_charstr(&mut write)?;
-            if self.zonefile.buf.is_line_feed() {
+            if !self.continues() {
                 break;
             }
         }
@@ -1818,6 +1818,19 @@ mod test {
         zone.set_origin(Name::from_str("example.com").unwrap());
         zone.set_default_class(Class::IN);
         assert!(zone.next_entry().is_ok());
+        assert!(zone.next_entry().is_err());
+    }
+
+    #[test]
+    fn test_txt_at_end_of_input() {
+        let mut input = "example.test. 3600 IN TXT \"a\"".as_bytes();
+        let mut zone = Zonefile::load(&mut input).unwrap();
+        zone.set_default_class(Class::IN);
+        assert!(zone.next_entry().is_err());
+
+        let mut input = "example.test. 3600 IN TXT ( \"a\"\n".as_bytes();
+        let mut zone = Zonefile::load(&mut input).unwrap();
+        zone.set_default_class(Class::IN);
         assert!(zone.next_entry().is_err());
     }
 
