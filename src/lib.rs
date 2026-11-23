@@ -51,9 +51,12 @@
 //!
 //! # The `new` Module
 //!
-//! The API of `domain` is undergoing several large-scale changes, that are
-//! collected under the `new` module.  It is gated behind the `unstable-new`
-//! flag.
+//! The API of `domain` is undergoing several large-scale changes. This
+//! works happens in the
+//! [`domain-new`](https://codeberg.org/NLnetLabs/domain-new). The content
+//! of this crate is alse re-exported as the `new` module if the
+//! `unstable-new` feature is enabled.
+//!
 #![cfg_attr(
     feature = "unstable-new",
     doc = "See [its documentation][new] for more information."
