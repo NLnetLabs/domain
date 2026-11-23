@@ -147,7 +147,6 @@ jobs:
           # TODO: The following currently break:
           # - "--no-default-features -F unstable-new"
           # - "--no-default-features -F unstable-new,alloc"
-          - "-F unstable-new" # + default features
           - "--all-features"
     runs-on: ubuntu-latest
     env:
