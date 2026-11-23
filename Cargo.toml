@@ -20,12 +20,12 @@ documentation = "https://docs.rs/domain"
 
 # TODO: This _should_ be optional, but it is used by some record-type-specific
 # zonefile scanning code that is not gated behind a feature flag.
-jiff           = { version = "0.2.1", default-features = false }
+jiff           = { version = "1.0.2", default-features = false }
 
 # Optional dependencies:
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 constant_time_eq = { version = "0.4.2", optional = true }
-domain-new     = { git = "https://codeberg.org/NLnetLabs/domain-new.git", version = "0.13.0", optional = true }
+domain-new     = { version = "0.13.0", optional = true }
 octseq         = { version = "0.6.1", default-features = false }
 rand           = { version = "0.10.1", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
