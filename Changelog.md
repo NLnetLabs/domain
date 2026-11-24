@@ -13,21 +13,24 @@ New
 
 Improvements
 
-* Add SHA-512 variant to DigestType. ([#762] by [@ximon18])
+* Add SHA-512 variant to `DigestType`. ([#762])
 
 Bug fixes
 
 * Reject empty TXT records when parsing. ([#709] by [@SebastiaanYN])
+* Clamp the server config’s `max_queue_responses` to a value between 1 and
+  1024 as documented. ([#760] by [@dualfroz])
 
 Unstable features
 
 Other changes
 
 [#709]: https://github.com/NLnetLabs/domain/pull/709
+[#760]: https://github.com/NLnetLabs/domain/pull/760
 [#762]: https://github.com/NLnetLabs/domain/pull/762
 [#764]: https://github.com/NLnetLabs/domain/pull/764
+[@dualfroz]: https://github.com/dualfroz
 [@SebastiaanYN]: https://github.com/SebastiaanYN
-[@ximon18]: https://github.com/ximon18
 
 
 ## 0.12.3
