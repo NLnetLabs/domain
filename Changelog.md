@@ -1,17 +1,28 @@
 # Change Log
 
+# Unreleased next version
+
+Breaking changes
+
+New
+
+Improvements
+
+Bug fixes
+
+Other changes
+
+
 ## 0.13.0
 
 Released 2026-11-24.
 
 Breaking changes
 
-* Move the `new` module into its own crates: [`domain-new`] as the
+* Moved the `new` module into its own crates: [`domain-new`] as the
   umbrella crate and [`domain-base`] for the `new::base` and `new::rdata`
   modules. These are re-exported in `domain` as the `new` module to
   minimize the amount of migration necessary. ([#764])
-
-New
 
 Improvements
 
