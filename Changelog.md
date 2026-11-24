@@ -1,6 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.13.0
+
+Released 2026-11-24.
 
 Breaking changes
 
@@ -22,10 +24,6 @@ Bug fixes
 * Reject empty TXT records when parsing. ([#709] by [@SebastiaanYN])
 * Clamp the server config’s `max_queue_responses` to a value between 1 and
   1024 as documented. ([#760] by [@dualfroz])
-
-Unstable features
-
-Other changes
 
 [#709]: https://github.com/NLnetLabs/domain/pull/709
 [#760]: https://github.com/NLnetLabs/domain/pull/760
