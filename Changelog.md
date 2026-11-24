@@ -14,6 +14,8 @@ New
 Improvements
 
 * Add SHA-512 variant to `DigestType`. ([#762])
+* Reject ZONEMD records with a digest shorter than 12 octets when parsing
+  and scanning. ([#761] by [@dualfroz])
 
 Bug fixes
 
@@ -27,6 +29,7 @@ Other changes
 
 [#709]: https://github.com/NLnetLabs/domain/pull/709
 [#760]: https://github.com/NLnetLabs/domain/pull/760
+[#761]: https://github.com/NLnetLabs/domain/pull/761
 [#762]: https://github.com/NLnetLabs/domain/pull/762
 [#764]: https://github.com/NLnetLabs/domain/pull/764
 [@dualfroz]: https://github.com/dualfroz
