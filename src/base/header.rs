@@ -506,7 +506,7 @@ impl HeaderCounts {
     /// Creates a header counts reference from the octets slice of a message.
     ///
     /// The slice `message` mut be the whole message, i.e., start with the
-    /// bytes of the [`Header`](struct.Header.html).
+    /// bytes of the [`Header`].
     ///
     /// # Panics
     ///
