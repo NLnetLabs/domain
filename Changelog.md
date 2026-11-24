@@ -4,6 +4,11 @@
 
 Breaking changes
 
+* Move the `new` module into its own crates: [`domain-new`] as the
+  umbrella crate and [`domain-base`] for the `new::base` and `new::rdata`
+  modules. These are re-exported in `domain` as the `new` module to
+  minimize the amount of migration necessary. ([#764])
+
 New
 
 Improvements
@@ -20,6 +25,7 @@ Other changes
 
 [#709]: https://github.com/NLnetLabs/domain/pull/709
 [#762]: https://github.com/NLnetLabs/domain/pull/762
+[#764]: https://github.com/NLnetLabs/domain/pull/764
 [@SebastiaanYN]: https://github.com/SebastiaanYN
 [@ximon18]: https://github.com/ximon18
 
