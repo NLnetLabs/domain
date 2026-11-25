@@ -43,7 +43,10 @@
 //! `KeyPair` type that implements the
 #![cfg_attr(feature = "unstable-crypto-sign", doc = "[`sign::SignRaw`]")]
 #![cfg_attr(not(feature = "unstable-crypto-sign"), doc = "`sign::SignRaw`")]
-//! trait.
+//! trait. For example the [`domain-kmip`](https://github.com/NLnetLabs/domain-crypto)
+//! crate adds a cryptographic backend that generates keys and signs with
+//! them by sending requests via TCP+TLS to an [Oasis KMIP](https://www.oasis-open.org/tc-kmip/)
+//! compatible HSM.
 //!
 //! While each cryptographic backend can support a limited number of signature
 //! algorithms, even the types independent of a cryptographic backend (e.g.
