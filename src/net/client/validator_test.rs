@@ -42,7 +42,7 @@ async fn async_test_validator(filename: &str) {
     let file = File::open(filename).unwrap();
     let stelline = parse_file(&file, filename);
 
-    let ta = parse_server_config(&stelline.config);
+    let config = parse_server_config(&stelline.config);
 
     let step_value = Arc::new(CurrStepValue::new());
     let multi_conn = Connect::new(stelline.clone(), step_value.clone());
@@ -51,10 +51,13 @@ async fn async_test_validator(filename: &str) {
         ms_tran.run().await;
     });
 
-    let vc = Arc::new(ValidationContext::new(ta, ms.clone()));
+    let vc = Arc::new(ValidationContext::new(config.ta, ms.clone()));
 
     // let clock = FakeClock::new();
-    let validator = validator::Connection::new(ms, vc); //_with_time(ms, clock.clone());
+    let mut connection_config = validator::Config::default();
+    connection_config.set_request_chain_query(config.enable_chain);
+    let validator =
+        validator::Connection::with_config(ms, vc, connection_config); //_with_time(ms, clock.clone());
 
     do_client_simple(&stelline, &step_value, validator /*, &clock*/).await;
 }
@@ -68,9 +71,17 @@ async fn validator_test_all(
     async_test_validator(rpl_file.to_str().unwrap()).await;
 }
 
-fn parse_server_config(config: &Config) -> TrustAnchors {
+struct ServerConfig {
+    ta: TrustAnchors,
+    enable_chain: bool,
+}
+
+fn parse_server_config(config: &Config) -> ServerConfig {
     let mut in_server_block = false;
-    let mut ta = TrustAnchors::empty();
+    let mut result = ServerConfig {
+        ta: TrustAnchors::empty(),
+        enable_chain: false,
+    };
 
     for line in config.lines() {
         if line.starts_with("server:") {
@@ -107,7 +118,13 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                         ));
                     }
                     ("trust-anchor", a) => {
-                        ta.add_u8(a.trim_matches('"').as_bytes()).unwrap();
+                        result
+                            .ta
+                            .add_u8(a.trim_matches('"').as_bytes())
+                            .unwrap();
+                    }
+                    ("chain-query-option", a) => {
+                        result.enable_chain = a.to_lowercase() == "on";
                     }
                     _ => {
                         eprintln!(
@@ -119,5 +136,5 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
         }
     }
 
-    ta
+    result
 }

@@ -105,16 +105,17 @@
 )]
 
 use crate::base::iana::Rcode;
-use crate::base::opt::{AllOptData, ExtendedError};
+use crate::base::opt::{AllOptData, Chain, ExtendedError};
 use crate::base::{
-    Message, MessageBuilder, ParsedName, Rtype, StaticCompressor,
+    Message, MessageBuilder, Name, ParsedName, Rtype, StaticCompressor,
 };
 use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
 use crate::dnssec::validator::context::{ValidationContext, ValidationState};
+use crate::dnssec::validator::reply_from_chain::ReplyFromChain;
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
-use crate::rdata::AllRecordData;
+use crate::rdata::{AllRecordData, Rrsig};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -123,12 +124,16 @@ use core::fmt::{Debug, Formatter};
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
+use tracing::warn;
 
 //------------ Config ---------------------------------------------------------
 
 /// Configuration of a validator.
 #[derive(Clone, Default, Debug)]
-pub struct Config {}
+pub struct Config {
+    /// Should CHAIN EDNS0 option be sent in request?
+    request_chain_query: bool,
+}
 
 impl Config {
     /// Creates a new config with default values.
@@ -136,6 +141,11 @@ impl Config {
     /// The default values are documented at the relevant set_* methods.
     pub fn new() -> Self {
         Default::default()
+    }
+
+    /// Enables or disables CHAIN EDNS0 option in requests.
+    pub fn set_request_chain_query(&mut self, value: bool) {
+        self.request_chain_query = value;
     }
 }
 
@@ -149,6 +159,12 @@ pub struct Connection<Upstream, VCOcts, VCUpstream> {
 
     /// The validation context for this connection.
     vc: Arc<ValidationContext<VCUpstream>>,
+
+    /// The validation context for CHAIN requests for this connection.
+    chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
+
+    /// The CHAIN reply container for this connection.
+    reply_from_chain: Option<ReplyFromChain>,
 
     /// The configuration of this connection.
     config: Config,
@@ -165,7 +181,10 @@ impl<Upstream, VCOcts, VCUpstream> Connection<Upstream, VCOcts, VCUpstream> {
     pub fn new(
         upstream: Upstream,
         vc: Arc<ValidationContext<VCUpstream>>,
-    ) -> Self {
+    ) -> Self
+    where
+        VCUpstream: Clone,
+    {
         Self::with_config(upstream, vc, Default::default())
     }
 
@@ -177,10 +196,23 @@ impl<Upstream, VCOcts, VCUpstream> Connection<Upstream, VCOcts, VCUpstream> {
         upstream: Upstream,
         vc: Arc<ValidationContext<VCUpstream>>,
         config: Config,
-    ) -> Self {
+    ) -> Self
+    where
+        VCUpstream: Clone,
+    {
+        let (chain_vc, reply_from_chain) = if config.request_chain_query {
+            let ta = vc.get_ta().clone();
+            let reply_from_chain = ReplyFromChain::empty();
+            let vc = ValidationContext::new(ta, reply_from_chain.clone());
+            (Some(Arc::new(vc)), Some(reply_from_chain))
+        } else {
+            (None, None)
+        };
         Self {
             upstream,
             vc,
+            chain_vc,
+            reply_from_chain,
             config,
             _phantom: PhantomData,
         }
@@ -212,6 +244,8 @@ where
             request_msg,
             self.upstream.clone(),
             self.vc.clone(),
+            self.chain_vc.clone(),
+            self.reply_from_chain.clone(),
             self.config.clone(),
         ))
     }
@@ -236,8 +270,17 @@ where
     /// The validation context.
     vc: Arc<ValidationContext<VCUpstream>>,
 
+    /// The validation context for CHAIN requests.
+    chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
+
+    /// The CHAIN reply container.
+    reply_from_chain: Option<ReplyFromChain>,
+
+    /// The CHAIN option in the latest CHAIN request.
+    latest_requested_chain: Option<Chain<Name<Bytes>>>,
+
     /// The configuration of the connection.
-    _config: Config,
+    config: Config,
 
     /// valid of the cd flag in the request.
     cd: bool,
@@ -259,6 +302,8 @@ where
         request_msg: CR,
         upstream: Upstream,
         vc: Arc<ValidationContext<VCUpstream>>,
+        chain_vc: Option<Arc<ValidationContext<ReplyFromChain>>>,
+        reply_from_chain: Option<ReplyFromChain>,
         config: Config,
     ) -> Request<CR, Upstream, VCOcts, VCUpstream> {
         Self {
@@ -266,7 +311,10 @@ where
             request_msg,
             upstream,
             vc,
-            _config: config,
+            chain_vc,
+            reply_from_chain,
+            latest_requested_chain: None,
+            config,
             cd: false,
             dnssec_ok: false,
             _phantom: PhantomData,
@@ -300,6 +348,30 @@ where
                         // Set the CD flag to get all results even if they
                         // fail to validate upstream.
                         self.request_msg.header_mut().set_cd(true);
+                    }
+
+                    // Add CHAIN option if enabled
+                    // For Chain Queries, CD needs to be clear.
+                    if !self.cd {
+                        if let Some(chain_vc) = &self.chain_vc {
+                            if let Some(chain_opt) = chain_vc
+                                .generate_chain_option(&self.request_msg)
+                                .await
+                            {
+                                // If adding fails for any reason, we can proceed
+                                // without CHAIN
+                                if let Err(err) =
+                                    self.request_msg.add_opt(&chain_opt)
+                                {
+                                    warn!(
+                                        "Failed to set CHAIN EDNS0 option in request: {err}"
+                                    );
+                                } else {
+                                    self.latest_requested_chain =
+                                        Some(chain_opt);
+                                }
+                            }
+                        }
                     }
 
                     let request =
@@ -338,6 +410,21 @@ where
                                 remove_dnssec(&response_msg, false, self.cd);
                             return msg;
                         }
+                    }
+
+                    // CHAIN should be present in response only when
+                    // requested, but check if it was enabled just in case
+                    let validate_with_chain_query =
+                        self.config.request_chain_query
+                            && has_chain_query_option(&response_msg);
+
+                    if validate_with_chain_query {
+                        // If this is a partial chain response, still proceed
+                        // with validation as far as possible and then request
+                        // more
+                        self.state =
+                            RequestState::ValidateWithChain(response_msg);
+                        continue;
                     }
 
                     self.state = RequestState::Validate(response_msg);
@@ -387,6 +474,160 @@ where
                                     }
                                 }
                                 ValidationState::Bogus => {
+                                    serve_fail(response_msg, opt_ede)
+                                }
+                                ValidationState::Insecure
+                                | ValidationState::Indeterminate => {
+                                    let response_msg = match opt_ede {
+                                        Some(ede) => {
+                                            add_opt(response_msg, ede)?
+                                        }
+                                        None => response_msg.clone(),
+                                    };
+                                    // Check the state of the DO flag to see
+                                    // if we have to strip DNSSEC records.
+                                    // Clear the AD flag if it is set. Always
+                                    // clear CD.
+                                    if self.dnssec_ok {
+                                        // Clear AD if it is set. Clear CD.
+                                        let mut response_msg =
+                                            Message::from_octets(
+                                                response_msg
+                                                    .as_slice()
+                                                    .to_vec(),
+                                            )?;
+                                        response_msg
+                                            .header_mut()
+                                            .set_ad(false);
+                                        response_msg
+                                            .header_mut()
+                                            .set_cd(false);
+                                        let response_msg =
+                                            Message::<Bytes>::from_octets(
+                                                response_msg
+                                                    .into_octets()
+                                                    .octets_into(),
+                                            )?;
+                                        Ok(response_msg)
+                                    } else {
+                                        remove_dnssec(
+                                            &response_msg,
+                                            false,
+                                            false,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    };
+                }
+                RequestState::ValidateWithChain(response_msg) => {
+                    self.reply_from_chain
+                        .as_ref()
+                        .unwrap()
+                        .add_from_message(response_msg);
+
+                    let res = self
+                        .chain_vc
+                        .as_ref()
+                        .unwrap()
+                        .validate_msg::<_, Bytes>(response_msg)
+                        .await;
+                    return match res {
+                        Err(err) => Err(Error::Validation(err)),
+                        Ok((state, opt_ede)) => {
+                            match state {
+                                ValidationState::Secure => {
+                                    // Check the state of the DO flag to see
+                                    // if we have to strip DNSSEC records. Set
+                                    // the AD flag if it is not set and either
+                                    // AD or DO is set in the request.
+                                    // We always have to clear CD.
+                                    if self.dnssec_ok {
+                                        // Set AD and clear CD.
+                                        let mut response_msg =
+                                            Message::from_octets(
+                                                response_msg
+                                                    .as_slice()
+                                                    .to_vec(),
+                                            )?;
+                                        response_msg
+                                            .header_mut()
+                                            .set_ad(true);
+                                        response_msg
+                                            .header_mut()
+                                            .set_cd(false);
+                                        let response_msg =
+                                            Message::<Bytes>::from_octets(
+                                                response_msg
+                                                    .into_octets()
+                                                    .octets_into(),
+                                            )?;
+                                        Ok(response_msg)
+                                    } else {
+                                        // Set AD if it was set in the request.
+
+                                        remove_dnssec(
+                                            response_msg,
+                                            self.request_msg.header().ad(),
+                                            false,
+                                        )
+                                    }
+                                }
+                                ValidationState::Bogus => {
+                                    // If we get Bogus and some CHAIN data is
+                                    // missing, we need to look for the rest
+                                    // of the chain
+                                    let mut response_chain = None;
+                                    if let Some(opt) = response_msg.opt() {
+                                        if let Some(chain) = opt.opt().chain()
+                                        {
+                                            response_chain =
+                                                chain.start().cloned();
+                                        }
+                                    }
+                                    if can_get_next_chain_part(
+                                        self.latest_requested_chain.as_ref(),
+                                        response_chain.as_ref(),
+                                        response_msg,
+                                    ) {
+                                        // If adding fails for any reason,
+                                        // we can proceed with regular
+                                        // validation without CHAIN
+                                        if let Err(err) = self
+                                            .request_msg
+                                            .add_opt(&Chain::new(
+                                                response_chain
+                                                    .as_ref()
+                                                    .unwrap(),
+                                            ))
+                                        {
+                                            warn!(
+                                                "Failed to set CHAIN EDNS0 \
+                                                option in request: {err}"
+                                            );
+                                            self.state =
+                                                RequestState::Validate(
+                                                    (*response_msg).clone(),
+                                                );
+                                        } else {
+                                            self.latest_requested_chain =
+                                                response_chain.map(|n| {
+                                                    Chain::new(n.clone())
+                                                });
+                                            let request =
+                                                self.upstream.send_request(
+                                                    self.request_msg.clone(),
+                                                );
+                                            self.state =
+                                                RequestState::GetResponse(
+                                                    request,
+                                                );
+                                        }
+
+                                        continue;
+                                    }
+
                                     serve_fail(response_msg, opt_ede)
                                 }
                                 ValidationState::Insecure
@@ -484,6 +725,9 @@ enum RequestState {
 
     /// Wait for validation to complete.
     Validate(Message<Bytes>),
+
+    /// Wait for validation with a chain to complete.
+    ValidateWithChain(Message<Bytes>),
 }
 
 /// Return a new message without the DNSSEC type DNSKEY, RRSIG, NSEC, and NSEC3.
@@ -725,4 +969,65 @@ fn serve_fail(
     )
     .expect("Message should be able to parse output from MessageBuilder");
     Ok(msg)
+}
+
+/// Checks if the response message contains CHAIN response.
+///
+/// This checks whether the CHAIN EDNS0 option is present and if it has a
+/// non-empty value, because it can also be empty to indicate lack of related
+/// records in the reply, for any reason.
+fn has_chain_query_option(msg: &Message<Bytes>) -> bool {
+    let Some(opt) = msg.opt() else {
+        return false;
+    };
+
+    opt.opt().chain().is_some_and(|c| c.start().is_some())
+}
+
+/// Checks if it makes sense to make a follow-up CHAIN request.
+///
+/// This only makes sense if the initial response was partial, so we need to
+/// figure out if there is more data that could potentially be retrieved.
+fn can_get_next_chain_part<Octs>(
+    latest_requested_chain: Option<&Chain<Name<Octs>>>,
+    response_chain: Option<&Name<Octs>>,
+    response_msg: &Message<Octs>,
+) -> bool
+where
+    Octs: Octets + Clone,
+{
+    let request_chain =
+        latest_requested_chain.and_then(|c| c.start().cloned());
+
+    // If we have a non-empty CHAIN in response,
+    // we can figure out if there is more data to fetch:
+    // - if it matches our RRSIG signer, we are done
+    // - if it matches our request CHAIN, it means we got nothing?
+    // - otherwise, it would probably be good to request more
+    if response_chain.is_some_and(|chain| {
+        request_chain.is_some_and(|request| {
+            // Check if RRSIG signer is what we got in CHAIN option
+            if response_msg
+                .answer()
+                .unwrap()
+                .flatten()
+                .filter(|rr| rr.rtype() == Rtype::RRSIG)
+                .map(|rr| {
+                    rr.into_record::<Rrsig<Octs::Range<'_>, _>>()
+                        .unwrap()
+                        .unwrap()
+                })
+                .any(|rr| rr.data().signer_name() == chain)
+            {
+                // We got everything
+                return false;
+            }
+
+            request != chain
+        })
+    }) {
+        true
+    } else {
+        false
+    }
 }
