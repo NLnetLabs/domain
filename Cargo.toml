@@ -25,7 +25,7 @@ jiff           = { version = "1.0.2", default-features = false }
 # Optional dependencies:
 arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 constant_time_eq = { version = "0.4.2", optional = true }
-domain-new     = { version = "0.13.0", optional = true }
+domain-new     = { version = "0.13.1", optional = true }
 octseq         = { version = "0.6.1", default-features = false }
 rand           = { version = "0.10.1", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
@@ -60,7 +60,7 @@ proc-macro2    = { version = "1.0.69", optional = true }
 default     = ["std", "rand"]
 
 # Support for libraries
-alloc       = ["dep:hashbrown", "jiff/alloc", "octseq/alloc", "serde?/alloc"]
+alloc       = ["dep:hashbrown", "domain-new?/alloc", "jiff/alloc", "octseq/alloc", "serde?/alloc"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 chrono      = ["dep:chrono"]
 domain-new  = ["dep:domain-new"]
@@ -68,7 +68,7 @@ heapless    = ["dep:heapless", "octseq/heapless"]
 rand        = ["dep:rand"]
 serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
-std         = ["alloc", "bytes?/std", "octseq/std", "jiff/std", "serde?/std"]
+std         = ["alloc", "bytes?/std", "domain-new?/std", "octseq/std", "jiff/std", "serde?/std"]
 tracing     = ["dep:log", "dep:tracing"]
 
 # Cryptographic backends

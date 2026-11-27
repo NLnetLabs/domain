@@ -233,9 +233,9 @@ dependencies = [
 
 [[package]]
 name = "domain-new"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4b9878136952b6b2d6ffc2898f723694d2891449ad454433d40f8aa7ee80e27"
+checksum = "d48f379b48195c92c6f625086d338ea21f630c4a37b3a96771a2865a94eededb"
 dependencies = [
  "domain-base",
 ]
