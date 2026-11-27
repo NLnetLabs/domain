@@ -12,6 +12,11 @@ Bug fixes
 
 Other changes
 
+* Add `domain-new` to the `alloc` and `std` features so they get triggered
+  in domain-base if required. ([#786])
+
+[#768]: https://github.com/NLnetLabs/domain/pull/768
+
 
 ## 0.13.0
 
